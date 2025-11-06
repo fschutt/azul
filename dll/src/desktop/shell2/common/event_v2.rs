@@ -182,6 +182,7 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{self, FullWindowState},
 };
+use clipboard2::{Clipboard as _, SystemClipboard};
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
@@ -223,7 +224,7 @@ extern "C" fn auto_scroll_timer_callback(
     let callback_info = &timer_info.callback_info;
 
     // Get current mouse position from window state (safe access via public getter)
-    let full_window_state = callback_info.get_full_current_window_state();
+    let full_window_state = callback_info.get_current_window_state();
 
     // Check if still dragging (left mouse button is down)
     if !full_window_state.mouse_state.left_down {
@@ -240,15 +241,21 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
-    // Scroll based on mouse distance from container edge
-    // Use Deref to access LayoutWindow methods directly
-    if timer_info.callback_info.scroll_selection_into_view(
-        SelectionScrollType::DragSelection { mouse_position },
-        ScrollMode::Accelerated,
-    ) {
-        // Scrolling occurred, request re-render
-        return azul_layout::timer::TimerCallbackReturn::continue_and_update();
-    }
+    // TODO: Scroll based on mouse distance from container edge
+    // The issue is that scroll_selection_into_view requires &mut LayoutWindow,
+    // but we only have &CallbackInfo which has *const LayoutWindow.
+    // We need to either:
+    // 1. Make scroll_selection_into_view work via CallbackChange transaction
+    // 2. Provide a different API for timer callbacks to access mutable state
+    // For now, just continue the timer without scrolling
+    //
+    // let layout_window = timer_info.callback_info.get_layout_window();
+    // if layout_window.scroll_selection_into_view(
+    //     SelectionScrollType::DragSelection { mouse_position },
+    //     ScrollMode::Accelerated,
+    // ) {
+    //     return azul_layout::timer::TimerCallbackReturn::continue_and_update();
+    // }
 
     // No scroll needed (mouse within container or no scrollable ancestor)
     // Continue timer in case mouse moves outside again
@@ -1153,11 +1160,196 @@ pub trait PlatformWindowV2 {
                 PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
                     // TODO: Implement arrow key navigation
                 }
-                PreCallbackSystemEvent::KeyboardShortcut { .. } => {
-                    // TODO: Implement keyboard shortcuts
+                PreCallbackSystemEvent::KeyboardShortcut { target, shortcut } => {
+                    use azul_core::events::KeyboardShortcut;
+
+                    match shortcut {
+                        KeyboardShortcut::Copy => {
+                            // Handle Ctrl+C: Copy selected text to clipboard
+                            if let Some(layout_window) = self.get_layout_window() {
+                                let dom_id = azul_core::dom::DomId { inner: 0 }; // TODO: Map target to correct DOM
+                                if let Some(clipboard_content) =
+                                    layout_window.get_selected_content_for_clipboard(&dom_id)
+                                {
+                                    // Create system clipboard and copy text
+                                    if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
+                                        let _ = clipboard
+                                            .set_string_contents(clipboard_content.plain_text);
+                                    }
+                                }
+                            }
+                        }
+                        KeyboardShortcut::Cut => {
+                            // Handle Ctrl+X: Copy to clipboard and delete selection
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                let dom_id = azul_core::dom::DomId { inner: 0 }; // TODO: Map target to correct DOM
+
+                                // First, copy to clipboard
+                                if let Some(clipboard_content) =
+                                    layout_window.get_selected_content_for_clipboard(&dom_id)
+                                {
+                                    if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
+                                        if clipboard
+                                            .set_string_contents(
+                                                clipboard_content.plain_text.clone(),
+                                            )
+                                            .is_ok()
+                                        {
+                                            // Then delete the selection
+                                            if let Some(affected_nodes) =
+                                                layout_window.delete_selection(*target, false)
+                                            {
+                                                text_selection_affected_nodes
+                                                    .extend(affected_nodes);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyboardShortcut::Paste => {
+                            // Handle Ctrl+V: Insert clipboard text at cursor
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
+                                    if let Ok(clipboard_text) = clipboard.get_string_contents() {
+                                        // Insert text at current cursor position
+                                        // TODO: Implement paste operation through TextInputManager
+                                        // For now, treat it like text input
+                                        let affected_nodes =
+                                            layout_window.process_text_input(&clipboard_text);
+                                        for (node_id, _) in affected_nodes {
+                                            text_selection_affected_nodes.push(node_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyboardShortcut::SelectAll => {
+                            // Handle Ctrl+A: Select all text in focused node
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                // TODO: Implement select_all operation
+                                // This should select all text in the focused contenteditable node
+                            }
+                        }
+                        KeyboardShortcut::Undo | KeyboardShortcut::Redo => {
+                            // Handle Ctrl+Z (Undo) / Ctrl+Y or Ctrl+Shift+Z (Redo)
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                // Convert DomNodeId to NodeId
+                                let node_id =
+                                    azul_core::id::NodeId::new(target.node.inner as usize);
+
+                                // Get external callbacks for system time
+                                let external = ExternalSystemCallbacks::rust_internal();
+                                let timestamp = (external.get_system_time_fn.cb)().into();
+
+                                if *shortcut == KeyboardShortcut::Undo {
+                                    // Pop from undo stack
+                                    if let Some(operation) =
+                                        layout_window.undo_redo_manager.pop_undo(node_id)
+                                    {
+                                        // Create revert changeset
+                                        use azul_layout::managers::undo_redo::create_revert_changeset;
+                                        let revert_changeset =
+                                            create_revert_changeset(&operation, timestamp);
+
+                                        // TODO: Allow user callback to preventDefault
+
+                                        // Apply the revert - restore pre-state text completely
+                                        let node_id_internal = target.node.into_crate_internal();
+                                        if let Some(node_id_internal) = node_id_internal {
+                                            // Create InlineContent from pre-state text
+                                            use std::sync::Arc;
+
+                                            use azul_layout::text3::cache::{
+                                                InlineContent, StyleProperties, StyledRun,
+                                            };
+
+                                            let new_content = vec![InlineContent::Text(
+                                                StyledRun {
+                                                    text: operation.pre_state.text_content.clone(),
+                                                    style: Arc::new(StyleProperties::default()), /* TODO: Preserve original style */
+                                                    logical_start_byte: 0,
+                                                },
+                                            )];
+
+                                            // Update text cache with pre-state content
+                                            layout_window.update_text_cache_after_edit(
+                                                target.dom,
+                                                node_id_internal,
+                                                new_content,
+                                            );
+
+                                            // Restore cursor position
+                                            if let Some(cursor) =
+                                                operation.pre_state.cursor_position
+                                            {
+                                                layout_window.cursor_manager.move_cursor_to(
+                                                    cursor,
+                                                    target.dom,
+                                                    node_id_internal,
+                                                );
+                                            }
+                                        }
+
+                                        // Push to redo stack after successful undo
+                                        layout_window.undo_redo_manager.push_redo(operation);
+
+                                        // Mark node for re-render
+                                        text_selection_affected_nodes.push(*target);
+                                    }
+                                } else {
+                                    // Redo operation
+                                    if let Some(operation) =
+                                        layout_window.undo_redo_manager.pop_redo(node_id)
+                                    {
+                                        // TODO: Allow user callback to preventDefault
+
+                                        // Re-apply the original changeset by re-executing text
+                                        // input
+                                        let node_id_internal = target.node.into_crate_internal();
+                                        if let Some(node_id_internal) = node_id_internal {
+                                            // For redo, we use the text input system to re-apply
+                                            // the change
+                                            use azul_layout::managers::changeset::TextOperation;
+
+                                            // Determine what to re-apply based on the operation
+                                            match &operation.changeset.operation {
+                                                TextOperation::InsertText { text, .. } => {
+                                                    // Re-insert the text via process_text_input
+                                                    let affected =
+                                                        layout_window.process_text_input(text);
+                                                    for (node, _) in affected {
+                                                        text_selection_affected_nodes.push(node);
+                                                    }
+                                                }
+                                                _ => {
+                                                    // For other operations, just mark for re-render
+                                                    // Full implementation would handle each
+                                                    // operation type
+                                                }
+                                            }
+                                        }
+
+                                        // Push to undo stack after successful redo
+                                        layout_window.undo_redo_manager.push_undo(operation);
+
+                                        // Mark node for re-render
+                                        text_selection_affected_nodes.push(*target);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 PreCallbackSystemEvent::DeleteSelection { target, forward } => {
-                    // Handle Backspace/Delete key with selection
+                    // Handle Backspace/Delete key
+                    // For now, we directly call delete_selection
+                    // TODO: Integrate with TextInputManager changeset system
+                    // This should:
+                    // 1. Create DeleteText changeset
+                    // 2. Fire On::TextInput callback with preventDefault support
+                    // 3. Apply deletion if !preventDefault
+                    // 4. Record to undo stack
                     if let Some(layout_window) = self.get_layout_window_mut() {
                         if let Some(affected_nodes) =
                             layout_window.delete_selection(*target, *forward)

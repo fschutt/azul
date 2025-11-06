@@ -277,3 +277,205 @@ pub fn delete_forward(
 
     (content.to_vec(), *cursor)
 }
+
+/// Inspect what would be deleted by a delete operation without actually deleting
+///
+/// Returns (range_that_would_be_deleted, text_that_would_be_deleted).
+/// This is useful for callbacks to inspect pending delete operations.
+///
+/// # Arguments
+/// * `content` - The current text content
+/// * `selection` - The current selection (cursor or range)
+/// * `forward` - If true, delete forward (Delete key); if false, delete backward (Backspace key)
+///
+/// # Returns
+/// * `Some((range, deleted_text))` - The range and text that would be deleted
+/// * `None` - Nothing would be deleted (e.g., cursor at start/end of document)
+pub fn inspect_delete(
+    content: &[InlineContent],
+    selection: &Selection,
+    forward: bool,
+) -> Option<(SelectionRange, String)> {
+    match selection {
+        Selection::Range(range) => {
+            // If there's already a selection, that's what would be deleted
+            let deleted_text = extract_text_in_range(content, range);
+            Some((*range, deleted_text))
+        }
+        Selection::Cursor(cursor) => {
+            // No selection - would delete one grapheme cluster
+            if forward {
+                inspect_delete_forward(content, cursor)
+            } else {
+                inspect_delete_backward(content, cursor)
+            }
+        }
+    }
+}
+
+/// Inspect what would be deleted by delete-forward (Delete key)
+fn inspect_delete_forward(
+    content: &[InlineContent],
+    cursor: &TextCursor,
+) -> Option<(SelectionRange, String)> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let run_idx = cursor.cluster_id.source_run as usize;
+    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+
+    if let Some(InlineContent::Text(run)) = content.get(run_idx) {
+        if byte_offset < run.text.len() {
+            // Delete within same run
+            let next_grapheme_end = run.text[byte_offset..]
+                .grapheme_indices(true)
+                .nth(1)
+                .map_or(run.text.len(), |(i, _)| byte_offset + i);
+
+            let deleted_text = run.text[byte_offset..next_grapheme_end].to_string();
+
+            let range = SelectionRange {
+                start: *cursor,
+                end: TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: run_idx as u32,
+                        start_byte_in_run: next_grapheme_end as u32,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+            };
+
+            return Some((range, deleted_text));
+        } else if run_idx < content.len() - 1 {
+            // Would delete across run boundary
+            if let Some(InlineContent::Text(next_run)) = content.get(run_idx + 1) {
+                let deleted_text = next_run.text.graphemes(true).next()?.to_string();
+
+                let next_grapheme_end = next_run
+                    .text
+                    .grapheme_indices(true)
+                    .nth(1)
+                    .map_or(next_run.text.len(), |(i, _)| i);
+
+                let range = SelectionRange {
+                    start: *cursor,
+                    end: TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: (run_idx + 1) as u32,
+                            start_byte_in_run: next_grapheme_end as u32,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                };
+
+                return Some((range, deleted_text));
+            }
+        }
+    }
+
+    None // At end of document, nothing to delete
+}
+
+/// Inspect what would be deleted by delete-backward (Backspace key)
+fn inspect_delete_backward(
+    content: &[InlineContent],
+    cursor: &TextCursor,
+) -> Option<(SelectionRange, String)> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let run_idx = cursor.cluster_id.source_run as usize;
+    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+
+    if let Some(InlineContent::Text(run)) = content.get(run_idx) {
+        if byte_offset > 0 {
+            // Delete within same run
+            let prev_grapheme_start = run.text[..byte_offset]
+                .grapheme_indices(true)
+                .last()
+                .map_or(0, |(i, _)| i);
+
+            let deleted_text = run.text[prev_grapheme_start..byte_offset].to_string();
+
+            let range = SelectionRange {
+                start: TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: run_idx as u32,
+                        start_byte_in_run: prev_grapheme_start as u32,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+                end: *cursor,
+            };
+
+            return Some((range, deleted_text));
+        } else if run_idx > 0 {
+            // Would delete across run boundary
+            if let Some(InlineContent::Text(prev_run)) = content.get(run_idx - 1) {
+                let deleted_text = prev_run.text.graphemes(true).last()?.to_string();
+
+                let prev_grapheme_start = prev_run.text[..]
+                    .grapheme_indices(true)
+                    .last()
+                    .map_or(0, |(i, _)| i);
+
+                let range = SelectionRange {
+                    start: TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: (run_idx - 1) as u32,
+                            start_byte_in_run: prev_grapheme_start as u32,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                    end: *cursor,
+                };
+
+                return Some((range, deleted_text));
+            }
+        }
+    }
+
+    None // At start of document, nothing to delete
+}
+
+/// Extract the text within a selection range
+fn extract_text_in_range(content: &[InlineContent], range: &SelectionRange) -> String {
+    let start_run = range.start.cluster_id.source_run as usize;
+    let end_run = range.end.cluster_id.source_run as usize;
+    let start_byte = range.start.cluster_id.start_byte_in_run as usize;
+    let end_byte = range.end.cluster_id.start_byte_in_run as usize;
+
+    if start_run == end_run {
+        // Single run
+        if let Some(InlineContent::Text(run)) = content.get(start_run) {
+            if start_byte <= end_byte && end_byte <= run.text.len() {
+                return run.text[start_byte..end_byte].to_string();
+            }
+        }
+    } else {
+        // Multi-run selection (simplified - full implementation would handle images, etc.)
+        let mut result = String::new();
+
+        for (idx, item) in content.iter().enumerate() {
+            if let InlineContent::Text(run) = item {
+                if idx == start_run {
+                    // First run - from start_byte to end
+                    if start_byte < run.text.len() {
+                        result.push_str(&run.text[start_byte..]);
+                    }
+                } else if idx > start_run && idx < end_run {
+                    // Middle runs - entire text
+                    result.push_str(&run.text);
+                } else if idx == end_run {
+                    // Last run - from 0 to end_byte
+                    if end_byte <= run.text.len() {
+                        result.push_str(&run.text[..end_byte]);
+                    }
+                    break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    String::new()
+}

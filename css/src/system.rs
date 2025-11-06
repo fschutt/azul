@@ -26,11 +26,12 @@ use alloc::{
 use core::time::Duration;
 
 use crate::{
+    corety::{AzString, OptionAzString, OptionF32},
     css::Stylesheet,
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
         basic::{
-            color::{parse_css_color, ColorU},
+            color::{parse_css_color, ColorU, OptionColorU},
             pixel::PixelValue,
         },
         style::scrollbar::ComputedScrollbarStyle,
@@ -69,6 +70,7 @@ pub enum Theme {
 
 /// A unified collection of discovered system style properties.
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct SystemStyle {
     pub theme: Theme,
     pub platform: Platform,
@@ -85,31 +87,34 @@ pub struct SystemStyle {
 
 /// Common system colors used for UI elements.
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct SystemColors {
-    pub text: Option<ColorU>,
-    pub background: Option<ColorU>,
-    pub accent: Option<ColorU>,
-    pub accent_text: Option<ColorU>,
-    pub button_face: Option<ColorU>,
-    pub button_text: Option<ColorU>,
-    pub window_background: Option<ColorU>,
-    pub selection_background: Option<ColorU>,
-    pub selection_text: Option<ColorU>,
+    pub text: OptionColorU,
+    pub background: OptionColorU,
+    pub accent: OptionColorU,
+    pub accent_text: OptionColorU,
+    pub button_face: OptionColorU,
+    pub button_text: OptionColorU,
+    pub window_background: OptionColorU,
+    pub selection_background: OptionColorU,
+    pub selection_text: OptionColorU,
 }
 
 /// Common system font settings.
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct SystemFonts {
     /// The primary font used for UI elements like buttons and labels.
-    pub ui_font: Option<String>,
+    pub ui_font: OptionAzString,
     /// The default font size for UI elements, in points.
-    pub ui_font_size: Option<f32>,
+    pub ui_font_size: OptionF32,
     /// The font used for code or other monospaced text.
-    pub monospace_font: Option<String>,
+    pub monospace_font: OptionAzString,
 }
 
 /// Common system metrics for UI element sizing and spacing.
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct SystemMetrics {
     /// The corner radius for standard elements like buttons.
     pub corner_radius: Option<PixelValue>,
@@ -229,9 +234,21 @@ impl SystemStyle {
         let bg_color = self
             .colors
             .window_background
+            .as_option()
+            .copied()
             .unwrap_or(ColorU::new_rgb(240, 240, 240));
-        let text_color = self.colors.text.unwrap_or(ColorU::new_rgb(0, 0, 0));
-        let accent_color = self.colors.accent.unwrap_or(ColorU::new_rgb(0, 120, 215));
+        let text_color = self
+            .colors
+            .text
+            .as_option()
+            .copied()
+            .unwrap_or(ColorU::new_rgb(0, 0, 0));
+        let accent_color = self
+            .colors
+            .accent
+            .as_option()
+            .copied()
+            .unwrap_or(ColorU::new_rgb(0, 120, 215));
         let border_color = match self.theme {
             Theme::Dark => ColorU::new_rgb(60, 60, 60),
             Theme::Light => ColorU::new_rgb(200, 200, 200),
@@ -391,10 +408,12 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 
     style.platform = Platform::Linux(DesktopEnvironment::Gnome);
     if let Some(font) = ui_font {
-        style.fonts.ui_font = Some(font.trim().trim_matches('\'').to_string());
+        style.fonts.ui_font =
+            OptionAzString::Some(font.trim().trim_matches('\'').to_string().into());
     }
     if let Some(font) = monospace_font {
-        style.fonts.monospace_font = Some(font.trim().trim_matches('\'').to_string());
+        style.fonts.monospace_font =
+            OptionAzString::Some(font.trim().trim_matches('\'').to_string().into());
     }
 
     Ok(style)
@@ -435,11 +454,11 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     ) {
         let mut parts = font_str.trim().split(',');
         if let Some(font_name) = parts.next() {
-            style.fonts.ui_font = Some(font_name.to_string());
+            style.fonts.ui_font = OptionAzString::Some(font_name.to_string().into());
         }
         if let Some(font_size_str) = parts.next() {
             if let Ok(size) = font_size_str.parse::<f32>() {
-                style.fonts.ui_font_size = Some(size);
+                style.fonts.ui_font_size = OptionF32::Some(size);
             }
         }
     }
@@ -451,7 +470,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         Duration::from_secs(1),
     ) {
         if let Some(font_name) = font_str.trim().split(',').next() {
-            style.fonts.monospace_font = Some(font_name.to_string());
+            style.fonts.monospace_font = OptionAzString::Some(font_name.to_string().into());
         }
     }
 
@@ -468,7 +487,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
             .collect();
         if rgb.len() == 3 {
             if let (Ok(r), Ok(g), Ok(b)) = (&rgb[0], &rgb[1], &rgb[2]) {
-                style.colors.accent = Some(ColorU::new_rgb(*r, *g, *b));
+                style.colors.accent = OptionColorU::Some(ColorU::new_rgb(*r, *g, *b));
             }
         }
     }
@@ -502,13 +521,19 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
             let colors = &json["colors"];
             style.colors.background = colors["color0"]
                 .as_str()
-                .and_then(|s| parse_css_color(s).ok());
+                .and_then(|s| parse_css_color(s).ok())
+                .map(OptionColorU::Some)
+                .unwrap_or(OptionColorU::None);
             style.colors.text = colors["color7"]
                 .as_str()
-                .and_then(|s| parse_css_color(s).ok());
+                .and_then(|s| parse_css_color(s).ok())
+                .map(OptionColorU::Some)
+                .unwrap_or(OptionColorU::None);
             style.colors.accent = colors["color4"]
                 .as_str()
-                .and_then(|s| parse_css_color(s).ok());
+                .and_then(|s| parse_css_color(s).ok())
+                .map(OptionColorU::Some)
+                .unwrap_or(OptionColorU::None);
             style.theme = Theme::Dark; // Wal is often used with dark themes.
         }
     }
@@ -542,7 +567,7 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
                         // Hyprland format is "rgba(RRGGBBAA)" or "rgb(RRGGBB)"
                         if let Some(hex_str) = v.split_whitespace().last() {
                             if let Ok(color) = parse_css_color(&format!("#{}", hex_str)) {
-                                style.colors.accent = Some(color);
+                                style.colors.accent = OptionColorU::Some(color);
                             }
                         }
                     }
@@ -559,7 +584,7 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
         Duration::from_secs(1),
     ) {
         if let Some(font_name) = font_str.trim().trim_matches('\'').split(' ').next() {
-            style.fonts.ui_font = Some(font_name.to_string());
+            style.fonts.ui_font = OptionAzString::Some(font_name.to_string().into());
         }
     }
 
@@ -604,7 +629,7 @@ fn discover_windows_style() -> SystemStyle {
                 let b = (hex_val >> 16) as u8;
                 let g = (hex_val >> 8) as u8;
                 let r = hex_val as u8;
-                style.colors.accent = Some(ColorU::new(r, g, b, a));
+                style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, a));
             }
         }
     }
@@ -730,8 +755,12 @@ pub mod defaults {
     //! for testing and environments where system calls are not desired.
 
     use crate::{
+        corety::{AzString, OptionAzString, OptionF32},
         props::{
-            basic::{color::ColorU, pixel::PixelValue},
+            basic::{
+                color::{ColorU, OptionColorU},
+                pixel::PixelValue,
+            },
             layout::{
                 dimensions::LayoutWidth,
                 spacing::{LayoutPaddingLeft, LayoutPaddingRight},
@@ -874,18 +903,18 @@ pub mod defaults {
             theme: Theme::Light,
             platform: Platform::Windows,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(243, 243, 243)),
-                accent: Some(ColorU::new_rgb(0, 95, 184)),
-                window_background: Some(ColorU::new_rgb(255, 255, 255)),
-                selection_background: Some(ColorU::new_rgb(0, 120, 215)),
-                selection_text: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(243, 243, 243)),
+                accent: OptionColorU::Some(ColorU::new_rgb(0, 95, 184)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(0, 120, 215)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Segoe UI Variable Text".into()),
-                ui_font_size: Some(9.0),
-                monospace_font: Some("Consolas".into()),
+                ui_font: OptionAzString::Some("Segoe UI Variable Text".into()),
+                ui_font_size: OptionF32::Some(9.0),
+                monospace_font: OptionAzString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -901,18 +930,18 @@ pub mod defaults {
             theme: Theme::Dark,
             platform: Platform::Windows,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(255, 255, 255)),
-                background: Some(ColorU::new_rgb(32, 32, 32)),
-                accent: Some(ColorU::new_rgb(0, 120, 215)),
-                window_background: Some(ColorU::new_rgb(25, 25, 25)),
-                selection_background: Some(ColorU::new_rgb(0, 120, 215)),
-                selection_text: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                background: OptionColorU::Some(ColorU::new_rgb(32, 32, 32)),
+                accent: OptionColorU::Some(ColorU::new_rgb(0, 120, 215)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(25, 25, 25)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(0, 120, 215)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Segoe UI Variable Text".into()),
-                ui_font_size: Some(9.0),
-                monospace_font: Some("Consolas".into()),
+                ui_font: OptionAzString::Some("Segoe UI Variable Text".into()),
+                ui_font_size: OptionF32::Some(9.0),
+                monospace_font: OptionAzString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -928,18 +957,18 @@ pub mod defaults {
             theme: Theme::Light,
             platform: Platform::Windows,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(240, 240, 240)),
-                accent: Some(ColorU::new_rgb(51, 153, 255)),
-                window_background: Some(ColorU::new_rgb(255, 255, 255)),
-                selection_background: Some(ColorU::new_rgb(51, 153, 255)),
-                selection_text: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(240, 240, 240)),
+                accent: OptionColorU::Some(ColorU::new_rgb(51, 153, 255)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(51, 153, 255)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Segoe UI".into()),
-                ui_font_size: Some(9.0),
-                monospace_font: Some("Consolas".into()),
+                ui_font: OptionAzString::Some("Segoe UI".into()),
+                ui_font_size: OptionF32::Some(9.0),
+                monospace_font: OptionAzString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(6.0)),
@@ -955,18 +984,18 @@ pub mod defaults {
             theme: Theme::Light,
             platform: Platform::Windows,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(236, 233, 216)),
-                accent: Some(ColorU::new_rgb(49, 106, 197)),
-                window_background: Some(ColorU::new_rgb(255, 255, 255)),
-                selection_background: Some(ColorU::new_rgb(49, 106, 197)),
-                selection_text: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(236, 233, 216)),
+                accent: OptionColorU::Some(ColorU::new_rgb(49, 106, 197)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(49, 106, 197)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Tahoma".into()),
-                ui_font_size: Some(8.0),
-                monospace_font: Some("Lucida Console".into()),
+                ui_font: OptionAzString::Some("Tahoma".into()),
+                ui_font_size: OptionF32::Some(8.0),
+                monospace_font: OptionAzString::Some("Lucida Console".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(3.0)),
@@ -984,16 +1013,16 @@ pub mod defaults {
             platform: Platform::MacOs,
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new(0, 0, 0, 221)),
-                background: Some(ColorU::new_rgb(242, 242, 247)),
-                accent: Some(ColorU::new_rgb(0, 122, 255)),
-                window_background: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new(0, 0, 0, 221)),
+                background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
+                accent: OptionColorU::Some(ColorU::new_rgb(0, 122, 255)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some(".SF NS".into()),
-                ui_font_size: Some(13.0),
-                monospace_font: Some("Menlo".into()),
+                ui_font: OptionAzString::Some(".SF NS".into()),
+                ui_font_size: OptionF32::Some(13.0),
+                monospace_font: OptionAzString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(8.0)),
@@ -1009,16 +1038,16 @@ pub mod defaults {
             platform: Platform::MacOs,
             theme: Theme::Dark,
             colors: SystemColors {
-                text: Some(ColorU::new(255, 255, 255, 221)),
-                background: Some(ColorU::new_rgb(28, 28, 30)),
-                accent: Some(ColorU::new_rgb(10, 132, 255)),
-                window_background: Some(ColorU::new_rgb(44, 44, 46)),
+                text: OptionColorU::Some(ColorU::new(255, 255, 255, 221)),
+                background: OptionColorU::Some(ColorU::new_rgb(28, 28, 30)),
+                accent: OptionColorU::Some(ColorU::new_rgb(10, 132, 255)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(44, 44, 46)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some(".SF NS".into()),
-                ui_font_size: Some(13.0),
-                monospace_font: Some("Menlo".into()),
+                ui_font: OptionAzString::Some(".SF NS".into()),
+                ui_font_size: OptionF32::Some(13.0),
+                monospace_font: OptionAzString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(8.0)),
@@ -1034,16 +1063,16 @@ pub mod defaults {
             platform: Platform::MacOs,
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(229, 229, 229)),
-                accent: Some(ColorU::new_rgb(63, 128, 234)),
-                window_background: Some(ColorU::new_rgb(255, 255, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(229, 229, 229)),
+                accent: OptionColorU::Some(ColorU::new_rgb(63, 128, 234)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Lucida Grande".into()),
-                ui_font_size: Some(13.0),
-                monospace_font: Some("Monaco".into()),
+                ui_font: OptionAzString::Some("Lucida Grande".into()),
+                ui_font_size: OptionF32::Some(13.0),
+                monospace_font: OptionAzString::Some("Monaco".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(12.0)),
@@ -1061,16 +1090,16 @@ pub mod defaults {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(46, 52, 54)),
-                background: Some(ColorU::new_rgb(249, 249, 249)),
-                accent: Some(ColorU::new_rgb(53, 132, 228)),
-                window_background: Some(ColorU::new_rgb(237, 237, 237)),
+                text: OptionColorU::Some(ColorU::new_rgb(46, 52, 54)),
+                background: OptionColorU::Some(ColorU::new_rgb(249, 249, 249)),
+                accent: OptionColorU::Some(ColorU::new_rgb(53, 132, 228)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(237, 237, 237)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Cantarell".into()),
-                ui_font_size: Some(11.0),
-                monospace_font: Some("Monospace".into()),
+                ui_font: OptionAzString::Some("Cantarell".into()),
+                ui_font_size: OptionF32::Some(11.0),
+                monospace_font: OptionAzString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1086,16 +1115,16 @@ pub mod defaults {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Dark,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(238, 238, 236)),
-                background: Some(ColorU::new_rgb(36, 36, 36)),
-                accent: Some(ColorU::new_rgb(53, 132, 228)),
-                window_background: Some(ColorU::new_rgb(48, 48, 48)),
+                text: OptionColorU::Some(ColorU::new_rgb(238, 238, 236)),
+                background: OptionColorU::Some(ColorU::new_rgb(36, 36, 36)),
+                accent: OptionColorU::Some(ColorU::new_rgb(53, 132, 228)),
+                window_background: OptionColorU::Some(ColorU::new_rgb(48, 48, 48)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Cantarell".into()),
-                ui_font_size: Some(11.0),
-                monospace_font: Some("Monospace".into()),
+                ui_font: OptionAzString::Some("Cantarell".into()),
+                ui_font_size: OptionF32::Some(11.0),
+                monospace_font: OptionAzString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1111,15 +1140,15 @@ pub mod defaults {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(239, 239, 239)),
-                accent: Some(ColorU::new_rgb(245, 121, 0)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(239, 239, 239)),
+                accent: OptionColorU::Some(ColorU::new_rgb(245, 121, 0)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("DejaVu Sans".into()),
-                ui_font_size: Some(10.0),
-                monospace_font: Some("DejaVu Sans Mono".into()),
+                ui_font: OptionAzString::Some("DejaVu Sans".into()),
+                ui_font_size: OptionF32::Some(10.0),
+                monospace_font: OptionAzString::Some("DejaVu Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1135,15 +1164,15 @@ pub mod defaults {
             platform: Platform::Linux(DesktopEnvironment::Kde),
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(31, 36, 39)),
-                background: Some(ColorU::new_rgb(239, 240, 241)),
-                accent: Some(ColorU::new_rgb(61, 174, 233)),
+                text: OptionColorU::Some(ColorU::new_rgb(31, 36, 39)),
+                background: OptionColorU::Some(ColorU::new_rgb(239, 240, 241)),
+                accent: OptionColorU::Some(ColorU::new_rgb(61, 174, 233)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Noto Sans".into()),
-                ui_font_size: Some(10.0),
-                monospace_font: Some("Hack".into()),
+                ui_font: OptionAzString::Some("Noto Sans".into()),
+                ui_font_size: OptionF32::Some(10.0),
+                monospace_font: OptionAzString::Some("Hack".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1161,15 +1190,15 @@ pub mod defaults {
             platform: Platform::Android,
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(255, 255, 255)),
-                accent: Some(ColorU::new_rgb(98, 0, 238)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                accent: OptionColorU::Some(ColorU::new_rgb(98, 0, 238)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Roboto".into()),
-                ui_font_size: Some(14.0),
-                monospace_font: Some("Droid Sans Mono".into()),
+                ui_font: OptionAzString::Some("Roboto".into()),
+                ui_font_size: OptionF32::Some(14.0),
+                monospace_font: OptionAzString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(12.0)),
@@ -1185,15 +1214,15 @@ pub mod defaults {
             platform: Platform::Android,
             theme: Theme::Dark,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(255, 255, 255)),
-                background: Some(ColorU::new_rgb(0, 0, 0)),
-                accent: Some(ColorU::new_rgb(51, 181, 229)),
+                text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                background: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                accent: OptionColorU::Some(ColorU::new_rgb(51, 181, 229)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some("Roboto".into()),
-                ui_font_size: Some(14.0),
-                monospace_font: Some("Droid Sans Mono".into()),
+                ui_font: OptionAzString::Some("Roboto".into()),
+                ui_font_size: OptionF32::Some(14.0),
+                monospace_font: OptionAzString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(2.0)),
@@ -1209,15 +1238,15 @@ pub mod defaults {
             platform: Platform::Ios,
             theme: Theme::Light,
             colors: SystemColors {
-                text: Some(ColorU::new_rgb(0, 0, 0)),
-                background: Some(ColorU::new_rgb(242, 242, 247)),
-                accent: Some(ColorU::new_rgb(0, 122, 255)),
+                text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
+                background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
+                accent: OptionColorU::Some(ColorU::new_rgb(0, 122, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: Some(".SFUI-Display-Regular".into()),
-                ui_font_size: Some(17.0),
-                monospace_font: Some("Menlo".into()),
+                ui_font: OptionAzString::Some(".SFUI-Display-Regular".into()),
+                ui_font_size: OptionF32::Some(17.0),
+                monospace_font: OptionAzString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(10.0)),

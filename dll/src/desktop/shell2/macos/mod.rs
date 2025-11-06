@@ -31,7 +31,7 @@ use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     hit_test::FullHitTest,
     window::{LayoutWindow, ScrollbarDragState},
-    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
 };
 use objc2::{
     define_class,
@@ -55,7 +55,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
-    NSSize, NSString, NSTimer,
+    NSSize, NSString, NSTimer, NSUndoManager,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -258,6 +258,64 @@ define_class!(
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
             // Event handled by MacOSWindow
+        }
+
+        // ===== NSResponder Undo/Redo Support =====
+        // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
+
+        #[unsafe(method(undo:))]
+        fn undo(&self, _sender: Option<&NSObject>) {
+            // Forward to MacOSWindow for actual undo logic
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.perform_undo();
+                }
+            }
+        }
+
+        #[unsafe(method(redo:))]
+        fn redo(&self, _sender: Option<&NSObject>) {
+            // Forward to MacOSWindow for actual redo logic
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.perform_redo();
+                }
+            }
+        }
+
+        #[unsafe(method(validateUserInterfaceItem:))]
+        fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
+            // Check if we can undo/redo and enable/disable menu items accordingly
+            use objc2::sel;
+            use objc2::runtime::{AnyObject, Sel};
+
+            // Try to get the action from the item (if it's an NSMenuItem)
+            let action: Option<Sel> = unsafe {
+                let obj = item as *const _ as *const AnyObject;
+                objc2::msg_send![obj, action]
+            };
+
+            if action == Some(sel!(undo:)) {
+                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    unsafe {
+                        let macos_window = &*(window_ptr as *const MacOSWindow);
+                        return Bool::from(macos_window.can_undo());
+                    }
+                }
+                return Bool::from(false);
+            } else if action == Some(sel!(redo:)) {
+                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    unsafe {
+                        let macos_window = &*(window_ptr as *const MacOSWindow);
+                        return Bool::from(macos_window.can_redo());
+                    }
+                }
+                return Bool::from(false);
+            }
+
+            Bool::from(true) // Default: enable other items
         }
 
         #[unsafe(method_id(initWithFrame:pixelFormat:))]
@@ -599,6 +657,64 @@ define_class!(
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
             // Event handled by MacOSWindow
+        }
+
+        // ===== NSResponder Undo/Redo Support =====
+        // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
+
+        #[unsafe(method(undo:))]
+        fn undo(&self, _sender: Option<&NSObject>) {
+            // Forward to MacOSWindow for actual undo logic
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.perform_undo();
+                }
+            }
+        }
+
+        #[unsafe(method(redo:))]
+        fn redo(&self, _sender: Option<&NSObject>) {
+            // Forward to MacOSWindow for actual redo logic
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.perform_redo();
+                }
+            }
+        }
+
+        #[unsafe(method(validateUserInterfaceItem:))]
+        fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
+            // Check if we can undo/redo and enable/disable menu items accordingly
+            use objc2::sel;
+            use objc2::runtime::{AnyObject, Sel};
+
+            // Try to get the action from the item (if it's an NSMenuItem)
+            let action: Option<Sel> = unsafe {
+                let obj = item as *const _ as *const AnyObject;
+                objc2::msg_send![obj, action]
+            };
+
+            if action == Some(sel!(undo:)) {
+                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    unsafe {
+                        let macos_window = &*(window_ptr as *const MacOSWindow);
+                        return Bool::from(macos_window.can_undo());
+                    }
+                }
+                return Bool::from(false);
+            } else if action == Some(sel!(redo:)) {
+                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    unsafe {
+                        let macos_window = &*(window_ptr as *const MacOSWindow);
+                        return Bool::from(macos_window.can_redo());
+                    }
+                }
+                return Bool::from(false);
+            }
+
+            Bool::from(true) // Default: enable other items
         }
 
         #[unsafe(method_id(initWithFrame:))]
@@ -1647,9 +1763,19 @@ impl MacOSWindow {
         // is ready to prevent white flash
         unsafe {
             // Position window on requested monitor (or center on primary)
+            // Convert Option<u32> monitor_id to MonitorId
+            let monitor_id = options
+                .state
+                .monitor_id
+                .map(|id| azul_core::window::MonitorId {
+                    index: id as usize,
+                    hash: 0,
+                })
+                .unwrap_or(azul_core::window::MonitorId::PRIMARY);
+
             position_window_on_monitor(
                 &window,
-                options.state.monitor.id,
+                monitor_id,
                 options.state.position,
                 options.state.size,
                 mtm,
@@ -2256,29 +2382,12 @@ impl MacOSWindow {
     /// This should be called after all callbacks have been processed but before
     /// `present()` is called. It prepares for the next frame by moving current
     /// state to previous state.
-    pub fn update_window_state(&mut self, new_state: WindowState) {
+    pub fn update_window_state(&mut self, new_state: FullWindowState) {
         // Save current state as previous for next frame's diff
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Update current state from new WindowState
-        self.current_window_state.title = new_state.title;
-        self.current_window_state.size = new_state.size;
-        self.current_window_state.position = new_state.position;
-        self.current_window_state.flags = new_state.flags;
-        self.current_window_state.theme = new_state.theme;
-        self.current_window_state.debug_state = new_state.debug_state;
-        self.current_window_state.keyboard_state = new_state.keyboard_state;
-        self.current_window_state.mouse_state = new_state.mouse_state;
-        self.current_window_state.touch_state = new_state.touch_state;
-        self.current_window_state.ime_position = new_state.ime_position;
-        self.current_window_state.platform_specific_options = new_state.platform_specific_options;
-        self.current_window_state.renderer_options = new_state.renderer_options;
-        self.current_window_state.background_color = new_state.background_color;
-        self.current_window_state.layout_callback = new_state.layout_callback;
-        self.current_window_state.close_callback = new_state.close_callback;
-        // Note: monitor is now monitor_id in FullWindowState, and Monitor info from WindowState
-        // is looked up from platform. For now, we don't sync monitor_id directly.
-        // TODO: Implement proper monitor tracking via monitor_id
+        // Update current state with the new full state
+        self.current_window_state = new_state;
 
         // Synchronize with OS
         self.sync_window_state();
@@ -3309,18 +3418,10 @@ impl PlatformWindow for MacOSWindow {
         Self::new_with_options(options, mtm)
     }
 
-    fn get_state(&self) -> WindowState {
-        let frame = self.window.frame();
-        let mut state = WindowState::default();
-
-        // Update size (dimensions is LogicalSize)
-        state.size.dimensions.width = frame.size.width as f32;
-        state.size.dimensions.height = frame.size.height as f32;
-
-        // Update title
-        state.title = self.window.title().to_string().into();
-
-        state
+    fn get_state(&self) -> FullWindowState {
+        // Return the stored current_window_state (which is kept in sync with OS)
+        // instead of creating a new WindowState from scratch
+        self.current_window_state.clone()
     }
 
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
@@ -3504,6 +3605,16 @@ impl PlatformWindow for MacOSWindow {
 
         self.frame_needs_regeneration = true;
     }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        // TODO: Implement macOS clipboard synchronization
+        // 1. If clipboard_manager has pending copy content, write to NSPasteboard
+        // 2. Clear clipboard manager after sync
+        clipboard_manager.clear();
+    }
 }
 
 /// macOS event type.
@@ -3579,6 +3690,155 @@ impl MacOSEvent {
 }
 
 impl MacOSWindow {
+    // =========================================================================
+    // NSResponder Undo/Redo Integration (macOS Native)
+    // =========================================================================
+
+    /// Perform undo operation (called by NSResponder undo: selector)
+    pub fn perform_undo(&mut self) {
+        // Get focused node for undo context
+        let focused_node = if let Some(layout_window) = self.layout_window.as_ref() {
+            layout_window.focus_manager.get_focused_node().copied()
+        } else {
+            return;
+        };
+
+        let target = match focused_node {
+            Some(node) => node,
+            None => return, // No focused node
+        };
+
+        // Get layout window
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        // Convert DomNodeId to NodeId
+        let node_id = azul_core::id::NodeId::new(target.node.inner as usize);
+
+        // Pop from undo stack
+        if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
+            // Apply the revert - restore pre-state text
+            let node_id_internal = target.node.into_crate_internal();
+            if let Some(node_id_internal) = node_id_internal {
+                // Create InlineContent from pre-state text
+                use std::sync::Arc;
+
+                use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
+
+                let new_content = vec![InlineContent::Text(StyledRun {
+                    text: operation.pre_state.text_content.clone(),
+                    style: Arc::new(StyleProperties::default()),
+                    logical_start_byte: 0,
+                })];
+
+                // Update text cache with pre-state content
+                layout_window.update_text_cache_after_edit(
+                    target.dom,
+                    node_id_internal,
+                    new_content,
+                );
+
+                // Restore cursor position
+                if let Some(cursor) = operation.pre_state.cursor_position {
+                    layout_window.cursor_manager.move_cursor_to(
+                        cursor,
+                        target.dom,
+                        node_id_internal,
+                    );
+                }
+            }
+
+            // Push to redo stack after successful undo
+            layout_window.undo_redo_manager.push_redo(operation);
+
+            // Mark window for redraw
+            unsafe {
+                use objc2::msg_send;
+                let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
+            }
+        }
+    }
+
+    /// Perform redo operation (called by NSResponder redo: selector)
+    pub fn perform_redo(&mut self) {
+        // Get focused node for redo context
+        let focused_node = if let Some(layout_window) = self.layout_window.as_ref() {
+            layout_window.focus_manager.get_focused_node().copied()
+        } else {
+            return;
+        };
+
+        let target = match focused_node {
+            Some(node) => node,
+            None => return, // No focused node
+        };
+
+        // Get layout window
+        let layout_window = match self.layout_window.as_mut() {
+            Some(lw) => lw,
+            None => return,
+        };
+
+        // Convert DomNodeId to NodeId
+        let node_id = azul_core::id::NodeId::new(target.node.inner as usize);
+
+        // Pop from redo stack
+        if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
+            // Re-apply the original operation via text input
+            let node_id_internal = target.node.into_crate_internal();
+            if let Some(_node_id_internal) = node_id_internal {
+                use azul_layout::managers::changeset::TextOperation;
+
+                match &operation.changeset.operation {
+                    TextOperation::InsertText { text, .. } => {
+                        // Re-insert the text
+                        let _ = layout_window.process_text_input(text);
+                    }
+                    _ => {
+                        // Other operations not yet fully supported
+                    }
+                }
+            }
+
+            // Push to undo stack after successful redo
+            layout_window.undo_redo_manager.push_undo(operation);
+
+            // Mark window for redraw
+            unsafe {
+                use objc2::msg_send;
+                let _: () = msg_send![&*self.window, setViewsNeedDisplay: true];
+            }
+        }
+    }
+
+    /// Check if undo is available (for menu validation)
+    pub fn can_undo(&self) -> bool {
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
+                let node_id = azul_core::id::NodeId::new(focused_node.node.inner as usize);
+                return layout_window.undo_redo_manager.can_undo(node_id);
+            }
+        }
+        false
+    }
+
+    /// Check if redo is available (for menu validation)
+    pub fn can_redo(&self) -> bool {
+        if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
+                let node_id = azul_core::id::NodeId::new(focused_node.node.inner as usize);
+                return layout_window.undo_redo_manager.can_redo(node_id);
+            }
+        }
+        false
+    }
+
+    // =========================================================================
+    // Accessibility Support
+    // =========================================================================
+
     /// Initialize accessibility support for the window
     ///
     /// This should be called once after the first layout pass to set up

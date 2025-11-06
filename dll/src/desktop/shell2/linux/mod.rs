@@ -53,7 +53,7 @@ impl PlatformWindow for LinuxWindow {
         Self::new_with_resources(options, resources)
     }
 
-    fn get_state(&self) -> WindowState {
+    fn get_state(&self) -> FullWindowState {
         match self {
             LinuxWindow::X11(w) => w.get_state(),
             LinuxWindow::Wayland(w) => w.get_state(),

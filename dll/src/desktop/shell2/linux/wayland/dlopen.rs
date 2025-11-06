@@ -50,6 +50,7 @@ pub struct Wayland {
 
     // Protocol interfaces (needed for wl_registry_bind)
     pub wl_compositor_interface: wl_interface,
+    pub wl_subcompositor_interface: wl_interface,
     pub wl_shm_interface: wl_interface,
     pub wl_seat_interface: wl_interface,
     pub wl_output_interface: wl_interface,
@@ -59,6 +60,15 @@ pub struct Wayland {
     pub wl_registry_bind:
         unsafe extern "C" fn(*mut wl_registry, u32, *const wl_interface, u32) -> *mut c_void,
     pub wl_compositor_create_surface: unsafe extern "C" fn(*mut wl_compositor) -> *mut wl_surface,
+    pub wl_subcompositor_get_subsurface: unsafe extern "C" fn(
+        *mut wl_subcompositor,
+        *mut wl_surface,
+        *mut wl_surface,
+    ) -> *mut wl_subsurface,
+    pub wl_subsurface_set_position: unsafe extern "C" fn(*mut wl_subsurface, i32, i32),
+    pub wl_subsurface_set_desync: unsafe extern "C" fn(*mut wl_subsurface),
+    pub wl_subsurface_destroy: unsafe extern "C" fn(*mut wl_subsurface),
+    pub wl_surface_destroy: unsafe extern "C" fn(*mut wl_surface),
     pub wl_surface_commit: unsafe extern "C" fn(surface: *mut wl_surface),
     pub wl_surface_attach:
         unsafe extern "C" fn(surface: *mut wl_surface, buffer: *mut wl_buffer, i32, i32),
@@ -215,6 +225,13 @@ impl Wayland {
             wl_compositor_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_compositor_interface")
             },
+            wl_subcompositor_interface: unsafe {
+                *load_symbol!(
+                    lib_client,
+                    *const wl_interface,
+                    "wl_subcompositor_interface"
+                )
+            },
             wl_shm_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_shm_interface")
             },
@@ -232,6 +249,13 @@ impl Wayland {
             wl_compositor_create_surface: unsafe {
                 std::mem::transmute(wl_proxy_marshal_constructor)
             },
+            wl_subcompositor_get_subsurface: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor)
+            },
+            wl_subsurface_set_position: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_subsurface_set_desync: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_subsurface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_commit: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },

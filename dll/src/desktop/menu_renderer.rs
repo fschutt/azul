@@ -73,17 +73,17 @@ extern "C" fn menu_item_click_callback(data: &mut RefAny, info: &mut CallbackInf
         );
 
         // Close the menu window
-        let mut flags = info.get_current_window_flags();
-        flags.close_requested = true;
-        info.set_window_flags(flags);
+        let mut state = info.get_current_window_state().clone();
+        state.flags.close_requested = true;
+        info.modify_window_state(state);
 
         return result;
     }
 
     // No callback attached, just close the menu
-    let mut flags = info.get_current_window_flags();
-    flags.close_requested = true;
-    info.set_window_flags(flags);
+    let mut state = info.get_current_window_state().clone();
+    state.flags.close_requested = true;
+    info.modify_window_state(state);
 
     Update::DoNothing
 }
@@ -448,29 +448,47 @@ impl SystemStyleMenuExt for SystemStyle {
         let bg_color = self
             .colors
             .window_background
+            .as_option()
+            .copied()
             .unwrap_or(ColorU::new_rgb(240, 240, 240));
-        let text_color = self.colors.text.unwrap_or(ColorU::new_rgb(0, 0, 0));
+        let text_color = self
+            .colors
+            .text
+            .as_option()
+            .copied()
+            .unwrap_or(ColorU::new_rgb(0, 0, 0));
         let hover_color = self
             .colors
             .selection_background
+            .as_option()
+            .copied()
             .unwrap_or(ColorU::new_rgb(0, 120, 215));
         let hover_text_color = self
             .colors
             .selection_text
+            .as_option()
+            .copied()
             .unwrap_or(ColorU::new_rgb(255, 255, 255));
-        let disabled_color = self.colors.text.unwrap_or(ColorU::new_rgb(128, 128, 128)); // Fallback for disabled
+        let disabled_color = self
+            .colors
+            .text
+            .as_option()
+            .copied()
+            .unwrap_or(ColorU::new_rgb(128, 128, 128)); // Fallback for disabled
         let separator_color = self
             .colors
             .background
+            .as_option()
+            .copied()
             .unwrap_or(ColorU::new_rgb(200, 200, 200)); // Fallback for separator
 
         // Get font settings
-        let font_size = self.fonts.ui_font_size.unwrap_or(14.0);
+        let font_size = self.fonts.ui_font_size.as_option().copied().unwrap_or(14.0);
         let font_family = self
             .fonts
             .ui_font
-            .as_ref()
-            .map(|f| f.clone())
+            .as_option()
+            .map(|f| f.as_str().to_string())
             .unwrap_or_else(|| "sans-serif".to_string());
 
         // Get metrics

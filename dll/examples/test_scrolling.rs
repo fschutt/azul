@@ -91,36 +91,34 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
                 if result.status.success() {
                     // User clicked "Yes" - allow closing
                     eprintln!("[Close Callback] User confirmed close");
-                    let mut flags = WindowFlags::default();
-                    flags.close_requested = true;
-                    info.set_window_flags(flags);
+                    let mut state = info.get_current_window_state().clone();
+                    state.flags.close_requested = true;
+                    info.modify_window_state(state);
                 } else {
                     // User clicked "No" or closed dialog - prevent closing
                     eprintln!("[Close Callback] User cancelled close");
-                    let mut flags = WindowFlags::default();
-                    flags.close_requested = false;
-                    info.set_window_flags(flags);
+                    let mut state = info.get_current_window_state().clone();
+                    state.flags.close_requested = false;
+                    info.modify_window_state(state);
                 }
             }
             Err(e) => {
                 eprintln!("[Close Callback] Failed to show dialog: {}", e);
                 // On error, allow closing
-                let mut flags = WindowFlags::default();
-                flags.close_requested = true;
-                info.set_window_flags(flags);
+                let mut state = info.get_current_window_state().clone();
+                state.flags.close_requested = true;
+                info.modify_window_state(state);
             }
         }
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        use azul_core::window::WindowFlags;
-
         eprintln!("[Close Callback] Close confirmation not implemented for this platform");
         // Allow closing on other platforms
-        let mut flags = WindowFlags::default();
-        flags.close_requested = true;
-        info.set_window_flags(flags);
+        let mut state = info.get_current_window_state().clone();
+        state.flags.close_requested = true;
+        info.modify_window_state(state);
     }
 
     Update::DoNothing

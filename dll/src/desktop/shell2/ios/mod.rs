@@ -294,7 +294,7 @@ impl PlatformWindow for IOSWindow {
     }
 
     // ... other stubs for PlatformWindow ...
-    fn get_state(&self) -> WindowState { self.current_window_state.to_window_state() }
+    fn get_state(&self) -> FullWindowState { self.current_window_state.clone() }
     fn set_properties(&mut self, _: WindowProperties) -> Result<(), WindowError> { Ok(()) }
     fn get_render_context(&self) -> RenderContext { RenderContext::CPU }
     fn is_open(&self) -> bool { self.is_open }

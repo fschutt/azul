@@ -110,13 +110,21 @@ fn main() {
     // Call layout callback to get styled DOM
     eprintln!("[main] Calling layout callback...");
     let mut app_data = RefAny::new(AppData { content: "test" });
+
+    // Create reference data container (syntax sugar to reduce parameter count)
+    let image_cache = azul_core::resources::ImageCache::default();
+    let gl_context = azul_core::gl::OptionGlContextPtr::None;
+    let layout_ref_data = azul_core::callbacks::LayoutCallbackInfoRefData {
+        image_cache: &image_cache,
+        gl_context: &gl_context,
+        system_fonts: &*fc_cache,
+        system_style: std::sync::Arc::new(SystemStyle::default()),
+    };
+
     let mut callback_info = LayoutCallbackInfo::new(
+        &layout_ref_data,
         size,
         azul_core::window::WindowTheme::LightMode,
-        &azul_core::resources::ImageCache::default(),
-        &azul_core::gl::OptionGlContextPtr::None,
-        &*fc_cache,
-        std::sync::Arc::new(SystemStyle::default()),
     );
 
     let styled_dom = layout_callback(&mut app_data, &mut callback_info);

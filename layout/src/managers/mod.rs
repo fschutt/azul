@@ -1,5 +1,7 @@
 pub mod a11y;
 pub mod changeset;
+pub mod clipboard;
+pub mod cursor;
 pub mod drag_drop;
 pub mod file_drop;
 pub mod focus_cursor;
@@ -10,6 +12,7 @@ pub mod iframe;
 pub mod scroll_state;
 pub mod selection;
 pub mod text_input;
+pub mod undo_redo;
 
 // Re-export commonly used types
 pub use hover::InputPointId;

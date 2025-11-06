@@ -18,23 +18,28 @@ use azul_core::{
     menu::Menu,
     refany::RefAny,
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
+    selection::SelectionRange,
     styled_dom::{NodeHierarchyItemId, StyledDom},
     task::{ThreadId, TimerId},
     window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
-    props::property::{CssProperty, CssPropertyType},
+    props::{
+        basic::FontRef,
+        property::{CssProperty, CssPropertyType},
+    },
     system::SystemStyle,
     AzString,
 };
 use rust_fontconfig::FcFontCache;
 
 use crate::{
+    managers::selection::ClipboardContent,
     thread::Thread,
     timer::Timer,
     window::LayoutWindow,
-    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
 };
 
 /// Represents a change made by a callback that will be applied after the callback returns
@@ -48,7 +53,7 @@ use crate::{
 pub enum CallbackChange {
     // ===== Window State Changes =====
     /// Modify the window state (size, position, title, etc.)
-    ModifyWindowState { state: WindowState },
+    ModifyWindowState { state: FullWindowState },
     /// Create a new window
     CreateNewWindow { options: WindowCreateOptions },
     /// Close the current window (via Update::CloseWindow return value, tracked here for logging)
@@ -168,6 +173,78 @@ pub enum CallbackChange {
         node_id: NodeId,
         selection: azul_core::selection::Selection,
     },
+    /// Set/override the text changeset for the current text input operation
+    /// This allows callbacks to modify what text will be inserted during text input events
+    SetTextChangeset {
+        changeset: crate::managers::text_input::TextChangeset,
+    },
+
+    // ===== Cursor Movement Operations =====
+    /// Move cursor left (arrow left)
+    MoveCursorLeft {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor right (arrow right)
+    MoveCursorRight {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor up (arrow up)
+    MoveCursorUp {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor down (arrow down)
+    MoveCursorDown {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor to line start (Home key)
+    MoveCursorToLineStart {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor to line end (End key)
+    MoveCursorToLineEnd {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor to document start (Ctrl+Home)
+    MoveCursorToDocumentStart {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+    /// Move cursor to document end (Ctrl+End)
+    MoveCursorToDocumentEnd {
+        dom_id: DomId,
+        node_id: NodeId,
+        extend_selection: bool,
+    },
+
+    // ===== Clipboard Operations (Override) =====
+    /// Override clipboard content for copy operation
+    SetCopyContent {
+        target: DomNodeId,
+        content: ClipboardContent,
+    },
+    /// Override clipboard content for cut operation
+    SetCutContent {
+        target: DomNodeId,
+        content: ClipboardContent,
+    },
+    /// Override selection range for select-all operation
+    SetSelectAllRange {
+        target: DomNodeId,
+        range: SelectionRange,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -275,31 +352,41 @@ impl From<OptionCallback> for Option<Callback> {
 ///
 /// This design provides clear separation between queries and modifications, makes debugging
 /// easier, and allows for future extensibility.
+
+/// Reference data container for CallbackInfo (all read-only fields)
+///
+/// This struct consolidates all readonly references that callbacks need to query window state.
+/// By grouping these into a single struct, we reduce the number of parameters to
+/// CallbackInfo::new() from 13 to 3, making the API more maintainable and easier to extend.
+///
+/// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
+/// reference.
+pub struct CallbackInfoRefData<'a> {
+    /// Pointer to the LayoutWindow containing all layout results (READ-ONLY for queries)
+    pub layout_window: &'a LayoutWindow,
+    /// Necessary to query FontRefs from callbacks
+    pub renderer_resources: &'a RendererResources,
+    /// Previous window state (for detecting changes)
+    pub previous_window_state: &'a Option<FullWindowState>,
+    /// State of the current window that the callback was called on (read only!)
+    pub current_window_state: &'a FullWindowState,
+    /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
+    pub gl_context: &'a OptionGlContextPtr,
+    /// Immutable reference to where the nodes are currently scrolled (current position)
+    pub current_scroll_manager: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+    /// Handle of the current window
+    pub current_window_handle: &'a RawWindowHandle,
+    /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
+    pub system_callbacks: &'a ExternalSystemCallbacks,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
     // ===== READ-ONLY DATA (Query Access) =====
-    /// Pointer to the LayoutWindow containing all layout results (READ-ONLY for queries)
-    /// Use Deref/DerefMut traits to access layout data
-    layout_window: *const LayoutWindow,
-    /// Necessary to query FontRefs from callbacks
-    renderer_resources: *const RendererResources,
-    /// Previous window state (for detecting changes)
-    previous_window_state: *const Option<FullWindowState>,
-    /// State of the current window that the callback was called on (read only!)
-    current_window_state: *const FullWindowState,
-    /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
-    gl_context: *const OptionGlContextPtr,
-    /// Immutable reference to where the nodes are currently scrolled (current position)
-    current_scroll_manager: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-    /// Immutable reference to the scroll manager (for querying scroll state)
-    scroll_manager: *const crate::managers::scroll_state::ScrollManager,
-    /// Immutable reference to the gesture/drag manager (for querying gesture state)
-    gesture_drag_manager: *const crate::managers::gesture::GestureAndDragManager,
-    /// Handle of the current window
-    current_window_handle: *const RawWindowHandle,
-    /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
-    system_callbacks: *const ExternalSystemCallbacks,
+    /// Single reference to all readonly reference data
+    /// This consolidates 8 individual parameters into 1, improving API ergonomics
+    ref_data: *const CallbackInfoRefData<'static>,
     /// Platform-specific system style (colors, spacing, etc.)
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     system_style: Arc<SystemStyle>,
@@ -313,149 +400,31 @@ pub struct CallbackInfo {
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**
     cursor_in_viewport: OptionLogicalPosition,
 
-    // ===== LEGACY MUTABLE DATA (Being migrated to changes vec) =====
-    // TODO: These will be removed once all code is migrated to use CallbackChange
-    /// User-modifiable state of the window that the callback was called on
-    modifiable_window_state: *mut WindowState,
-    /// Cache to add / remove / query image RefAnys from / to CSS ids
-    image_cache: *mut ImageCache,
-    /// System font cache (can be regenerated / refreshed in callbacks)
-    system_fonts: *mut FcFontCache,
-    /// Currently running timers (polling functions, run on the main thread)
-    timers: *mut FastHashMap<TimerId, Timer>,
-    /// Currently running threads (asynchronous functions running each on a different thread)
-    threads: *mut FastHashMap<ThreadId, Thread>,
-    /// Timers removed by the callback
-    timers_removed: *mut FastBTreeSet<TimerId>,
-    /// Threads removed by the callback
-    threads_removed: *mut FastBTreeSet<ThreadId>,
-    /// Used to spawn new windows from callbacks
-    new_windows: *mut Vec<WindowCreateOptions>,
-    /// The callback can change the focus_target
-    focus_target: *mut Option<FocusTarget>,
-    /// Mutable reference to a list of words / text items that were changed in the callback
-    words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-    /// Mutable reference to a list of images that were changed in the callback
-    images_changed_in_callbacks:
-        *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-    /// Mutable reference to a list of image clip masks that were changed in the callback
-    image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-    /// Mutable reference to a list of CSS property changes
-    css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-    /// Mutable map where a user can set where he wants the nodes to be scrolled to
-    nodes_scrolled_in_callback:
-        *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-
     // ===== TRANSACTION CONTAINER (New System) =====
     /// All changes made by the callback, applied atomically after callback returns
-    /// This is the new system that will eventually replace all the legacy mutable pointers above
     changes: *mut Vec<CallbackChange>,
 }
 
-impl core::ops::Deref for CallbackInfo {
-    type Target = LayoutWindow;
-
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: layout_window is a valid pointer for the lifetime of CallbackInfo
-        // The unsafe code is only to eliminate lifetimes from the callback signature
-        // Note: This is now const to enforce read-only access through Deref
-        unsafe { &*self.layout_window }
-    }
-}
-
-// TODO: Remove DerefMut once all mutation is migrated to CallbackChange system
-// Currently needed for methods like scroll_selection_into_view that mutate scroll_manager
-#[allow(deprecated)]
-impl core::ops::DerefMut for CallbackInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: We cast const to mut here - this is a transitional workaround
-        // The layout_window pointer lifetime is valid for CallbackInfo lifetime
-        unsafe { &mut *(self.layout_window as *mut LayoutWindow) }
-    }
-}
-
 impl CallbackInfo {
-    #[allow(clippy::too_many_arguments)]
     pub fn new<'a>(
-        layout_window: &'a LayoutWindow,
-        renderer_resources: &'a RendererResources,
-        previous_window_state: &'a Option<FullWindowState>,
-        current_window_state: &'a FullWindowState,
-        modifiable_window_state: &'a mut WindowState,
-        gl_context: &'a OptionGlContextPtr,
-        image_cache: &'a mut ImageCache,
-        system_fonts: &'a mut FcFontCache,
+        ref_data: &'a CallbackInfoRefData<'a>,
         system_style: Arc<SystemStyle>,
-        timers: &'a mut FastHashMap<TimerId, Timer>,
-        threads: &'a mut FastHashMap<ThreadId, Thread>,
-        timers_removed: &'a mut FastBTreeSet<TimerId>,
-        threads_removed: &'a mut FastBTreeSet<ThreadId>,
-        current_window_handle: &'a RawWindowHandle,
-        new_windows: &'a mut Vec<WindowCreateOptions>,
-        system_callbacks: &'a ExternalSystemCallbacks,
-        focus_target: &'a mut Option<FocusTarget>,
-        words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-        images_changed_in_callbacks: &'a mut BTreeMap<
-            DomId,
-            BTreeMap<NodeId, (ImageRef, UpdateImageType)>,
-        >,
-        image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-        css_properties_changed_in_callbacks: &'a mut BTreeMap<
-            DomId,
-            BTreeMap<NodeId, Vec<CssProperty>>,
-        >,
-        current_scroll_manager: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-        nodes_scrolled_in_callback: &'a mut BTreeMap<
-            DomId,
-            BTreeMap<NodeHierarchyItemId, LogicalPosition>,
-        >,
         changes: &'a mut Vec<CallbackChange>,
         hit_dom_node: DomNodeId,
         cursor_relative_to_item: OptionLogicalPosition,
         cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            // Read-only data (query access)
-            layout_window: layout_window as *const LayoutWindow,
-            renderer_resources: renderer_resources as *const RendererResources,
-            previous_window_state: previous_window_state as *const Option<FullWindowState>,
-            current_window_state: current_window_state as *const FullWindowState,
-            gl_context: gl_context as *const OptionGlContextPtr,
-            current_scroll_manager: current_scroll_manager
-                as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-            scroll_manager: &layout_window.scroll_manager
-                as *const crate::managers::scroll_state::ScrollManager,
-            gesture_drag_manager: &layout_window.gesture_drag_manager
-                as *const crate::managers::gesture::GestureAndDragManager,
-            current_window_handle: current_window_handle as *const RawWindowHandle,
-            system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
+            // Read-only data (single reference to consolidated refs)
+            // SAFETY: We cast away the lifetime 'a to 'static because CallbackInfo
+            // only lives for the duration of the callback, which is shorter than 'a
+            ref_data: unsafe { core::mem::transmute(ref_data) },
             system_style,
 
             // Context info (immutable event data)
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
-
-            // Legacy mutable data (TODO: migrate to changes vec)
-            modifiable_window_state: modifiable_window_state as *mut WindowState,
-            image_cache: image_cache as *mut ImageCache,
-            system_fonts: system_fonts as *mut FcFontCache,
-            timers: timers as *mut FastHashMap<TimerId, Timer>,
-            threads: threads as *mut FastHashMap<ThreadId, Thread>,
-            timers_removed: timers_removed as *mut FastBTreeSet<TimerId>,
-            threads_removed: threads_removed as *mut FastBTreeSet<ThreadId>,
-            new_windows: new_windows as *mut Vec<WindowCreateOptions>,
-            focus_target: focus_target as *mut Option<FocusTarget>,
-            words_changed_in_callbacks: words_changed_in_callbacks
-                as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-            images_changed_in_callbacks: images_changed_in_callbacks
-                as *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-            image_masks_changed_in_callbacks: image_masks_changed_in_callbacks
-                as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-            css_properties_changed_in_callbacks: css_properties_changed_in_callbacks
-                as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-            nodes_scrolled_in_callback: nodes_scrolled_in_callback
-                as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
 
             // Transaction container (new system)
             changes: changes as *mut Vec<CallbackChange>,
@@ -513,7 +482,7 @@ impl CallbackInfo {
     }
 
     /// Modify the window state (applied after callback returns)
-    pub fn modify_window_state(&mut self, state: WindowState) {
+    pub fn modify_window_state(&mut self, state: FullWindowState) {
         self.push_change(CallbackChange::ModifyWindowState { state });
     }
 
@@ -603,68 +572,64 @@ impl CallbackInfo {
     /// This allows callbacks to inspect what text input is about to be applied.
     /// Returns None if no text input is currently being processed.
     ///
+    /// Use `set_text_changeset()` to modify the text that will be inserted,
+    /// and `prevent_default()` to block the text input entirely.
+    ///
     /// # Example
     /// ```ignore
     /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_current_text_changeset() {
+    ///     if let Some(changeset) = info.get_text_changeset() {
     ///         eprintln!("About to insert: {}", changeset.inserted_text);
     ///         eprintln!("Current text: {}", changeset.old_text);
     ///         
     ///         // Prevent default and apply custom text
     ///         info.prevent_default();
-    ///         info.override_text_changeset(
-    ///             changeset.node,
-    ///             "my custom text".to_string()
-    ///         );
+    ///         
+    ///         // Convert to uppercase
+    ///         let mut modified = changeset.clone();
+    ///         modified.inserted_text = changeset.inserted_text.to_uppercase();
+    ///         info.set_text_changeset(modified);
     ///     }
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn get_current_text_changeset(
-        &self,
-    ) -> Option<&crate::managers::text_input::TextChangeset> {
-        self.internal_get_layout_window()
+    pub fn get_text_changeset(&self) -> Option<&crate::managers::text_input::TextChangeset> {
+        self.get_layout_window()
             .text_input_manager
             .get_pending_changeset()
     }
 
-    /// Override the text changeset with custom text
+    /// Set/override the text changeset for the current text input operation
     ///
-    /// This replaces the text that would be inserted with custom text.
-    /// Must be called in conjunction with prevent_default() to take effect.
+    /// This allows you to modify what text will be inserted during text input events.
+    /// Typically used in combination with `prevent_default()` to transform user input.
     ///
     /// # Arguments
-    /// * `node` - The DOM node to apply the text change to
-    /// * `new_text` - The custom text to insert instead of the default
+    /// * `changeset` - The modified text changeset to apply
     ///
     /// # Example
     /// ```ignore
     /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_current_text_changeset() {
-    ///         // Convert to uppercase
-    ///         let uppercase = changeset.inserted_text.to_uppercase();
+    ///     if let Some(changeset) = info.get_text_changeset() {
+    ///         // Only allow digits
+    ///         let filtered: String = changeset.inserted_text
+    ///             .chars()
+    ///             .filter(|c| c.is_digit(10))
+    ///             .collect();
     ///         
-    ///         info.prevent_default();
-    ///         info.override_text_changeset(changeset.node, uppercase);
+    ///         if filtered != changeset.inserted_text {
+    ///             info.prevent_default();
+    ///             
+    ///             let mut modified = changeset.clone();
+    ///             modified.inserted_text = filtered;
+    ///             info.set_text_changeset(modified);
+    ///         }
     ///     }
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn override_text_changeset(&mut self, node: DomNodeId, new_text: String) {
-        // Get old text from current changeset
-        let old_text = self
-            .get_current_text_changeset()
-            .map(|cs| cs.old_text.clone())
-            .unwrap_or_default();
-
-        // Update the text input manager with the new text
-        use crate::managers::text_input::TextInputSource;
-        self.text_input_manager.record_input(
-            node,
-            new_text,
-            old_text,
-            TextInputSource::Programmatic,
-        );
+    pub fn set_text_changeset(&mut self, changeset: crate::managers::text_input::TextChangeset) {
+        self.push_change(CallbackChange::SetTextChangeset { changeset });
     }
 
     /// Prevent the default text input from being applied
@@ -675,7 +640,7 @@ impl CallbackInfo {
     /// # Example
     /// ```ignore
     /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_current_text_changeset() {
+    ///     if let Some(changeset) = info.get_text_changeset() {
     ///         // Only allow digits
     ///         if !changeset.inserted_text.chars().all(|c| c.is_digit(10)) {
     ///             info.prevent_default();
@@ -804,46 +769,6 @@ impl CallbackInfo {
         });
     }
 
-    /// Delete text backward (backspace) at the current cursor position
-    ///
-    /// Deletes one grapheme cluster backward from the cursor position.
-    /// If there's a selection, deletes the selection instead.
-    ///
-    /// # Arguments
-    /// * `dom_id` - The DOM containing the text node
-    /// * `node_id` - The node to delete text from
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Back) -> |info| {
-    ///     info.delete_backward(info.get_hit_dom_id(), info.get_hit_node_id());
-    ///     Update::DoNothing
-    /// }
-    /// ```
-    pub fn delete_backward(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.push_change(CallbackChange::DeleteBackward { dom_id, node_id });
-    }
-
-    /// Delete text forward (delete key) at the current cursor position
-    ///
-    /// Deletes one grapheme cluster forward from the cursor position.
-    /// If there's a selection, deletes the selection instead.
-    ///
-    /// # Arguments
-    /// * `dom_id` - The DOM containing the text node
-    /// * `node_id` - The node to delete text from
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Delete) -> |info| {
-    ///     info.delete_forward(info.get_hit_dom_id(), info.get_hit_node_id());
-    ///     Update::DoNothing
-    /// }
-    /// ```
-    pub fn delete_forward(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.push_change(CallbackChange::DeleteForward { dom_id, node_id });
-    }
-
     /// Move the text cursor to a specific position
     ///
     /// # Arguments
@@ -964,18 +889,56 @@ impl CallbackInfo {
 
     // ===== Internal accessors =====
 
-    fn internal_get_layout_window(&self) -> &LayoutWindow {
-        unsafe { &*self.layout_window }
+    /// Get reference to the underlying LayoutWindow for queries
+    ///
+    /// This provides read-only access to layout data, node hierarchies, managers, etc.
+    /// All modifications should go through CallbackChange transactions via push_change().
+    pub fn get_layout_window(&self) -> &LayoutWindow {
+        unsafe { (*self.ref_data).layout_window }
+    }
+
+    /// Internal helper: Get the inline text layout for a given node
+    ///
+    /// This efficiently looks up the text layout by following the chain:
+    /// LayoutWindow → layout_results → LayoutTree → dom_to_layout → LayoutNode →
+    /// inline_layout_result
+    ///
+    /// Returns None if:
+    /// - The DOM doesn't exist in layout_results
+    /// - The node doesn't have a layout node mapping
+    /// - The layout node doesn't have inline text layout
+    fn get_inline_layout_for_node(
+        &self,
+        node_id: &DomNodeId,
+    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout<FontRef>>> {
+        let layout_window = self.get_layout_window();
+
+        // Get the layout result for this DOM
+        let layout_result = layout_window.layout_results.get(&node_id.dom)?;
+
+        // Convert NodeHierarchyItemId to NodeId
+        let dom_node_id = node_id.node.into_crate_internal()?;
+
+        // Look up the layout node index(es) for this DOM node
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&dom_node_id)?;
+
+        // Get the first layout node (a DOM node can generate multiple layout nodes,
+        // but for text we typically only care about the first one)
+        let layout_index = *layout_indices.first()?;
+
+        // Get the layout node and its inline layout result
+        let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
+        layout_node.inline_layout_result.as_ref()
     }
 
     // ===== Public query API =====
     // All methods below delegate to LayoutWindow for read-only access
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        self.internal_get_layout_window().get_node_size(node_id)
+        self.get_layout_window().get_node_size(node_id)
     }
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
-        self.internal_get_layout_window().get_node_position(node_id)
+        self.get_layout_window().get_node_position(node_id)
     }
 
     /// Get the bounding rectangle of a node (position + size)
@@ -1001,43 +964,43 @@ impl CallbackInfo {
 
     /// Get a reference to a timer
     pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
-        self.internal_get_layout_window().get_timer(timer_id)
+        self.get_layout_window().get_timer(timer_id)
     }
 
     /// Get all timer IDs
     pub fn get_timer_ids(&self) -> Vec<TimerId> {
-        self.internal_get_layout_window().get_timer_ids()
+        self.get_layout_window().get_timer_ids()
     }
 
     // ===== Thread Management (Query APIs) =====
 
     /// Get a reference to a thread
     pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
-        self.internal_get_layout_window().get_thread(thread_id)
+        self.get_layout_window().get_thread(thread_id)
     }
 
     /// Get all thread IDs
     pub fn get_thread_ids(&self) -> Vec<ThreadId> {
-        self.internal_get_layout_window().get_thread_ids()
+        self.get_layout_window().get_thread_ids()
     }
 
     // ===== GPU Value Cache Management (Query APIs) =====
 
     /// Get the GPU value cache for a specific DOM
     pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&azul_core::gpu::GpuValueCache> {
-        self.internal_get_layout_window().get_gpu_cache(dom_id)
+        self.get_layout_window().get_gpu_cache(dom_id)
     }
 
     // ===== Layout Result Access (Query APIs) =====
 
     /// Get a layout result for a specific DOM
     pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&crate::window::DomLayoutResult> {
-        self.internal_get_layout_window().get_layout_result(dom_id)
+        self.get_layout_window().get_layout_result(dom_id)
     }
 
     /// Get all DOM IDs that have layout results
     pub fn get_dom_ids(&self) -> Vec<DomId> {
-        self.internal_get_layout_window().get_dom_ids()
+        self.get_layout_window().get_dom_ids()
     }
 
     // ===== Node Hierarchy Navigation =====
@@ -1046,19 +1009,8 @@ impl CallbackInfo {
         self.hit_dom_node
     }
 
-    /// Get full current window state (immutable reference)
-    ///
-    /// This provides safe access to the full window state for reading
-    /// mouse position, keyboard state, size, DPI, etc. in callbacks.
-    /// Unlike `get_current_window_state()` which clones WindowState,
-    /// this returns a reference to the complete FullWindowState.
-    pub fn get_full_current_window_state(&self) -> &FullWindowState {
-        // SAFETY: current_window_state is a valid pointer for the lifetime of CallbackInfo
-        unsafe { &*self.current_window_state }
-    }
-
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
@@ -1073,7 +1025,7 @@ impl CallbackInfo {
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
@@ -1088,7 +1040,7 @@ impl CallbackInfo {
     }
 
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
@@ -1103,7 +1055,7 @@ impl CallbackInfo {
     }
 
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
@@ -1118,7 +1070,7 @@ impl CallbackInfo {
     }
 
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
@@ -1135,7 +1087,7 @@ impl CallbackInfo {
     // ===== Node Data and State =====
 
     pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
@@ -1148,7 +1100,7 @@ impl CallbackInfo {
         let search_type_id = search_key.get_type_id();
 
         for dom_id in self.get_dom_ids() {
-            let layout_window = self.internal_get_layout_window();
+            let layout_window = self.get_layout_window();
             let layout_result = match layout_window.get_layout_result(&dom_id) {
                 Some(lr) => lr,
                 None => continue,
@@ -1181,7 +1133,7 @@ impl CallbackInfo {
     }
 
     pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
@@ -1194,76 +1146,25 @@ impl CallbackInfo {
         }
     }
 
-    pub fn set_string_contents(&mut self, node_id: DomNodeId, new_string_contents: AzString) {
-        let node_id_internal = NodeId::new(node_id.node.inner);
-        unsafe {
-            (*self.words_changed_in_callbacks)
-                .entry(node_id.dom)
-                .or_insert_with(BTreeMap::new)
-                .insert(node_id_internal, new_string_contents);
-        }
-    }
-
     // ===== Text Selection Management =====
 
     /// Get the current selection state for a DOM
     pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .selection_manager
             .get_selection(dom_id)
     }
 
-    /// Set a single cursor position, replacing all existing selections
-    pub fn set_cursor(
-        &mut self,
-        dom_id: DomId,
-        node_id: DomNodeId,
-        cursor: azul_core::selection::TextCursor,
-    ) {
-        self.selection_manager.set_cursor(dom_id, node_id, cursor);
-    }
-
-    /// Set a selection range, replacing all existing selections
-    pub fn set_selection_range(
-        &mut self,
-        dom_id: DomId,
-        node_id: DomNodeId,
-        range: azul_core::selection::SelectionRange,
-    ) {
-        self.selection_manager.set_range(dom_id, node_id, range);
-    }
-
-    /// Add a selection (for multi-cursor support)
-    pub fn add_selection(
-        &mut self,
-        dom_id: DomId,
-        node_id: DomNodeId,
-        selection: azul_core::selection::Selection,
-    ) {
-        self.selection_manager
-            .add_selection(dom_id, node_id, selection);
-    }
-
-    /// Clear selection for a specific DOM
-    pub fn clear_selection(&mut self, dom_id: &DomId) {
-        self.selection_manager.clear_selection(dom_id);
-    }
-
-    /// Clear all selections across all DOMs
-    pub fn clear_all_selections(&mut self) {
-        self.selection_manager.clear_all();
-    }
-
     /// Check if a DOM has any selection
     pub fn has_selection(&self, dom_id: &DomId) -> bool {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .selection_manager
             .has_selection(dom_id)
     }
 
     /// Get the primary cursor for a DOM (first in selection list)
     pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<azul_core::selection::TextCursor> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .selection_manager
             .get_primary_cursor(dom_id)
     }
@@ -1273,111 +1174,80 @@ impl CallbackInfo {
         &self,
         dom_id: &DomId,
     ) -> Vec<azul_core::selection::SelectionRange> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .selection_manager
             .get_ranges(dom_id)
     }
 
     /// Get direct access to the text layout cache
     ///
-    /// Note: This provides direct access to the text layout cache, but you need
+    /// Note: This provides direct read-only access to the text layout cache, but you need
     /// to know the CacheId for the specific text node you want. Currently there's
     /// no direct mapping from NodeId to CacheId exposed in the public API.
     ///
-    /// For text selection operations, use the SelectionManager methods instead:
-    /// - `set_cursor()`, `set_selection_range()` for setting selections
+    /// For text modifications, use CallbackChange transactions:
+    /// - `change_node_text()` for changing text content
+    /// - `set_selection()` for setting selections
     /// - `get_selection()`, `get_primary_cursor()` for reading selections
     ///
     /// Future: Add NodeId -> CacheId mapping to enable node-specific layout access
     pub fn get_text_cache(
         &self,
     ) -> &crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
-        &self.internal_get_layout_window().text_cache
-    }
-
-    /// Get mutable access to the text layout cache
-    ///
-    /// Note: Use with caution - modifying the cache directly can invalidate layout.
-    /// Prefer using higher-level methods like `set_string_contents()` which properly
-    /// invalidate affected nodes.
-    pub fn get_text_cache_mut(
-        &mut self,
-    ) -> &mut crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
-        &mut self.text_cache
+        &self.get_layout_window().text_cache
     }
 
     // ===== Window State Access =====
 
-    pub fn get_current_window_state(&self) -> WindowState {
-        unsafe { (*self.current_window_state).clone().into() }
+    /// Get full current window state (immutable reference)
+    pub fn get_current_window_state(&self) -> &FullWindowState {
+        // SAFETY: current_window_state is a valid pointer for the lifetime of CallbackInfo
+        unsafe { (*self.ref_data).current_window_state }
     }
 
-    /// Get the full (immutable) current window state
-    /// This includes position, size, DPI, and other read-only state
-    pub fn get_full_window_state(&self) -> &FullWindowState {
-        unsafe { &*self.current_window_state }
-    }
-
+    /// Get current window flags
     pub fn get_current_window_flags(&self) -> WindowFlags {
-        unsafe { (*self.current_window_state).flags.clone() }
+        self.get_current_window_state().flags.clone()
     }
 
+    /// Get current keyboard state
     pub fn get_current_keyboard_state(&self) -> KeyboardState {
-        unsafe { (*self.current_window_state).keyboard_state.clone() }
+        self.get_current_window_state().keyboard_state.clone()
     }
 
+    /// Get current mouse state
     pub fn get_current_mouse_state(&self) -> MouseState {
-        unsafe { (*self.current_window_state).mouse_state.clone() }
+        self.get_current_window_state().mouse_state.clone()
     }
 
-    pub fn get_previous_window_state(&self) -> Option<WindowState> {
-        unsafe {
-            (*self.previous_window_state)
-                .as_ref()
-                .map(|s| s.clone().into())
-        }
+    /// Get full previous window state (immutable reference)
+    pub fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+        unsafe { (*self.ref_data).previous_window_state }
     }
 
+    /// Get previous window flags
+    pub fn get_previous_window_flags(&self) -> Option<WindowFlags> {
+        Some(self.get_previous_window_state().as_ref()?.flags.clone())
+    }
+
+    /// Get previous keyboard state
     pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> {
-        unsafe {
-            (*self.previous_window_state)
-                .as_ref()
-                .map(|s| s.keyboard_state.clone())
-        }
+        Some(
+            self.get_previous_window_state()
+                .as_ref()?
+                .keyboard_state
+                .clone(),
+        )
     }
 
+    /// Get previous mouse state
     pub fn get_previous_mouse_state(&self) -> Option<MouseState> {
-        unsafe {
-            (*self.previous_window_state)
-                .as_ref()
-                .map(|s| s.mouse_state.clone())
-        }
-    }
-
-    pub fn set_window_state(&mut self, new_state: WindowState) {
-        unsafe {
-            *self.modifiable_window_state = new_state;
-        }
-    }
-
-    pub fn set_window_flags(&mut self, new_flags: WindowFlags) {
-        unsafe {
-            (*self.modifiable_window_state).flags = new_flags;
-        }
-    }
-
-    // ===== CSS and Styling =====
-
-    pub fn set_css_property(&mut self, node_id: DomNodeId, prop: CssProperty) {
-        let node_id_internal = NodeId::new(node_id.node.inner);
-        unsafe {
-            (*self.css_properties_changed_in_callbacks)
-                .entry(node_id.dom)
-                .or_insert_with(BTreeMap::new)
-                .entry(node_id_internal)
-                .or_insert_with(Vec::new)
-                .push(prop);
-        }
+        Some(
+            self.get_previous_window_state()
+                .as_ref()?
+                .mouse_state
+                .clone(),
+        )
     }
 
     // ===== Cursor and Input =====
@@ -1391,7 +1261,7 @@ impl CallbackInfo {
     }
 
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
-        unsafe { (*self.current_window_handle).clone() }
+        unsafe { (*self.ref_data).current_window_handle.clone() }
     }
 
     /// Get the system style (for menu rendering, CSD, etc.)
@@ -1407,11 +1277,8 @@ impl CallbackInfo {
 
     /// Get the layout rectangle of the currently hit node (in logical coordinates)
     pub fn get_hit_node_layout_rect(&self) -> Option<azul_core::geom::LogicalRect> {
-        // Get the layout rectangle for the hit node from the layout tree
-        unsafe {
-            let layout_window = &*self.layout_window;
-            layout_window.get_node_layout_rect(self.hit_dom_node)
-        }
+        self.get_layout_window()
+            .get_node_layout_rect(self.hit_dom_node)
     }
 
     // ===== CSS Property Access =====
@@ -1451,7 +1318,7 @@ impl CallbackInfo {
         node_id: DomNodeId,
         property_type: azul_css::props::property::CssPropertyType,
     ) -> Option<azul_css::props::property::CssProperty> {
-        let layout_window = self.internal_get_layout_window();
+        let layout_window = self.get_layout_window();
 
         // Get the layout result for this DOM
         let layout_result = layout_window.layout_results.get(&node_id.dom)?;
@@ -1501,7 +1368,7 @@ impl CallbackInfo {
     // ===== System Callbacks =====
 
     pub fn get_system_time_fn(&self) -> azul_core::task::GetSystemTimeCallback {
-        unsafe { (*self.system_callbacks).get_system_time_fn }
+        unsafe { (*self.ref_data).system_callbacks.get_system_time_fn }
     }
 
     pub fn get_current_time(&self) -> azul_core::task::Instant {
@@ -1516,7 +1383,7 @@ impl CallbackInfo {
     /// Use this to query scroll state for nodes without modifying it.
     /// To request programmatic scrolling, use `nodes_scrolled_in_callback`.
     pub fn get_scroll_manager(&self) -> &crate::managers::scroll_state::ScrollManager {
-        unsafe { &*self.scroll_manager }
+        unsafe { &(*self.ref_data).layout_window.scroll_manager }
     }
 
     /// Get immutable reference to the gesture and drag manager
@@ -1527,7 +1394,7 @@ impl CallbackInfo {
     /// The manager is updated by the event loop and provides read-only query access
     /// to callbacks for gesture-aware UI behavior.
     pub fn get_gesture_drag_manager(&self) -> &crate::managers::gesture::GestureAndDragManager {
-        unsafe { &*self.gesture_drag_manager }
+        unsafe { &(*self.ref_data).layout_window.gesture_drag_manager }
     }
 
     /// Get immutable reference to the focus manager
@@ -1535,7 +1402,30 @@ impl CallbackInfo {
     /// Use this to query which node currently has focus and whether focus
     /// is being moved to another node.
     pub fn get_focus_manager(&self) -> &crate::managers::focus_cursor::FocusManager {
-        &self.internal_get_layout_window().focus_manager
+        &self.get_layout_window().focus_manager
+    }
+
+    /// Get a reference to the undo/redo manager
+    ///
+    /// This allows user callbacks to query the undo/redo state and intercept
+    /// undo/redo operations via preventDefault().
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Z) -> |info| {
+    ///     let undo_manager = info.get_undo_redo_manager();
+    ///     if undo_manager.can_undo(node_id) {
+    ///         // Allow default undo behavior
+    ///         Update::DoNothing
+    ///     } else {
+    ///         // Prevent default if no undo available
+    ///         info.prevent_default();
+    ///         Update::DoNothing
+    ///     }
+    /// }
+    /// ```
+    pub fn get_undo_redo_manager(&self) -> &crate::managers::undo_redo::UndoRedoManager {
+        &self.get_layout_window().undo_redo_manager
     }
 
     /// Get immutable reference to the hover manager
@@ -1543,21 +1433,21 @@ impl CallbackInfo {
     /// Use this to query which nodes are currently hovered at various input points
     /// (mouse, touch points, pen).
     pub fn get_hover_manager(&self) -> &crate::managers::hover::HoverManager {
-        &self.internal_get_layout_window().hover_manager
+        &self.get_layout_window().hover_manager
     }
 
     /// Get immutable reference to the text input manager
     ///
     /// Use this to query text selection state, cursor positions, and IME composition.
     pub fn get_text_input_manager(&self) -> &crate::managers::text_input::TextInputManager {
-        &self.internal_get_layout_window().text_input_manager
+        &self.get_layout_window().text_input_manager
     }
 
     /// Get immutable reference to the selection manager
     ///
     /// Use this to query text selections across multiple nodes.
     pub fn get_selection_manager(&self) -> &crate::managers::selection::SelectionManager {
-        &self.internal_get_layout_window().selection_manager
+        &self.get_layout_window().selection_manager
     }
 
     /// Check if a specific node is currently focused
@@ -1629,62 +1519,43 @@ impl CallbackInfo {
 
     /// Set focus to a specific DOM node by ID
     pub fn set_focus_to_node(&mut self, dom_id: DomId, node_id: NodeId) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::Id(DomNodeId {
-                dom: dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-            }));
-        }
+        self.set_focus(FocusTarget::Id(DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        }));
     }
 
     /// Set focus to a node matching a CSS path
     pub fn set_focus_to_path(&mut self, dom_id: DomId, css_path: azul_css::css::CssPath) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::Path(FocusTargetPath {
-                dom: dom_id,
-                css_path,
-            }));
-        }
+        self.set_focus(FocusTarget::Path(FocusTargetPath {
+            dom: dom_id,
+            css_path,
+        }));
     }
 
     /// Move focus to next focusable element in tab order
     pub fn focus_next(&mut self) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::Next);
-        }
+        self.set_focus(FocusTarget::Next);
     }
 
     /// Move focus to previous focusable element in tab order
     pub fn focus_previous(&mut self) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::Previous);
-        }
+        self.set_focus(FocusTarget::Previous);
     }
 
     /// Move focus to first focusable element
     pub fn focus_first(&mut self) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::First);
-        }
+        self.set_focus(FocusTarget::First);
     }
 
     /// Move focus to last focusable element
     pub fn focus_last(&mut self) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::Last);
-        }
+        self.set_focus(FocusTarget::Last);
     }
 
     /// Remove focus from all elements
     pub fn clear_focus(&mut self) {
-        unsafe {
-            *self.focus_target = Some(FocusTarget::NoFocus);
-        }
-    }
-
-    /// Get the current focus target (if one was set in this callback)
-    pub fn get_focus_target(&self) -> Option<&FocusTarget> {
-        unsafe { (*self.focus_target).as_ref() }
+        self.set_focus(FocusTarget::NoFocus);
     }
 
     // ===== Manager Access Methods =====
@@ -1700,7 +1571,7 @@ impl CallbackInfo {
     ///
     /// Returns None if no node has focus.
     pub fn get_focused_node(&self) -> Option<DomNodeId> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .focus_manager
             .get_focused_node()
             .copied()
@@ -1708,16 +1579,14 @@ impl CallbackInfo {
 
     /// Check if a specific node has focus
     pub fn has_focus(&self, node_id: DomNodeId) -> bool {
-        self.internal_get_layout_window()
-            .focus_manager
-            .has_focus(&node_id)
+        self.get_layout_window().focus_manager.has_focus(&node_id)
     }
 
     /// Get the currently hovered file (if drag-drop is in progress)
     ///
     /// Returns None if no file is being hovered over the window.
     pub fn get_hovered_file(&self) -> Option<&azul_css::AzString> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .file_drop_manager
             .get_hovered_file()
     }
@@ -1727,7 +1596,7 @@ impl CallbackInfo {
     /// This is a one-shot value that is cleared after event processing.
     /// Returns None if no file was dropped this frame.
     pub fn get_dropped_file(&self) -> Option<&azul_css::AzString> {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .file_drop_manager
             .dropped_file
             .as_ref()
@@ -1737,21 +1606,19 @@ impl CallbackInfo {
     ///
     /// Returns true if either a node drag or file drag is in progress.
     pub fn is_drag_active(&self) -> bool {
-        self.internal_get_layout_window()
-            .drag_drop_manager
-            .is_dragging()
+        self.get_layout_window().drag_drop_manager.is_dragging()
     }
 
     /// Check if a node drag is specifically active
     pub fn is_node_drag_active(&self) -> bool {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .drag_drop_manager
             .is_dragging_node()
     }
 
     /// Check if a file drag is specifically active
     pub fn is_file_drag_active(&self) -> bool {
-        self.internal_get_layout_window()
+        self.get_layout_window()
             .drag_drop_manager
             .is_dragging_file()
     }
@@ -1760,9 +1627,7 @@ impl CallbackInfo {
     ///
     /// Returns None if no drag is active, or Some with drag details.
     pub fn get_drag_state(&self) -> Option<&crate::managers::drag_drop::DragState> {
-        self.internal_get_layout_window()
-            .drag_drop_manager
-            .get_drag_state()
+        self.get_layout_window().drag_drop_manager.get_drag_state()
     }
 
     // ===== Hover Manager Access =====
@@ -1801,7 +1666,7 @@ impl CallbackInfo {
 
     /// Get immutable reference to the file drop manager
     pub fn get_file_drop_manager(&self) -> &crate::managers::file_drop::FileDropManager {
-        &self.internal_get_layout_window().file_drop_manager
+        &self.get_layout_window().file_drop_manager
     }
 
     /// Get all selections across all DOMs
@@ -1813,7 +1678,7 @@ impl CallbackInfo {
 
     /// Get immutable reference to the drag-drop manager
     pub fn get_drag_drop_manager(&self) -> &crate::managers::drag_drop::DragDropManager {
-        &self.internal_get_layout_window().drag_drop_manager
+        &self.get_layout_window().drag_drop_manager
     }
 
     /// Get the node being dragged (if any)
@@ -1874,14 +1739,668 @@ impl CallbackInfo {
 
     /// Get immutable reference to the GPU state manager
     pub fn get_gpu_state_manager(&self) -> &crate::managers::gpu_state::GpuStateManager {
-        &self.internal_get_layout_window().gpu_state_manager
+        &self.get_layout_window().gpu_state_manager
     }
 
     // ===== IFrame Manager Access =====
 
     /// Get immutable reference to the IFrame manager
     pub fn get_iframe_manager(&self) -> &crate::managers::iframe::IFrameManager {
-        &self.internal_get_layout_window().iframe_manager
+        &self.get_layout_window().iframe_manager
+    }
+
+    // ===== Changeset Inspection/Modification Methods =====
+    // These methods allow callbacks to inspect pending operations and modify them before execution
+
+    /// Inspect a pending copy operation
+    ///
+    /// Returns the clipboard content that would be copied if the operation proceeds.
+    /// Use this to validate or transform clipboard content before copying.
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Copy -> |info| {
+    ///     if let Some(content) = info.inspect_copy_changeset() {
+    ///         if content.plain_text.contains("secret") {
+    ///             info.prevent_default(); // Block copying secrets
+    ///             return Update::PreventDefault;
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn inspect_copy_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
+        let layout_window = self.get_layout_window();
+        let dom_id = &target.dom;
+        layout_window.get_selected_content_for_clipboard(dom_id)
+    }
+
+    /// Inspect a pending cut operation
+    ///
+    /// Returns the clipboard content that would be cut (copied + deleted).
+    /// Use this to validate or transform content before cutting.
+    pub fn inspect_cut_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
+        // Cut uses same content extraction as copy
+        self.inspect_copy_changeset(target)
+    }
+
+    /// Inspect the current selection range that would be affected by paste
+    ///
+    /// Returns the selection range that will be replaced when pasting.
+    /// Returns None if no selection exists (paste will insert at cursor).
+    pub fn inspect_paste_target_range(&self, target: DomNodeId) -> Option<SelectionRange> {
+        let layout_window = self.get_layout_window();
+        let dom_id = &target.dom;
+        layout_window
+            .selection_manager
+            .get_ranges(dom_id)
+            .first()
+            .copied()
+    }
+
+    /// Inspect what text would be selected by Select All operation
+    ///
+    /// Returns the full text content and the range that would be selected.
+    pub fn inspect_select_all_changeset(
+        &self,
+        target: DomNodeId,
+    ) -> Option<(String, SelectionRange)> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+        let layout_window = self.get_layout_window();
+        let node_id = target.node.into_crate_internal()?;
+
+        // Get text content
+        let content = layout_window.get_text_before_textinput(target.dom, node_id);
+        let text = layout_window.extract_text_from_inline_content(&content);
+
+        // Create selection range from start to end
+        let start_cursor = TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        };
+
+        let end_cursor = TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: text.len() as u32,
+            },
+            affinity: CursorAffinity::Leading,
+        };
+
+        let range = SelectionRange {
+            start: start_cursor,
+            end: end_cursor,
+        };
+
+        Some((text, range))
+    }
+
+    /// Inspect what would be deleted by a backspace/delete operation
+    ///
+    /// Uses the pure functions from `text3::edit::inspect_delete()` to determine
+    /// what would be deleted without actually performing the deletion.
+    ///
+    /// Returns (range_to_delete, deleted_text).
+    /// - forward=true: Delete key (delete character after cursor)
+    /// - forward=false: Backspace key (delete character before cursor)
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Backspace) -> |info| {
+    ///     if let Some((range, text)) = info.inspect_delete_changeset(target, false) {
+    ///         if text.contains("important") {
+    ///             info.prevent_default(); // Prevent deleting important text
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn inspect_delete_changeset(
+        &self,
+        target: DomNodeId,
+        forward: bool,
+    ) -> Option<(SelectionRange, String)> {
+        use azul_core::selection::Selection;
+
+        let layout_window = self.get_layout_window();
+        let dom_id = &target.dom;
+        let node_id = target.node.into_crate_internal()?;
+
+        // Get the inline content for this node
+        let content = layout_window.get_text_before_textinput(target.dom, node_id);
+
+        // Get current selection state
+        let selection =
+            if let Some(range) = layout_window.selection_manager.get_ranges(dom_id).first() {
+                Selection::Range(*range)
+            } else if let Some(cursor) = layout_window.cursor_manager.get_cursor() {
+                Selection::Cursor(*cursor)
+            } else {
+                return None; // No cursor or selection
+            };
+
+        // Use text3::edit::inspect_delete to determine what would be deleted
+        crate::text3::edit::inspect_delete(&content, &selection, forward)
+    }
+
+    /// Inspect a pending undo operation
+    ///
+    /// Returns the operation that would be undone, allowing inspection
+    /// of what state will be restored.
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Z) -> |info| {
+    ///     if let Some(op) = info.inspect_undo_operation(node_id) {
+    ///         if op.is_critical() {
+    ///             info.prevent_default(); // Protect critical edits
+    ///             return Update::PreventDefault;
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn inspect_undo_operation(
+        &self,
+        node_id: NodeId,
+    ) -> Option<&crate::managers::undo_redo::UndoableOperation> {
+        self.get_undo_redo_manager().peek_undo(node_id)
+    }
+
+    /// Inspect a pending redo operation
+    ///
+    /// Returns the operation that would be reapplied.
+    pub fn inspect_redo_operation(
+        &self,
+        node_id: NodeId,
+    ) -> Option<&crate::managers::undo_redo::UndoableOperation> {
+        self.get_undo_redo_manager().peek_redo(node_id)
+    }
+
+    // ===== Clipboard Helper Methods =====
+
+    /// Get clipboard content from system clipboard (available during paste operations)
+    ///
+    /// This returns content that was read from the system clipboard when Ctrl+V was pressed.
+    /// It's only available in On::Paste callbacks or similar clipboard-related callbacks.
+    ///
+    /// Use this to inspect what will be pasted before allowing or modifying the paste operation.
+    ///
+    /// # Returns
+    /// * `Some(&ClipboardContent)` - If paste is in progress and clipboard has content
+    /// * `None` - If no paste operation is active or clipboard is empty
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Paste -> |info| {
+    ///     if let Some(content) = info.get_clipboard_content() {
+    ///         // Check if pasted text contains forbidden characters
+    ///         if content.plain_text.contains("forbidden") {
+    ///             info.prevent_default(); // Block paste
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn get_clipboard_content(&self) -> Option<&ClipboardContent> {
+        unsafe {
+            (*self.ref_data)
+                .layout_window
+                .clipboard_manager
+                .get_paste_content()
+        }
+    }
+
+    /// Override clipboard content for copy/cut operations
+    ///
+    /// This sets custom content that will be written to the system clipboard.
+    /// Use this in On::Copy or On::Cut callbacks to modify what gets copied.
+    ///
+    /// # Arguments
+    /// * `content` - The clipboard content to write to system clipboard
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Copy -> |info| {
+    ///     let mut content = ClipboardContent {
+    ///         plain_text: "Custom copied text".to_string(),
+    ///         styled_runs: vec![],
+    ///     };
+    ///     info.set_clipboard_content(content);
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn set_clipboard_content(&mut self, content: ClipboardContent) {
+        // Queue the clipboard content to be set after callback returns
+        // This will be picked up by the clipboard manager
+        self.push_change(CallbackChange::SetCopyContent {
+            target: self.hit_dom_node,
+            content,
+        });
+    }
+
+    /// Set/modify the clipboard content before a copy operation
+    ///
+    /// Use this to transform clipboard content before copying.
+    /// The change is queued and will be applied after the callback returns,
+    /// if preventDefault() was not called.
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::Copy -> |info| {
+    ///     if let Some(mut content) = info.inspect_copy_changeset(target) {
+    ///         // Add prefix to copied text
+    ///         content.plain_text = format!("[COPIED] {}", content.plain_text);
+    ///         info.set_copy_content(target, content);
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn set_copy_content(&mut self, target: DomNodeId, content: ClipboardContent) {
+        self.push_change(CallbackChange::SetCopyContent { target, content });
+    }
+
+    /// Set/modify the clipboard content before a cut operation
+    ///
+    /// Similar to set_copy_content but for cut operations.
+    /// The change is queued and will be applied after the callback returns.
+    pub fn set_cut_content(&mut self, target: DomNodeId, content: ClipboardContent) {
+        self.push_change(CallbackChange::SetCutContent { target, content });
+    }
+
+    /// Override the selection range for select-all operation
+    ///
+    /// Use this to limit what gets selected (e.g., only select visible text).
+    /// The change is queued and will be applied after the callback returns.
+    pub fn set_select_all_range(&mut self, target: DomNodeId, range: SelectionRange) {
+        self.push_change(CallbackChange::SetSelectAllRange { target, range });
+    }
+
+    /// Get the current text content of a node
+    ///
+    /// Helper for inspecting text before operations.
+    pub fn get_node_text_content(&self, target: DomNodeId) -> Option<String> {
+        let layout_window = self.get_layout_window();
+        let node_id = target.node.into_crate_internal()?;
+        let content = layout_window.get_text_before_textinput(target.dom, node_id);
+        Some(layout_window.extract_text_from_inline_content(&content))
+    }
+
+    /// Get the current cursor position in a node
+    ///
+    /// Returns the text cursor position if the node is focused.
+    pub fn get_node_cursor_position(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+
+        // Check if this node is focused
+        if !layout_window.focus_manager.has_focus(&target) {
+            return None;
+        }
+
+        layout_window.cursor_manager.get_cursor().copied()
+    }
+
+    /// Get the current selection ranges in a node
+    ///
+    /// Returns all active selection ranges for the specified DOM.
+    pub fn get_node_selection_ranges(&self, target: DomNodeId) -> Vec<SelectionRange> {
+        let layout_window = self.get_layout_window();
+        layout_window
+            .selection_manager
+            .get_ranges(&target.dom)
+            .to_vec()
+    }
+
+    /// Check if a specific node has an active selection
+    ///
+    /// This checks if the specific node (identified by DomNodeId) has a selection,
+    /// as opposed to has_selection(DomId) which checks the entire DOM.
+    pub fn node_has_selection(&self, target: DomNodeId) -> bool {
+        !self.get_node_selection_ranges(target).is_empty()
+    }
+
+    /// Get the length of text in a node
+    ///
+    /// Useful for bounds checking in custom operations.
+    pub fn get_node_text_length(&self, target: DomNodeId) -> Option<usize> {
+        self.get_node_text_content(target).map(|text| text.len())
+    }
+
+    // ===== Cursor Movement Inspection/Override Methods =====
+
+    /// Inspect where the cursor would move when pressing left arrow
+    ///
+    /// Returns the new cursor position that would result from moving left.
+    /// Returns None if the cursor is already at the start of the document.
+    ///
+    /// # Arguments
+    /// * `target` - The node containing the cursor
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Left) -> |info| {
+    ///     if let Some(new_pos) = info.inspect_move_cursor_left(target) {
+    ///         // Check if we're moving past a special boundary
+    ///         if is_special_boundary(new_pos) {
+    ///             info.prevent_default(); // Block movement
+    ///         }
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn inspect_move_cursor_left(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        let new_cursor = layout.move_cursor_left(*cursor, &mut None);
+
+        // Only return if cursor actually moved
+        if new_cursor != *cursor {
+            Some(new_cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Inspect where the cursor would move when pressing right arrow
+    ///
+    /// Returns the new cursor position that would result from moving right.
+    /// Returns None if the cursor is already at the end of the document.
+    pub fn inspect_move_cursor_right(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        let new_cursor = layout.move_cursor_right(*cursor, &mut None);
+
+        // Only return if cursor actually moved
+        if new_cursor != *cursor {
+            Some(new_cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Inspect where the cursor would move when pressing up arrow
+    ///
+    /// Returns the new cursor position that would result from moving up one line.
+    /// Returns None if the cursor is already on the first line.
+    pub fn inspect_move_cursor_up(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        // goal_x maintains horizontal position when moving vertically
+        let new_cursor = layout.move_cursor_up(*cursor, &mut None, &mut None);
+
+        // Only return if cursor actually moved
+        if new_cursor != *cursor {
+            Some(new_cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Inspect where the cursor would move when pressing down arrow
+    ///
+    /// Returns the new cursor position that would result from moving down one line.
+    /// Returns None if the cursor is already on the last line.
+    pub fn inspect_move_cursor_down(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        // goal_x maintains horizontal position when moving vertically
+        let new_cursor = layout.move_cursor_down(*cursor, &mut None, &mut None);
+
+        // Only return if cursor actually moved
+        if new_cursor != *cursor {
+            Some(new_cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Inspect where the cursor would move when pressing Home key
+    ///
+    /// Returns the cursor position at the start of the current line.
+    pub fn inspect_move_cursor_to_line_start(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        let new_cursor = layout.move_cursor_to_line_start(*cursor, &mut None);
+
+        // Always return the result (might be same as input if already at line start)
+        Some(new_cursor)
+    }
+
+    /// Inspect where the cursor would move when pressing End key
+    ///
+    /// Returns the cursor position at the end of the current line.
+    pub fn inspect_move_cursor_to_line_end(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        let layout_window = self.get_layout_window();
+        let cursor = layout_window.cursor_manager.get_cursor()?;
+
+        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // inline_layout_result
+        let layout = self.get_inline_layout_for_node(&target)?;
+
+        // Use the text3::cache cursor movement logic
+        let new_cursor = layout.move_cursor_to_line_end(*cursor, &mut None);
+
+        // Always return the result (might be same as input if already at line end)
+        Some(new_cursor)
+    }
+
+    /// Inspect where the cursor would move when pressing Ctrl+Home
+    ///
+    /// Returns the cursor position at the start of the document.
+    pub fn inspect_move_cursor_to_document_start(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
+
+        Some(azul_core::selection::TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
+    /// Inspect where the cursor would move when pressing Ctrl+End
+    ///
+    /// Returns the cursor position at the end of the document.
+    pub fn inspect_move_cursor_to_document_end(
+        &self,
+        target: DomNodeId,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
+
+        let text_len = self.get_node_text_length(target)?;
+
+        Some(azul_core::selection::TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: text_len as u32,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
+    /// Inspect what text would be deleted by backspace (including Shift+Backspace)
+    ///
+    /// Returns (range_to_delete, deleted_text).
+    /// This is a convenience wrapper around inspect_delete_changeset(target, false).
+    pub fn inspect_backspace(&self, target: DomNodeId) -> Option<(SelectionRange, String)> {
+        self.inspect_delete_changeset(target, false)
+    }
+
+    /// Inspect what text would be deleted by delete key
+    ///
+    /// Returns (range_to_delete, deleted_text).
+    /// This is a convenience wrapper around inspect_delete_changeset(target, true).
+    pub fn inspect_delete(&self, target: DomNodeId) -> Option<(SelectionRange, String)> {
+        self.inspect_delete_changeset(target, true)
+    }
+
+    // ===== Cursor Movement Override Methods =====
+    // These methods queue cursor movement operations to be applied after the callback
+
+    /// Move cursor left (arrow left key)
+    ///
+    /// # Arguments
+    /// * `target` - The node containing the cursor
+    /// * `extend_selection` - If true, extends selection (Shift+Left); if false, moves cursor
+    ///
+    /// # Example
+    /// ```ignore
+    /// On::KeyDown(VirtualKeyCode::Left) -> |info| {
+    ///     let shift_pressed = info.get_current_keyboard_state().shift_down;
+    ///     info.move_cursor_left(target, shift_pressed);
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn move_cursor_left(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorLeft {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor right (arrow right key)
+    pub fn move_cursor_right(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorRight {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor up (arrow up key)
+    pub fn move_cursor_up(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorUp {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor down (arrow down key)
+    pub fn move_cursor_down(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorDown {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor to line start (Home key)
+    pub fn move_cursor_to_line_start(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorToLineStart {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor to line end (End key)
+    pub fn move_cursor_to_line_end(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorToLineEnd {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor to document start (Ctrl+Home)
+    pub fn move_cursor_to_document_start(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorToDocumentStart {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Move cursor to document end (Ctrl+End)
+    pub fn move_cursor_to_document_end(&mut self, target: DomNodeId, extend_selection: bool) {
+        self.push_change(CallbackChange::MoveCursorToDocumentEnd {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+            extend_selection,
+        });
+    }
+
+    /// Delete text backward (backspace or Shift+Backspace)
+    ///
+    /// Queues a backspace operation to be applied after the callback.
+    /// Use inspect_backspace() to see what would be deleted.
+    pub fn delete_backward(&mut self, target: DomNodeId) {
+        self.push_change(CallbackChange::DeleteBackward {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+        });
+    }
+
+    /// Delete text forward (delete key)
+    ///
+    /// Queues a delete operation to be applied after the callback.
+    /// Use inspect_delete() to see what would be deleted.
+    pub fn delete_forward(&mut self, target: DomNodeId) {
+        self.push_change(CallbackChange::DeleteForward {
+            dom_id: target.dom,
+            node_id: target.node.into_crate_internal().unwrap_or(NodeId::ZERO),
+        });
     }
 }
 
@@ -1966,8 +2485,8 @@ pub struct CallCallbacksResult {
     pub should_scroll_render: bool,
     /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: Update,
-    /// WindowState that was (potentially) modified in the callbacks
-    pub modified_window_state: Option<WindowState>,
+    /// FullWindowState that was (potentially) modified in the callbacks
+    pub modified_window_state: Option<FullWindowState>,
     /// Text changes that don't require full relayout
     pub words_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
     /// Image changes (for animated images/video)

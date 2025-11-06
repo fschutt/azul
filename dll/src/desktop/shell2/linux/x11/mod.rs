@@ -127,27 +127,10 @@ impl PlatformWindow for X11Window {
         Self::new_with_resources(options, resources)
     }
 
-    fn get_state(&self) -> WindowState {
-        WindowState {
-            title: self.current_window_state.title.clone(),
-            size: self.current_window_state.size,
-            position: self.current_window_state.position,
-            flags: self.current_window_state.flags,
-            theme: self.current_window_state.theme,
-            debug_state: self.current_window_state.debug_state,
-            keyboard_state: self.current_window_state.keyboard_state.clone(),
-            mouse_state: self.current_window_state.mouse_state.clone(),
-            touch_state: self.current_window_state.touch_state.clone(),
-            ime_position: self.current_window_state.ime_position,
-            platform_specific_options: self.current_window_state.platform_specific_options.clone(),
-            renderer_options: self.current_window_state.renderer_options,
-            background_color: self.current_window_state.background_color,
-            layout_callback: self.current_window_state.layout_callback.clone(),
-            close_callback: self.current_window_state.close_callback.clone(),
-            monitor: Monitor::default(), /* Monitor info needs to be looked up from platform via
-                                          * monitor_id */
-        }
+    fn get_state(&self) -> FullWindowState {
+        self.current_window_state.clone()
     }
+
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
         if let Some(title) = props.title {
             self.current_window_state.title = title.clone().into();
@@ -1330,6 +1313,31 @@ impl PlatformWindowV2 for X11Window {
             self.show_fallback_menu(menu, position);
         }
     }
+
+    // =========================================================================
+    // Tooltip Methods (X11 Implementation)
+    // =========================================================================
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        text: &str,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        // Convert logical position to screen coordinates
+        let window_pos = match self.current_window_state.position {
+            azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
+            _ => (0, 0),
+        };
+
+        let screen_x = window_pos.0 + position.x as i32;
+        let screen_y = window_pos.1 + position.y as i32;
+
+        self.show_tooltip(text.to_string(), screen_x, screen_y);
+    }
+
+    fn hide_tooltip_from_callback(&mut self) {
+        self.hide_tooltip();
+    }
 }
 
 impl X11Window {
@@ -1365,30 +1373,44 @@ impl X11Window {
 
         self.pending_window_creates.push(menu_options);
     }
+}
 
-    // =========================================================================
-    // Tooltip Methods (X11 Implementation)
-    // =========================================================================
+// Private helper methods for X11Window
+impl X11Window {
+    /// Show a tooltip at the given position (X11 implementation)
+    fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
+        // Create tooltip window if needed
+        if self.tooltip.is_none() {
+            match tooltip::TooltipWindow::new(self.xlib.clone(), self.display, self.window) {
+                Ok(tooltip_window) => {
+                    self.tooltip = Some(tooltip_window);
+                }
+                Err(e) => {
+                    eprintln!("[X11] Failed to create tooltip window: {}", e);
+                    return;
+                }
+            }
+        }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: String,
-        position: azul_core::geom::LogicalPosition,
-    ) {
-        // Convert logical position to screen coordinates
-        let window_pos = match self.current_window_state.position {
-            azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
-            _ => (0, 0),
-        };
+        // Show tooltip
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 
-        let screen_x = window_pos.0 + position.x as i32;
-        let screen_y = window_pos.1 + position.y as i32;
+            let position = LogicalPosition::new(x as f32, y as f32);
+            // Use default DPI factor - tooltips don't need precise scaling
+            let dpi = DpiScaleFactor::new(1.0);
 
-        self.show_tooltip(text, screen_x, screen_y);
+            if let Err(e) = tooltip.show(&text, position, dpi) {
+                eprintln!("[X11] Failed to show tooltip: {}", e);
+            }
+        }
     }
 
-    fn hide_tooltip_from_callback(&mut self) {
-        self.hide_tooltip();
+    /// Hide the tooltip (X11 implementation)
+    fn hide_tooltip(&mut self) {
+        if let Some(tooltip) = self.tooltip.as_mut() {
+            let _ = tooltip.hide();
+        }
     }
 }
 
@@ -1478,34 +1500,6 @@ impl X11Window {
             if !layout_window.threads.is_empty() {
                 self.frame_needs_regeneration = true;
             }
-        }
-    }
-
-    /// Show a tooltip at the given position (X11 implementation)
-    fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
-        // Create tooltip window if needed
-        if self.tooltip.is_none() {
-            match tooltip::TooltipWindow::new(self.xlib.clone(), self.display) {
-                Ok(tooltip_window) => {
-                    self.tooltip = Some(tooltip_window);
-                }
-                Err(e) => {
-                    eprintln!("[X11] Failed to create tooltip window: {}", e);
-                    return;
-                }
-            }
-        }
-
-        // Show tooltip
-        if let Some(tooltip) = self.tooltip.as_mut() {
-            tooltip.show(text, x, y);
-        }
-    }
-
-    /// Hide the tooltip (X11 implementation)
-    fn hide_tooltip(&mut self) {
-        if let Some(tooltip) = self.tooltip.as_mut() {
-            tooltip.hide();
         }
     }
 

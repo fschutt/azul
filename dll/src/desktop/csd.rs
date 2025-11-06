@@ -24,31 +24,31 @@ use crate::desktop::menu_renderer::SystemStyleMenuExt; // Import trait for menu 
 
 /// Callback for the minimize button - minimizes the window
 extern "C" fn csd_minimize_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut flags = info.get_current_window_flags();
-    flags.frame = WindowFrame::Minimized;
-    info.set_window_flags(flags);
+    let mut state = info.get_current_window_state().clone();
+    state.flags.frame = WindowFrame::Minimized;
+    info.modify_window_state(state);
     eprintln!("[CSD Callback] Minimize button clicked - minimizing window");
     Update::DoNothing
 }
 
 /// Callback for the maximize button - toggles between maximized and normal
 extern "C" fn csd_maximize_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut flags = info.get_current_window_flags();
-    flags.frame = if flags.frame == WindowFrame::Maximized {
+    let mut state = info.get_current_window_state().clone();
+    state.flags.frame = if state.flags.frame == WindowFrame::Maximized {
         WindowFrame::Normal
     } else {
         WindowFrame::Maximized
     };
-    info.set_window_flags(flags);
+    info.modify_window_state(state);
     eprintln!("[CSD Callback] Maximize button clicked - toggling maximize state");
     Update::DoNothing
 }
 
 /// Callback for the close button - requests window close
 extern "C" fn csd_close_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let mut flags = info.get_current_window_flags();
-    flags.close_requested = true;
-    info.set_window_flags(flags);
+    let mut state = info.get_current_window_state().clone();
+    state.flags.close_requested = true;
+    info.modify_window_state(state);
     eprintln!("[CSD Callback] Close button clicked - requesting window close");
     Update::DoNothing
 }
@@ -143,9 +143,9 @@ extern "C" fn csd_titlebar_drag_callback(_data: &mut RefAny, info: &mut Callback
 
     // Update window position from active drag
     if let Some(new_position) = gesture_manager.get_window_position_from_drag() {
-        let mut window_state = info.get_current_window_state();
+        let mut window_state = info.get_current_window_state().clone();
         window_state.position = new_position;
-        info.set_window_state(window_state);
+        info.modify_window_state(window_state);
 
         // No logging during drag to avoid spam
     }
@@ -160,13 +160,13 @@ extern "C" fn csd_titlebar_doubleclick_callback(
 ) -> Update {
     use azul_core::window::WindowFrame;
 
-    let mut flags = info.get_current_window_flags();
-    flags.frame = if flags.frame == WindowFrame::Maximized {
+    let mut state = info.get_current_window_state().clone();
+    state.flags.frame = if state.flags.frame == WindowFrame::Maximized {
         WindowFrame::Normal
     } else {
         WindowFrame::Maximized
     };
-    info.set_window_flags(flags);
+    info.modify_window_state(state);
     eprintln!("[CSD Callback] Titlebar double-click - toggling maximize state");
     Update::DoNothing
 }

@@ -1,7 +1,7 @@
 //! Platform window trait - abstraction over native windowing systems.
 
 use azul_core::geom::{PhysicalPosition, PhysicalSize, PhysicalSizeU32};
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 use super::{compositor::RenderContext, error::WindowError};
 
@@ -64,7 +64,7 @@ pub trait PlatformWindow {
         Self: Sized;
 
     /// Get current window state (size, position, DPI, etc.).
-    fn get_state(&self) -> WindowState;
+    fn get_state(&self) -> FullWindowState;
 
     /// Set window properties (title, size, etc.).
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError>;
@@ -89,6 +89,19 @@ pub trait PlatformWindow {
 
     /// Request window redraw.
     fn request_redraw(&mut self);
+
+    /// Synchronize clipboard with the clipboard manager
+    ///
+    /// This method should:
+    /// 1. If clipboard_manager has pending copy content, write it to system clipboard
+    /// 2. Clear the clipboard manager after sync
+    ///
+    /// This is called by the event loop after processing callbacks to commit
+    /// clipboard changes requested by user callbacks.
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    );
 }
 
 #[cfg(test)]

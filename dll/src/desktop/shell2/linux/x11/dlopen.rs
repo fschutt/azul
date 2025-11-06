@@ -1,11 +1,13 @@
 //! Dynamic loading for X11 and related libraries.
 
 use std::{
-    ffi::{c_void, CStr, CString},
+    ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void, CStr, CString},
     rc::Rc,
 };
 
 use super::defines::*;
+// Re-export types from defines for convenience
+pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, GC};
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
@@ -91,11 +93,22 @@ pub struct Xlib {
     pub XMoveWindow: XMoveWindow,
     pub XDestroyWindow: XDestroyWindow,
     pub XSendEvent: XSendEvent,
-    pub XCreateGC: XCreateGC,
-    pub XFreeGC: XFreeGC,
-    pub XSetForeground: XSetForeground,
-    pub XFillRectangle: XFillRectangle,
-    pub XFlush: XFlush,
+    pub XCreateGC: unsafe extern "C" fn(*mut Display, Drawable, c_ulong, *mut c_void) -> GC,
+    pub XFreeGC: unsafe extern "C" fn(*mut Display, GC) -> c_int,
+    pub XSetForeground: unsafe extern "C" fn(*mut Display, GC, c_ulong) -> c_int,
+    pub XFillRectangle:
+        unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, c_uint, c_uint) -> c_int,
+    pub XClearWindow: unsafe extern "C" fn(*mut Display, Window) -> c_int,
+    pub XDrawString: unsafe extern "C" fn(
+        *mut Display,
+        Drawable,
+        GC,
+        c_int,
+        c_int,
+        *const c_char,
+        c_int,
+    ) -> c_int,
+    pub XFlush: unsafe extern "C" fn(*mut Display) -> c_int,
     pub XSync: XSync,
     pub XConnectionNumber: XConnectionNumber,
     pub XSetLocaleModifiers: XSetLocaleModifiers,
@@ -112,6 +125,21 @@ pub struct Xlib {
     pub XSetErrorHandler: XSetErrorHandler,
     pub XChangeProperty: XChangeProperty,
     pub XChangeWindowAttributes: XChangeWindowAttributes,
+    pub XGetWindowProperty: unsafe extern "C" fn(
+        *mut Display,
+        Window,
+        Atom,
+        c_long,
+        c_long,
+        c_int,
+        Atom,
+        *mut Atom,
+        *mut c_int,
+        *mut c_ulong,
+        *mut c_ulong,
+        *mut *mut c_uchar,
+    ) -> c_int,
+    pub XFree: unsafe extern "C" fn(*mut c_void) -> c_int,
     pub XResizeWindow: XResizeWindow,
     pub XUnmapWindow: XUnmapWindow,
     pub XCreateFontCursor: XCreateFontCursor,
@@ -150,6 +178,8 @@ impl Xlib {
             XFreeGC: load_symbol!(lib, _, "XFreeGC"),
             XSetForeground: load_symbol!(lib, _, "XSetForeground"),
             XFillRectangle: load_symbol!(lib, _, "XFillRectangle"),
+            XClearWindow: load_symbol!(lib, _, "XClearWindow"),
+            XDrawString: load_symbol!(lib, _, "XDrawString"),
             XFlush: load_symbol!(lib, _, "XFlush"),
             XSync: load_symbol!(lib, _, "XSync"),
             XConnectionNumber: load_symbol!(lib, _, "XConnectionNumber"),
@@ -167,6 +197,8 @@ impl Xlib {
             XSetErrorHandler: load_symbol!(lib, _, "XSetErrorHandler"),
             XChangeProperty: load_symbol!(lib, _, "XChangeProperty"),
             XChangeWindowAttributes: load_symbol!(lib, _, "XChangeWindowAttributes"),
+            XGetWindowProperty: load_symbol!(lib, _, "XGetWindowProperty"),
+            XFree: load_symbol!(lib, _, "XFree"),
             XResizeWindow: load_symbol!(lib, _, "XResizeWindow"),
             XUnmapWindow: load_symbol!(lib, _, "XUnmapWindow"),
             XCreateFontCursor: load_symbol!(lib, _, "XCreateFontCursor"),

@@ -479,26 +479,8 @@ impl PlatformWindow for WaylandWindow {
         Self::new(options, resources)
     }
 
-    fn get_state(&self) -> WindowState {
-        WindowState {
-            title: self.current_window_state.title.clone(),
-            size: self.current_window_state.size,
-            position: self.current_window_state.position,
-            flags: self.current_window_state.flags,
-            theme: self.current_window_state.theme,
-            debug_state: self.current_window_state.debug_state,
-            keyboard_state: self.current_window_state.keyboard_state.clone(),
-            mouse_state: self.current_window_state.mouse_state.clone(),
-            touch_state: self.current_window_state.touch_state.clone(),
-            ime_position: self.current_window_state.ime_position,
-            platform_specific_options: self.current_window_state.platform_specific_options.clone(),
-            renderer_options: self.current_window_state.renderer_options,
-            background_color: self.current_window_state.background_color,
-            layout_callback: self.current_window_state.layout_callback.clone(),
-            close_callback: self.current_window_state.close_callback.clone(),
-            monitor: Monitor::default(), /* Monitor info needs to be looked up from platform via
-                                          * monitor_id */
-        }
+    fn get_state(&self) -> FullWindowState {
+        self.current_window_state.clone()
     }
 
     fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
@@ -823,7 +805,7 @@ impl PlatformWindowV2 for WaylandWindow {
 
     fn show_tooltip_from_callback(
         &mut self,
-        text: String,
+        text: &str,
         position: azul_core::geom::LogicalPosition,
     ) {
         // Convert logical position to surface-relative coordinates
@@ -831,7 +813,7 @@ impl PlatformWindowV2 for WaylandWindow {
         let x = position.x as i32;
         let y = position.y as i32;
 
-        self.show_tooltip(text, x, y);
+        self.show_tooltip(text.to_string(), x, y);
     }
 
     fn hide_tooltip_from_callback(&mut self) {
@@ -1804,15 +1786,20 @@ impl WaylandWindow {
 
         // Check window flags for is_top_level
         if let Some(prev) = &self.previous_window_state {
-            if prev.flags.is_top_level != self.current_window_state.flags.is_top_level {
-                self.set_is_top_level(self.current_window_state.flags.is_top_level);
+            let is_top_level_changed =
+                prev.flags.is_top_level != self.current_window_state.flags.is_top_level;
+            let prevent_sleep_changed = prev.flags.prevent_system_sleep
+                != self.current_window_state.flags.prevent_system_sleep;
+            let new_is_top_level = self.current_window_state.flags.is_top_level;
+            let new_prevent_sleep = self.current_window_state.flags.prevent_system_sleep;
+
+            if is_top_level_changed {
+                self.set_is_top_level(new_is_top_level);
             }
 
             // Check window flags for prevent_system_sleep
-            if prev.flags.prevent_system_sleep
-                != self.current_window_state.flags.prevent_system_sleep
-            {
-                self.set_prevent_system_sleep(self.current_window_state.flags.prevent_system_sleep);
+            if prevent_sleep_changed {
+                self.set_prevent_system_sleep(new_prevent_sleep);
             }
         }
 

@@ -5,7 +5,7 @@
 //! - CI environments
 //! - Benchmarking without GUI overhead
 
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 use crate::desktop::shell2::common::{
     PlatformWindow, RenderContext, WindowError, WindowProperties,
@@ -13,7 +13,7 @@ use crate::desktop::shell2::common::{
 
 /// Stub window that doesn't create any actual window.
 pub struct StubWindow {
-    state: WindowState,
+    state: FullWindowState,
     open: bool,
 }
 
@@ -22,12 +22,12 @@ impl PlatformWindow for StubWindow {
 
     fn new(_options: WindowCreateOptions) -> Result<Self, WindowError> {
         Ok(Self {
-            state: WindowState::default(),
+            state: FullWindowState::default(),
             open: true,
         })
     }
 
-    fn get_state(&self) -> WindowState {
+    fn get_state(&self) -> FullWindowState {
         self.state.clone()
     }
 
@@ -57,6 +57,14 @@ impl PlatformWindow for StubWindow {
 
     fn request_redraw(&mut self) {
         // No-op for stub
+    }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        // No-op for stub
+        clipboard_manager.clear();
     }
 }
 

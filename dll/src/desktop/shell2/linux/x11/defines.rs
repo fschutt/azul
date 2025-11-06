@@ -290,10 +290,19 @@ pub const ClientMessage: c_int = 33;
 pub const InputOutput: c_uint = 1;
 pub const InputOnly: c_uint = 2;
 pub const CopyFromParent: c_int = 0;
+pub const CWBackPixel: c_ulong = 1 << 1;
+pub const CWBorderPixel: c_ulong = 1 << 3;
 pub const CWEventMask: c_ulong = 1 << 11;
 pub const CWOverrideRedirect: c_ulong = 1 << 9;
 pub const SubstructureRedirectMask: c_long = 1 << 20;
 pub const SubstructureNotifyMask: c_long = 1 << 19;
+
+// Property modes
+pub const PropModeReplace: c_int = 0;
+pub const PropModeAppend: c_int = 2;
+
+// Predefined atoms
+pub const XA_ATOM: Atom = 4;
 
 // Keysyms
 pub const XK_BackSpace: u32 = 0xFF08;

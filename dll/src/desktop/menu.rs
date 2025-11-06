@@ -25,7 +25,7 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::{
     callbacks::CallbackInfo,
-    window_state::{WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
 };
 
 use crate::desktop::display::{get_display_at_point, get_primary_display};
@@ -378,7 +378,7 @@ pub fn create_menu_window(
         child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
 
-    let mut window_state = WindowState::default();
+    let mut window_state = FullWindowState::default();
 
     // Configure as menu window
     window_state.flags.window_type = WindowType::Menu;
@@ -503,7 +503,7 @@ pub fn spawn_menu_from_callback(
     use azul_core::{geom::LogicalPosition, window::WindowPosition};
 
     // Get parent window position in logical coordinates
-    let full_window_state = info.get_full_window_state();
+    let full_window_state = info.get_current_window_state();
 
     // Convert window position to logical coordinates
     let parent_window_pos = match full_window_state.position {

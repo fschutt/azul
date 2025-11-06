@@ -9,7 +9,7 @@
 use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInfoRefData},
     gl::OptionGlContextPtr,
     hit_test::DocumentId,
     refany::RefAny,
@@ -67,13 +67,18 @@ pub fn regenerate_layout(
     eprintln!("[regenerate_layout] Calling layout_callback");
     let _ = std::io::stderr().flush();
 
+    // Create reference data container (syntax sugar to reduce parameter count)
+    let layout_ref_data = LayoutCallbackInfoRefData {
+        image_cache,
+        gl_context: gl_context_ptr,
+        system_fonts: &*fc_cache,
+        system_style: system_style.clone(),
+    };
+
     let mut callback_info = LayoutCallbackInfo::new(
+        &layout_ref_data,
         current_window_state.size.clone(),
         current_window_state.theme,
-        image_cache,
-        gl_context_ptr,
-        &*fc_cache,
-        system_style.clone(),
     );
 
     let mut app_data_borrowed = app_data.borrow_mut();

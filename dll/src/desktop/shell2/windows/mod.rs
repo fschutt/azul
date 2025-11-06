@@ -2363,7 +2363,7 @@ pub enum Win32Event {
 // PlatformWindow trait implementation
 // ============================================================================
 
-use azul_layout::window_state::WindowState;
+use azul_layout::window_state::FullWindowState;
 
 use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
 
@@ -2379,8 +2379,8 @@ impl PlatformWindow for Win32Window {
         Self::new(options, fc_cache, app_data)
     }
 
-    fn get_state(&self) -> WindowState {
-        self.current_window_state.to_window_state()
+    fn get_state(&self) -> FullWinddowState {
+        self.current_window_state.clone()
     }
 
     fn set_properties(&mut self, _props: WindowProperties) -> Result<(), WindowError> {
@@ -2439,6 +2439,16 @@ impl PlatformWindow for Win32Window {
             use self::dlopen::constants::WM_PAINT;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_PAINT, 0, 0);
         }
+    }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        // TODO: Implement Windows clipboard synchronization
+        // 1. If clipboard_manager has pending copy content, write to Windows clipboard
+        // 2. Clear clipboard manager after sync
+        clipboard_manager.clear();
     }
 }
 

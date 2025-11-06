@@ -86,6 +86,14 @@ pub struct wl_callback {
     _private: [u8; 0],
 }
 #[repr(C)]
+pub struct wl_subcompositor {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct wl_subsurface {
+    _private: [u8; 0],
+}
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct wl_output {
     _private: [u8; 0],

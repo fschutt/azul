@@ -31,12 +31,19 @@ impl WindowInternal {
 
         let styled_dom = {
             let layout_callback = &mut init.window_create_options.state.layout_callback;
-            let mut layout_info = LayoutCallbackInfo::new(
-                init.window_create_options.state.size,
-                init.window_create_options.state.theme,
+            
+            // Create reference data container (syntax sugar to reduce parameter count)
+            let layout_ref_data = LayoutCallbackInfoRefData {
                 image_cache,
                 gl_context,
-                &fc_cache_real,
+                system_fonts: &fc_cache_real,
+                system_style: std::sync::Arc::new(SystemStyle::default()),
+            };
+            
+            let mut layout_info = LayoutCallbackInfo::new(
+                &layout_ref_data,
+                init.window_create_options.state.size,
+                init.window_create_options.state.theme,
             );
 
             match layout_callback {
@@ -158,12 +165,19 @@ impl WindowInternal {
 
         let mut styled_dom = {
             let layout_callback = &mut self.current_window_state.layout_callback;
-            let mut layout_info = LayoutCallbackInfo::new(
-                self.current_window_state.size,
-                self.current_window_state.theme,
+            
+            // Create reference data container (syntax sugar to reduce parameter count)
+            let layout_ref_data = LayoutCallbackInfoRefData {
                 image_cache,
                 gl_context,
-                &fc_cache_real,
+                system_fonts: &fc_cache_real,
+                system_style: std::sync::Arc::new(SystemStyle::default()),
+            };
+            
+            let mut layout_info = LayoutCallbackInfo::new(
+                &layout_ref_data,
+                self.current_window_state.size,
+                self.current_window_state.theme,
             );
 
             match layout_callback {

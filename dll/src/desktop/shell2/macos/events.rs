@@ -19,7 +19,7 @@ use azul_layout::{
     },
     solver3::display_list::DisplayList,
     window::LayoutWindow,
-    window_state::WindowState,
+    window_state::FullWindowState,
 };
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_foundation::NSPoint;

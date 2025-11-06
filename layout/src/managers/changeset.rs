@@ -234,6 +234,7 @@ impl TextChangeset {
     }
 }
 
+/*
 /// Create changesets from internal system events (pre-callback phase)
 ///
 /// This function analyzes system events and creates changesets WITHOUT applying them.
@@ -250,186 +251,14 @@ pub fn create_changesets_from_system_events(
     events: &[azul_core::events::PreCallbackSystemEvent],
     layout_window: &crate::window::LayoutWindow,
 ) -> Vec<TextChangeset> {
-    let mut changesets = Vec::new();
-    let timestamp = get_current_time();
-
-    for event in events {
-        match event {
-            // Single/double/triple click
-            azul_core::events::PreCallbackSystemEvent::TextClick {
-                target,
-                position,
-                click_count,
-                ..
-            } => {
-                let changeset = match click_count {
-                    1 => {
-                        // Single click: move cursor to click position
-                        create_move_cursor_changeset(
-                            *target,
-                            *position,
-                            timestamp.clone(),
-                            layout_window,
-                        )
-                    }
-                    2 => {
-                        // Double click: select word
-                        create_select_word_changeset(
-                            *target,
-                            *position,
-                            timestamp.clone(),
-                            layout_window,
-                        )
-                    }
-                    3 => {
-                        // Triple click: select paragraph/line
-                        create_select_paragraph_changeset(
-                            *target,
-                            *position,
-                            timestamp.clone(),
-                            layout_window,
-                        )
-                    }
-                    _ => continue,
-                };
-                if let Some(cs) = changeset {
-                    changesets.push(cs);
-                }
-            }
-
-            // Drag selection (mouse down + move)
-            azul_core::events::PreCallbackSystemEvent::TextDragSelection {
-                target,
-                start_position,
-                current_position,
-                ..
-            } => {
-                if let Some(cs) = create_drag_selection_changeset(
-                    *target,
-                    *start_position,
-                    *current_position,
-                    timestamp.clone(),
-                    layout_window,
-                ) {
-                    changesets.push(cs);
-                }
-            }
-
-            // Arrow key navigation
-            azul_core::events::PreCallbackSystemEvent::ArrowKeyNavigation {
-                target,
-                direction,
-                extend_selection,
-                word_jump,
-            } => {
-                if let Some(cs) = create_arrow_navigation_changeset(
-                    *target,
-                    *direction,
-                    *extend_selection,
-                    *word_jump,
-                    timestamp.clone(),
-                    layout_window,
-                ) {
-                    changesets.push(cs);
-                }
-            }
-
-            // Keyboard shortcuts
-            azul_core::events::PreCallbackSystemEvent::KeyboardShortcut { target, shortcut } => {
-                use azul_core::events::KeyboardShortcut;
-                match shortcut {
-                    KeyboardShortcut::Copy => {
-                        if let Some(cs) =
-                            create_copy_changeset(*target, timestamp.clone(), layout_window)
-                        {
-                            changesets.push(cs);
-                        }
-                    }
-                    KeyboardShortcut::Cut => {
-                        if let Some(cs) =
-                            create_cut_changeset(*target, timestamp.clone(), layout_window)
-                        {
-                            changesets.push(cs);
-                        }
-                    }
-                    KeyboardShortcut::Paste => {
-                        if let Some(cs) =
-                            create_paste_changeset(*target, timestamp.clone(), layout_window)
-                        {
-                            changesets.push(cs);
-                        }
-                    }
-                    KeyboardShortcut::SelectAll => {
-                        if let Some(cs) =
-                            create_select_all_changeset(*target, timestamp.clone(), layout_window)
-                        {
-                            changesets.push(cs);
-                        }
-                    }
-                    KeyboardShortcut::Undo | KeyboardShortcut::Redo => {
-                        // TODO: Implement undo/redo stack
-                    }
-                }
-            }
-
-            // Delete selection (Backspace/Delete with active selection)
-            azul_core::events::PreCallbackSystemEvent::DeleteSelection { target, forward } => {
-                if let Some(cs) = create_delete_selection_changeset(
-                    *target,
-                    *forward,
-                    timestamp.clone(),
-                    layout_window,
-                ) {
-                    changesets.push(cs);
-                }
-            }
-        }
-    }
-
-    changesets
+    // NOTE: This is planned future architecture. Current implementation:
+    // - Text input handled by process_text_input() in event_v2.rs
+    // - Clipboard operations (copy/cut/paste) handled in event_v2.rs
+    // - Selection handled by SelectionManager
+    // - Cursor handled by FocusManager
+    unimplemented!("Future architecture - not yet implemented")
 }
-
-/// Apply changesets to layout window (post-callback phase, after !preventDefault check)
-///
-/// This function actually mutates state based on the changesets created in pre-callback.
-///
-/// ## Arguments
-/// * `changesets` - Changesets to apply
-/// * `layout_window` - Window state to mutate
-///
-/// ## Returns
-/// Vector of successfully applied changesets (for undo stack)
-pub fn apply_changesets(
-    changesets: &[TextChangeset],
-    layout_window: &mut crate::window::LayoutWindow,
-) -> Vec<TextChangeset> {
-    let mut applied = Vec::new();
-
-    for changeset in changesets {
-        let success = match &changeset.operation {
-            TextOperation::MoveCursor { new_position, .. } => {
-                apply_move_cursor(changeset.target, *new_position, layout_window)
-            }
-            TextOperation::SetSelection { new_range, .. } => {
-                apply_set_selection(changeset.target, *new_range, layout_window)
-            }
-            TextOperation::Copy { range, .. } => {
-                apply_copy(changeset.target, *range, layout_window)
-            }
-            // TODO: Implement other operations
-            _ => {
-                // Placeholder for operations not yet implemented
-                false
-            }
-        };
-
-        if success {
-            applied.push(changeset.clone());
-        }
-    }
-
-    applied
-}
+*/
 
 // ============================================================================
 // CHANGESET CREATION HELPERS
@@ -440,152 +269,216 @@ fn get_current_time() -> Instant {
     (external.get_system_time_fn.cb)().into()
 }
 
-fn create_move_cursor_changeset(
-    _target: DomNodeId,
-    _position: LogicalPosition,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement cursor position calculation from logical position
-    // Current implementation: Cursor movement handled by FocusManager::set_text_cursor()
-    // and TextInputManager in text_input.rs
-    None
-}
-
-fn create_select_word_changeset(
-    _target: DomNodeId,
-    _position: LogicalPosition,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement word selection
-    // Would use text3::edit::find_word_boundaries() to determine selection range
-    // Current implementation: Word selection happens through SelectionManager
-    None
-}
-
-fn create_select_paragraph_changeset(
-    _target: DomNodeId,
-    _position: LogicalPosition,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement paragraph selection
-    // Would find paragraph boundaries using newline characters
-    // Current implementation: SelectionManager handles text selection
-    None
-}
-
-fn create_drag_selection_changeset(
-    _target: DomNodeId,
-    _start: LogicalPosition,
-    _current: LogicalPosition,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // TODO: Implement drag selection
-    None
-}
-
-fn create_arrow_navigation_changeset(
-    _target: DomNodeId,
-    _direction: azul_core::events::ArrowDirection,
-    _extend: bool,
-    _word_jump: bool,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // TODO: Implement arrow navigation
-    None
-}
-
 fn create_copy_changeset(
-    _target: DomNodeId,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
+    target: DomNodeId,
+    timestamp: Instant,
+    layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement copy operation
-    // Would create changeset with selected text to copy to clipboard
-    // Current implementation: Clipboard operations handled by platform-specific code
-    // See window.rs clipboard integration
-    None
+    // Extract clipboard content from current selection
+    let dom_id = &target.dom;
+    let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
+
+    // Get selection range for changeset
+    let ranges = layout_window.selection_manager.get_ranges(dom_id);
+    let range = ranges.first()?;
+
+    Some(TextChangeset::new(
+        target,
+        TextOperation::Copy {
+            range: *range,
+            content,
+        },
+        timestamp,
+    ))
 }
 
 fn create_cut_changeset(
-    _target: DomNodeId,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
+    target: DomNodeId,
+    timestamp: Instant,
+    layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement cut operation
-    // Would create changeset with Delete operation + copy to clipboard
-    // Current implementation: Handled by platform-specific clipboard + text3::edit::delete_range()
-    None
+    // Extract clipboard content from current selection
+    let dom_id = &target.dom;
+    let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
+
+    // Get selection range for changeset
+    let ranges = layout_window.selection_manager.get_ranges(dom_id);
+    let range = ranges.first()?;
+
+    // The logical cursor will be at the start of the deleted range
+    // SelectionManager will map this to physical coordinates
+    let new_cursor_position = azul_core::window::CursorPosition::Uninitialized;
+
+    Some(TextChangeset::new(
+        target,
+        TextOperation::Cut {
+            range: *range,
+            content,
+            new_cursor: new_cursor_position,
+        },
+        timestamp,
+    ))
 }
 
 fn create_paste_changeset(
-    _target: DomNodeId,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
+    target: DomNodeId,
+    timestamp: Instant,
+    layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Future architecture - Implement paste operation
-    // Would create changeset with Insert operation from clipboard content
-    // Current implementation: Handled by platform clipboard + text3::edit::insert_text()
+    // NOTE: This function creates a changeset for paste operations.
+    // The actual clipboard content must be provided by the caller (event_v2.rs),
+    // as clipboard access is platform-specific and not available in layout engine.
+    // This is called with pre-read clipboard content.
+
+    // For now, return None - paste is initiated from event_v2.rs with content
+    // This will be refactored when we add clipboard parameter
     None
 }
 
 fn create_select_all_changeset(
-    _target: DomNodeId,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
+    target: DomNodeId,
+    timestamp: Instant,
+    layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement select all
-    None
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+    let dom_id = &target.dom;
+    let node_id = target.node.into_crate_internal()?;
+
+    // Get current selection (if any) for undo
+    let old_range = layout_window
+        .selection_manager
+        .get_ranges(dom_id)
+        .first()
+        .copied();
+
+    // Get the text content to determine end position
+    let content = layout_window.get_text_before_textinput(*dom_id, node_id);
+    let text = layout_window.extract_text_from_inline_content(&content);
+
+    // Create selection range from start to end of text
+    let start_cursor = TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 0,
+        },
+        affinity: CursorAffinity::Leading,
+    };
+
+    let end_cursor = TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: text.len() as u32,
+        },
+        affinity: CursorAffinity::Leading,
+    };
+
+    let new_range = azul_core::selection::SelectionRange {
+        start: start_cursor,
+        end: end_cursor,
+    };
+
+    Some(TextChangeset::new(
+        target,
+        TextOperation::SelectAll {
+            old_range,
+            new_range,
+        },
+        timestamp,
+    ))
 }
 
 fn create_delete_selection_changeset(
-    _target: DomNodeId,
-    _forward: bool,
-    _timestamp: Instant,
-    _layout_window: &crate::window::LayoutWindow,
+    target: DomNodeId,
+    forward: bool,
+    timestamp: Instant,
+    layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // TODO: Implement delete selection
-    // This would create a changeset with TextOperation::Delete for the selected range
-    None
-}
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 
-// ============================================================================
-// CHANGESET APPLICATION HELPERS
-// ============================================================================
+    let dom_id = &target.dom;
+    let node_id = target.node.into_crate_internal()?;
 
-fn apply_move_cursor(
-    _target: DomNodeId,
-    _position: CursorPosition,
-    _layout_window: &mut crate::window::LayoutWindow,
-) -> bool {
-    // TODO: Future architecture - Implement cursor move application
-    // Would update FocusManager cursor state from CursorPosition
-    // Current implementation: FocusManager::set_text_cursor() handles cursor updates
-    false
-}
+    // Get current selection/cursor
+    let ranges = layout_window.selection_manager.get_ranges(dom_id);
+    let cursor = layout_window.cursor_manager.get_cursor();
 
-fn apply_set_selection(
-    _target: DomNodeId,
-    _range: SelectionRange,
-    _layout_window: &mut crate::window::LayoutWindow,
-) -> bool {
-    // TODO: Future architecture - Implement selection application
-    // Would update SelectionManager state from SelectionRange
-    // Current implementation: SelectionManager handles selection updates
-    false
-}
+    // Determine what to delete
+    let (delete_range, deleted_text) = if let Some(range) = ranges.first() {
+        // Selection exists - delete the selection
+        let content = layout_window.get_text_before_textinput(*dom_id, node_id);
+        let text = layout_window.extract_text_from_inline_content(&content);
 
-fn apply_copy(
-    _target: DomNodeId,
-    _range: SelectionRange,
-    _layout_window: &mut crate::window::LayoutWindow,
-) -> bool {
-    // TODO: Future architecture - Implement copy to clipboard
-    // Would extract text from SelectionRange and copy to platform clipboard
-    // Current implementation: Platform-specific clipboard integration in window.rs
-    false
+        // Extract the text in the range
+        // For now, simplified: delete entire selection
+        // TODO: Actually extract text between range.start and range.end
+        let deleted = String::new(); // Placeholder
+
+        (*range, deleted)
+    } else if let Some(cursor_pos) = cursor {
+        // No selection - delete one character
+        let content = layout_window.get_text_before_textinput(*dom_id, node_id);
+        let text = layout_window.extract_text_from_inline_content(&content);
+
+        let byte_pos = cursor_pos.cluster_id.start_byte_in_run as usize;
+
+        let (range, deleted) = if forward {
+            // Delete key - delete character after cursor
+            if byte_pos >= text.len() {
+                return None; // At end, nothing to delete
+            }
+            // Delete one character forward
+            let end_pos = (byte_pos + 1).min(text.len());
+            let deleted = text[byte_pos..end_pos].to_string();
+
+            let range = azul_core::selection::SelectionRange {
+                start: *cursor_pos,
+                end: TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: cursor_pos.cluster_id.source_run,
+                        start_byte_in_run: end_pos as u32,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+            };
+            (range, deleted)
+        } else {
+            // Backspace - delete character before cursor
+            if byte_pos == 0 {
+                return None; // At start, nothing to delete
+            }
+            // Delete one character backward
+            let start_pos = byte_pos.saturating_sub(1);
+            let deleted = text[start_pos..byte_pos].to_string();
+
+            let range = azul_core::selection::SelectionRange {
+                start: TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: cursor_pos.cluster_id.source_run,
+                        start_byte_in_run: start_pos as u32,
+                    },
+                    affinity: CursorAffinity::Leading,
+                },
+                end: *cursor_pos,
+            };
+            (range, deleted)
+        };
+
+        (range, deleted)
+    } else {
+        return None; // No cursor or selection
+    };
+
+    // New cursor position after deletion (at start of deleted range)
+    let new_cursor = azul_core::window::CursorPosition::Uninitialized;
+
+    Some(TextChangeset::new(
+        target,
+        TextOperation::DeleteText {
+            range: delete_range,
+            deleted_text,
+            new_cursor,
+        },
+        timestamp,
+    ))
 }

@@ -8,7 +8,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use azul_core::{
@@ -57,7 +60,7 @@ use crate::{
     },
     thread::{OptionThreadReceiveMsg, Thread, ThreadReceiveMsg, ThreadWriteBackMsg},
     timer::Timer,
-    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
 };
 
 // Global atomic counters for generating unique IDs
@@ -164,6 +167,48 @@ pub struct TextConstraintsCache {
     pub constraints: BTreeMap<(DomId, NodeId), crate::text3::cache::UnifiedConstraints>,
 }
 
+/// Result of applying callback changes
+///
+/// This struct consolidates all the outputs from `apply_callback_changes()`,
+/// eliminating the need for 18+ mutable reference parameters.
+#[derive(Debug, Default)]
+pub struct CallbackChangeResult {
+    /// Timers to add
+    pub timers: FastHashMap<TimerId, crate::timer::Timer>,
+    /// Threads to add  
+    pub threads: FastHashMap<ThreadId, crate::thread::Thread>,
+    /// Timers to remove
+    pub timers_removed: FastBTreeSet<TimerId>,
+    /// Threads to remove
+    pub threads_removed: FastBTreeSet<ThreadId>,
+    /// New windows to create
+    pub windows_created: Vec<crate::window_state::WindowCreateOptions>,
+    /// Menus to open
+    pub menus_to_open: Vec<(azul_core::menu::Menu, Option<LogicalPosition>)>,
+    /// Tooltips to show
+    pub tooltips_to_show: Vec<(AzString, LogicalPosition)>,
+    /// Whether to hide tooltip
+    pub hide_tooltip: bool,
+    /// Whether stopPropagation() was called
+    pub stop_propagation: bool,
+    /// Whether preventDefault() was called
+    pub prevent_default: bool,
+    /// Focus target change
+    pub focus_target: Option<FocusTarget>,
+    /// Text changes that don't require full relayout
+    pub words_changed: BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+    /// Image changes (for animated images/video)
+    pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+    /// Clip mask changes (for vector animations)
+    pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+    /// CSS property changes from callbacks
+    pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    /// Scroll position changes from callbacks
+    pub nodes_scrolled: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
+    /// Modified window state
+    pub modified_window_state: FullWindowState,
+}
+
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
 /// This struct owns the layout and text caches, and provides methods to:
@@ -189,10 +234,14 @@ pub struct LayoutWindow {
     pub gesture_drag_manager: crate::managers::gesture::GestureAndDragManager,
     /// Focus manager for keyboard focus and tab navigation
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
+    /// Cursor manager for text cursor position and rendering
+    pub cursor_manager: crate::managers::cursor::CursorManager,
     /// File drop manager for cursor state and file drag-drop
     pub file_drop_manager: crate::managers::file_drop::FileDropManager,
     /// Selection manager for text selections across all DOMs
     pub selection_manager: crate::managers::selection::SelectionManager,
+    /// Clipboard manager for system clipboard integration
+    pub clipboard_manager: crate::managers::clipboard::ClipboardManager,
     /// Drag-drop manager for node and file dragging operations
     pub drag_drop_manager: crate::managers::drag_drop::DragDropManager,
     /// Hover manager for tracking hit test history over multiple frames
@@ -230,6 +279,8 @@ pub struct LayoutWindow {
     currently_dragging_thumb: Option<ScrollbarDragState>,
     /// Text input manager - centralizes all text editing logic
     pub text_input_manager: crate::managers::text_input::TextInputManager,
+    /// Undo/Redo manager for text editing operations
+    pub undo_redo_manager: crate::managers::undo_redo::UndoRedoManager,
     /// Cached text layout constraints for each node
     /// This allows us to re-layout text with the same constraints after edits
     text_constraints_cache: TextConstraintsCache,
@@ -263,8 +314,10 @@ impl LayoutWindow {
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
+            cursor_manager: crate::managers::cursor::CursorManager::new(),
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             selection_manager: crate::managers::selection::SelectionManager::new(),
+            clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
             iframe_manager: IFrameManager::new(),
@@ -285,6 +338,7 @@ impl LayoutWindow {
             gl_texture_cache: GlTextureCache::default(),
             currently_dragging_thumb: None,
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
+            undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
             },
@@ -966,70 +1020,61 @@ impl LayoutWindow {
     /// This method processes all changes accumulated in the CallbackChange vector
     /// and applies them to the appropriate state. This is called after a callback
     /// returns to ensure atomic application of all changes.
+    ///
+    /// Returns a `CallbackChangeResult` containing all the changes to be applied.
     pub fn apply_callback_changes(
         &mut self,
         changes: Vec<crate::callbacks::CallbackChange>,
-        timers_out: &mut FastHashMap<TimerId, Timer>,
-        threads_out: &mut FastHashMap<ThreadId, Thread>,
-        timers_removed_out: &mut FastBTreeSet<TimerId>,
-        threads_removed_out: &mut FastBTreeSet<ThreadId>,
-        new_windows_out: &mut Vec<WindowCreateOptions>,
-        menus_to_open_out: &mut Vec<(azul_core::menu::Menu, Option<LogicalPosition>)>,
-        tooltips_to_show_out: &mut Vec<(AzString, LogicalPosition)>,
-        hide_tooltip_out: &mut bool,
-        stop_propagation_out: &mut bool,
-        prevent_default_out: &mut bool,
-        focus_target_out: &mut Option<FocusTarget>,
-        words_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-        images_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-        image_masks_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-        css_properties_changed_out: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-        nodes_scrolled_out: &mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-        modifiable_window_state: &mut WindowState,
+        current_window_state: &FullWindowState,
         image_cache: &mut ImageCache,
         system_fonts: &mut FcFontCache,
-    ) {
+    ) -> CallbackChangeResult {
         use crate::callbacks::CallbackChange;
 
+        let mut result = CallbackChangeResult {
+            modified_window_state: current_window_state.clone(),
+            ..Default::default()
+        };
         for change in changes {
             match change {
                 CallbackChange::ModifyWindowState { state } => {
-                    *modifiable_window_state = state;
+                    result.modified_window_state = state;
                 }
                 CallbackChange::CreateNewWindow { options } => {
-                    new_windows_out.push(options);
+                    result.windows_created.push(options);
                 }
                 CallbackChange::CloseWindow => {
                     // TODO: Implement window close mechanism
                     // This needs to set a flag that the window should close
                 }
                 CallbackChange::SetFocusTarget { target } => {
-                    *focus_target_out = Some(target);
+                    result.focus_target = Some(target);
                 }
                 CallbackChange::StopPropagation => {
-                    *stop_propagation_out = true;
+                    result.stop_propagation = true;
                 }
                 CallbackChange::PreventDefault => {
-                    *prevent_default_out = true;
+                    result.prevent_default = true;
                 }
                 CallbackChange::AddTimer { timer_id, timer } => {
-                    timers_out.insert(timer_id, timer);
+                    result.timers.insert(timer_id, timer);
                 }
                 CallbackChange::RemoveTimer { timer_id } => {
-                    timers_removed_out.insert(timer_id);
+                    result.timers_removed.insert(timer_id);
                 }
                 CallbackChange::AddThread { thread_id, thread } => {
-                    threads_out.insert(thread_id, thread);
+                    result.threads.insert(thread_id, thread);
                 }
                 CallbackChange::RemoveThread { thread_id } => {
-                    threads_removed_out.insert(thread_id);
+                    result.threads_removed.insert(thread_id);
                 }
                 CallbackChange::ChangeNodeText {
                     dom_id,
                     node_id,
                     text,
                 } => {
-                    words_changed_out
+                    result
+                        .words_changed
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, text);
@@ -1040,7 +1085,8 @@ impl LayoutWindow {
                     image,
                     update_type,
                 } => {
-                    images_changed_out
+                    result
+                        .images_changed
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, (image, update_type));
@@ -1050,7 +1096,8 @@ impl LayoutWindow {
                     node_id,
                     mask,
                 } => {
-                    image_masks_changed_out
+                    result
+                        .image_masks_changed
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, mask);
@@ -1060,7 +1107,8 @@ impl LayoutWindow {
                     node_id,
                     properties,
                 } => {
-                    css_properties_changed_out
+                    result
+                        .css_properties_changed
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, properties);
@@ -1070,7 +1118,8 @@ impl LayoutWindow {
                     node_id,
                     position,
                 } => {
-                    nodes_scrolled_out
+                    result
+                        .nodes_scrolled
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, position);
@@ -1085,13 +1134,13 @@ impl LayoutWindow {
                     *system_fonts = FcFontCache::build();
                 }
                 CallbackChange::OpenMenu { menu, position } => {
-                    menus_to_open_out.push((menu, position));
+                    result.menus_to_open.push((menu, position));
                 }
                 CallbackChange::ShowTooltip { text, position } => {
-                    tooltips_to_show_out.push((text, position));
+                    result.tooltips_to_show.push((text, position));
                 }
                 CallbackChange::HideTooltip => {
-                    *hide_tooltip_out = true;
+                    result.hide_tooltip = true;
                 }
                 CallbackChange::InsertText {
                     dom_id,
@@ -1121,7 +1170,7 @@ impl LayoutWindow {
                 }
                 CallbackChange::DeleteBackward { dom_id, node_id } => {
                     // Get current cursor/selection
-                    if let Some(cursor) = self.focus_manager.get_text_cursor() {
+                    if let Some(cursor) = self.cursor_manager.get_cursor() {
                         // Get current content
                         let content = self.get_text_before_textinput(dom_id, node_id);
 
@@ -1134,7 +1183,8 @@ impl LayoutWindow {
                             delete_backward(&mut new_content, cursor);
 
                         // Update cursor position
-                        self.focus_manager.set_text_cursor(Some(new_cursor));
+                        self.cursor_manager
+                            .move_cursor_to(new_cursor, dom_id, node_id);
 
                         // Update text cache
                         self.update_text_cache_after_edit(dom_id, node_id, updated_content);
@@ -1151,7 +1201,7 @@ impl LayoutWindow {
                 }
                 CallbackChange::DeleteForward { dom_id, node_id } => {
                     // Get current cursor/selection
-                    if let Some(cursor) = self.focus_manager.get_text_cursor() {
+                    if let Some(cursor) = self.cursor_manager.get_cursor() {
                         // Get current content
                         let content = self.get_text_before_textinput(dom_id, node_id);
 
@@ -1164,7 +1214,8 @@ impl LayoutWindow {
                             delete_forward(&mut new_content, cursor);
 
                         // Update cursor position
-                        self.focus_manager.set_text_cursor(Some(new_cursor));
+                        self.cursor_manager
+                            .move_cursor_to(new_cursor, dom_id, node_id);
 
                         // Update text cache
                         self.update_text_cache_after_edit(dom_id, node_id, updated_content);
@@ -1175,8 +1226,8 @@ impl LayoutWindow {
                     node_id,
                     cursor,
                 } => {
-                    // Update cursor position in FocusManager
-                    self.focus_manager.set_text_cursor(Some(cursor));
+                    // Update cursor position in CursorManager
+                    self.cursor_manager.move_cursor_to(cursor, dom_id, node_id);
                 }
                 CallbackChange::SetSelection {
                     dom_id,
@@ -1193,17 +1244,273 @@ impl LayoutWindow {
 
                     match selection {
                         azul_core::selection::Selection::Cursor(cursor) => {
-                            self.focus_manager.set_text_cursor(Some(cursor));
+                            self.cursor_manager.move_cursor_to(cursor, dom_id, node_id);
                             self.selection_manager.clear_all();
                         }
                         azul_core::selection::Selection::Range(range) => {
-                            self.focus_manager.set_text_cursor(Some(range.start));
+                            self.cursor_manager
+                                .move_cursor_to(range.start, dom_id, node_id);
                             // TODO: Set selection range in SelectionManager
                             // self.selection_manager.set_selection(dom_node_id, range);
                         }
                     }
                 }
+                CallbackChange::SetTextChangeset { changeset } => {
+                    // Override the current text input changeset
+                    // This allows user callbacks to modify what text will be inserted
+                    self.text_input_manager.pending_changeset = Some(changeset);
+                }
+                // ===== Cursor Movement Operations =====
+                CallbackChange::MoveCursorLeft {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_left(*cursor, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorRight {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_right(*cursor, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorUp {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_up(*cursor, &mut None, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorDown {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_down(*cursor, &mut None, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorToLineStart {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_to_line_start(*cursor, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorToLineEnd {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    if let Some(new_cursor) =
+                        self.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                            layout.move_cursor_to_line_end(*cursor, &mut None)
+                        })
+                    {
+                        self.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
+                    }
+                }
+                CallbackChange::MoveCursorToDocumentStart {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    // Document start is the first cluster in the layout
+                    if let Some(new_cursor) = self.get_inline_layout_for_node(dom_id, node_id) {
+                        if let Some(first_cluster) = new_cursor
+                            .items
+                            .first()
+                            .and_then(|item| item.item.as_cluster())
+                        {
+                            let doc_start_cursor = azul_core::selection::TextCursor {
+                                cluster_id: first_cluster.source_cluster_id,
+                                affinity: azul_core::selection::CursorAffinity::Leading,
+                            };
+                            self.handle_cursor_movement(
+                                dom_id,
+                                node_id,
+                                doc_start_cursor,
+                                extend_selection,
+                            );
+                        }
+                    }
+                }
+                CallbackChange::MoveCursorToDocumentEnd {
+                    dom_id,
+                    node_id,
+                    extend_selection,
+                } => {
+                    // Document end is the last cluster in the layout
+                    if let Some(layout) = self.get_inline_layout_for_node(dom_id, node_id) {
+                        if let Some(last_cluster) =
+                            layout.items.last().and_then(|item| item.item.as_cluster())
+                        {
+                            let doc_end_cursor = azul_core::selection::TextCursor {
+                                cluster_id: last_cluster.source_cluster_id,
+                                affinity: azul_core::selection::CursorAffinity::Trailing,
+                            };
+                            self.handle_cursor_movement(
+                                dom_id,
+                                node_id,
+                                doc_end_cursor,
+                                extend_selection,
+                            );
+                        }
+                    }
+                }
+                // ===== Clipboard Operations (Override) =====
+                CallbackChange::SetCopyContent { target, content } => {
+                    // Store clipboard content to be written to system clipboard
+                    // This will be picked up by the platform's sync_clipboard() method
+                    self.clipboard_manager.set_copy_content(content);
+                }
+                CallbackChange::SetCutContent { target, content } => {
+                    // Same as copy, but the deletion is handled separately
+                    self.clipboard_manager.set_copy_content(content);
+                }
+                CallbackChange::SetSelectAllRange { target, range } => {
+                    // Override selection range for select-all operation
+                    // Convert DomNodeId back to internal NodeId
+                    if let Some(node_id_internal) = target.node.into_crate_internal() {
+                        let dom_node_id = azul_core::dom::DomNodeId {
+                            dom: target.dom,
+                            node: target.node,
+                        };
+                        self.selection_manager
+                            .set_range(target.dom, dom_node_id, range);
+                    }
+                }
             }
+        }
+
+        // Sync cursor to selection manager for rendering
+        // This must happen after all cursor updates
+        self.sync_cursor_to_selection_manager();
+
+        result
+    }
+
+    /// Helper: Get inline layout for a node
+    fn get_inline_layout_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout<azul_css::props::basic::FontRef>>> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+
+        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
+        let layout_index = *layout_indices.first()?;
+
+        let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
+        layout_node.inline_layout_result.as_ref()
+    }
+
+    /// Helper: Move cursor using a movement function and return the new cursor if it changed
+    fn move_cursor_in_node<F>(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        movement_fn: F,
+    ) -> Option<azul_core::selection::TextCursor>
+    where
+        F: FnOnce(
+            &crate::text3::cache::UnifiedLayout<azul_css::props::basic::FontRef>,
+            &azul_core::selection::TextCursor,
+        ) -> azul_core::selection::TextCursor,
+    {
+        let current_cursor = self.cursor_manager.get_cursor()?;
+        let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
+
+        let new_cursor = movement_fn(layout, current_cursor);
+
+        // Only return if cursor actually moved
+        if new_cursor != *current_cursor {
+            Some(new_cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Helper: Handle cursor movement with optional selection extension
+    fn handle_cursor_movement(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        new_cursor: azul_core::selection::TextCursor,
+        extend_selection: bool,
+    ) {
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        if extend_selection {
+            // Get the current cursor as the selection anchor
+            if let Some(old_cursor) = self.cursor_manager.get_cursor() {
+                // Create DomNodeId for the selection
+                let dom_node_id = azul_core::dom::DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
+
+                // Create a selection range from old cursor to new cursor
+                let selection_range = if new_cursor.cluster_id.start_byte_in_run
+                    < old_cursor.cluster_id.start_byte_in_run
+                {
+                    // Moving backwards
+                    azul_core::selection::SelectionRange {
+                        start: new_cursor,
+                        end: *old_cursor,
+                    }
+                } else {
+                    // Moving forwards
+                    azul_core::selection::SelectionRange {
+                        start: *old_cursor,
+                        end: new_cursor,
+                    }
+                };
+
+                // Set the selection range in SelectionManager
+                self.selection_manager
+                    .set_range(dom_id, dom_node_id, selection_range);
+            }
+
+            // Move cursor to new position
+            self.cursor_manager
+                .move_cursor_to(new_cursor, dom_id, node_id);
+        } else {
+            // Just move cursor without extending selection
+            self.cursor_manager
+                .move_cursor_to(new_cursor, dom_id, node_id);
+
+            // Clear any existing selection
+            self.selection_manager.clear_selection(&dom_id);
         }
     }
 
@@ -1588,7 +1895,7 @@ impl LayoutWindow {
         let focused_node = self.focus_manager.focused_node?;
 
         // Get the text cursor
-        let cursor = &self.focus_manager.text_cursor?;
+        let cursor = self.cursor_manager.get_cursor()?;
 
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
@@ -2137,20 +2444,7 @@ impl LayoutWindow {
             prevent_default: false,
         };
 
-        let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
-        let ret_window_state = ret_modified_window_state.clone();
-        let mut ret_timers = FastHashMap::new();
-        let mut ret_timers_removed = FastBTreeSet::new();
-        let mut ret_threads = FastHashMap::new();
-        let mut ret_threads_removed = FastBTreeSet::new();
-        let mut ret_words_changed = BTreeMap::new();
-        let mut ret_images_changed = BTreeMap::new();
-        let mut ret_image_masks_changed = BTreeMap::new();
-        let mut ret_css_properties_changed = BTreeMap::new();
-        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
-
         let mut should_terminate = TerminateTimer::Continue;
-        let mut new_focus_target = None;
 
         let current_scroll_states_nested = self.get_nested_scroll_states(DomId::ROOT_ID);
 
@@ -2176,31 +2470,22 @@ impl LayoutWindow {
             // Create changes vector for callback transaction system
             let mut callback_changes = Vec::new();
 
-            let callback_info = CallbackInfo::new(
-                self,
+            // Create reference data container (syntax sugar to reduce parameter count)
+            let ref_data = crate::callbacks::CallbackInfoRefData {
+                layout_window: self,
                 renderer_resources,
                 previous_window_state,
                 current_window_state,
-                &mut ret_modified_window_state,
                 gl_context,
-                image_cache,
-                system_fonts,
-                system_style,
-                &mut ret_timers,
-                &mut ret_threads,
-                &mut ret_timers_removed,
-                &mut ret_threads_removed,
+                current_scroll_manager: &current_scroll_states_nested,
                 current_window_handle,
-                &mut ret.windows_created,
                 system_callbacks,
-                &mut new_focus_target,
-                &mut ret_words_changed,
-                &mut ret_images_changed,
-                &mut ret_image_masks_changed,
-                &mut ret_css_properties_changed,
-                &current_scroll_states_nested,
-                &mut ret_nodes_scrolled_in_callbacks,
-                &mut callback_changes, // Add changes parameter
+            };
+
+            let callback_info = CallbackInfo::new(
+                &ref_data,
+                system_style,
+                &mut callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
@@ -2212,80 +2497,62 @@ impl LayoutWindow {
             should_terminate = tcr.should_terminate;
 
             // Apply callback changes collected during timer execution
-            let mut stop_propagation = false;
-            let mut prevent_default = false;
-            let mut tooltips_to_show = Vec::new();
-            let mut hide_tooltip = false;
-            self.apply_callback_changes(
+            let change_result = self.apply_callback_changes(
                 callback_changes,
-                &mut ret_timers,
-                &mut ret_threads,
-                &mut ret_timers_removed,
-                &mut ret_threads_removed,
-                &mut ret.windows_created,
-                &mut ret.menus_to_open,
-                &mut tooltips_to_show,
-                &mut hide_tooltip,
-                &mut stop_propagation,
-                &mut prevent_default,
-                &mut new_focus_target,
-                &mut ret_words_changed,
-                &mut ret_images_changed,
-                &mut ret_image_masks_changed,
-                &mut ret_css_properties_changed,
-                &mut ret_nodes_scrolled_in_callbacks,
-                &mut ret_modified_window_state,
+                current_window_state,
                 image_cache,
                 system_fonts,
             );
 
-            ret.stop_propagation = stop_propagation;
-            ret.prevent_default = prevent_default;
-            ret.tooltips_to_show = tooltips_to_show;
-            ret.hide_tooltip = hide_tooltip;
+            // Transfer results from CallbackChangeResult to CallCallbacksResult
+            ret.stop_propagation = change_result.stop_propagation;
+            ret.prevent_default = change_result.prevent_default;
+            ret.tooltips_to_show = change_result.tooltips_to_show;
+            ret.hide_tooltip = change_result.hide_tooltip;
 
-            if !ret_timers.is_empty() {
-                ret.timers = Some(ret_timers);
+            if !change_result.timers.is_empty() {
+                ret.timers = Some(change_result.timers);
             }
-            if !ret_threads.is_empty() {
-                ret.threads = Some(ret_threads);
+            if !change_result.threads.is_empty() {
+                ret.threads = Some(change_result.threads);
             }
-            if ret_modified_window_state != ret_window_state {
-                ret.modified_window_state = Some(ret_modified_window_state);
+            if change_result.modified_window_state != *current_window_state {
+                ret.modified_window_state = Some(change_result.modified_window_state);
             }
-            if !ret_threads_removed.is_empty() {
-                ret.threads_removed = Some(ret_threads_removed);
+            if !change_result.threads_removed.is_empty() {
+                ret.threads_removed = Some(change_result.threads_removed);
             }
-            if !ret_timers_removed.is_empty() {
-                ret.timers_removed = Some(ret_timers_removed);
+            if !change_result.timers_removed.is_empty() {
+                ret.timers_removed = Some(change_result.timers_removed);
             }
-            if !ret_words_changed.is_empty() {
-                ret.words_changed = Some(ret_words_changed);
+            if !change_result.words_changed.is_empty() {
+                ret.words_changed = Some(change_result.words_changed);
             }
-            if !ret_images_changed.is_empty() {
-                ret.images_changed = Some(ret_images_changed);
+            if !change_result.images_changed.is_empty() {
+                ret.images_changed = Some(change_result.images_changed);
             }
-            if !ret_image_masks_changed.is_empty() {
-                ret.image_masks_changed = Some(ret_image_masks_changed);
+            if !change_result.image_masks_changed.is_empty() {
+                ret.image_masks_changed = Some(change_result.image_masks_changed);
             }
-            if !ret_css_properties_changed.is_empty() {
-                ret.css_properties_changed = Some(ret_css_properties_changed);
+            if !change_result.css_properties_changed.is_empty() {
+                ret.css_properties_changed = Some(change_result.css_properties_changed);
             }
-            if !ret_nodes_scrolled_in_callbacks.is_empty() {
-                ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+            if !change_result.nodes_scrolled.is_empty() {
+                ret.nodes_scrolled_in_callbacks = Some(change_result.nodes_scrolled);
             }
-        }
 
-        if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
-                &ft,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            ) {
-                ret.update_focused_node = match new_focus_node {
-                    Some(node) => FocusUpdateRequest::FocusNode(node),
-                    None => FocusUpdateRequest::ClearFocus,
-                };
+            // Handle focus target outside the timer block so it's available later
+            if let Some(ft) = change_result.focus_target {
+                if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
+                    &ft,
+                    &self.layout_results,
+                    self.focus_manager.get_focused_node().copied(),
+                ) {
+                    ret.update_focused_node = match new_focus_node {
+                        Some(node) => FocusUpdateRequest::FocusNode(node),
+                        None => FocusUpdateRequest::ClearFocus,
+                    };
+                }
             }
         }
 
@@ -2344,7 +2611,7 @@ impl LayoutWindow {
             prevent_default: false,
         };
 
-        let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
+        let mut ret_modified_window_state = current_window_state.clone();
         let ret_window_state = ret_modified_window_state.clone();
         let mut ret_timers = FastHashMap::new();
         let mut ret_timers_removed = FastBTreeSet::new();
@@ -2412,31 +2679,22 @@ impl LayoutWindow {
             // Create changes vector for callback transaction system
             let mut callback_changes = Vec::new();
 
-            let mut callback_info = CallbackInfo::new(
-                self,
+            // Create reference data container (syntax sugar to reduce parameter count)
+            let ref_data = crate::callbacks::CallbackInfoRefData {
+                layout_window: self,
                 renderer_resources,
                 previous_window_state,
                 current_window_state,
-                &mut ret_modified_window_state,
                 gl_context,
-                image_cache,
-                system_fonts,
-                system_style.clone(),
-                &mut ret_timers,
-                &mut ret_threads,
-                &mut ret_timers_removed,
-                &mut ret_threads_removed,
+                current_scroll_manager: &current_scroll_states,
                 current_window_handle,
-                &mut ret.windows_created,
                 system_callbacks,
-                &mut new_focus_target,
-                &mut ret_words_changed,
-                &mut ret_images_changed,
-                &mut ret_image_masks_changed,
-                &mut ret_css_properties_changed,
-                &current_scroll_states,
-                &mut ret_nodes_scrolled_in_callbacks,
-                &mut callback_changes, // Add changes parameter
+            };
+
+            let mut callback_info = CallbackInfo::new(
+                &ref_data,
+                system_style.clone(),
+                &mut callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
@@ -2449,37 +2707,62 @@ impl LayoutWindow {
             ret.callbacks_update_screen.max_self(callback_update);
 
             // Apply callback changes collected during thread writeback
-            let mut stop_propagation = false;
-            let mut prevent_default = false;
-            let mut tooltips_to_show = Vec::new();
-            let mut hide_tooltip = false;
-            self.apply_callback_changes(
+            let change_result = self.apply_callback_changes(
                 callback_changes,
-                &mut ret_timers,
-                &mut ret_threads,
-                &mut ret_timers_removed,
-                &mut ret_threads_removed,
-                &mut ret.windows_created,
-                &mut ret.menus_to_open,
-                &mut tooltips_to_show,
-                &mut hide_tooltip,
-                &mut stop_propagation,
-                &mut prevent_default,
-                &mut new_focus_target,
-                &mut ret_words_changed,
-                &mut ret_images_changed,
-                &mut ret_image_masks_changed,
-                &mut ret_css_properties_changed,
-                &mut ret_nodes_scrolled_in_callbacks,
-                &mut ret_modified_window_state,
+                current_window_state,
                 image_cache,
                 system_fonts,
             );
 
-            ret.stop_propagation = ret.stop_propagation || stop_propagation;
-            ret.prevent_default = ret.prevent_default || prevent_default;
-            ret.tooltips_to_show.extend(tooltips_to_show);
-            ret.hide_tooltip = ret.hide_tooltip || hide_tooltip;
+            ret.stop_propagation = ret.stop_propagation || change_result.stop_propagation;
+            ret.prevent_default = ret.prevent_default || change_result.prevent_default;
+            ret.tooltips_to_show.extend(change_result.tooltips_to_show);
+            ret.hide_tooltip = ret.hide_tooltip || change_result.hide_tooltip;
+
+            // Merge changes into accumulated results
+            ret_timers.extend(change_result.timers);
+            ret_threads.extend(change_result.threads);
+            ret_timers_removed.extend(change_result.timers_removed);
+            ret_threads_removed.extend(change_result.threads_removed);
+
+            for (dom_id, nodes) in change_result.words_changed {
+                ret_words_changed
+                    .entry(dom_id)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(nodes);
+            }
+            for (dom_id, nodes) in change_result.images_changed {
+                ret_images_changed
+                    .entry(dom_id)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(nodes);
+            }
+            for (dom_id, nodes) in change_result.image_masks_changed {
+                ret_image_masks_changed
+                    .entry(dom_id)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(nodes);
+            }
+            for (dom_id, nodes) in change_result.css_properties_changed {
+                ret_css_properties_changed
+                    .entry(dom_id)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(nodes);
+            }
+            for (dom_id, nodes) in change_result.nodes_scrolled {
+                ret_nodes_scrolled_in_callbacks
+                    .entry(dom_id)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(nodes);
+            }
+
+            if change_result.modified_window_state != *current_window_state {
+                ret_modified_window_state = change_result.modified_window_state;
+            }
+
+            if let Some(ft) = change_result.focus_target {
+                new_focus_target = Some(ft);
+            }
 
             if is_finished {
                 ret.threads_removed
@@ -2582,7 +2865,7 @@ impl LayoutWindow {
             prevent_default: false,
         };
 
-        let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
+        let mut ret_modified_window_state = current_window_state.clone();
         let ret_window_state = ret_modified_window_state.clone();
         let mut ret_timers = FastHashMap::new();
         let mut ret_timers_removed = FastBTreeSet::new();
@@ -2603,31 +2886,22 @@ impl LayoutWindow {
         // Create changes vector for callback transaction system
         let mut callback_changes = Vec::new();
 
-        let mut callback_info = CallbackInfo::new(
-            self,
+        // Create reference data container (syntax sugar to reduce parameter count)
+        let ref_data = crate::callbacks::CallbackInfoRefData {
+            layout_window: self,
             renderer_resources,
             previous_window_state,
             current_window_state,
-            &mut ret_modified_window_state,
             gl_context,
-            image_cache,
-            system_fonts,
-            system_style,
-            &mut ret_timers,
-            &mut ret_threads,
-            &mut ret_timers_removed,
-            &mut ret_threads_removed,
+            current_scroll_manager: &current_scroll_states,
             current_window_handle,
-            &mut ret.windows_created,
             system_callbacks,
-            &mut new_focus_target,
-            &mut ret_words_changed,
-            &mut ret_images_changed,
-            &mut ret_image_masks_changed,
-            &mut ret_css_properties_changed,
-            &current_scroll_states,
-            &mut ret_nodes_scrolled_in_callbacks,
-            &mut callback_changes, // Add changes parameter
+        };
+
+        let mut callback_info = CallbackInfo::new(
+            &ref_data,
+            system_style,
+            &mut callback_changes,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -2636,37 +2910,33 @@ impl LayoutWindow {
         ret.callbacks_update_screen = (callback.cb)(data, &mut callback_info);
 
         // Apply callback changes collected during callback execution
-        let mut stop_propagation = false;
-        let mut prevent_default = false;
-        let mut tooltips_to_show = Vec::new();
-        let mut hide_tooltip = false;
-        self.apply_callback_changes(
+        let change_result = self.apply_callback_changes(
             callback_changes,
-            &mut ret_timers,
-            &mut ret_threads,
-            &mut ret_timers_removed,
-            &mut ret_threads_removed,
-            &mut ret.windows_created,
-            &mut ret.menus_to_open,
-            &mut tooltips_to_show,
-            &mut hide_tooltip,
-            &mut stop_propagation,
-            &mut prevent_default,
-            &mut new_focus_target,
-            &mut ret_words_changed,
-            &mut ret_images_changed,
-            &mut ret_image_masks_changed,
-            &mut ret_css_properties_changed,
-            &mut ret_nodes_scrolled_in_callbacks,
-            &mut ret_modified_window_state,
+            current_window_state,
             image_cache,
             system_fonts,
         );
 
-        ret.stop_propagation = stop_propagation;
-        ret.prevent_default = prevent_default;
-        ret.tooltips_to_show = tooltips_to_show;
-        ret.hide_tooltip = hide_tooltip;
+        ret.stop_propagation = change_result.stop_propagation;
+        ret.prevent_default = change_result.prevent_default;
+        ret.tooltips_to_show = change_result.tooltips_to_show;
+        ret.hide_tooltip = change_result.hide_tooltip;
+
+        ret_timers.extend(change_result.timers);
+        ret_threads.extend(change_result.threads);
+        ret_timers_removed.extend(change_result.timers_removed);
+        ret_threads_removed.extend(change_result.threads_removed);
+        ret_words_changed.extend(change_result.words_changed);
+        ret_images_changed.extend(change_result.images_changed);
+        ret_image_masks_changed.extend(change_result.image_masks_changed);
+        ret_css_properties_changed.extend(change_result.css_properties_changed);
+        ret_nodes_scrolled_in_callbacks.append(&mut change_result.nodes_scrolled.clone());
+
+        if change_result.modified_window_state != *current_window_state {
+            ret_modified_window_state = change_result.modified_window_state;
+        }
+
+        new_focus_target = change_result.focus_target.or(new_focus_target);
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);
@@ -2757,7 +3027,7 @@ impl LayoutWindow {
             prevent_default: false,
         };
 
-        let mut ret_modified_window_state: WindowState = current_window_state.clone().into();
+        let mut ret_modified_window_state = current_window_state.clone();
         let ret_window_state = ret_modified_window_state.clone();
         let mut ret_timers = FastHashMap::new();
         let mut ret_timers_removed = FastBTreeSet::new();
@@ -2778,31 +3048,22 @@ impl LayoutWindow {
         // Create changes vector for callback transaction system
         let mut callback_changes = Vec::new();
 
-        let mut callback_info = CallbackInfo::new(
-            self,
+        // Create reference data container (syntax sugar to reduce parameter count)
+        let ref_data = crate::callbacks::CallbackInfoRefData {
+            layout_window: self,
             renderer_resources,
             previous_window_state,
             current_window_state,
-            &mut ret_modified_window_state,
             gl_context,
-            image_cache,
-            system_fonts,
-            system_style,
-            &mut ret_timers,
-            &mut ret_threads,
-            &mut ret_timers_removed,
-            &mut ret_threads_removed,
+            current_scroll_manager: &current_scroll_states,
             current_window_handle,
-            &mut ret.windows_created,
             system_callbacks,
-            &mut new_focus_target,
-            &mut ret_words_changed,
-            &mut ret_images_changed,
-            &mut ret_image_masks_changed,
-            &mut ret_css_properties_changed,
-            &current_scroll_states,
-            &mut ret_nodes_scrolled_in_callbacks,
-            &mut callback_changes, // Add changes parameter
+        };
+
+        let mut callback_info = CallbackInfo::new(
+            &ref_data,
+            system_style,
+            &mut callback_changes,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -2812,37 +3073,33 @@ impl LayoutWindow {
             (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
 
         // Apply callback changes collected during menu callback execution
-        let mut stop_propagation = false;
-        let mut prevent_default = false;
-        let mut tooltips_to_show = Vec::new();
-        let mut hide_tooltip = false;
-        self.apply_callback_changes(
+        let change_result = self.apply_callback_changes(
             callback_changes,
-            &mut ret_timers,
-            &mut ret_threads,
-            &mut ret_timers_removed,
-            &mut ret_threads_removed,
-            &mut ret.windows_created,
-            &mut ret.menus_to_open,
-            &mut tooltips_to_show,
-            &mut hide_tooltip,
-            &mut stop_propagation,
-            &mut prevent_default,
-            &mut new_focus_target,
-            &mut ret_words_changed,
-            &mut ret_images_changed,
-            &mut ret_image_masks_changed,
-            &mut ret_css_properties_changed,
-            &mut ret_nodes_scrolled_in_callbacks,
-            &mut ret_modified_window_state,
+            current_window_state,
             image_cache,
             system_fonts,
         );
 
-        ret.stop_propagation = stop_propagation;
-        ret.prevent_default = prevent_default;
-        ret.tooltips_to_show = tooltips_to_show;
-        ret.hide_tooltip = hide_tooltip;
+        ret.stop_propagation = change_result.stop_propagation;
+        ret.prevent_default = change_result.prevent_default;
+        ret.tooltips_to_show = change_result.tooltips_to_show;
+        ret.hide_tooltip = change_result.hide_tooltip;
+
+        ret_timers.extend(change_result.timers);
+        ret_threads.extend(change_result.threads);
+        ret_timers_removed.extend(change_result.timers_removed);
+        ret_threads_removed.extend(change_result.threads_removed);
+        ret_words_changed.extend(change_result.words_changed);
+        ret_images_changed.extend(change_result.images_changed);
+        ret_image_masks_changed.extend(change_result.image_masks_changed);
+        ret_css_properties_changed.extend(change_result.css_properties_changed);
+        ret_nodes_scrolled_in_callbacks.append(&mut change_result.nodes_scrolled.clone());
+
+        if change_result.modified_window_state != *current_window_state {
+            ret_modified_window_state = change_result.modified_window_state;
+        }
+
+        new_focus_target = change_result.focus_target.or(new_focus_target);
 
         if !ret_timers.is_empty() {
             ret.timers = Some(ret_timers);
@@ -3393,24 +3650,19 @@ impl LayoutWindow {
                             });
 
                         if is_contenteditable {
-                            // TODO: Initialize cursor at end of text when text layout is available
-                            // For now, just set empty cursor
-                            use azul_core::selection::{
-                                CursorAffinity, GraphemeClusterId, TextCursor,
-                            };
+                            // Initialize cursor at end of text using CursorManager
+                            let inline_layout = self.get_node_inline_layout(dom_id, node_id);
+                            self.cursor_manager.initialize_cursor_at_end(
+                                dom_id,
+                                node_id,
+                                inline_layout.as_ref(),
+                            );
 
-                            let cursor = TextCursor {
-                                cluster_id: GraphemeClusterId {
-                                    source_run: 0,
-                                    start_byte_in_run: 0,
-                                },
-                                affinity: CursorAffinity::Trailing,
-                            };
-
-                            self.focus_manager.set_text_cursor(Some(cursor));
+                            // Scroll cursor into view if necessary
+                            self.scroll_cursor_into_view_if_needed(dom_id, node_id, now);
                         } else {
                             // Not editable - clear cursor
-                            self.focus_manager.clear_text_cursor();
+                            self.cursor_manager.clear();
                         }
                     }
                 }
@@ -3420,7 +3672,7 @@ impl LayoutWindow {
             }
             AccessibilityAction::Blur => {
                 self.focus_manager.clear_focus();
-                self.focus_manager.clear_text_cursor();
+                self.cursor_manager.clear();
             }
             AccessibilityAction::SetSequentialFocusNavigationStartingPoint => {
                 let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -3430,7 +3682,7 @@ impl LayoutWindow {
                 };
                 self.focus_manager.set_focused_node(Some(dom_node_id));
                 // Clear cursor for focus navigation
-                self.focus_manager.clear_text_cursor();
+                self.cursor_manager.clear();
             }
 
             // Scroll actions
@@ -3793,10 +4045,61 @@ impl LayoutWindow {
                     affected_nodes.insert(node, (Vec::new(), true));
                 }
             }
-            AccessibilityAction::SetTextSelection(_) => {
-                // TODO: Update text selection range
-                #[cfg(debug_assertions)]
-                eprintln!("[a11y] SetTextSelection not yet implemented");
+            AccessibilityAction::SetTextSelection(selection) => {
+                // Get the text layout for this node from the layout tree
+                let text_layout = self.get_node_inline_layout(dom_id, node_id);
+
+                if let Some(inline_layout) = text_layout {
+                    // Convert byte offsets to TextCursor positions
+                    let start_cursor =
+                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.start as u32);
+                    let end_cursor =
+                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.end as u32);
+
+                    if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
+                        use azul_core::{
+                            selection::{Selection, SelectionRange, SelectionState},
+                            styled_dom::NodeHierarchyItemId,
+                        };
+
+                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                        let dom_node_id = DomNodeId {
+                            dom: dom_id,
+                            node: hierarchy_id,
+                        };
+
+                        if start == end {
+                            // Same position - just set cursor
+                            self.cursor_manager.move_cursor_to(start, dom_id, node_id);
+
+                            // Clear any existing selections
+                            self.selection_manager.clear_selection(&dom_id);
+                        } else {
+                            // Different positions - create selection range
+                            let selection = Selection::Range(SelectionRange { start, end });
+
+                            let selection_state = SelectionState {
+                                selections: vec![selection],
+                                node_id: dom_node_id,
+                            };
+
+                            // Set selection in SelectionManager
+                            self.selection_manager
+                                .set_selection(dom_id, selection_state);
+
+                            // Also set cursor to start of selection
+                            self.cursor_manager.move_cursor_to(start, dom_id, node_id);
+                        }
+                    } else {
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "[a11y] SetTextSelection: Could not convert byte offsets to cursors"
+                        );
+                    }
+                } else {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[a11y] SetTextSelection: No text layout available for node");
+                }
             }
 
             // Tooltip actions
@@ -3812,6 +4115,9 @@ impl LayoutWindow {
                 eprintln!("[a11y] Custom actions not yet fully implemented");
             }
         }
+
+        // Sync cursor to selection manager for rendering
+        self.sync_cursor_to_selection_manager();
 
         affected_nodes
     }
@@ -3947,8 +4253,8 @@ impl LayoutWindow {
         // Get the current inline content from cache
         let content = self.get_text_before_textinput(dom_id, node_id);
 
-        // Get current cursor/selection from focus manager
-        let current_selection = if let Some(cursor) = self.focus_manager.get_text_cursor() {
+        // Get current cursor/selection from cursor manager
+        let current_selection = if let Some(cursor) = self.cursor_manager.get_cursor() {
             vec![azul_core::selection::Selection::Cursor(cursor.clone())]
         } else {
             // No cursor - create one at start of text
@@ -3962,15 +4268,41 @@ impl LayoutWindow {
             })]
         };
 
+        // Capture pre-state for undo/redo BEFORE mutation
+        let old_text = self.extract_text_from_inline_content(&content);
+        let old_cursor = current_selection.first().and_then(|sel| {
+            if let azul_core::selection::Selection::Cursor(c) = sel {
+                Some(c.clone())
+            } else {
+                None
+            }
+        });
+        let old_selection_range = current_selection.first().and_then(|sel| {
+            if let azul_core::selection::Selection::Range(r) = sel {
+                Some(*r)
+            } else {
+                None
+            }
+        });
+
+        let pre_state = crate::managers::undo_redo::NodeStateSnapshot {
+            node_id: azul_core::id::NodeId::new(node_id.index()),
+            text_content: old_text,
+            cursor_position: old_cursor,
+            selection_range: old_selection_range,
+            timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+        };
+
         // Apply the edit using text3::edit - this is a pure function
         use crate::text3::edit::{edit_text, TextEdit};
         let text_edit = TextEdit::Insert(changeset.inserted_text.clone());
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
 
-        // Update the cursor/selection in focus manager
+        // Update the cursor/selection in cursor manager
         // This happens lazily, only when we actually apply the changes
         if let Some(azul_core::selection::Selection::Cursor(new_cursor)) = new_selections.first() {
-            self.focus_manager.set_text_cursor(Some(new_cursor.clone()));
+            self.cursor_manager
+                .move_cursor_to(new_cursor.clone(), dom_id, node_id);
         }
 
         #[cfg(debug_assertions)]
@@ -3984,6 +4316,54 @@ impl LayoutWindow {
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
+
+        // Record this operation to the undo/redo manager AFTER successful mutation
+        use azul_core::window::CursorPosition;
+
+        use crate::managers::changeset::{TextChangeset, TextOperation};
+
+        // Get the new cursor position after edit
+        let new_cursor = new_selections
+            .first()
+            .and_then(|sel| {
+                if let azul_core::selection::Selection::Cursor(c) = sel {
+                    // Convert TextCursor to CursorPosition
+                    // For now, we use InWindow with approximate coordinates
+                    // TODO: Calculate proper screen coordinates from TextCursor
+                    Some(CursorPosition::InWindow(
+                        azul_core::geom::LogicalPosition::new(0.0, 0.0),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(CursorPosition::Uninitialized);
+
+        let old_cursor_pos = old_cursor
+            .as_ref()
+            .map(|_| {
+                // Convert TextCursor to CursorPosition
+                CursorPosition::InWindow(azul_core::geom::LogicalPosition::new(0.0, 0.0))
+            })
+            .unwrap_or(CursorPosition::Uninitialized);
+
+        // Generate a unique changeset ID
+        static CHANGESET_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let changeset_id = CHANGESET_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        let undo_changeset = TextChangeset {
+            id: changeset_id,
+            target: changeset.node,
+            operation: TextOperation::InsertText {
+                text: changeset.inserted_text.clone(),
+                position: old_cursor_pos,
+                new_cursor,
+            },
+            timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+        };
+        self.undo_redo_manager
+            .record_operation(undo_changeset, pre_state);
 
         // Clear the changeset now that it's been applied
         self.text_input_manager.clear_changeset();
@@ -4060,7 +4440,7 @@ impl LayoutWindow {
     /// This function currently reconstructs InlineContent from the styled DOM.
     /// A future optimization would be to cache the InlineContent during layout
     /// and retrieve it directly from the text cache.
-    fn get_text_before_textinput(
+    pub fn get_text_before_textinput(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -4177,7 +4557,7 @@ impl LayoutWindow {
     /// Extract plain text string from inline content
     ///
     /// This is a helper for building the changeset's resulting_text field.
-    fn extract_text_from_inline_content(
+    pub fn extract_text_from_inline_content(
         &self,
         content: &[crate::text3::cache::InlineContent],
     ) -> String {
@@ -4215,7 +4595,7 @@ impl LayoutWindow {
     ///
     /// This is the ONLY place where we mutate the text cache.
     /// All other functions are pure queries or transformations.
-    fn update_text_cache_after_edit(
+    pub fn update_text_cache_after_edit(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
@@ -4248,7 +4628,6 @@ impl LayoutWindow {
     }
 
     /// Get the layout bounds (position and size) of a specific node
-    #[cfg(feature = "accessibility")]
     fn get_node_bounds(
         &self,
         dom_id: DomId,
@@ -4267,8 +4646,8 @@ impl LayoutWindow {
 
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
-                x: position.x as isize,
-                y: position.y as isize,
+                x: position.x as f32 as isize,
+                y: position.y as f32 as isize,
             },
             size: azul_css::props::basic::LayoutSize {
                 width: size.width as isize,
@@ -4303,6 +4682,262 @@ impl LayoutWindow {
                 azul_core::events::EasingFunction::EaseOut,
                 now.into(),
             );
+        }
+    }
+
+    /// Scroll the cursor into view if it's not currently visible
+    ///
+    /// This is automatically called when:
+    /// - Focus lands on a contenteditable element
+    /// - Cursor is moved programmatically
+    /// - Text is inserted/deleted
+    ///
+    /// The function:
+    /// 1. Gets the cursor rectangle from the text layout
+    /// 2. Checks if the cursor is visible in the current viewport
+    /// 3. If not, calculates the minimum scroll offset needed
+    /// 4. Animates the scroll to bring the cursor into view
+    fn scroll_cursor_into_view_if_needed(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        now: std::time::Instant,
+    ) {
+        // Get the cursor from CursorManager
+        let Some(cursor) = self.cursor_manager.get_cursor() else {
+            return;
+        };
+
+        // Get the inline layout for this node
+        let Some(inline_layout) = self.get_node_inline_layout(dom_id, node_id) else {
+            return;
+        };
+
+        // Get the cursor rectangle from the text layout
+        let Some(cursor_rect) = inline_layout.get_cursor_rect(cursor) else {
+            return;
+        };
+
+        // Get the node bounds
+        let Some(node_bounds) = self.get_node_bounds(dom_id, node_id) else {
+            return;
+        };
+
+        // Calculate the cursor's absolute position
+        let cursor_abs_x = node_bounds.origin.x as f32 + cursor_rect.origin.x;
+        let cursor_abs_y = node_bounds.origin.y as f32 + cursor_rect.origin.y;
+
+        // Find the nearest scrollable ancestor
+        // For now, just use the node itself if it's scrollable
+        // TODO: Walk up the DOM tree to find scrollable ancestor
+
+        // Get current scroll position
+        let current_scroll = self
+            .scroll_manager
+            .get_current_offset(dom_id, node_id)
+            .unwrap_or_default();
+
+        // Calculate visible viewport
+        let viewport_x = node_bounds.origin.x as f32 + current_scroll.x;
+        let viewport_y = node_bounds.origin.y as f32 + current_scroll.y;
+        let viewport_width = node_bounds.size.width as f32;
+        let viewport_height = node_bounds.size.height as f32;
+
+        // Check if cursor is visible
+        let cursor_visible_x = (cursor_abs_x as f32) >= viewport_x
+            && (cursor_abs_x as f32) <= viewport_x + viewport_width;
+        let cursor_visible_y = (cursor_abs_y as f32) >= viewport_y
+            && (cursor_abs_y as f32) <= viewport_y + viewport_height;
+
+        if cursor_visible_x && cursor_visible_y {
+            // Cursor is already visible
+            return;
+        }
+
+        // Calculate scroll offset to make cursor visible
+        let mut target_scroll_x = current_scroll.x;
+        let mut target_scroll_y = current_scroll.y;
+
+        // Adjust horizontal scroll if needed
+        if (cursor_abs_x as f32) < viewport_x {
+            // Cursor is to the left of viewport - scroll left
+            target_scroll_x = cursor_abs_x as f32 - node_bounds.origin.x as f32;
+        } else if (cursor_abs_x as f32) > viewport_x + viewport_width {
+            // Cursor is to the right of viewport - scroll right
+            target_scroll_x = cursor_abs_x as f32 - node_bounds.origin.x as f32 - viewport_width
+                + cursor_rect.size.width;
+        }
+
+        // Adjust vertical scroll if needed
+        if (cursor_abs_y as f32) < viewport_y {
+            // Cursor is above viewport - scroll up
+            target_scroll_y = cursor_abs_y as f32 - node_bounds.origin.y as f32;
+        } else if (cursor_abs_y as f32) > viewport_y + viewport_height {
+            // Cursor is below viewport - scroll down
+            target_scroll_y = cursor_abs_y as f32 - node_bounds.origin.y as f32 - viewport_height
+                + cursor_rect.size.height;
+        }
+
+        // Animate scroll to bring cursor into view
+        use azul_core::geom::LogicalPosition;
+        self.scroll_manager.scroll_to(
+            dom_id,
+            node_id,
+            LogicalPosition {
+                x: target_scroll_x,
+                y: target_scroll_y,
+            },
+            std::time::Duration::from_millis(200).into(),
+            azul_core::events::EasingFunction::EaseOut,
+            now.into(),
+        );
+    }
+
+    /// Convert a byte offset in the text to a TextCursor position
+    ///
+    /// This is used for accessibility SetTextSelection action, which provides
+    /// byte offsets rather than grapheme cluster IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `text_layout` - The text layout containing the shaped runs
+    /// * `byte_offset` - The byte offset in the UTF-8 text
+    ///
+    /// # Returns
+    ///
+    /// A TextCursor positioned at the given byte offset, or None if the offset
+    /// is out of bounds.
+    fn byte_offset_to_cursor(
+        &self,
+        text_layout: &crate::text3::cache::UnifiedLayout<FontRef>,
+        byte_offset: u32,
+    ) -> Option<azul_core::selection::TextCursor> {
+        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+        // Handle offset 0 as special case (start of text)
+        if byte_offset == 0 {
+            // Find first cluster in items
+            for item in &text_layout.items {
+                if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+                    return Some(TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Trailing,
+                    });
+                }
+            }
+            // No clusters found - return default
+            return Some(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Trailing,
+            });
+        }
+
+        // Iterate through items to find which cluster contains this byte offset
+        let mut current_byte_offset = 0u32;
+
+        for item in &text_layout.items {
+            if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+                // Calculate byte length of this cluster from its text
+                let cluster_byte_length = cluster.text.len() as u32;
+                let cluster_end_byte = current_byte_offset + cluster_byte_length;
+
+                // Check if our target byte offset falls within this cluster
+                if byte_offset >= current_byte_offset && byte_offset <= cluster_end_byte {
+                    // Found the cluster
+                    return Some(TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Trailing,
+                    });
+                }
+
+                current_byte_offset = cluster_end_byte;
+            }
+        }
+
+        // Offset is beyond the end of all text - return cursor at end of last cluster
+        for item in text_layout.items.iter().rev() {
+            if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+                return Some(TextCursor {
+                    cluster_id: cluster.source_cluster_id,
+                    affinity: CursorAffinity::Trailing,
+                });
+            }
+        }
+
+        // No clusters at all - return default position
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Trailing,
+        })
+    }
+
+    /// Get the inline layout result for a specific node
+    ///
+    /// This looks up the node in the layout tree and returns its inline layout result
+    /// if it exists.
+    fn get_node_inline_layout(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<alloc::sync::Arc<crate::text3::cache::UnifiedLayout<FontRef>>> {
+        // Get the layout tree from cache
+        let layout_tree = self.layout_cache.tree.as_ref()?;
+
+        // Find the layout node corresponding to the DOM node
+        let layout_node = layout_tree
+            .nodes
+            .iter()
+            .find(|node| node.dom_node_id == Some(node_id))?;
+
+        // Return the inline layout result
+        layout_node.inline_layout_result.clone()
+    }
+
+    /// Sync cursor from CursorManager to SelectionManager for rendering
+    ///
+    /// The renderer expects cursor and selection data from the SelectionManager,
+    /// but we manage the cursor separately in the CursorManager for better separation
+    /// of concerns. This function syncs the cursor state so it can be rendered.
+    ///
+    /// This should be called whenever the cursor changes.
+    pub fn sync_cursor_to_selection_manager(&mut self) {
+        use azul_core::{
+            selection::{Selection, SelectionState},
+            styled_dom::NodeHierarchyItemId,
+        };
+
+        if let Some(cursor) = self.cursor_manager.get_cursor() {
+            if let Some(location) = self.cursor_manager.get_cursor_location() {
+                // Convert cursor to Selection
+                let selection = Selection::Cursor(cursor.clone());
+
+                // Create SelectionState
+                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(location.node_id));
+                let dom_node_id = DomNodeId {
+                    dom: location.dom_id,
+                    node: hierarchy_id,
+                };
+
+                let selection_state = SelectionState {
+                    selections: vec![selection],
+                    node_id: dom_node_id,
+                };
+
+                // Set selection in SelectionManager
+                self.selection_manager
+                    .set_selection(location.dom_id, selection_state);
+            }
+        } else {
+            // No cursor - clear selections
+            // Note: We might want to be more careful here to not clear user selections
+            // For now, clearing when cursor is cleared is safe
+            self.selection_manager.clear_all();
         }
     }
 
@@ -4582,13 +5217,16 @@ impl LayoutWindow {
     /// It iterates through all selected text, extracts the actual characters, and
     /// preserves styling information from the ShapedGlyph's StyleProperties.
     ///
+    /// This is NOT reading from the system clipboard - use `clipboard_manager.get_paste_content()`
+    /// for that. This extracts content FROM the selection TO be copied.
+    ///
     /// ## Arguments
     /// * `dom_id` - The DOM to extract selection from
     ///
     /// ## Returns
     /// * `Some(ClipboardContent)` - If there is a selection with text
     /// * `None` - If no selection or no text layouts found
-    pub fn get_clipboard_content(
+    pub fn get_selected_content_for_clipboard(
         &self,
         dom_id: &DomId,
     ) -> Option<crate::managers::selection::ClipboardContent> {

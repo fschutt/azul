@@ -637,23 +637,36 @@ pub struct TimerCallbackReturn {
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]
 #[repr(C)]
+/// Reference data container for LayoutCallbackInfo (all read-only fields)
+///
+/// This struct consolidates all readonly references that layout callbacks need to query state.
+/// By grouping these into a single struct, we reduce the number of parameters to
+/// LayoutCallbackInfo::new() from 6 to 2, making the API more maintainable and easier to extend.
+///
+/// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
+/// reference.
+pub struct LayoutCallbackInfoRefData<'a> {
+    /// Allows the layout() function to reference image IDs
+    pub image_cache: &'a ImageCache,
+    /// OpenGL context so that the layout() function can render textures
+    pub gl_context: &'a OptionGlContextPtr,
+    /// Reference to the system font cache
+    pub system_fonts: &'a FcFontCache,
+    /// Platform-specific system style (colors, spacing, etc.)
+    /// Used for CSD rendering and menu windows.
+    pub system_style: Arc<SystemStyle>,
+}
+
 pub struct LayoutCallbackInfo {
+    /// Single reference to all readonly reference data
+    /// This consolidates 4 individual parameters into 1, improving API ergonomics
+    ref_data: *const LayoutCallbackInfoRefData<'static>,
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
     pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
     pub theme: WindowTheme,
-    /// Allows the layout() function to reference image IDs
-    pub image_cache: *const ImageCache,
-    /// OpenGL context so that the layout() function can render textures
-    pub gl_context: *const OptionGlContextPtr,
-    /// Reference to the system font cache
-    pub system_fonts: *const FcFontCache,
-    /// Platform-specific system style (colors, spacing, etc.)
-    /// Used for CSD rendering and menu windows.
-    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation.
-    pub system_style: Arc<SystemStyle>,
     /// Extension for future ABI stability (referenced data)
     _abi_ref: *const core::ffi::c_void,
     /// Extension for future ABI stability (mutable data)
@@ -663,12 +676,9 @@ pub struct LayoutCallbackInfo {
 impl Clone for LayoutCallbackInfo {
     fn clone(&self) -> Self {
         Self {
+            ref_data: self.ref_data,
             window_size: self.window_size,
             theme: self.theme,
-            image_cache: self.image_cache,
-            gl_context: self.gl_context,
-            system_fonts: self.system_fonts,
-            system_style: self.system_style.clone(),
             _abi_ref: self._abi_ref,
             _abi_mut: self._abi_mut,
         }
@@ -677,20 +687,16 @@ impl Clone for LayoutCallbackInfo {
 
 impl LayoutCallbackInfo {
     pub fn new<'a>(
+        ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
         theme: WindowTheme,
-        image_cache: &'a ImageCache,
-        gl_context: &'a OptionGlContextPtr,
-        fc_cache: &'a FcFontCache,
-        system_style: Arc<SystemStyle>,
     ) -> Self {
         Self {
+            // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
+            // only lives for the duration of the callback, which is shorter than 'a
+            ref_data: unsafe { core::mem::transmute(ref_data) },
             window_size,
             theme,
-            image_cache: image_cache as *const ImageCache,
-            gl_context: gl_context as *const OptionGlContextPtr,
-            system_fonts: fc_cache as *const FcFontCache,
-            system_style,
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         }
@@ -698,7 +704,7 @@ impl LayoutCallbackInfo {
 
     /// Get a clone of the system style Arc
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
-        self.system_style.clone()
+        unsafe { (*self.ref_data).system_style.clone() }
     }
 
     /// Get the ABI extension pointer (for future extensibility)
@@ -716,13 +722,13 @@ impl LayoutCallbackInfo {
     }
 
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
-        unsafe { &*self.image_cache }
+        unsafe { (*self.ref_data).image_cache }
     }
     fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache {
-        unsafe { &*self.system_fonts }
+        unsafe { (*self.ref_data).system_fonts }
     }
     fn internal_get_gl_context<'a>(&'a self) -> &'a OptionGlContextPtr {
-        unsafe { &*self.gl_context }
+        unsafe { (*self.ref_data).gl_context }
     }
 
     pub fn get_gl_context(&self) -> OptionGlContextPtr {
@@ -753,6 +759,63 @@ impl LayoutCallbackInfo {
         self.internal_get_image_cache()
             .get_css_image_id(image_id)
             .cloned()
+    }
+
+    // Responsive layout helper methods
+    /// Returns true if the window width is less than the given pixel value
+    ///
+    /// # Example
+    /// ```
+    /// if info.window_width_less_than(750.0) {
+    ///     // Show mobile view
+    /// } else {
+    ///     // Show desktop view
+    /// }
+    /// ```
+    pub fn window_width_less_than(&self, px: f32) -> bool {
+        self.window_size.dimensions.width < px
+    }
+
+    /// Returns true if the window width is greater than the given pixel value
+    pub fn window_width_greater_than(&self, px: f32) -> bool {
+        self.window_size.dimensions.width > px
+    }
+
+    /// Returns true if the window width is between min and max (inclusive)
+    pub fn window_width_between(&self, min_px: f32, max_px: f32) -> bool {
+        let width = self.window_size.dimensions.width;
+        width >= min_px && width <= max_px
+    }
+
+    /// Returns true if the window height is less than the given pixel value
+    pub fn window_height_less_than(&self, px: f32) -> bool {
+        self.window_size.dimensions.height < px
+    }
+
+    /// Returns true if the window height is greater than the given pixel value
+    pub fn window_height_greater_than(&self, px: f32) -> bool {
+        self.window_size.dimensions.height > px
+    }
+
+    /// Returns true if the window height is between min and max (inclusive)
+    pub fn window_height_between(&self, min_px: f32, max_px: f32) -> bool {
+        let height = self.window_size.dimensions.height;
+        height >= min_px && height <= max_px
+    }
+
+    /// Returns the current window width in pixels
+    pub fn get_window_width(&self) -> f32 {
+        self.window_size.dimensions.width
+    }
+
+    /// Returns the current window height in pixels
+    pub fn get_window_height(&self) -> f32 {
+        self.window_size.dimensions.height
+    }
+
+    /// Returns the current window DPI factor
+    pub fn get_dpi_factor(&self) -> f32 {
+        self.window_size.dpi as f32
     }
 }
 

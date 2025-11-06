@@ -53,13 +53,17 @@ impl TextChangeset {
     ///
     /// This is a pure function that applies the inserted_text to old_text
     /// using the current cursor position.
+    ///
+    /// NOTE: Actual text application is handled by apply_text_changeset() in window.rs
+    /// which uses text3::edit::insert_text() for proper cursor-based insertion.
+    /// This method is for preview/inspection purposes only.
     pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> String {
-        // TODO: Apply edit at cursor position
-        // For now, just append the inserted text
+        // For preview: append the inserted text
+        // Actual insertion at cursor is done by text3::edit::insert_text()
         let mut result = self.old_text.clone();
         result.push_str(&self.inserted_text);
 
-        let _ = cursor; // Will be used when we implement proper cursor-based insertion
+        let _ = cursor; // Preview doesn't need cursor - actual insert does
 
         result
     }
@@ -186,7 +190,8 @@ impl EventProvider for TextInputManager {
                 event_source,
                 changeset.node,
                 timestamp,
-                EventData::None, // TODO: Add text-specific event data once we have it
+                EventData::None, /* Callbacks can query changeset via
+                                  * text_input_manager.get_pending_changeset() */
             ));
 
             // Note: We don't generate Change events here - those are generated

@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use azul_core::{callbacks::Update, events::ProcessEventResult};
 use azul_layout::{
-    callbacks::CallCallbacksResult, thread::Thread, timer::Timer, window_state::WindowState,
+    callbacks::CallCallbacksResult, thread::Thread, timer::Timer, window_state::FullWindowState,
 };
 
 /// Result of processing callback results
@@ -50,7 +50,7 @@ impl Default for CallbackProcessingResult {
 /// - `CallbackProcessingResult` containing all extracted changes
 pub fn process_callback_results(
     callback_result: &CallCallbacksResult,
-    current_window_state: &mut WindowState,
+    current_window_state: &mut FullWindowState,
 ) -> CallbackProcessingResult {
     let mut result = CallbackProcessingResult::default();
 
@@ -66,7 +66,7 @@ pub fn process_callback_results(
         current_window_state.mouse_state = modified_state.mouse_state.clone();
         current_window_state.touch_state = modified_state.touch_state.clone();
         current_window_state.ime_position = modified_state.ime_position;
-        current_window_state.monitor = modified_state.monitor.clone();
+        current_window_state.monitor_id = modified_state.monitor_id;
         current_window_state.platform_specific_options =
             modified_state.platform_specific_options.clone();
         current_window_state.renderer_options = modified_state.renderer_options;
