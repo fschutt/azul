@@ -34,6 +34,8 @@ pub mod events;
 pub mod geom;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 pub mod gl;
+/// FXAA (Fast Approximate Anti-Aliasing) shader implementation
+pub mod gl_fxaa;
 /// OpenGL constants
 pub mod glconst;
 /// GPU value synchronization (colors, transforms) for WebRender preparation

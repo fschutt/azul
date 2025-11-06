@@ -95,6 +95,9 @@ pub enum CallbackChange {
         image: ImageRef,
         update_type: UpdateImageType,
     },
+    /// Re-render an image callback (for resize/animation)
+    /// This triggers re-invocation of the RenderImageCallback
+    UpdateImageCallback { dom_id: DomId, node_id: NodeId },
     /// Change the image mask of a node
     ChangeNodeImageMask {
         dom_id: DomId,
@@ -509,6 +512,23 @@ impl CallbackInfo {
             image,
             update_type,
         });
+    }
+
+    /// Re-render an image callback (for resize/animation updates)
+    ///
+    /// This triggers re-invocation of the RenderImageCallback associated with the node.
+    /// Useful for:
+    /// - Responding to window resize (image needs to match new size)
+    /// - Animation frames (update OpenGL texture each frame)
+    /// - Interactive content (user input changes rendering)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // In a timer callback, update the OpenGL texture each frame
+    /// info.update_image_callback(dom_id, node_id);
+    /// ```
+    pub fn update_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.push_change(CallbackChange::UpdateImageCallback { dom_id, node_id });
     }
 
     /// Change the image mask of a node (applied after callback returns)
@@ -2493,6 +2513,8 @@ pub struct CallCallbacksResult {
     pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>>,
     /// Clip mask changes (for vector animations)
     pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
+    /// Image callback changes (for OpenGL texture updates)
+    pub image_callbacks_changed: Option<BTreeMap<DomId, FastBTreeSet<NodeId>>>,
     /// CSS property changes from callbacks
     pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
     /// Scroll position changes from callbacks
@@ -2533,6 +2555,7 @@ impl Default for CallCallbacksResult {
             words_changed: None,
             images_changed: None,
             image_masks_changed: None,
+            image_callbacks_changed: None,
             css_properties_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
@@ -2650,6 +2673,21 @@ pub struct RenderImageCallback {
 }
 
 impl_callback!(RenderImageCallback);
+
+impl RenderImageCallback {
+    /// Convert from the core crate's `CoreRenderImageCallback` (which stores cb as usize)
+    /// back to the layout crate's typed function pointer.
+    ///
+    /// # Safety
+    ///
+    /// This is safe because we ensure that the usize in CoreRenderImageCallback
+    /// was originally created from a valid RenderImageCallbackType function pointer.
+    pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
+        Self {
+            cb: unsafe { core::mem::transmute(core_callback.cb) },
+        }
+    }
+}
 
 /// Information passed to image rendering callbacks
 #[derive(Debug)]

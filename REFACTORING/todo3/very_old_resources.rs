@@ -767,8 +767,6 @@ impl RendererResourcesTrait for RendererResources {
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
     pub currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
-    /// Reverse lookup: ImageKey -> ImageRefHash for display list translation
-    pub image_key_map: FastHashMap<ImageKey, ImageRefHash>,
     /// All font keys currently active in the RenderApi
     pub currently_registered_fonts:
         FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
@@ -814,7 +812,6 @@ impl Default for RendererResources {
     fn default() -> Self {
         Self {
             currently_registered_images: FastHashMap::default(),
-            image_key_map: FastHashMap::default(),
             currently_registered_fonts: FastHashMap::default(),
             last_frame_registered_fonts: FastHashMap::default(),
             font_families_map: FastHashMap::default(),
@@ -987,23 +984,6 @@ impl GlTextureCache {
     }
 
     /// Updates a given texture
-    ///
-    /// This is called when a texture needs to be re-rendered (e.g., on resize or animation frame).
-    /// It updates the texture in the WebRender external image cache and updates the internal
-    /// descriptor to reflect the new size.
-    ///
-    /// # Arguments
-    ///
-    /// * `dom_id` - The DOM ID containing the texture
-    /// * `node_id` - The node ID of the image element
-    /// * `document_id` - The WebRender document ID
-    /// * `epoch` - The current frame epoch
-    /// * `new_texture` - The new texture to use
-    /// * `insert_into_active_gl_textures_fn` - Function to insert the texture into the cache
-    ///
-    /// # Returns
-    ///
-    /// The ExternalImageId if successful, None if the texture wasn't found in the cache
     pub fn update_texture(
         &mut self,
         dom_id: DomId,
@@ -1015,18 +995,10 @@ impl GlTextureCache {
     ) -> Option<ExternalImageId> {
         let new_descriptor = new_texture.get_descriptor();
         let di_map = self.solved_textures.get_mut(&dom_id)?;
-        let entry = di_map.get_mut(&node_id)?;
-
-        // Update the descriptor
-        entry.1 = new_descriptor;
-
-        // Insert the new texture and get its external image ID
+        let i = di_map.get_mut(&node_id)?;
+        i.1 = new_descriptor;
         let external_image_id =
             (insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
-
-        // Update the external image ID in the cache
-        entry.2 = external_image_id;
-
         Some(external_image_id)
     }
 }

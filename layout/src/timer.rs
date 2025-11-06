@@ -210,6 +210,28 @@ impl Default for Timer {
 }
 
 /// Information passed to timer callbacks
+///
+/// This wraps `CallbackInfo` and adds timer-specific fields like call_count and frame_start.
+/// Through `Deref<Target = CallbackInfo>`, all methods from `CallbackInfo` are available,
+/// including the transactional `push_change()` API.
+///
+/// # Example
+/// ```ignore
+/// extern "C" fn animate_timer(
+///     data: &mut RefAny,
+///     info: &mut TimerCallbackInfo,
+/// ) -> TimerCallbackReturn {
+///     // Timer-specific fields
+///     let call_count = info.call_count;
+///     let frame_start = info.frame_start;
+///     
+///     // All CallbackInfo methods are available via Deref:
+///     info.update_image_callback(dom_id, node_id);  // ← from CallbackInfo
+///     info.add_timer(timer_id, timer);              // ← from CallbackInfo
+///     
+///     TimerCallbackReturn::continue_unchanged()
+/// }
+/// ```
 #[repr(C)]
 pub struct TimerCallbackInfo {
     pub callback_info: CallbackInfo,
@@ -255,6 +277,22 @@ impl TimerCallbackInfo {
     }
 
     pub fn get_callback_info_mut(&mut self) -> &mut CallbackInfo {
+        &mut self.callback_info
+    }
+}
+
+// Implement Deref so all CallbackInfo methods are available
+impl core::ops::Deref for TimerCallbackInfo {
+    type Target = CallbackInfo;
+
+    fn deref(&self) -> &Self::Target {
+        &self.callback_info
+    }
+}
+
+// Implement DerefMut so mutable CallbackInfo methods are available
+impl core::ops::DerefMut for TimerCallbackInfo {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.callback_info
     }
 }

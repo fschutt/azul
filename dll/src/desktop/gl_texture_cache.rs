@@ -27,7 +27,7 @@ use azul_core::{
 };
 
 /// Storage for OpenGL textures, organized by epoch for efficient cleanup.
-/// 
+///
 /// Structure: DocumentId -> Epoch -> ExternalImageId -> Texture
 type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>;
 
@@ -55,11 +55,7 @@ static mut TEXTURE_CACHE: Option<FastHashMap<DocumentId, GlTextureStorage>> = No
 /// # Returns
 ///
 /// A unique ExternalImageId that can be used to reference this texture
-pub fn insert_texture(
-    document_id: DocumentId,
-    epoch: Epoch,
-    texture: Texture,
-) -> ExternalImageId {
+pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -> ExternalImageId {
     let external_image_id = ExternalImageId::new();
 
     unsafe {
@@ -69,17 +65,15 @@ pub fn insert_texture(
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
-        
+
         // Get or create document storage
-        let document_storage = cache
-            .entry(document_id)
-            .or_insert_with(FastHashMap::new);
-        
+        let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
+
         // Get or create epoch storage
         let epoch_storage = document_storage
             .entry(epoch)
             .or_insert_with(FastHashMap::new);
-        
+
         // Insert texture
         epoch_storage.insert(external_image_id, texture);
     }
@@ -194,7 +188,7 @@ pub fn remove_document(document_id: &DocumentId) {
 pub fn get_texture(external_image_id: &ExternalImageId) -> Option<(u32, (f32, f32))> {
     unsafe {
         let cache = TEXTURE_CACHE.as_ref()?;
-        
+
         // Search all documents and epochs for this texture
         cache
             .values()
@@ -228,13 +222,14 @@ pub fn clear_all() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use azul_core::{
-        gl::{GlContextPtr, RawImageFormat, TextureFlags},
-        geom::PhysicalSizeU32,
-        hit_test::IdNamespace,
         display_list::ColorU,
+        geom::PhysicalSizeU32,
+        gl::{GlContextPtr, RawImageFormat, TextureFlags},
+        hit_test::IdNamespace,
     };
+
+    use super::*;
 
     fn create_dummy_texture(id: u32) -> Texture {
         // Note: This creates an invalid texture for testing purposes

@@ -572,6 +572,10 @@ pub mod dialogs;
 pub mod display;
 /// Extra functions for file IO (for C / C++ developers)
 pub mod file;
+/// OpenGL texture cache for external image support
+pub mod gl_texture_cache;
+/// Integration layer for OpenGL texture management
+pub mod gl_texture_integration;
 #[cfg(feature = "logging")]
 mod logging;
 /// Unified menu system using window-based approach
@@ -582,8 +586,6 @@ pub mod menu_renderer;
 pub mod shell2;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
-/// OpenGL texture cache for external image support
-pub mod gl_texture_cache;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::resources::*;

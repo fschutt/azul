@@ -1023,11 +1023,32 @@ impl GlContextPtr {
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
 
+        // Compile FXAA shader
+        use crate::gl_fxaa::{FXAA_FRAGMENT_SHADER, FXAA_VERTEX_SHADER};
+
+        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+        gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
+        gl_context.compile_shader(vertex_shader_object);
+
+        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+        gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
+        gl_context.compile_shader(fragment_shader_object);
+
+        let fxaa_program_id = gl_context.create_program();
+
+        gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
+        gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
+        gl_context.bind_attrib_location(fxaa_program_id, 0, "vAttrXY".into());
+        gl_context.link_program(fxaa_program_id);
+
+        gl_context.delete_shader(vertex_shader_object);
+        gl_context.delete_shader(fragment_shader_object);
+
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
                 svg_multicolor_shader: svg_multicolor_program_id,
-                fxaa_shader: 0, // TODO
+                fxaa_shader: fxaa_program_id,
                 ptr: gl_context,
             })),
             renderer_type,

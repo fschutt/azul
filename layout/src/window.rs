@@ -199,6 +199,9 @@ pub struct CallbackChangeResult {
     pub words_changed: BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// Image changes (for animated images/video)
     pub images_changed: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+    /// Image callback nodes that need to be re-rendered (for resize/animations)
+    /// Unlike images_changed, this triggers a callback re-invocation
+    pub image_callbacks_changed: BTreeMap<DomId, FastBTreeSet<NodeId>>,
     /// Clip mask changes (for vector animations)
     pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// CSS property changes from callbacks
@@ -1090,6 +1093,13 @@ impl LayoutWindow {
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, (image, update_type));
+                }
+                CallbackChange::UpdateImageCallback { dom_id, node_id } => {
+                    result
+                        .image_callbacks_changed
+                        .entry(dom_id)
+                        .or_insert_with(FastBTreeSet::new)
+                        .insert(node_id);
                 }
                 CallbackChange::ChangeNodeImageMask {
                     dom_id,
@@ -2429,6 +2439,7 @@ impl LayoutWindow {
             words_changed: None,
             images_changed: None,
             image_masks_changed: None,
+            image_callbacks_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
@@ -2537,6 +2548,9 @@ impl LayoutWindow {
             if !change_result.css_properties_changed.is_empty() {
                 ret.css_properties_changed = Some(change_result.css_properties_changed);
             }
+            if !change_result.image_callbacks_changed.is_empty() {
+                ret.image_callbacks_changed = Some(change_result.image_callbacks_changed);
+            }
             if !change_result.nodes_scrolled.is_empty() {
                 ret.nodes_scrolled_in_callbacks = Some(change_result.nodes_scrolled);
             }
@@ -2596,6 +2610,7 @@ impl LayoutWindow {
             words_changed: None,
             images_changed: None,
             image_masks_changed: None,
+            image_callbacks_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
@@ -2850,6 +2865,7 @@ impl LayoutWindow {
             words_changed: None,
             images_changed: None,
             image_masks_changed: None,
+            image_callbacks_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
@@ -3012,6 +3028,7 @@ impl LayoutWindow {
             words_changed: None,
             images_changed: None,
             image_masks_changed: None,
+            image_callbacks_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
             timers: None,
@@ -5315,6 +5332,152 @@ impl LayoutWindow {
                 styled_runs,
             })
         }
+    }
+
+    /// Process image callback updates from CallbackChangeResult
+    ///
+    /// This function re-invokes image callbacks for nodes that requested updates
+    /// (typically from timer callbacks or resize events). It returns the updated
+    /// textures along with their metadata for the rendering pipeline to process.
+    ///
+    /// # Arguments
+    ///
+    /// * `image_callbacks_changed` - Map of DomId -> Set of NodeIds that need re-rendering
+    /// * `gl_context` - OpenGL context pointer for rendering
+    ///
+    /// # Returns
+    ///
+    /// Vector of (DomId, NodeId, Texture) tuples for textures that were updated
+    pub fn process_image_callback_updates(
+        &mut self,
+        image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
+        gl_context: &OptionGlContextPtr,
+    ) -> Vec<(DomId, NodeId, azul_core::gl::Texture)> {
+        use azul_core::{callbacks::HidpiAdjustedBounds, dom::NodeType};
+
+        use crate::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
+
+        let mut updated_textures = Vec::new();
+
+        for (dom_id, node_ids) in image_callbacks_changed {
+            let layout_result = match self.layout_results.get_mut(dom_id) {
+                Some(lr) => lr,
+                None => continue,
+            };
+
+            for node_id in node_ids {
+                // Get the node data - store container ref to extend lifetime
+                let node_data_container = layout_result.styled_dom.node_data.as_container();
+                let node_data = match node_data_container.get(*node_id) {
+                    Some(nd) => nd,
+                    None => continue,
+                };
+
+                // Check if this is an Image node with a callback
+                let has_callback = matches!(node_data.get_node_type(), NodeType::Image(img_ref)
+                    if img_ref.get_image_callback().is_some());
+
+                if !has_callback {
+                    continue;
+                }
+
+                // Get layout indices for this DOM node (can have multiple due to text splitting,
+                // etc.)
+                let layout_indices = match layout_result.layout_tree.dom_to_layout.get(node_id) {
+                    Some(indices) if !indices.is_empty() => indices,
+                    _ => continue,
+                };
+
+                // Use the first layout index (primary node)
+                let layout_index = layout_indices[0];
+
+                // Get the position from calculated_positions
+                let position = match layout_result.calculated_positions.get(&layout_index) {
+                    Some(pos) => *pos,
+                    None => continue,
+                };
+
+                // Get the layout node to determine size
+                let layout_node = match layout_result.layout_tree.get(layout_index) {
+                    Some(ln) => ln,
+                    None => continue,
+                };
+
+                // Get the size from the layout node (used_size is the computed size from layout)
+                let (width, height) = match layout_node.used_size {
+                    Some(size) => (size.width, size.height),
+                    None => continue, // Node hasn't been laid out yet
+                };
+
+                let callback_domnode_id = DomNodeId {
+                    dom: *dom_id,
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                        *node_id,
+                    )),
+                };
+
+                let bounds = HidpiAdjustedBounds::from_bounds(
+                    azul_css::props::basic::LayoutSize {
+                        width: width as isize,
+                        height: height as isize,
+                    },
+                    self.current_window_state.size.get_hidpi_factor(),
+                );
+
+                // Create callback info
+                let mut gl_callback_info = RenderImageCallbackInfo::new(
+                    callback_domnode_id,
+                    bounds,
+                    gl_context,
+                    &self.image_cache,
+                    &self.font_manager.fc_cache,
+                );
+
+                // Invoke the callback
+                let new_image_ref = {
+                    let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                    match node_data_mut.get_mut(*node_id) {
+                        Some(nd) => {
+                            match &mut nd.node_type {
+                                NodeType::Image(img_ref) => {
+                                    img_ref.get_image_callback_mut().map(|core_callback| {
+                                        // Convert from CoreImageCallback (cb: usize) to
+                                        // RenderImageCallback (cb: fn pointer)
+                                        let callback =
+                                            RenderImageCallback::from_core(&core_callback.callback);
+                                        (callback.cb)(
+                                            &mut core_callback.data,
+                                            &mut gl_callback_info,
+                                        )
+                                    })
+                                }
+                                _ => None,
+                            }
+                        }
+                        None => None,
+                    }
+                };
+
+                // Reset GL state after callback
+                if let Some(gl) = gl_context.as_ref() {
+                    use gl_context_loader::gl;
+                    gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+                    gl.disable(gl::FRAMEBUFFER_SRGB);
+                    gl.disable(gl::MULTISAMPLE);
+                }
+
+                // Extract the texture from the returned ImageRef
+                if let Some(image_ref) = new_image_ref {
+                    if let Some(decoded_image) = image_ref.into_inner() {
+                        if let azul_core::resources::DecodedImage::Gl(texture) = decoded_image {
+                            updated_textures.push((*dom_id, *node_id, texture));
+                        }
+                    }
+                }
+            }
+        }
+
+        updated_textures
     }
 }
 
