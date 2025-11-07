@@ -77,15 +77,9 @@ pub fn create_hwnd(
             )
         };
 
-        // Window style
-        let style = WS_OVERLAPPED
-            | WS_CAPTION
-            | WS_SYSMENU
-            | WS_THICKFRAME
-            | WS_MINIMIZEBOX
-            | WS_MAXIMIZEBOX
-            | WS_TABSTOP
-            | WS_POPUP;
+        // Window style - use standard overlapped window
+        // WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+        let style = WS_OVERLAPPEDWINDOW | WS_TABSTOP;
 
         let style_ex = WS_EX_APPWINDOW | WS_EX_ACCEPTFILES;
 

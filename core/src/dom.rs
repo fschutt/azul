@@ -2697,6 +2697,12 @@ impl NodeData {
     }
 
     #[inline]
+    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+        self.set_menu_bar(menu_bar);
+        self
+    }
+
+    #[inline]
     pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_context_menu(context_menu);
         self
@@ -4587,6 +4593,24 @@ impl Dom {
     #[inline]
     pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.root.set_context_menu(context_menu);
+        self
+    }
+
+    #[inline]
+    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+        self.root.set_menu_bar(menu_bar);
+        self
+    }
+
+    #[inline]
+    pub fn with_clip_mask(mut self, clip_mask: ImageMask) -> Self {
+        self.root.set_clip_mask(clip_mask);
+        self
+    }
+
+    #[inline]
+    pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {
+        self.root.set_accessibility_info(accessibility_info);
         self
     }
 

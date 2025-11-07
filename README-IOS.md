@@ -41,7 +41,8 @@ have an Apple ID, you can generate a free development certificate.
 *   Open Xcode (you may need to install it fully for this step).
 *   Go to `Xcode` -> `Settings...` -> `Accounts`.
 *   Add your Apple ID.
-*   Click `Manage Certificates...` and click the `+` button to create an "Apple Development" certificate.
+*   Click `Manage Certificates...` and click the `+` button to create 
+    an "Apple Development" certificate.
 
 ## Project Setup
 
