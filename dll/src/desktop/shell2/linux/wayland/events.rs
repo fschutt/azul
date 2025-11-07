@@ -43,6 +43,8 @@ pub(super) struct PointerState {
     pub(super) button_down: Option<MouseButton>,
     /// Current cursor theme (loaded once)
     pub(super) cursor_theme: *mut super::defines::wl_cursor_theme,
+    /// Dedicated surface for cursor (reused instead of creating/destroying)
+    pub(super) cursor_surface: *mut super::defines::wl_surface,
 }
 
 impl PointerState {
@@ -52,6 +54,7 @@ impl PointerState {
             serial: 0,
             button_down: None,
             cursor_theme: std::ptr::null_mut(),
+            cursor_surface: std::ptr::null_mut(),
         }
     }
 }

@@ -31,6 +31,7 @@ pub struct TooltipWindow {
     pool: Option<*mut wl_shm_pool>,
     buffer: Option<*mut wl_buffer>,
     data: Option<*mut u8>,
+    mapped_size: usize, // Size of the mmap'd region for proper cleanup
     width: i32,
     height: i32,
 }
@@ -87,6 +88,7 @@ impl TooltipWindow {
                 pool: None,
                 buffer: None,
                 data: None,
+                mapped_size: 0,
                 width: 0,
                 height: 0,
             })
@@ -177,6 +179,8 @@ impl TooltipWindow {
                     return;
                 }
 
+                // Store the mapped size for cleanup
+                self.mapped_size = size as usize;
                 self.pool = Some(pool);
                 self.buffer = Some(buffer);
                 self.data = Some(data);
@@ -261,8 +265,10 @@ impl TooltipWindow {
             }
 
             if let Some(data) = self.data.take() {
-                let size = (self.width * self.height * 4) as usize;
-                libc::munmap(data as *mut libc::c_void, size);
+                // Use the stored mapped_size instead of calculating from current width/height
+                // This ensures we unmap the exact size that was originally mapped
+                libc::munmap(data as *mut libc::c_void, self.mapped_size);
+                self.mapped_size = 0;
             }
         }
     }

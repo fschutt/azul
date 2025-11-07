@@ -79,12 +79,16 @@ use crate::desktop::{
 };
 
 pub mod accessibility;
+mod coregraphics;
+mod corevideo;
 mod events;
 mod gl;
 mod menu;
 pub mod registry;
 mod tooltip;
 
+use coregraphics::CoreGraphicsFunctions;
+use corevideo::CoreVideoFunctions;
 use events::HitTestNode;
 use gl::GlFunctions;
 
@@ -1273,6 +1277,16 @@ pub struct MacOSWindow {
     timers: std::collections::HashMap<usize, Retained<objc2_foundation::NSTimer>>,
     /// Thread timer (for polling thread messages every 16ms)
     thread_timer_running: Option<Retained<objc2_foundation::NSTimer>>,
+
+    // VSYNC and Display Management
+    /// CVDisplayLink for proper VSYNC synchronization (optional, loaded via dlopen)
+    display_link: Option<corevideo::DisplayLink>,
+    /// CoreVideo functions (loaded via dlopen for backward compatibility)
+    cv_functions: Option<Arc<CoreVideoFunctions>>,
+    /// Core Graphics functions (for display enumeration)
+    cg_functions: Option<Arc<CoreGraphicsFunctions>>,
+    /// Current display ID (CGDirectDisplayID) for this window
+    current_display_id: Option<u32>,
 }
 
 // ============================================================================
@@ -1651,19 +1665,164 @@ impl MacOSWindow {
     fn configure_vsync(gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
 
-        // VSync configuration needs to happen AFTER the event loop is running
-        // and the GL context is properly initialized. Calling makeCurrentContext()
-        // before the event loop can cause deadlocks.
-        //
-        // For now, we skip this during window creation. VSync should be configured
-        // later via CVDisplayLink as recommended by Apple's documentation.
-        eprintln!(
-            "[MacOSWindow::configure_vsync] Skipping VSync configuration (deferred to \
-             CVDisplayLink)"
-        );
+        // Traditional VSync configuration via NSOpenGLContext
+        // This is a simple immediate synchronization method, but CVDisplayLink is preferred
+        
+        // Note: On modern macOS (10.14+), CVDisplayLink is the recommended approach
+        // This function provides a fallback for older systems or when CVDisplayLink fails
+        
+        let swap_interval: i32 = match vsync {
+            Vsync::Enabled => 1,  // Sync to display refresh rate
+            Vsync::Disabled => 0, // No synchronization
+            Vsync::DontCare => 1, // Default to enabled
+        };
 
-        // TODO: Implement proper CVDisplayLink-based VSync
-        // See: https://developer.apple.com/documentation/corevideo/cvdisplaylink
+        unsafe {
+            use objc2::msg_send;
+            
+            // Set swap interval on the GL context
+            // This must be called AFTER makeCurrentContext() in the event loop
+            let swap_ptr = &swap_interval as *const i32;
+            let _: () = msg_send![gl_context, setValues:swap_ptr forParameter:222]; // 222 = NSOpenGLCPSwapInterval
+        }
+
+        eprintln!(
+            "[MacOSWindow::configure_vsync] Traditional VSync {} (swap interval: {})",
+            if swap_interval == 1 { "enabled" } else { "disabled" },
+            swap_interval
+        );
+    }
+
+    /// Detect the current monitor the window is on and update monitor_id
+    ///
+    /// This uses NSScreen's deviceDescription to extract CGDirectDisplayID,
+    /// then computes a stable hash for the MonitorId.
+    fn detect_current_monitor(&mut self) {
+        use azul_core::window::MonitorId;
+
+        // Get the screen the window is currently on
+        let screen = unsafe { self.window.screen() };
+        
+        if let Some(screen) = screen {
+            // Try to get CGDirectDisplayID from screen
+            if let Some(display_id) = coregraphics::get_display_id_from_screen(&screen) {
+                self.current_display_id = Some(display_id);
+                
+                // Get display bounds for hash computation
+                let bounds = unsafe { screen.frame() };
+                
+                // Compute stable hash
+                let hash = coregraphics::compute_monitor_hash(display_id, bounds);
+                
+                // For now, use display_id as index (not perfect but reasonable)
+                // In a full implementation, we would enumerate all displays and assign indices
+                let monitor_id = MonitorId {
+                    index: display_id as usize,
+                    hash,
+                };
+                
+                self.current_window_state.monitor_id = Some(monitor_id.index as u32);
+                
+                eprintln!(
+                    "[MacOSWindow] Monitor detected: display_id={}, index={}, hash={:x}",
+                    display_id, monitor_id.index, hash
+                );
+            } else {
+                eprintln!("[MacOSWindow] Failed to get CGDirectDisplayID from screen");
+                // Fallback: Use index 0 (main display)
+                self.current_window_state.monitor_id = Some(0);
+            }
+        } else {
+            eprintln!("[MacOSWindow] No screen associated with window");
+            // Fallback: Use index 0 (main display)
+            self.current_window_state.monitor_id = Some(0);
+        }
+    }
+
+    /// Initialize CVDisplayLink for VSYNC synchronization
+    ///
+    /// This is called during window creation if VSYNC is enabled.
+    /// CVDisplayLink provides smooth frame pacing synchronized to the display refresh rate.
+    fn initialize_display_link(&mut self) -> Result<(), String> {
+        use azul_core::window::Vsync;
+
+        // Check if VSYNC is enabled
+        let vsync = self.current_window_state.renderer_options.vsync;
+        if vsync == Vsync::Disabled {
+            eprintln!("[CVDisplayLink] VSYNC disabled, skipping CVDisplayLink");
+            return Ok(());
+        }
+
+        // Check if CoreVideo functions are available
+        let cv_functions = match &self.cv_functions {
+            Some(funcs) => funcs.clone(),
+            None => {
+                eprintln!("[CVDisplayLink] CoreVideo not available, using fallback VSync");
+                // Try traditional VSync as fallback
+                if let Some(ref gl_context) = self.gl_context {
+                    Self::configure_vsync(gl_context, vsync);
+                }
+                return Ok(());
+            }
+        };
+
+        // Get the display ID for this window
+        let display_id = self.current_display_id.unwrap_or_else(|| {
+            // Fallback to main display
+            if let Some(ref cg_funcs) = self.cg_functions {
+                cg_funcs.main_display_id()
+            } else {
+                0 // CG_MAIN_DISPLAY_ID constant
+            }
+        });
+
+        eprintln!("[CVDisplayLink] Creating display link for display {}", display_id);
+
+        // Create CVDisplayLink for this display
+        let display_link = corevideo::DisplayLink::new(display_id, cv_functions.clone())
+            .map_err(|code| format!("CVDisplayLinkCreateWithCGDisplays failed: {}", code))?;
+
+        // Set output callback
+        // For now, we'll use a simple callback that just marks the window for redraw
+        extern "C" fn display_link_callback(
+            _display_link: corevideo::CVDisplayLinkRef,
+            _in_now: *const corevideo::CVTimeStamp,
+            _in_output_time: *const corevideo::CVTimeStamp,
+            _flags_in: u64,
+            _flags_out: *mut u64,
+            display_link_context: *mut std::ffi::c_void,
+        ) -> corevideo::CVReturn {
+            // SAFETY: display_link_context is a pointer to NSWindow
+            unsafe {
+                if !display_link_context.is_null() {
+                    let ns_window = display_link_context as *const NSWindow;
+                    // Request display (setNeedsDisplay equivalent)
+                    // This will trigger drawRect on the next runloop iteration
+                    use objc2::msg_send;
+                    let _: () = msg_send![ns_window, setViewsNeedDisplay: true];
+                }
+            }
+            corevideo::K_CV_RETURN_SUCCESS
+        }
+
+        // Pass NSWindow pointer as context
+        let window_ptr = &*self.window as *const NSWindow as *mut std::ffi::c_void;
+        let result = display_link.set_output_callback(display_link_callback, window_ptr);
+        
+        if result != corevideo::K_CV_RETURN_SUCCESS {
+            return Err(format!("CVDisplayLinkSetOutputCallback failed: {}", result));
+        }
+
+        // Start the display link
+        let result = display_link.start();
+        if result != corevideo::K_CV_RETURN_SUCCESS {
+            return Err(format!("CVDisplayLinkStart failed: {}", result));
+        }
+
+        eprintln!("[CVDisplayLink] Display link started successfully");
+        self.display_link = Some(display_link);
+
+        Ok(())
     }
 
     /// Create a new macOS window with given options and shared font cache.
@@ -2008,6 +2167,29 @@ impl MacOSWindow {
             if gl_context.is_some() { "Some" } else { "None" }
         );
 
+        // Load CoreVideo and Core Graphics functions for VSYNC and monitor detection
+        let cv_functions = match CoreVideoFunctions::load() {
+            Ok(funcs) => {
+                eprintln!("[Window Init] CoreVideo loaded successfully");
+                Some(funcs)
+            }
+            Err(e) => {
+                eprintln!("[Window Init] CoreVideo not available: {} - VSYNC will use fallback", e);
+                None
+            }
+        };
+
+        let cg_functions = match CoreGraphicsFunctions::load() {
+            Ok(funcs) => {
+                eprintln!("[Window Init] Core Graphics loaded successfully");
+                Some(funcs)
+            }
+            Err(e) => {
+                eprintln!("[Window Init] Core Graphics not available: {} - monitor detection will use fallback", e);
+                None
+            }
+        };
+
         let mut window = Self {
             window,
             window_delegate,
@@ -2044,6 +2226,10 @@ impl MacOSWindow {
             pm_assertion_id: None, // No sleep prevention by default
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
+            display_link: None,    // Will be initialized when VSYNC is enabled
+            cv_functions,
+            cg_functions,
+            current_display_id: None, // Will be set after monitor detection
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -2073,6 +2259,15 @@ impl MacOSWindow {
 
         // Set frame_needs_regeneration to true so drawRect will build and send transaction
         window.frame_needs_regeneration = true;
+
+        // Detect current monitor and set monitor_id
+        window.detect_current_monitor();
+        
+        // Initialize CVDisplayLink for VSYNC (if enabled and available)
+        if let Err(e) = window.initialize_display_link() {
+            eprintln!("[Window Init] CVDisplayLink initialization failed: {}", e);
+            // Not a fatal error - window will still work, just without VSYNC
+        }
 
         // Show window immediately - drawRect will handle the first frame rendering
         eprintln!(
@@ -2190,10 +2385,37 @@ impl MacOSWindow {
     /// Handle DPI change notification
     ///
     /// This is called when NSWindowDidChangeBackingPropertiesNotification is received,
-    /// indicating the window moved to a display with different DPI.
+    /// indicating the window moved to a display with different DPI or monitor.
     pub fn handle_dpi_change(&mut self) -> Result<(), String> {
         let new_hidpi = self.get_hidpi_factor();
         let old_hidpi = self.current_window_state.size.get_hidpi_factor();
+
+        // Check if monitor changed (detect current monitor)
+        let old_display_id = self.current_display_id;
+        self.detect_current_monitor();
+        let new_display_id = self.current_display_id;
+
+        // If display changed, we may need to recreate CVDisplayLink
+        if old_display_id != new_display_id {
+            eprintln!(
+                "[DPI Change] Display changed: {:?} -> {:?}",
+                old_display_id, new_display_id
+            );
+
+            // Stop old display link
+            if let Some(old_link) = self.display_link.take() {
+                if old_link.is_running() {
+                    old_link.stop();
+                }
+                // DisplayLink will be dropped here
+            }
+
+            // Recreate display link for new display
+            if let Err(e) = self.initialize_display_link() {
+                eprintln!("[DPI Change] Failed to recreate CVDisplayLink: {}", e);
+                // Not fatal - continue without display link
+            }
+        }
 
         // Only process if DPI actually changed
         if (new_hidpi.inner.get() - old_hidpi.inner.get()).abs() < 0.001 {
@@ -3445,6 +3667,45 @@ impl MacOSWindow {
 
         eprintln!("[render_and_present_in_draw_rect] ========== FRAME COMPLETE ==========\n");
         Ok(())
+    }
+}
+
+impl Drop for MacOSWindow {
+    fn drop(&mut self) {
+        eprintln!("[MacOSWindow::drop] Cleaning up window resources");
+
+        // Stop and release CVDisplayLink if active
+        if let Some(ref display_link) = self.display_link {
+            if display_link.is_running() {
+                eprintln!("[MacOSWindow::drop] Stopping CVDisplayLink");
+                display_link.stop();
+            }
+            // DisplayLink will be dropped automatically, calling release
+        }
+
+        // Release power management assertion if active
+        if let Some(assertion_id) = self.pm_assertion_id.take() {
+            eprintln!("[MacOSWindow::drop] Releasing IOPMAssertion");
+            unsafe {
+                IOPMAssertionRelease(assertion_id);
+            }
+        }
+
+        // Invalidate all active timers
+        for (_, timer) in self.timers.drain() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+
+        // Invalidate thread poll timer
+        if let Some(timer) = self.thread_timer_running.take() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+
+        eprintln!("[MacOSWindow::drop] Window cleanup complete");
     }
 }
 

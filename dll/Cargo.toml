@@ -67,6 +67,7 @@ cgl = "0.3.2"
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"] }
 objc2 = "0.6.0"
 block2 = "0.6.0"
+libloading = "0.8.0"
 accesskit_macos = { version = "0.22.2", optional = true }
 objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
     "std",

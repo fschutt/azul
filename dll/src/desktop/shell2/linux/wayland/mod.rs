@@ -76,6 +76,7 @@ struct CpuFallbackState {
     width: i32,
     height: i32,
     stride: i32,
+    fd: i32, // Keep fd open until drop
 }
 
 /// Monitor state tracking for multi-monitor support
@@ -226,6 +227,9 @@ pub struct WaylandPopup {
     pointer_state: events::PointerState,
     is_open: bool,
     configured: bool,
+    
+    // Listener context - must be freed on drop
+    listener_context: *mut PopupListenerContext,
 
     // Shell2 state (same as WaylandWindow)
     pub layout_window: Option<LayoutWindow>,
@@ -2026,19 +2030,27 @@ impl WaylandWindow {
             return;
         }
 
-        // Create a surface for the cursor if we don't have one
-        // Note: We could cache this surface, but creating it each time is simpler
-        let cursor_surface =
-            unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
-        if cursor_surface.is_null() {
-            return;
+        // Create a dedicated surface for the cursor if we don't have one
+        // This surface is reused across cursor changes for efficiency
+        if self.pointer_state.cursor_surface.is_null() {
+            self.pointer_state.cursor_surface =
+                unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
+            if self.pointer_state.cursor_surface.is_null() {
+                return;
+            }
         }
 
-        // Attach buffer to cursor surface
+        // Attach buffer to cursor surface and commit
         unsafe {
-            (self.wayland.wl_surface_attach)(cursor_surface, buffer, 0, 0);
-            (self.wayland.wl_surface_damage)(cursor_surface, 0, 0, i32::MAX, i32::MAX);
-            (self.wayland.wl_surface_commit)(cursor_surface);
+            (self.wayland.wl_surface_attach)(self.pointer_state.cursor_surface, buffer, 0, 0);
+            (self.wayland.wl_surface_damage)(
+                self.pointer_state.cursor_surface,
+                0,
+                0,
+                i32::MAX,
+                i32::MAX,
+            );
+            (self.wayland.wl_surface_commit)(self.pointer_state.cursor_surface);
         }
 
         // Set cursor on pointer
@@ -2047,16 +2059,13 @@ impl WaylandWindow {
             pointer_set_cursor(
                 self.pointer_state.pointer,
                 self.pointer_state.serial,
-                cursor_surface,
+                self.pointer_state.cursor_surface,
                 image_struct.hotspot_x as i32,
                 image_struct.hotspot_y as i32,
             );
         }
 
-        // Clean up cursor surface (compositor keeps its own reference)
-        unsafe {
-            (self.wayland.wl_proxy_destroy)(cursor_surface as *mut _);
-        }
+        // No need to destroy cursor_surface - it's reused for the next cursor change
     }
 }
 
@@ -2078,6 +2087,19 @@ extern "C" fn frame_done_callback(
 impl Drop for WaylandWindow {
     fn drop(&mut self) {
         unsafe {
+            // Clean up cursor resources
+            if !self.pointer_state.cursor_surface.is_null() {
+                (self.wayland.wl_proxy_destroy)(self.pointer_state.cursor_surface as _);
+                self.pointer_state.cursor_surface = std::ptr::null_mut();
+            }
+            if !self.pointer_state.cursor_theme.is_null() {
+                if let Some(destroy_fn) = self.wayland.wl_cursor_theme_destroy {
+                    destroy_fn(self.pointer_state.cursor_theme);
+                }
+                self.pointer_state.cursor_theme = std::ptr::null_mut();
+            }
+            
+            // Clean up window surfaces
             if !self.xdg_toplevel.is_null() {
                 (self.wayland.wl_proxy_destroy)(self.xdg_toplevel as _);
             }
@@ -2129,13 +2151,13 @@ impl CpuFallbackState {
                 0,
             )
         };
-        // The fd can be closed after mmap as it's now managed by the kernel
-        unsafe { libc::close(fd) };
 
         if data == libc::MAP_FAILED {
+            unsafe { libc::close(fd) };
             return Err(WindowError::PlatformError("mmap failed".into()));
         }
 
+        // Create the pool BEFORE closing the fd - Wayland needs it open
         let pool = unsafe { (wayland.wl_shm_create_pool)(shm, fd, size) };
         let buffer = unsafe {
             (wayland.wl_shm_pool_create_buffer)(
@@ -2156,6 +2178,7 @@ impl CpuFallbackState {
             width,
             height,
             stride,
+            fd, // Keep fd open - will be closed in Drop
         })
     }
 
@@ -2182,6 +2205,10 @@ impl Drop for CpuFallbackState {
             }
             if !self.data.is_null() {
                 libc::munmap(self.data as *mut _, (self.stride * self.height) as usize);
+            }
+            // Close fd AFTER destroying pool - Wayland protocol requires it to stay open
+            if self.fd != -1 {
+                libc::close(self.fd);
             }
         }
     }
@@ -2479,7 +2506,16 @@ impl WaylandPopup {
             return Err("Failed to create xdg_popup".to_string());
         }
 
-        // 6. Add xdg_surface listener (configure events)
+        // 6. Create listener context that will be passed to callbacks
+        // This context must live as long as the listeners are active
+        let listener_context = Box::new(PopupListenerContext {
+            wayland: wayland.clone(),
+            xdg_surface,
+            xdg_popup,
+        });
+        let listener_context_ptr = Box::into_raw(listener_context);
+
+        // 7. Add xdg_surface listener (configure events)
         let xdg_surface_listener = xdg_surface_listener {
             configure: popup_xdg_surface_configure,
         };
@@ -2488,21 +2524,21 @@ impl WaylandPopup {
             (wayland.xdg_surface_add_listener)(
                 xdg_surface,
                 &xdg_surface_listener,
-                std::ptr::null_mut(),
+                listener_context_ptr as *mut _,
             );
         }
 
-        // 7. Add xdg_popup listener
+        // 8. Add xdg_popup listener
         let popup_listener = xdg_popup_listener {
             configure: popup_configure,
             popup_done,
         };
 
         unsafe {
-            (wayland.xdg_popup_add_listener)(xdg_popup, &popup_listener, std::ptr::null_mut());
+            (wayland.xdg_popup_add_listener)(xdg_popup, &popup_listener, listener_context_ptr as *mut _);
         }
 
-        // 8. Grab pointer for exclusive input (using parent's last serial)
+        // 9. Grab pointer for exclusive input (using parent's last serial)
         unsafe {
             (wayland.xdg_popup_grab)(xdg_popup, parent.seat, parent.pointer_state.serial);
         }
@@ -2552,6 +2588,7 @@ impl WaylandPopup {
             pointer_state: events::PointerState::new(),
             is_open: true,
             configured: false,
+            listener_context: listener_context_ptr,
 
             layout_window: None,
             current_window_state,
@@ -2611,6 +2648,14 @@ impl WaylandPopup {
 impl Drop for WaylandPopup {
     fn drop(&mut self) {
         self.close();
+        
+        // Free the listener context if it was allocated
+        if !self.listener_context.is_null() {
+            unsafe {
+                let _ = Box::from_raw(self.listener_context);
+                self.listener_context = std::ptr::null_mut();
+            }
+        }
     }
 }
 
@@ -2618,29 +2663,28 @@ impl Drop for WaylandPopup {
 // XDG Popup Listener Callbacks
 // ============================================================================
 
+/// Context passed to popup listener callbacks
+struct PopupListenerContext {
+    wayland: Rc<Wayland>,
+    xdg_surface: *mut defines::xdg_surface,
+    xdg_popup: *mut defines::xdg_popup,
+}
+
 /// xdg_surface configure callback for popup
 extern "C" fn popup_xdg_surface_configure(
-    _data: *mut c_void,
+    data: *mut c_void,
     xdg_surface: *mut defines::xdg_surface,
     serial: u32,
 ) {
-    // Must acknowledge configure
+    if data.is_null() {
+        eprintln!("[xdg_popup] configure: null data pointer!");
+        return;
+    }
+    
     unsafe {
-        // Note: We need to get wayland instance from somewhere
-        // For now, use dlsym to get the function directly
-        type AckFn = unsafe extern "C" fn(*mut defines::xdg_surface, u32);
-        let lib = libc::dlopen(
-            b"libwayland-client.so.0\0".as_ptr() as *const i8,
-            libc::RTLD_LAZY,
-        );
-        if !lib.is_null() {
-            let ack_fn = libc::dlsym(lib, b"xdg_surface_ack_configure\0".as_ptr() as *const i8);
-            if !ack_fn.is_null() {
-                let ack: AckFn = std::mem::transmute(ack_fn);
-                ack(xdg_surface, serial);
-            }
-            libc::dlclose(lib);
-        }
+        let ctx = &*(data as *const PopupListenerContext);
+        // Acknowledge configure using the Wayland instance from context
+        (ctx.wayland.xdg_surface_ack_configure)(xdg_surface, serial);
     }
 }
 
@@ -2961,13 +3005,18 @@ impl WaylandWindow {
 
 /// xdg_popup configure callback
 extern "C" fn popup_configure(
-    _data: *mut c_void,
+    data: *mut c_void,
     _xdg_popup: *mut defines::xdg_popup,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
 ) {
+    if data.is_null() {
+        eprintln!("[xdg_popup] configure: null data pointer!");
+        return;
+    }
+    
     eprintln!(
         "[xdg_popup] configure: x={}, y={}, width={}, height={}",
         x, y, width, height
@@ -2977,8 +3026,21 @@ extern "C" fn popup_configure(
 }
 
 /// xdg_popup done callback - popup was dismissed by compositor
-extern "C" fn popup_done(_data: *mut c_void, _xdg_popup: *mut defines::xdg_popup) {
+extern "C" fn popup_done(data: *mut c_void, xdg_popup: *mut defines::xdg_popup) {
+    if data.is_null() {
+        eprintln!("[xdg_popup] popup_done: null data pointer!");
+        return;
+    }
+    
     eprintln!("[xdg_popup] popup_done: compositor dismissed popup");
-    // Popup should be closed
+    
+    unsafe {
+        let ctx = &*(data as *const PopupListenerContext);
+        // Destroy the popup when compositor dismisses it
+        (ctx.wayland.xdg_popup_destroy)(xdg_popup);
+        (ctx.wayland.xdg_surface_destroy)(ctx.xdg_surface);
+    }
+    
     // TODO: Signal to application that popup was dismissed
+    // This would require storing a callback or channel in PopupListenerContext
 }

@@ -11,6 +11,7 @@ pub mod tooltip;
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
+    os::raw::c_int,
     rc::Rc,
     sync::{Arc, Condvar, Mutex},
 };
@@ -50,6 +51,23 @@ use crate::desktop::{
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
+
+/// X11 error handler to prevent application crashes
+/// 
+/// The default X11 error handler terminates the entire application.
+/// This custom handler logs the error and allows the app to continue.
+extern "C" fn x11_error_handler(
+    _display: *mut Display,
+    event: *mut XErrorEvent,
+) -> c_int {
+    let error = unsafe { *event };
+    eprintln!(
+        "[X11 Error] Opcode: {}, Resource ID: {:#x}, Serial: {}, Error Code: {}",
+        error.request_code, error.resourceid, error.serial, error.error_code
+    );
+    // Return 0 to indicate the error has been handled (don't terminate)
+    0
+}
 
 /// Tracks the current rendering mode of the window.
 enum RenderMode {
@@ -341,6 +359,12 @@ impl X11Window {
         let xkb = Xkb::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
         })?;
+
+        // Set custom X11 error handler to prevent application crashes
+        // The default handler terminates the app on any X protocol error
+        unsafe {
+            (xlib.XSetErrorHandler)(Some(x11_error_handler));
+        }
 
         // Try to load GTK3 IM context for IME support (optional, fail silently)
         let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
@@ -1520,6 +1544,8 @@ impl X11Window {
 
             if is_top_level {
                 // Add _NET_WM_STATE_ABOVE to window properties
+                // Convert to u32 for X11 protocol compliance (format=32 means 32-bit values)
+                let atom_u32 = net_wm_state_above as u32;
                 (self.xlib.XChangeProperty)(
                     self.display,
                     self.window,
@@ -1527,7 +1553,7 @@ impl X11Window {
                     defines::XA_ATOM,
                     32,
                     defines::PropModeAppend,
-                    &net_wm_state_above as *const _ as *const u8,
+                    &atom_u32 as *const _ as *const u8,
                     1,
                 );
             } else {
@@ -1554,11 +1580,14 @@ impl X11Window {
                     &mut prop,
                 );
 
-                if result == 0 && !prop.is_null() && actual_type == defines::XA_ATOM {
-                    let atoms = std::slice::from_raw_parts(prop as *const Atom, nitems as usize);
-                    let mut new_atoms: Vec<Atom> = atoms
+                if result == 0 && !prop.is_null() && actual_type == defines::XA_ATOM && actual_format == 32 {
+                    // Read atoms as u32 (protocol uses 32-bit values even on 64-bit systems)
+                    let atoms = std::slice::from_raw_parts(prop as *const u32, nitems as usize);
+                    let net_wm_state_above_u32 = net_wm_state_above as u32;
+                    
+                    let mut new_atoms: Vec<u32> = atoms
                         .iter()
-                        .filter(|&&atom| atom != net_wm_state_above)
+                        .filter(|&&atom| atom != net_wm_state_above_u32)
                         .copied()
                         .collect();
 
