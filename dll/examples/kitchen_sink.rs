@@ -63,13 +63,16 @@
 //! ```
 
 use azul_core::{
-    callbacks::{LayoutCallbackInfo, LayoutCallbackType, Update},
-    dom::{AttributeType, Dom},
+    callbacks::{
+        IFrameCallbackInfo, IFrameCallbackReturn, IFrameCallbackType, LayoutCallbackInfo,
+        LayoutCallbackType, Update,
+    },
+    dom::{AttributeType, Dom, DomId},
     events::{EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
-    geom::LogicalSize,
+    geom::{LogicalPosition, LogicalSize},
     menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
     refany::{OptionRefAny, RefAny},
-    styled_dom::StyledDom,
+    styled_dom::{OptionStyledDom, StyledDom},
     window::{WindowFrame, WindowSize},
 };
 use azul_css::{
@@ -82,7 +85,7 @@ use azul_css::{
     },
 };
 use azul_dll::desktop::{app::App, resources::AppConfig as DllAppConfig};
-use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions};
+use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions, xml::DomXmlExt};
 
 // ============================================================================
 // APPLICATION STATE
@@ -312,8 +315,26 @@ extern "C" fn on_text_area(_data: &mut RefAny, info: &mut CallbackInfo) -> Updat
 }
 
 extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
-    let app_data = _data.downcast_ref::<KitchenSinkApp>().unwrap();
+    eprintln!("[KITCHEN_SINK] main_layout called");
 
+    let data_clone = _data.clone();
+    eprintln!("[KITCHEN_SINK] data cloned");
+
+    let app_data = match _data.downcast_ref::<KitchenSinkApp>() {
+        Some(data) => {
+            eprintln!(
+                "[KITCHEN_SINK] Got app_data, active_tab={}",
+                data.active_tab
+            );
+            data
+        }
+        None => {
+            eprintln!("[KITCHEN_SINK] ERROR: Failed to downcast to KitchenSinkApp!");
+            panic!("Failed to downcast data");
+        }
+    };
+
+    eprintln!("[KITCHEN_SINK] Creating menu...");
     // Menu bar (currently not displayed, but prepared for future use)
     let _menu = Menu::new(MenuItemVec::from_vec(vec![
         MenuItem::String(
@@ -337,8 +358,10 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
             ])),
         ),
     ]));
+    eprintln!("[KITCHEN_SINK] Menu created");
 
     // Tab bar
+    eprintln!("[KITCHEN_SINK] Creating tab bar...");
     let tab_bar = Dom::div()
         .with_inline_style(
             "display: flex; gap: 5px; padding: 10px; background: #f5f5f5; border-bottom: 2px \
@@ -355,8 +378,13 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
             ]
             .into(),
         );
+    eprintln!("[KITCHEN_SINK] Tab bar created");
 
     // Main content area with 4-quadrant grid layout
+    eprintln!(
+        "[KITCHEN_SINK] Creating content area for tab {}...",
+        app_data.active_tab
+    );
     let content = Dom::div()
         .with_inline_style(
             "display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: \
@@ -401,14 +429,15 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
                     // Tab 5: Code Editor (full width)
                     Dom::div()
                         .with_inline_style("grid-column: 1 / -1; grid-row: 1 / -1;")
-                        .with_child(create_code_editor(&*app_data)),
+                        .with_child(create_code_editor(&*app_data, data_clone.clone())),
                 ],
                 _ => vec![Dom::div().with_child(Dom::text("Unknown tab"))],
             }
             .into(),
         );
 
-    Dom::body()
+    eprintln!("[KITCHEN_SINK] Creating body DOM...");
+    let styled = Dom::body()
         .with_inline_style(
             "margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, \
              BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; \
@@ -416,7 +445,10 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
              column;",
         )
         .with_children(vec![tab_bar, content].into())
-        .style(CssApiWrapper { css: Css::empty() })
+        .style(CssApiWrapper { css: Css::empty() });
+
+    eprintln!("[KITCHEN_SINK] main_layout returning StyledDom");
+    styled
 }
 
 fn create_tab_button(text: &str, tab_id: usize, is_active: bool) -> Dom {
@@ -1253,6 +1285,13 @@ extern "C" fn on_code_text_input(data: &mut RefAny, info: &mut CallbackInfo) -> 
     if let Some(changeset) = info.get_text_changeset() {
         app_data.code_content = format!("{}{}", changeset.old_text, changeset.inserted_text);
         info.set_text_changeset(changeset.clone());
+
+        // Trigger preview IFrame update
+        if let Some(iframe_node_id) =
+            info.get_node_id_by_id_attribute(DomId::ROOT_ID, "preview-iframe")
+        {
+            info.trigger_iframe_rerender(DomId::ROOT_ID, iframe_node_id);
+        }
     }
 
     Update::RefreshDom
@@ -1314,7 +1353,7 @@ fn render_visible_code_lines(
         .collect()
 }
 
-fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
+fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
     // Split layout: Preview (left) | Editor (right)
     Dom::div()
         .with_inline_style(
@@ -1330,11 +1369,12 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                     )
                     .with_children(
                         vec![
-                            // Left: Preview pane
+                            // Left: Preview pane (IFrame)
                             Dom::div()
                                 .with_inline_style(
                                     "border: 2px solid #4a90e2; border-radius: 8px; background: \
-                                     white; overflow: auto; padding: 10px; box-sizing: border-box;",
+                                     white; overflow: auto; padding: 10px; box-sizing: \
+                                     border-box; display: flex; flex-direction: column;",
                                 )
                                 .with_children(
                                     vec![
@@ -1345,17 +1385,17 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
                                                  solid #e0e0e0; padding-bottom: 5px;",
                                             )
                                             .with_child(Dom::text("Preview")),
-                                        // TODO: Render parsed XHTML here using Dom::from_xhtml
-                                        Dom::div()
-                                            .with_inline_style(
-                                                "padding: 10px; background: #f9f9f9; \
-                                                 border-radius: 4px; color: #666; font-style: \
-                                                 italic;",
-                                            )
-                                            .with_child(Dom::text(
-                                                "Preview will appear here after implementing \
-                                                 Dom::from_xhtml parsing",
-                                            )),
+                                        // IFrame for rendering parsed XHTML
+                                        Dom::iframe(
+                                            data_refany.clone(),
+                                            preview_iframe_callback as IFrameCallbackType,
+                                        )
+                                        .with_inline_style(
+                                            "flex: 1; overflow: auto; min-height: 0;",
+                                        )
+                                        .with_attributes(
+                                            vec![AttributeType::Id("preview-iframe".into())].into(),
+                                        ),
                                     ]
                                     .into(),
                                 ),
@@ -1526,15 +1566,78 @@ fn create_code_editor(app_data: &KitchenSinkApp) -> Dom {
 }
 
 // ============================================================================
+// IFRAME CALLBACK FOR PREVIEW PANE
+// ============================================================================
+
+/// IFrame callback that renders the XHTML preview
+///
+/// This callback is invoked by the layout engine to populate the preview pane
+/// with the parsed XHTML content from the code editor.
+extern "C" fn preview_iframe_callback(
+    data: &mut RefAny,
+    info: &mut IFrameCallbackInfo,
+) -> IFrameCallbackReturn {
+    let app_data = match data.downcast_ref::<KitchenSinkApp>() {
+        Some(d) => d,
+        None => {
+            // Return empty DOM if data type is wrong
+            let mut empty_dom = Dom::body();
+            empty_dom.add_child(Dom::text("Error: Invalid data type"));
+            let css = CssApiWrapper::empty();
+            let styled_dom = StyledDom::new(&mut empty_dom, css);
+            return IFrameCallbackReturn {
+                dom: OptionStyledDom::Some(styled_dom),
+                scroll_size: info.bounds.get_logical_size(),
+                scroll_offset: LogicalPosition::zero(),
+                virtual_scroll_size: info.bounds.get_logical_size(),
+                virtual_scroll_offset: LogicalPosition::zero(),
+            };
+        }
+    };
+
+    // Parse the XHTML code
+    let styled_dom = if app_data.code_content.is_empty() {
+        let mut preview_dom = Dom::body();
+        preview_dom.add_child(
+            Dom::div()
+                .with_inline_style(
+                    "padding: 10px; background: #f9f9f9; border-radius: 4px; color: #666; \
+                     font-style: italic;",
+                )
+                .with_child(Dom::text("Enter XHTML code in the editor to see preview")),
+        );
+        let css = CssApiWrapper::empty();
+        StyledDom::new(&mut preview_dom, css)
+    } else {
+        // Parse XML directly to StyledDom using DomXmlExt trait
+        Dom::from_xml_string(&app_data.code_content)
+    };
+
+    IFrameCallbackReturn {
+        dom: OptionStyledDom::Some(styled_dom),
+        scroll_size: info.bounds.get_logical_size(),
+        scroll_offset: LogicalPosition::zero(),
+        virtual_scroll_size: info.bounds.get_logical_size(),
+        virtual_scroll_offset: LogicalPosition::zero(),
+    }
+}
+
+// ============================================================================
 // MAIN ENTRY POINT
 // ============================================================================
 
 #[cfg(feature = "desktop")]
 fn main() {
+    eprintln!("[KITCHEN_SINK] Starting application...");
+
     let initial_data = KitchenSinkApp::default();
+    eprintln!("[KITCHEN_SINK] Created initial data");
 
     let config = DllAppConfig::new();
+    eprintln!("[KITCHEN_SINK] Created config");
+
     let app = App::new(RefAny::new(initial_data), config);
+    eprintln!("[KITCHEN_SINK] Created app");
 
     let mut window = WindowCreateOptions::new(main_layout as LayoutCallbackType);
     window.state.title = "Azul Kitchen Sink - Layout & Rendering Demo".into();
@@ -1543,8 +1646,11 @@ fn main() {
         ..Default::default()
     };
     window.state.flags.frame = WindowFrame::Normal;
+    eprintln!("[KITCHEN_SINK] Created window options");
 
+    eprintln!("[KITCHEN_SINK] Calling app.run()...");
     app.run(window);
+    eprintln!("[KITCHEN_SINK] app.run() returned (should not happen - app.run is blocking)");
 }
 
 #[cfg(not(feature = "desktop"))]

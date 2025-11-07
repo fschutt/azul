@@ -454,15 +454,24 @@ mod macos {
     use super::*;
 
     pub fn get_displays() -> Vec<DisplayInfo> {
+        eprintln!("[get_displays] Starting monitor enumeration...");
         let mtm = MainThreadMarker::new().expect("Must be called on main thread");
+        eprintln!("[get_displays] Got MainThreadMarker");
+
         let screens = NSScreen::screens(mtm);
+        eprintln!("[get_displays] Got {} screens", screens.len());
 
         let mut displays = Vec::new();
 
         for (i, screen) in screens.iter().enumerate() {
+            eprintln!("[get_displays] Processing screen {}...", i);
             let frame = screen.frame();
             let visible_frame = screen.visibleFrame();
             let scale = screen.backingScaleFactor();
+            eprintln!(
+                "[get_displays] Screen {} frame: {}x{}",
+                i, frame.size.width, frame.size.height
+            );
 
             // macOS uses flipped coordinates (origin at bottom-left)
             // Convert to top-left origin
@@ -481,8 +490,10 @@ mod macos {
 
             // Get refresh rate from NSScreen (macOS 10.15+)
             // maximumFramesPerSecond returns refresh rate in Hz
+            eprintln!("[get_displays] Getting refresh rate for screen {}...", i);
             let refresh_rate = unsafe {
                 let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
+                eprintln!("[get_displays] Screen {} refresh rate: {} Hz", i, fps);
                 if fps > 0.0 {
                     fps as u16
                 } else {
@@ -490,8 +501,12 @@ mod macos {
                 }
             };
 
+            eprintln!("[get_displays] Getting localized name for screen {}...", i);
+            let name = screen.localizedName().to_string();
+            eprintln!("[get_displays] Screen {} name: {}", i, name);
+
             displays.push(DisplayInfo {
-                name: screen.localizedName().to_string(),
+                name,
                 bounds,
                 work_area,
                 scale_factor: scale as f32,
@@ -502,8 +517,10 @@ mod macos {
                     refresh_rate,
                 }],
             });
+            eprintln!("[get_displays] Screen {} added to displays list", i);
         }
 
+        eprintln!("[get_displays] Returning {} displays", displays.len());
         displays
     }
 }

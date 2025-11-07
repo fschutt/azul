@@ -5,7 +5,7 @@
 
 use std::{ffi::c_void, sync::Arc};
 
-use azul_core::resources::AppConfig;
+use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
@@ -36,6 +36,7 @@ use super::{PlatformWindow, WindowError};
 /// - `EndProcess`: Calls std::process::exit(0) when last window closes (default)
 #[cfg(target_os = "macos")]
 pub fn run(
+    app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
@@ -44,13 +45,20 @@ pub fn run(
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
 
+    eprintln!("[shell2::run] Starting macOS event loop setup");
+
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        // Create the root window with fc_cache
+        eprintln!("[shell2::run] Got MainThreadMarker");
+
+        // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
-        let window = MacOSWindow::new_with_fc_cache(root_window, fc_cache.clone(), mtm)?;
+        eprintln!("[shell2::run] Creating MacOSWindow...");
+        let window =
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), fc_cache.clone(), mtm)?;
+        eprintln!("[shell2::run] MacOSWindow created successfully");
 
         // Box and leak the window to get a stable pointer for the registry
         // SAFETY: We manage the lifetime through the registry
@@ -177,6 +185,7 @@ pub fn run(
 
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
+                                        app_data.clone(),
                                         fc_cache.clone(),
                                         mtm,
                                     ) {
@@ -254,12 +263,13 @@ pub(super) static mut INITIAL_OPTIONS: Option<(AppConfig, Arc<FcFontCache>, Wind
 // UIKit application and hands control over to the OS. This call never returns.
 #[cfg(target_os = "ios")]
 pub fn run(
+    app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     unsafe {
-        INITIAL_OPTIONS = Some((config, fc_cache, root_window));
+        INITIAL_OPTIONS = Some((app_data, config, fc_cache, root_window));
         crate::desktop::shell2::ios::launch_app();
         Ok(()) // Unreachable
     }
@@ -267,21 +277,22 @@ pub fn run(
 
 #[cfg(target_os = "windows")]
 pub fn run(
+    app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
-    use azul_core::{refany::RefAny, resources::AppTerminationBehavior};
+    use azul_core::resources::AppTerminationBehavior;
 
     use super::windows::{dlopen::MSG, registry, Win32Window};
 
-    // Create app_data (placeholder for now - should be passed from App)
-    let app_data = Arc::new(RefCell::new(RefAny::new(())));
+    // Wrap app_data in Arc<RefCell<>> for shared access
+    let app_data_arc = Arc::new(RefCell::new(app_data));
 
     // Create the root window
-    let window = Win32Window::new(root_window, fc_cache.clone(), app_data.clone())?;
+    let window = Win32Window::new(root_window, fc_cache.clone(), app_data_arc.clone())?;
 
     // Store the window pointer in the user data field for the window procedure
     // and register in global registry for multi-window support
@@ -473,13 +484,14 @@ pub fn run(
 
 #[cfg(target_os = "linux")]
 pub fn run(
+    app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
-    use azul_core::{refany::RefAny, resources::AppTerminationBehavior};
+    use azul_core::resources::AppTerminationBehavior;
 
     use super::linux::{registry, AppResources, LinuxWindow};
 
@@ -488,8 +500,11 @@ pub fn run(
 
     eprintln!("[Linux run()] Creating root window with shared resources");
 
+    // Wrap app_data in Arc<RefCell<>> for shared access
+    let app_data_arc = Arc::new(RefCell::new(app_data));
+
     // Create the root window
-    let window = LinuxWindow::new_with_resources(root_window, resources.clone())?;
+    let window = LinuxWindow::new_with_resources(root_window, app_data_arc, resources.clone())?;
 
     // Box and register window in global registry
     let window_ptr = Box::into_raw(Box::new(window));

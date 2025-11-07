@@ -426,3 +426,39 @@ const fn translate_roxml_textpos(o: roxmltree::TextPos) -> XmlTextPos {
         col: o.col,
     }
 }
+
+/// Extension trait to add XML parsing capabilities to Dom
+///
+/// This trait provides methods to parse XML/XHTML strings and convert them
+/// into Azul DOM trees. It's implemented as a trait to avoid circular dependencies
+/// between azul-core and azul-layout.
+///
+/// # Example
+/// ```ignore
+/// use azul_layout::xml::DomXmlExt;
+///
+/// let dom = Dom::from_xml_string("<div><p>Hello</p></div>");
+/// ```
+#[cfg(feature = "xml")]
+pub trait DomXmlExt {
+    /// Parse XML/XHTML string into a DOM tree
+    ///
+    /// This method parses the XML string and converts it to an Azul StyledDom.
+    /// On error, it returns a StyledDom displaying the error message.
+    ///
+    /// # Arguments
+    /// * `xml` - The XML/XHTML string to parse
+    ///
+    /// # Returns
+    /// A `StyledDom` tree representing the parsed XML, or an error DOM on parse failure
+    fn from_xml_string<S: AsRef<str>>(xml: S) -> StyledDom;
+}
+
+#[cfg(feature = "xml")]
+impl DomXmlExt for Dom {
+    fn from_xml_string<S: AsRef<str>>(xml: S) -> StyledDom {
+        let mut component_map = XmlComponentMap::default();
+        let dom_xml = domxml_from_str(xml.as_ref(), &mut component_map);
+        dom_xml.parsed_dom
+    }
+}

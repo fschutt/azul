@@ -994,6 +994,24 @@ define_class!(
             }
         }
 
+        /// Called when the window is about to close
+        /// This is where we unregister the window from the global registry
+        #[unsafe(method(windowWillClose:))]
+        fn window_will_close(&self, _notification: &NSNotification) {
+            eprintln!("[WindowDelegate] Window will close, unregistering from registry");
+
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    let ns_window = macos_window.get_ns_window_ptr();
+
+                    // Unregister from global window registry
+                    registry::unregister_window(ns_window);
+                    eprintln!("[WindowDelegate] Window unregistered, remaining windows: {}", registry::window_count());
+                }
+            }
+        }
+
         /// Called when the window is minimized to the Dock
         #[unsafe(method(windowDidMiniaturize:))]
         fn window_did_miniaturize(&self, _notification: &NSNotification) {
@@ -1633,50 +1651,65 @@ impl MacOSWindow {
     fn configure_vsync(gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
 
-        let swap_interval: i32 = match vsync {
-            Vsync::Enabled => 1,
-            Vsync::Disabled => 0,
-            Vsync::DontCare => 1,
-        };
+        // VSync configuration needs to happen AFTER the event loop is running
+        // and the GL context is properly initialized. Calling makeCurrentContext()
+        // before the event loop can cause deadlocks.
+        //
+        // For now, we skip this during window creation. VSync should be configured
+        // later via CVDisplayLink as recommended by Apple's documentation.
+        eprintln!(
+            "[MacOSWindow::configure_vsync] Skipping VSync configuration (deferred to \
+             CVDisplayLink)"
+        );
 
-        unsafe {
-            gl_context.makeCurrentContext();
-            let _: () = msg_send![gl_context, setValues:&swap_interval forParameter:222];
-        }
+        // TODO: Implement proper CVDisplayLink-based VSync
+        // See: https://developer.apple.com/documentation/corevideo/cvdisplaylink
     }
 
     /// Create a new macOS window with given options and shared font cache.
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
+        app_data: RefAny,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, Some(fc_cache), mtm)
+        Self::new_with_options_internal(options, app_data, Some(fc_cache), mtm)
     }
 
     /// Create a new macOS window with given options.
     pub fn new_with_options(
         options: WindowCreateOptions,
+        app_data: RefAny,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, None, mtm)
+        Self::new_with_options_internal(options, app_data, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
         options: WindowCreateOptions,
+        app_data: RefAny,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
+        eprintln!("[MacOSWindow::new] Starting window creation");
+
         // Initialize NSApplication if needed
+        eprintln!("[MacOSWindow::new] Getting NSApplication...");
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        eprintln!("[MacOSWindow::new] NSApplication configured");
 
         // Get screen dimensions for window positioning
+        eprintln!("[MacOSWindow::new] Getting main screen...");
         let screen = NSScreen::mainScreen(mtm)
             .ok_or_else(|| WindowError::PlatformError("No main screen".into()))?;
 
         let screen_frame = screen.frame();
+        eprintln!(
+            "[MacOSWindow::new] Screen frame: {}x{}",
+            screen_frame.size.width, screen_frame.size.height
+        );
 
         // Determine window size from options
         let window_size = options.state.size.dimensions;
@@ -1690,12 +1723,16 @@ impl MacOSWindow {
         let content_rect = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
 
         // Determine rendering backend
+        eprintln!("[MacOSWindow::new] Determining rendering backend...");
         let requested_backend = Self::determine_backend(&options);
+        eprintln!("[MacOSWindow::new] Backend: {:?}", requested_backend);
 
         // Create content view based on backend
+        eprintln!("[MacOSWindow::new] Creating content view...");
         let (backend, gl_view, gl_context, gl_functions, cpu_view) = match requested_backend {
             RenderBackend::OpenGL => match Self::create_gl_view(content_rect, mtm) {
                 Ok((view, ctx, funcs)) => {
+                    eprintln!("[MacOSWindow::new] OpenGL view created successfully");
                     let vsync = options.state.renderer_options.vsync;
                     Self::configure_vsync(&ctx, vsync);
                     (
@@ -1717,14 +1754,20 @@ impl MacOSWindow {
                 (RenderBackend::CPU, None, None, None, Some(view))
             }
         };
+        eprintln!(
+            "[MacOSWindow::new] Content view created, backend: {:?}",
+            backend
+        );
 
         // Create window style mask
+        eprintln!("[MacOSWindow::new] Creating window with style mask...");
         let style_mask = NSWindowStyleMask::Titled
             | NSWindowStyleMask::Closable
             | NSWindowStyleMask::Miniaturizable
             | NSWindowStyleMask::Resizable;
 
         // Create the window
+        eprintln!("[MacOSWindow::new] Allocating NSWindow...");
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 mtm.alloc(),
@@ -1734,21 +1777,28 @@ impl MacOSWindow {
                 false,
             )
         };
+        eprintln!("[MacOSWindow::new] NSWindow created");
 
         // Set window title
+        eprintln!("[MacOSWindow::new] Setting window title...");
         let title = NSString::from_str(&options.state.title);
         window.setTitle(&title);
+        eprintln!("[MacOSWindow::new] Window title set");
 
         // Set content view (either GL or CPU)
         // SAFE: Both GLView and CPUView inherit from NSView, so we can upcast safely
+        eprintln!("[MacOSWindow::new] Setting content view...");
         if let Some(ref gl) = gl_view {
+            eprintln!("[MacOSWindow::new] Setting GL view as content view...");
             unsafe {
                 // GLView is a subclass of NSView, so we can use it as NSView
                 let view_ptr = Retained::as_ptr(gl) as *const NSView;
                 let view_ref = &*view_ptr;
                 window.setContentView(Some(view_ref));
             }
+            eprintln!("[MacOSWindow::new] GL view set");
         } else if let Some(ref cpu) = cpu_view {
+            eprintln!("[MacOSWindow::new] Setting CPU view as content view...");
             unsafe {
                 // CPUView is a subclass of NSView, so we can use it as NSView
                 let view_ptr = Retained::as_ptr(cpu) as *const NSView;
@@ -1758,33 +1808,26 @@ impl MacOSWindow {
         } else {
             return Err(WindowError::PlatformError("No content view created".into()));
         }
+        eprintln!("[MacOSWindow::new] Content view configured");
 
         // DO NOT show the window yet - we will show it after the first frame
         // is ready to prevent white flash
+        eprintln!("[MacOSWindow::new] Positioning window...");
         unsafe {
-            // Position window on requested monitor (or center on primary)
-            // Convert Option<u32> monitor_id to MonitorId
-            let monitor_id = options
-                .state
-                .monitor_id
-                .map(|id| azul_core::window::MonitorId {
-                    index: id as usize,
-                    hash: 0,
-                })
-                .unwrap_or(azul_core::window::MonitorId::PRIMARY);
+            // Simplified positioning: just center the window
+            // Complex monitor enumeration can hang before event loop starts
+            window.center();
 
-            position_window_on_monitor(
-                &window,
-                monitor_id,
-                options.state.position,
-                options.state.size,
-                mtm,
-            );
+            // TODO: Implement proper multi-monitor positioning after event loop starts
+            // For now, user can move window manually or we can position it later
+
             // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
         }
+        eprintln!("[MacOSWindow::new] Window centered");
 
         // Apply initial window state based on options.state.flags.frame
         // Note: These will be applied before window is visible
+        eprintln!("[MacOSWindow::new] Applying window frame state...");
         unsafe {
             match options.state.flags.frame {
                 WindowFrame::Fullscreen => {
@@ -1950,8 +1993,8 @@ impl MacOSWindow {
         // NOTE: Keep OpenGL context current - WebRender needs it for rendering
         // Do NOT call clearCurrentContext() here
 
-        // Initialize shared application data (will be replaced by App later)
-        let app_data = Arc::new(RefCell::new(RefAny::new(())));
+        // Initialize shared application data from the provided app_data
+        let app_data_arc = Arc::new(RefCell::new(app_data));
 
         // NOTE: We will set the window state pointer AFTER creating the MacOSWindow struct
         // because current_window_state will be moved into the struct, invalidating any pointer
@@ -1988,7 +2031,7 @@ impl MacOSWindow {
             document_id,
             id_namespace,
             gl_context_ptr,
-            app_data,
+            app_data: app_data_arc,
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             frame_needs_regeneration: false,
@@ -3408,14 +3451,14 @@ impl MacOSWindow {
 impl PlatformWindow for MacOSWindow {
     type EventType = MacOSEvent;
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
     where
         Self: Sized,
     {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        Self::new_with_options(options, mtm)
+        Self::new_with_options(options, app_data, mtm)
     }
 
     fn get_state(&self) -> FullWindowState {

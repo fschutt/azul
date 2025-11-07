@@ -45,12 +45,13 @@ pub enum LinuxEvent {
 impl PlatformWindow for LinuxWindow {
     type EventType = LinuxEvent;
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
     where
         Self: Sized,
     {
         let resources = Arc::new(AppResources::default_for_testing());
-        Self::new_with_resources(options, resources)
+        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
+        Self::new_with_resources(options, app_data_arc, resources)
     }
 
     fn get_state(&self) -> FullWindowState {
@@ -116,8 +117,17 @@ impl LinuxWindow {
     /// Allows sharing font cache, app data, and system styling across windows.
     pub fn new_with_resources(
         options: WindowCreateOptions,
-        resources: Arc<AppResources>,
+        app_data: Arc<std::cell::RefCell<RefAny>>,
+        mut resources: Arc<AppResources>,
     ) -> Result<Self, WindowError> {
+        // Update the app_data in resources
+        let resources = Arc::new(AppResources {
+            app_data,
+            config: resources.config.clone(),
+            fc_cache: resources.fc_cache.clone(),
+            system_style: resources.system_style.clone(),
+        });
+
         match Self::select_backend()? {
             BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
                 options, resources,

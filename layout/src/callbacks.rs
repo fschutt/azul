@@ -554,6 +554,92 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateIFrame { dom_id, node_id });
     }
 
+    // ===== DOM Tree Navigation =====
+
+    /// Find a node by ID attribute in the layout tree
+    ///
+    /// Returns the NodeId of the first node with the given ID attribute, or None if not found.
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(node_id) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, "preview-iframe") {
+    ///     info.trigger_iframe_rerender(DomId::ROOT_ID, node_id);
+    /// }
+    /// ```
+    pub fn get_node_id_by_id_attribute(&self, dom_id: DomId, id: &str) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let styled_dom = &layout_result.styled_dom;
+
+        // Search through all nodes to find one with matching ID attribute
+        for (node_idx, node_data) in styled_dom.node_data.as_ref().iter().enumerate() {
+            for id_or_class in node_data.ids_and_classes.as_ref() {
+                if let azul_core::dom::IdOrClass::Id(node_id_str) = id_or_class {
+                    if node_id_str.as_str() == id {
+                        return Some(NodeId::new(node_idx));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Get the parent node of the given node
+    ///
+    /// Returns None if the node has no parent (i.e., it's the root node)
+    pub fn get_parent_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+        let node = node_hierarchy.as_ref().get(node_id.index())?;
+        node.parent_id()
+    }
+
+    /// Get the next sibling of the given node
+    ///
+    /// Returns None if the node has no next sibling
+    pub fn get_next_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+        let node = node_hierarchy.as_ref().get(node_id.index())?;
+        node.next_sibling_id()
+    }
+
+    /// Get the previous sibling of the given node
+    ///
+    /// Returns None if the node has no previous sibling
+    pub fn get_previous_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+        let node = node_hierarchy.as_ref().get(node_id.index())?;
+        node.previous_sibling_id()
+    }
+
+    /// Get the first child of the given node
+    ///
+    /// Returns None if the node has no children
+    pub fn get_first_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+        let node = node_hierarchy.as_ref().get(node_id.index())?;
+        node.first_child_id(node_id)
+    }
+
+    /// Get the last child of the given node
+    ///
+    /// Returns None if the node has no children
+    pub fn get_last_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.layout_results.get(&dom_id)?;
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+        let node = node_hierarchy.as_ref().get(node_id.index())?;
+        node.last_child_id()
+    }
+
     /// Change the image mask of a node (applied after callback returns)
     pub fn change_node_image_mask(&mut self, dom_id: DomId, node_id: NodeId, mask: ImageMask) {
         self.push_change(CallbackChange::ChangeNodeImageMask {

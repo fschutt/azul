@@ -2368,13 +2368,11 @@ use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
 impl PlatformWindow for Win32Window {
     type EventType = Win32Event;
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError> {
-        // Use existing new() implementation
-        // For now, we need to pass in fc_cache and app_data
-        // TODO: These should come from options or a global context
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError> {
+        // Use existing new() implementation with provided app_data
         let fc_cache = Arc::new(rust_fontconfig::FcFontCache::build());
-        let app_data = Arc::new(std::cell::RefCell::new(azul_core::refany::RefAny::new(())));
-        Self::new(options, fc_cache, app_data)
+        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
+        Self::new(options, fc_cache, app_data_arc)
     }
 
     fn get_state(&self) -> FullWindowState {

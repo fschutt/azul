@@ -77,10 +77,19 @@ impl App {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
+        eprintln!("[App::new] Starting App creation");
+
         #[cfg(not(miri))]
-        let fc_cache = std::sync::Arc::new(FcFontCache::build());
+        let fc_cache = {
+            eprintln!("[App::new] Building FcFontCache...");
+            let cache = std::sync::Arc::new(FcFontCache::build());
+            eprintln!("[App::new] FcFontCache built successfully");
+            cache
+        };
         #[cfg(miri)]
         let fc_cache = std::sync::Arc::new(FcFontCache::default());
+
+        eprintln!("[App::new] Setting up logging...");
 
         #[cfg(all(
             feature = "logging",
@@ -102,6 +111,8 @@ impl App {
                 crate::desktop::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
             }
         }
+
+        eprintln!("[App::new] App created successfully");
 
         Self {
             windows: Vec::new(),
@@ -138,8 +149,12 @@ impl App {
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
         // Use shell2 for new implementation
-        let err =
-            crate::desktop::shell2::run(self.config.clone(), self.fc_cache.clone(), root_window);
+        let err = crate::desktop::shell2::run(
+            self.data,
+            self.config.clone(),
+            self.fc_cache.clone(),
+            root_window,
+        );
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));

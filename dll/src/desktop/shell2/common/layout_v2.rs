@@ -173,6 +173,21 @@ pub fn generate_frame(
     render_api: &mut WrRenderApi,
     document_id: DocumentId,
 ) {
+    // Process any pending IFrame updates requested by callbacks
+    // This must happen BEFORE wr_translate2::generate_frame() so that the IFrame
+    // callbacks can be re-invoked and their layout results are available
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let current_window_state = layout_window.current_window_state.clone();
+
+    // Need to use unsafe pointer cast to work around borrow checker
+    // This is safe because process_pending_iframe_updates doesn't modify renderer_resources
+    let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
+    layout_window.process_pending_iframe_updates(
+        &current_window_state,
+        unsafe { &*renderer_resources_ptr },
+        &system_callbacks,
+    );
+
     let mut txn = WrTransaction::new();
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true); // Display list was rebuilt
 

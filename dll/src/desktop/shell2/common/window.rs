@@ -1,6 +1,9 @@
 //! Platform window trait - abstraction over native windowing systems.
 
-use azul_core::geom::{PhysicalPosition, PhysicalSize, PhysicalSizeU32};
+use azul_core::{
+    geom::{PhysicalPosition, PhysicalSize, PhysicalSizeU32},
+    refany::RefAny,
+};
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 use super::{compositor::RenderContext, error::WindowError};
@@ -58,8 +61,16 @@ pub trait PlatformWindow {
     /// Platform-specific event type
     type EventType;
 
-    /// Create a new window with given options.
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    /// Create a new window with given options and application data.
+    ///
+    /// # Arguments
+    /// * `options` - Window configuration (size, title, etc.)
+    /// * `app_data` - User application data that will be passed to callbacks
+    ///
+    /// # Critical
+    /// The app_data MUST be stored and made available to all callbacks.
+    /// Forgetting to pass app_data will cause callback downcasts to fail!
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
     where
         Self: Sized;
 

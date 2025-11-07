@@ -290,6 +290,9 @@ pub struct LayoutWindow {
     /// Cached text layout constraints for each node
     /// This allows us to re-layout text with the same constraints after edits
     text_constraints_cache: TextConstraintsCache,
+    /// Pending IFrame updates from callbacks (processed in next frame)
+    /// Map of DomId -> Set of NodeIds that need re-rendering
+    pub pending_iframe_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
 }
 
 fn default_duration_500ms() -> Duration {
@@ -348,6 +351,7 @@ impl LayoutWindow {
             text_constraints_cache: TextConstraintsCache {
                 constraints: BTreeMap::new(),
             },
+            pending_iframe_updates: BTreeMap::new(),
         })
     }
 
@@ -2525,6 +2529,11 @@ impl LayoutWindow {
                 system_fonts,
             );
 
+            // Queue IFrame updates for next frame
+            if !change_result.iframes_to_update.is_empty() {
+                self.queue_iframe_updates(change_result.iframes_to_update.clone());
+            }
+
             // Transfer results from CallbackChangeResult to CallCallbacksResult
             ret.stop_propagation = change_result.stop_propagation;
             ret.prevent_default = change_result.prevent_default;
@@ -2739,6 +2748,9 @@ impl LayoutWindow {
                 system_fonts,
             );
 
+            // Queue any IFrame updates from this callback
+            self.queue_iframe_updates(change_result.iframes_to_update);
+
             ret.stop_propagation = ret.stop_propagation || change_result.stop_propagation;
             ret.prevent_default = ret.prevent_default || change_result.prevent_default;
             ret.tooltips_to_show.extend(change_result.tooltips_to_show);
@@ -2943,6 +2955,9 @@ impl LayoutWindow {
             system_fonts,
         );
 
+        // Queue any IFrame updates from this callback
+        self.queue_iframe_updates(change_result.iframes_to_update);
+
         ret.stop_propagation = change_result.stop_propagation;
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
@@ -3106,6 +3121,9 @@ impl LayoutWindow {
             image_cache,
             system_fonts,
         );
+
+        // Queue any IFrame updates from this callback
+        self.queue_iframe_updates(change_result.iframes_to_update);
 
         ret.stop_propagation = change_result.stop_propagation;
         ret.prevent_default = change_result.prevent_default;
@@ -5546,6 +5564,46 @@ impl LayoutWindow {
         }
 
         updated_iframes
+    }
+
+    /// Queue IFrame updates to be processed in the next frame
+    ///
+    /// This is called after callbacks to store the iframes_to_update from CallbackChangeResult
+    pub fn queue_iframe_updates(
+        &mut self,
+        iframes_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    ) {
+        for (dom_id, node_ids) in iframes_to_update {
+            self.pending_iframe_updates
+                .entry(dom_id)
+                .or_insert_with(FastBTreeSet::new)
+                .extend(node_ids);
+        }
+    }
+
+    /// Process and clear pending IFrame updates
+    ///
+    /// This is called during frame generation to re-render updated IFrames
+    pub fn process_pending_iframe_updates(
+        &mut self,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) -> Vec<(DomId, NodeId)> {
+        if self.pending_iframe_updates.is_empty() {
+            return Vec::new();
+        }
+
+        // Take ownership of pending updates
+        let iframes_to_update = core::mem::take(&mut self.pending_iframe_updates);
+
+        // Process them
+        self.process_iframe_updates(
+            &iframes_to_update,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+        )
     }
 
     /// Helper: Extract IFrame bounds from layout results

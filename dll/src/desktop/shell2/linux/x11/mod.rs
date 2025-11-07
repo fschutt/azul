@@ -119,12 +119,13 @@ pub enum X11Event {
 impl PlatformWindow for X11Window {
     type EventType = X11Event;
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
     where
         Self: Sized,
     {
         let resources = Arc::new(super::AppResources::default_for_testing());
-        Self::new_with_resources(options, resources)
+        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
+        Self::new_with_resources(options, app_data_arc, resources)
     }
 
     fn get_state(&self) -> FullWindowState {

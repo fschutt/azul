@@ -2102,22 +2102,121 @@ fn process_image_callback_updates(layout_window: &mut LayoutWindow, txn: &mut Wr
 /// Process IFrame updates requested by callbacks
 ///
 /// This function handles manual IFrame re-rendering triggered by `trigger_iframe_rerender()`.
-/// It re-invokes IFrame callbacks and rebuilds display lists for updated IFrames.
+/// It rebuilds display lists for IFrames that were already re-rendered during layout,
+/// then submits only those pipelines to WebRender without rebuilding the entire scene.
+///
+/// # Architecture
+///
+/// Each IFrame gets its own WebRender pipeline with a stable PipelineId based on
+/// (dom_id, node_id). When an IFrame needs updating:
+/// 1. The IFrame callback was already re-invoked during the layout phase
+/// 2. The layout result for that IFrame's DOM exists in layout_results
+/// 3. We just need to rebuild and submit that specific IFrame's display list
+/// 4. Other pipelines remain untouched
+///
+/// This allows efficient updates without full scene rebuilds.
 ///
 /// # Arguments
 ///
 /// * `layout_window` - The layout window with IFrame state
 /// * `txn` - The WebRender transaction to add updates to
 fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
-    use std::collections::BTreeMap;
+    // Check if there are any pending IFrame updates
+    if layout_window.pending_iframe_updates.is_empty() {
+        return;
+    }
 
-    use azul_core::dom::DomId;
+    eprintln!(
+        "[process_iframe_updates] Processing {} pending IFrame updates",
+        layout_window.pending_iframe_updates.len()
+    );
 
-    // TODO: Pass CallCallbacksResult.iframes_to_update to this function
-    // For now, check if there are any IFrames marked for update in the iframe_manager
+    use webrender::api::Epoch as WrEpoch;
 
-    eprintln!("[process_iframe_updates] Checking for pending IFrame updates");
+    let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+    let physical_size = layout_window.current_window_state.size.get_physical_size();
+    let viewport_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
-    // This is a placeholder - in a complete implementation, the iframes_to_update
-    // from CallbackChangeResult would be stored and passed through here
+    // Collect all child DOM IDs that need their display lists rebuilt
+    let mut child_dom_ids = Vec::new();
+
+    for (parent_dom_id, node_ids) in &layout_window.pending_iframe_updates {
+        for node_id in node_ids {
+            if let Some(child_dom_id) = layout_window
+                .iframe_manager
+                .get_nested_dom_id(*parent_dom_id, *node_id)
+            {
+                child_dom_ids.push((child_dom_id, *parent_dom_id, *node_id));
+            }
+        }
+    }
+
+    // Clear pending updates
+    layout_window.pending_iframe_updates.clear();
+
+    // For each IFrame, rebuild and submit its display list
+    for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
+        // Get the layout result for the IFrame's content
+        let layout_result = match layout_window.layout_results.get(&child_dom_id) {
+            Some(lr) => lr,
+            None => {
+                eprintln!(
+                    "[process_iframe_updates] No layout result for child DOM {:?} (parent {:?}, \
+                     node {:?})",
+                    child_dom_id, parent_dom_id, node_id
+                );
+                continue;
+            }
+        };
+
+        // Build the pipeline ID for this IFrame
+        let pipeline_id = wr_translate_pipeline_id(PipelineId(
+            child_dom_id.inner as u32,
+            layout_window.document_id.id,
+        ));
+
+        // Translate display list to WebRender
+        match crate::desktop::compositor2::translate_displaylist_to_wr(
+            &layout_result.display_list,
+            pipeline_id,
+            viewport_size,
+            &layout_window.renderer_resources,
+            dpi,
+            Vec::new(), // Resources should already be registered
+            &layout_window.layout_results,
+            layout_window.document_id.id,
+        ) {
+            Ok((_, built_display_list, nested_pipelines)) => {
+                eprintln!(
+                    "[process_iframe_updates] Submitting display list for IFrame DOM {} (pipeline \
+                     {:?})",
+                    child_dom_id.inner, pipeline_id
+                );
+
+                // Submit the updated display list
+                txn.set_display_list(
+                    WrEpoch(layout_window.epoch.into_u32()),
+                    (pipeline_id, built_display_list),
+                );
+
+                // Submit any nested pipelines (IFrames within IFrames)
+                for (nested_pipeline_id, nested_display_list) in nested_pipelines {
+                    eprintln!(
+                        "[process_iframe_updates] Submitting nested pipeline {:?}",
+                        nested_pipeline_id
+                    );
+                    txn.set_display_list(
+                        WrEpoch(layout_window.epoch.into_u32()),
+                        (nested_pipeline_id, nested_display_list),
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "[process_iframe_updates] Error building display list for IFrame DOM {}: {}",
+                    child_dom_id.inner, e
+                );
+            }
+        }
+    }
 }

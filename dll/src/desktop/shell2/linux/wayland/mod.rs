@@ -471,11 +471,21 @@ fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::Virtua
 impl PlatformWindow for WaylandWindow {
     type EventType = WaylandEvent;
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError>
+    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
     where
         Self: Sized,
     {
         let resources = Arc::new(super::AppResources::default_for_testing());
+        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
+
+        // Update the app_data in resources
+        let resources = Arc::new(super::AppResources {
+            app_data: app_data_arc,
+            config: resources.config.clone(),
+            fc_cache: resources.fc_cache.clone(),
+            system_style: resources.system_style.clone(),
+        });
+
         Self::new(options, resources)
     }
 

@@ -5,6 +5,7 @@
 //! - CI environments
 //! - Benchmarking without GUI overhead
 
+use azul_core::refany::RefAny;
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 use crate::desktop::shell2::common::{
@@ -20,7 +21,7 @@ pub struct StubWindow {
 impl PlatformWindow for StubWindow {
     type EventType = StubEvent;
 
-    fn new(_options: WindowCreateOptions) -> Result<Self, WindowError> {
+    fn new(_options: WindowCreateOptions, _app_data: RefAny) -> Result<Self, WindowError> {
         Ok(Self {
             state: FullWindowState::default(),
             open: true,
