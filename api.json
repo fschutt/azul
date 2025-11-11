@@ -2056,6 +2056,91 @@
                 "Informational": {}
               }
             ]
+          },
+          "WindowDecorations": {
+            "doc": "Window decoration style",
+            "external": "azul_core::window::WindowDecorations",
+            "enum_fields": [
+              {
+                "Normal": {
+                  "doc": "Full decorations: title bar with controls"
+                },
+                "NoTitle": {
+                  "doc": "No title text but controls visible (extended frame)"
+                },
+                "NoControls": {
+                  "doc": "No controls visible but title bar area present"
+                },
+                "None": {
+                  "doc": "No decorations at all (borderless)"
+                }
+              }
+            ]
+          },
+          "WindowBackgroundMaterial": {
+            "doc": "Compositor blur/transparency effects for window background",
+            "external": "azul_core::window::WindowBackgroundMaterial",
+            "enum_fields": [
+              {
+                "Opaque": {
+                  "doc": "No transparency or blur"
+                },
+                "Transparent": {
+                  "doc": "Transparent without blur"
+                },
+                "Sidebar": {
+                  "doc": "macOS: Sidebar material, Windows: Acrylic light"
+                },
+                "Menu": {
+                  "doc": "macOS: Menu material, Windows: Acrylic"
+                },
+                "HUD": {
+                  "doc": "macOS: HUD material, Windows: Acrylic dark"
+                },
+                "Titlebar": {
+                  "doc": "macOS: Titlebar material, Windows: Mica"
+                },
+                "MicaAlt": {
+                  "doc": "Windows: Mica Alt material"
+                }
+              }
+            ]
+          },
+          "MonitorId": {
+            "doc": "Identifies a specific monitor/display Contains both an index (for fast current-session lookup) and a stable hash (for persistence across app restarts and monitor reconfigurations). - `index`: Runtime index (0-based), may change if monitors are added/removed - `hash`: Stable identifier based on monitor properties (name, size, position) Applications can serialize `hash` to remember which monitor a window was on, then search for matching hash on next launch, falling back to index or PRIMARY.",
+            "external": "azul_core::window::MonitorId",
+            "struct_fields": [
+              {
+                "index": {
+                  "type": "usize",
+                  "doc": "Runtime index of the monitor (may change between sessions)"
+                },
+                "hash": {
+                  "type": "u64",
+                  "doc": "Stable hash of monitor properties (for persistence)"
+                }
+              }
+            ]
+          },
+          "WindowType": {
+            "doc": "Window type classification for behavior control",
+            "external": "azul_core::window::WindowType",
+            "enum_fields": [
+              {
+                "Normal": {
+                  "doc": "Normal application window"
+                },
+                "Menu": {
+                  "doc": "Menu popup window (always-on-top, frameless, auto-closes on focus loss)"
+                },
+                "Tooltip": {
+                  "doc": "Tooltip window (always-on-top, no interaction)"
+                },
+                "Dialog": {
+                  "doc": "Dialog window (blocks parent window)"
+                }
+              }
+            ]
           }
         }
       },
@@ -4258,6 +4343,70 @@
                 "fn_body": "refany.get_type_name()"
               }
             }
+          },
+          "EdgeType": {
+            "doc": "Which edge triggered a scroll-based re-invocation",
+            "external": "azul_core::callbacks::EdgeType",
+            "enum_fields": [
+              {
+                "Top": {},
+                "Bottom": {},
+                "Left": {},
+                "Right": {}
+              }
+            ]
+          },
+          "ExternalSystemCallbacks": {
+            "doc": "Config necessary for threading + animations to work in no_std environments",
+            "external": "azul_layout::callbacks::ExternalSystemCallbacks",
+            "struct_fields": [
+              {
+                "create_thread_fn": {
+                  "type": "CreateThreadCallback"
+                },
+                "get_system_time_fn": {
+                  "type": "GetSystemTimeCallback"
+                }
+              }
+            ]
+          },
+          "MenuCallback": {
+            "doc": "Menu callback: What data / function pointer should be called when the menu item is clicked?",
+            "external": "azul_layout::callbacks::MenuCallback",
+            "struct_fields": [
+              {
+                "callback": {
+                  "type": "Callback"
+                },
+                "data": {
+                  "type": "RefAny"
+                }
+              }
+            ]
+          },
+          "IFrameCallbackReason": {
+            "doc": "Reason why an IFrame callback is being invoked. This helps the callback optimize its behavior based on why it's being called.",
+            "external": "azul_core::callbacks::IFrameCallbackReason",
+            "enum_fields": [
+              {
+                "InitialRender": {
+                  "doc": "Initial render - first time the IFrame appears"
+                },
+                "DomRecreated": {
+                  "doc": "Parent DOM was recreated (cache invalidated)"
+                },
+                "BoundsExpanded": {
+                  "doc": "Window/IFrame bounds expanded beyond current scroll_size"
+                },
+                "EdgeScrolled": {
+                  "type": "EdgeType",
+                  "doc": "Scroll position is near an edge (within 200px threshold)"
+                },
+                "ScrollBeyondContent": {
+                  "doc": "Scroll position extends beyond current scroll_size"
+                }
+              }
+            ]
           }
         }
       },
@@ -6519,6 +6668,33 @@
                 "Visited": {
                   "type": "CssProperty",
                   "doc": "A style property that applies to a link that has been visited. - **CSS Equivalent**: `:visited`"
+                }
+              }
+            ]
+          },
+          "DomId": {
+            "doc": "A unique, runtime-generated identifier for a single `Dom` instance.",
+            "external": "azul_core::dom::DomId",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "usize"
+                }
+              }
+            ]
+          },
+          "DomNodeId": {
+            "doc": "A UUID for a DOM node within a `LayoutWindow`.",
+            "external": "azul_core::dom::DomNodeId",
+            "struct_fields": [
+              {
+                "dom": {
+                  "type": "DomId",
+                  "doc": "The ID of the `Dom` this node belongs to."
+                },
+                "node": {
+                  "type": "NodeHierarchyItemId",
+                  "doc": "The hierarchical ID of the node within its `Dom`."
                 }
               }
             ]
@@ -12401,6 +12577,1026 @@
             ],
             "generic_params": [
               "T"
+            ]
+          },
+          "CounterReset": {
+            "external": "azul_css::props::style::content::CounterReset",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "GridLine": {
+            "doc": "Represents a grid line position (start or end)",
+            "external": "azul_css::props::layout::grid::GridLine",
+            "enum_fields": [
+              {
+                "Auto": {
+                  "doc": "auto"
+                },
+                "Line": {
+                  "type": "i32",
+                  "doc": "Line number (1-based, negative for counting from end)"
+                },
+                "Named": {
+                  "type": "String, Option < i32 >",
+                  "doc": "Named line with optional span count"
+                },
+                "Span": {
+                  "type": "i32",
+                  "doc": "span N"
+                }
+              }
+            ]
+          },
+          "StylePerspectiveOrigin": {
+            "doc": "Represents a `perspective-origin` attribute",
+            "external": "azul_css::props::style::transform::StylePerspectiveOrigin",
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "PixelValue"
+                },
+                "y": {
+                  "type": "PixelValue"
+                }
+              }
+            ]
+          },
+          "LayoutZIndex": {
+            "doc": "Represents a `z-index` attribute - controls stacking order of positioned elements",
+            "external": "azul_css::props::layout::position::LayoutZIndex",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Integer": {
+                  "type": "i32"
+                }
+              }
+            ]
+          },
+          "LayoutJustifyItems": {
+            "doc": "Represents `justify-items` for grid containers",
+            "external": "azul_css::props::layout::grid::LayoutJustifyItems",
+            "enum_fields": [
+              {
+                "Start": {},
+                "End": {},
+                "Center": {},
+                "Stretch": {}
+              }
+            ]
+          },
+          "SelectionBackgroundColor": {
+            "external": "azul_css::props::style::selection::SelectionBackgroundColor",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "ColorU"
+                }
+              }
+            ]
+          },
+          "ColumnRuleColor": {
+            "external": "azul_css::props::layout::column::ColumnRuleColor",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "ColorU"
+                }
+              }
+            ]
+          },
+          "FontRef": {
+            "doc": "FontRef is a reference-counted pointer to a parsed font. It holds a *const c_void that points to the actual parsed font data (typically a ParsedFont from the layout crate). The parsed data is managed via atomic reference counting, allowing safe sharing across threads without duplicating the font data.",
+            "external": "azul_css::props::basic::font::FontRef",
+            "struct_fields": [
+              {
+                "parsed": {
+                  "type": "*const c_void",
+                  "doc": "Pointer to the parsed font data (e.g., ParsedFont)"
+                },
+                "copies": {
+                  "type": "*const c_void",
+                  "doc": "Reference counter for memory management"
+                },
+                "run_destructor": {
+                  "type": "bool",
+                  "doc": "Whether to run the destructor on drop"
+                },
+                "parsed_destructor": {
+                  "type": "fn (*mut c_void)",
+                  "doc": "Destructor function for the parsed data"
+                }
+              }
+            ]
+          },
+          "Platform": {
+            "doc": "Represents the detected platform.",
+            "external": "azul_css::system::Platform",
+            "enum_fields": [
+              {
+                "Windows": {},
+                "MacOs": {},
+                "Linux": {
+                  "type": "DesktopEnvironment"
+                },
+                "Android": {},
+                "Ios": {},
+                "Unknown": {}
+              }
+            ]
+          },
+          "ColumnSpan": {
+            "external": "azul_css::props::layout::column::ColumnSpan",
+            "enum_fields": [
+              {
+                "None": {},
+                "All": {}
+              }
+            ]
+          },
+          "LayoutClear": {
+            "doc": "Represents a `clear` attribute",
+            "external": "azul_css::props::layout::wrapping::LayoutClear",
+            "enum_fields": [
+              {
+                "None": {},
+                "Left": {},
+                "Right": {},
+                "Both": {}
+              }
+            ]
+          },
+          "LayoutPoint": {
+            "doc": "Only used for calculations: Point coordinate (x, y) in layout space.",
+            "external": "azul_css::props::basic::geometry::LayoutPoint",
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "isize"
+                },
+                "y": {
+                  "type": "isize"
+                }
+              }
+            ]
+          },
+          "StyleWhiteSpace": {
+            "doc": "How to handle white space inside an element.",
+            "external": "azul_css::props::style::text::StyleWhiteSpace",
+            "enum_fields": [
+              {
+                "Normal": {},
+                "Pre": {},
+                "Nowrap": {}
+              }
+            ]
+          },
+          "SystemMetrics": {
+            "doc": "Common system metrics for UI element sizing and spacing.",
+            "external": "azul_css::system::SystemMetrics",
+            "struct_fields": [
+              {
+                "corner_radius": {
+                  "type": "OptionPixelValue",
+                  "doc": "The corner radius for standard elements like buttons."
+                },
+                "border_width": {
+                  "type": "OptionPixelValue",
+                  "doc": "The width of standard borders."
+                }
+              }
+            ]
+          },
+          "SystemStyle": {
+            "doc": "A unified collection of discovered system style properties.",
+            "external": "azul_css::system::SystemStyle",
+            "struct_fields": [
+              {
+                "theme": {
+                  "type": "Theme"
+                },
+                "platform": {
+                  "type": "Platform"
+                },
+                "colors": {
+                  "type": "SystemColors"
+                },
+                "fonts": {
+                  "type": "SystemFonts"
+                },
+                "metrics": {
+                  "type": "SystemMetrics"
+                },
+                "scrollbar": {
+                  "type": "OptionComputedScrollbarStyle"
+                },
+                "app_specific_stylesheet": {
+                  "type": "*const c_void",
+                  "doc": "An optional, user-provided stylesheet loaded from a conventional location (`~/.config/azul/styles/<app_name>.css`), allowing for application-specific \"ricing\". This is only loaded when the \"io\" feature is enabled and not disabled by the `AZUL_DISABLE_RICING` env var."
+                }
+              }
+            ]
+          },
+          "FontMetrics": {
+            "doc": "Font metrics structure containing all font-related measurements from the font file tables (head, hhea, and os/2 tables).",
+            "external": "azul_css::props::basic::font::FontMetrics",
+            "struct_fields": [
+              {
+                "units_per_em": {
+                  "type": "u16"
+                },
+                "font_flags": {
+                  "type": "u16"
+                },
+                "x_min": {
+                  "type": "i16"
+                },
+                "y_min": {
+                  "type": "i16"
+                },
+                "x_max": {
+                  "type": "i16"
+                },
+                "y_max": {
+                  "type": "i16"
+                },
+                "ascender": {
+                  "type": "i16"
+                },
+                "descender": {
+                  "type": "i16"
+                },
+                "line_gap": {
+                  "type": "i16"
+                },
+                "advance_width_max": {
+                  "type": "u16"
+                },
+                "min_left_side_bearing": {
+                  "type": "i16"
+                },
+                "min_right_side_bearing": {
+                  "type": "i16"
+                },
+                "x_max_extent": {
+                  "type": "i16"
+                },
+                "caret_slope_rise": {
+                  "type": "i16"
+                },
+                "caret_slope_run": {
+                  "type": "i16"
+                },
+                "caret_offset": {
+                  "type": "i16"
+                },
+                "num_h_metrics": {
+                  "type": "u16"
+                },
+                "x_avg_char_width": {
+                  "type": "i16"
+                },
+                "us_weight_class": {
+                  "type": "u16"
+                },
+                "us_width_class": {
+                  "type": "u16"
+                },
+                "fs_type": {
+                  "type": "u16"
+                },
+                "y_subscript_x_size": {
+                  "type": "i16"
+                },
+                "y_subscript_y_size": {
+                  "type": "i16"
+                },
+                "y_subscript_x_offset": {
+                  "type": "i16"
+                },
+                "y_subscript_y_offset": {
+                  "type": "i16"
+                },
+                "y_superscript_x_size": {
+                  "type": "i16"
+                },
+                "y_superscript_y_size": {
+                  "type": "i16"
+                },
+                "y_superscript_x_offset": {
+                  "type": "i16"
+                },
+                "y_superscript_y_offset": {
+                  "type": "i16"
+                },
+                "y_strikeout_size": {
+                  "type": "i16"
+                },
+                "y_strikeout_position": {
+                  "type": "i16"
+                },
+                "s_family_class": {
+                  "type": "i16"
+                },
+                "panose": {
+                  "type": "[u8;10]"
+                },
+                "ul_unicode_range1": {
+                  "type": "u32"
+                },
+                "ul_unicode_range2": {
+                  "type": "u32"
+                },
+                "ul_unicode_range3": {
+                  "type": "u32"
+                },
+                "ul_unicode_range4": {
+                  "type": "u32"
+                },
+                "ach_vend_id": {
+                  "type": "u32"
+                },
+                "fs_selection": {
+                  "type": "u16"
+                },
+                "us_first_char_index": {
+                  "type": "u16"
+                },
+                "us_last_char_index": {
+                  "type": "u16"
+                },
+                "s_typo_ascender": {
+                  "type": "OptionI16"
+                },
+                "s_typo_descender": {
+                  "type": "OptionI16"
+                },
+                "s_typo_line_gap": {
+                  "type": "OptionI16"
+                },
+                "us_win_ascent": {
+                  "type": "OptionU16"
+                },
+                "us_win_descent": {
+                  "type": "OptionU16"
+                },
+                "ul_code_page_range1": {
+                  "type": "OptionU32"
+                },
+                "ul_code_page_range2": {
+                  "type": "OptionU32"
+                },
+                "sx_height": {
+                  "type": "OptionI16"
+                },
+                "s_cap_height": {
+                  "type": "OptionI16"
+                },
+                "us_default_char": {
+                  "type": "OptionU16"
+                },
+                "us_break_char": {
+                  "type": "OptionU16"
+                },
+                "us_max_context": {
+                  "type": "OptionU16"
+                },
+                "us_lower_optical_point_size": {
+                  "type": "OptionU16"
+                },
+                "us_upper_optical_point_size": {
+                  "type": "OptionU16"
+                }
+              }
+            ]
+          },
+          "BreakInside": {
+            "doc": "Represents a `break-inside` CSS property value.",
+            "external": "azul_css::props::layout::fragmentation::BreakInside",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Avoid": {},
+                "AvoidPage": {},
+                "AvoidColumn": {}
+              }
+            ]
+          },
+          "LayoutAlignSelf": {
+            "doc": "Represents an `align-self` attribute, which allows the default alignment (or the one specified by align-items) to be overridden for individual flex items. Default: `Auto`",
+            "external": "azul_css::props::layout::flex::LayoutAlignSelf",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Stretch": {},
+                "Center": {},
+                "Start": {},
+                "End": {},
+                "Baseline": {}
+              }
+            ]
+          },
+          "CaretAnimationDuration": {
+            "external": "azul_css::props::style::text::CaretAnimationDuration",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "Duration"
+                }
+              }
+            ]
+          },
+          "ColumnRuleStyle": {
+            "external": "azul_css::props::layout::column::ColumnRuleStyle",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "BorderStyle"
+                }
+              }
+            ]
+          },
+          "SvgPoint": {
+            "external": "azul_css::props::basic::animation::SvgPoint",
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "f32"
+                },
+                "y": {
+                  "type": "f32"
+                }
+              }
+            ]
+          },
+          "GridPlacement": {
+            "doc": "Represents `grid-row` or `grid-column` (start / end)",
+            "external": "azul_css::props::layout::grid::GridPlacement",
+            "struct_fields": [
+              {
+                "start": {
+                  "type": "GridLine"
+                },
+                "end": {
+                  "type": "GridLine"
+                }
+              }
+            ]
+          },
+          "StringSet": {
+            "external": "azul_css::props::style::content::StringSet",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "ShapeOutside": {
+            "external": "azul_css::props::layout::shape::ShapeOutside",
+            "enum_fields": [
+              {
+                "None": {},
+                "Shape": {
+                  "type": "String"
+                }
+              }
+            ]
+          },
+          "SvgVector": {
+            "external": "azul_css::props::basic::animation::SvgVector",
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "f64"
+                },
+                "y": {
+                  "type": "f64"
+                }
+              }
+            ]
+          },
+          "DesktopEnvironment": {
+            "doc": "Represents the detected Linux Desktop Environment.",
+            "external": "azul_css::system::DesktopEnvironment",
+            "enum_fields": [
+              {
+                "Gnome": {},
+                "Kde": {},
+                "Other": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "ColumnCount": {
+            "external": "azul_css::props::layout::column::ColumnCount",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Integer": {
+                  "type": "u32"
+                }
+              }
+            ]
+          },
+          "LayoutWritingMode": {
+            "doc": "Represents a `writing-mode` attribute",
+            "external": "azul_css::props::layout::wrapping::LayoutWritingMode",
+            "enum_fields": [
+              {
+                "HorizontalTb": {},
+                "VerticalRl": {},
+                "VerticalLr": {}
+              }
+            ]
+          },
+          "SvgRect": {
+            "external": "azul_css::props::basic::animation::SvgRect",
+            "struct_fields": [
+              {
+                "width": {
+                  "type": "f32"
+                },
+                "height": {
+                  "type": "f32"
+                },
+                "x": {
+                  "type": "f32"
+                },
+                "y": {
+                  "type": "f32"
+                },
+                "radius_top_left": {
+                  "type": "f32"
+                },
+                "radius_top_right": {
+                  "type": "f32"
+                },
+                "radius_bottom_left": {
+                  "type": "f32"
+                },
+                "radius_bottom_right": {
+                  "type": "f32"
+                }
+              }
+            ]
+          },
+          "SystemColors": {
+            "doc": "Common system colors used for UI elements.",
+            "external": "azul_css::system::SystemColors",
+            "struct_fields": [
+              {
+                "text": {
+                  "type": "OptionColorU"
+                },
+                "background": {
+                  "type": "OptionColorU"
+                },
+                "accent": {
+                  "type": "OptionColorU"
+                },
+                "accent_text": {
+                  "type": "OptionColorU"
+                },
+                "button_face": {
+                  "type": "OptionColorU"
+                },
+                "button_text": {
+                  "type": "OptionColorU"
+                },
+                "window_background": {
+                  "type": "OptionColorU"
+                },
+                "selection_background": {
+                  "type": "OptionColorU"
+                },
+                "selection_text": {
+                  "type": "OptionColorU"
+                }
+              }
+            ]
+          },
+          "LayoutRect": {
+            "doc": "Only used for calculations: Rectangle (x, y, width, height) in layout space.",
+            "external": "azul_css::props::basic::geometry::LayoutRect",
+            "struct_fields": [
+              {
+                "origin": {
+                  "type": "LayoutPoint"
+                },
+                "size": {
+                  "type": "LayoutSize"
+                }
+              }
+            ]
+          },
+          "StyleUserSelect": {
+            "doc": "Controls whether the user can select text. Used to prevent accidental text selection on UI controls like buttons.",
+            "external": "azul_css::props::style::text::StyleUserSelect",
+            "enum_fields": [
+              {
+                "Auto": {
+                  "doc": "Browser determines selectability (default)"
+                },
+                "Text": {
+                  "doc": "Text is selectable"
+                },
+                "None": {
+                  "doc": "Text is not selectable"
+                },
+                "All": {
+                  "doc": "User can select all text with a single action"
+                }
+              }
+            ]
+          },
+          "FlowInto": {
+            "external": "azul_css::props::layout::flow::FlowInto",
+            "enum_fields": [
+              {
+                "None": {},
+                "Named": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "GridTemplate": {
+            "doc": "Represents `grid-template-columns` or `grid-template-rows`",
+            "external": "azul_css::props::layout::grid::GridTemplate",
+            "struct_fields": [
+              {
+                "tracks": {
+                  "type": "GridTrackSizingVec"
+                }
+              }
+            ]
+          },
+          "LayoutJustifySelf": {
+            "doc": "Represents `justify-self` for grid items",
+            "external": "azul_css::props::layout::grid::LayoutJustifySelf",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Start": {},
+                "End": {},
+                "Center": {},
+                "Stretch": {}
+              }
+            ]
+          },
+          "Content": {
+            "external": "azul_css::props::style::content::Content",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "StyleHyphens": {
+            "doc": "Hyphenation rules.",
+            "external": "azul_css::props::style::text::StyleHyphens",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "None": {}
+              }
+            ]
+          },
+          "LayoutGap": {
+            "external": "azul_css::props::layout::grid::LayoutGap",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ]
+          },
+          "StyleDirection": {
+            "doc": "Text direction.",
+            "external": "azul_css::props::style::text::StyleDirection",
+            "enum_fields": [
+              {
+                "Ltr": {},
+                "Rtl": {}
+              }
+            ]
+          },
+          "LayoutFlexBasis": {
+            "doc": "Represents a `flex-basis` attribute",
+            "external": "azul_css::props::layout::flex::LayoutFlexBasis",
+            "enum_fields": [
+              {
+                "Auto": {
+                  "doc": "auto"
+                },
+                "Exact": {
+                  "type": "PixelValue",
+                  "doc": "Fixed size"
+                }
+              }
+            ]
+          },
+          "ShapeMargin": {
+            "external": "azul_css::props::layout::shape::ShapeMargin",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ]
+          },
+          "LayoutTextJustify": {
+            "external": "azul_css::props::layout::text::LayoutTextJustify",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "None": {},
+                "InterWord": {},
+                "InterCharacter": {},
+                "Distribute": {}
+              }
+            ]
+          },
+          "ColumnWidth": {
+            "external": "azul_css::props::layout::column::ColumnWidth",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Length": {
+                  "type": "PixelValue"
+                }
+              }
+            ]
+          },
+          "CounterIncrement": {
+            "external": "azul_css::props::style::content::CounterIncrement",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "BoxDecorationBreak": {
+            "doc": "Represents a `box-decoration-break` CSS property value.",
+            "external": "azul_css::props::layout::fragmentation::BoxDecorationBreak",
+            "enum_fields": [
+              {
+                "Slice": {},
+                "Clone": {}
+              }
+            ]
+          },
+          "SvgCubicCurve": {
+            "external": "azul_css::props::basic::animation::SvgCubicCurve",
+            "struct_fields": [
+              {
+                "start": {
+                  "type": "SvgPoint"
+                },
+                "ctrl_1": {
+                  "type": "SvgPoint"
+                },
+                "ctrl_2": {
+                  "type": "SvgPoint"
+                },
+                "end": {
+                  "type": "SvgPoint"
+                }
+              }
+            ]
+          },
+          "SvgQuadraticCurve": {
+            "external": "azul_css::props::basic::animation::SvgQuadraticCurve",
+            "struct_fields": [
+              {
+                "start": {
+                  "type": "SvgPoint"
+                },
+                "ctrl": {
+                  "type": "SvgPoint"
+                },
+                "end": {
+                  "type": "SvgPoint"
+                }
+              }
+            ]
+          },
+          "SelectionColor": {
+            "external": "azul_css::props::style::selection::SelectionColor",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "ColorU"
+                }
+              }
+            ]
+          },
+          "StyleVisibility": {
+            "doc": "Represents a `visibility` attribute, controlling element visibility.",
+            "external": "azul_css::props::style::effects::StyleVisibility",
+            "enum_fields": [
+              {
+                "Visible": {},
+                "Hidden": {},
+                "Collapse": {}
+              }
+            ]
+          },
+          "Theme": {
+            "doc": "The overall theme type.",
+            "external": "azul_css::system::Theme",
+            "enum_fields": [
+              {
+                "Light": {},
+                "Dark": {}
+              }
+            ]
+          },
+          "ShapeImageThreshold": {
+            "external": "azul_css::props::layout::shape::ShapeImageThreshold",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "FloatValue"
+                }
+              }
+            ]
+          },
+          "LayoutGridAutoFlow": {
+            "doc": "Represents the `grid-auto-flow` property",
+            "external": "azul_css::props::layout::grid::LayoutGridAutoFlow",
+            "enum_fields": [
+              {
+                "Row": {},
+                "Column": {},
+                "RowDense": {},
+                "ColumnDense": {}
+              }
+            ]
+          },
+          "ColumnRuleWidth": {
+            "external": "azul_css::props::layout::column::ColumnRuleWidth",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ]
+          },
+          "AzString": {
+            "external": "azul_css::corety::AzString",
+            "struct_fields": [
+              {
+                "vec": {
+                  "type": "U8Vec"
+                }
+              }
+            ]
+          },
+          "StyleTextDecoration": {
+            "doc": "Text decoration (underline, overline, line-through).",
+            "external": "azul_css::props::style::text::StyleTextDecoration",
+            "enum_fields": [
+              {
+                "None": {
+                  "doc": "No decoration"
+                },
+                "Underline": {
+                  "doc": "Underline"
+                },
+                "Overline": {
+                  "doc": "Line above text"
+                },
+                "LineThrough": {
+                  "doc": "Strike-through line"
+                }
+              }
+            ]
+          },
+          "CaretColor": {
+            "external": "azul_css::props::style::text::CaretColor",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "ColorU"
+                }
+              }
+            ]
+          },
+          "LayoutSize": {
+            "doc": "Only used for calculations: Size (width, height) in layout space.",
+            "external": "azul_css::props::basic::geometry::LayoutSize",
+            "struct_fields": [
+              {
+                "width": {
+                  "type": "isize"
+                },
+                "height": {
+                  "type": "isize"
+                }
+              }
+            ]
+          },
+          "ColumnFill": {
+            "external": "azul_css::props::layout::column::ColumnFill",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Balance": {}
+              }
+            ]
+          },
+          "SystemFonts": {
+            "doc": "Common system font settings.",
+            "external": "azul_css::system::SystemFonts",
+            "struct_fields": [
+              {
+                "ui_font": {
+                  "type": "OptionAzString",
+                  "doc": "The primary font used for UI elements like buttons and labels."
+                },
+                "ui_font_size": {
+                  "type": "OptionF32",
+                  "doc": "The default font size for UI elements, in points."
+                },
+                "monospace_font": {
+                  "type": "OptionAzString",
+                  "doc": "The font used for code or other monospaced text."
+                }
+              }
+            ]
+          },
+          "FlowFrom": {
+            "external": "azul_css::props::layout::flow::FlowFrom",
+            "enum_fields": [
+              {
+                "None": {},
+                "Named": {
+                  "type": "AzString"
+                }
+              }
+            ]
+          },
+          "GridAutoTracks": {
+            "doc": "Type alias for GridTemplate",
+            "external": "azul_css::props::layout::grid::GridAutoTracks"
+          },
+          "PageBreak": {
+            "doc": "Represents a `break-before` or `break-after` CSS property value.",
+            "external": "azul_css::props::layout::fragmentation::PageBreak",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Avoid": {},
+                "Always": {},
+                "All": {},
+                "Page": {},
+                "AvoidPage": {},
+                "Left": {},
+                "Right": {},
+                "Recto": {},
+                "Verso": {},
+                "Column": {},
+                "AvoidColumn": {}
+              }
+            ]
+          },
+          "LayoutScrollbarWidth": {
+            "doc": "Represents the standard `scrollbar-width` property.",
+            "external": "azul_css::props::style::scrollbar::LayoutScrollbarWidth",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Thin": {},
+                "None": {}
+              }
+            ]
+          },
+          "StyleScrollbarColor": {
+            "doc": "Represents the standard `scrollbar-color` property.",
+            "external": "azul_css::props::style::scrollbar::StyleScrollbarColor",
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Custom": {
+                  "type": "ColorU, ColorU"
+                }
+              }
             ]
           }
         }
@@ -32378,6 +33574,21 @@
                 }
               }
             ]
+          },
+          "SvgParseError": {
+            "external": "azul_core::svg::SvgParseError",
+            "enum_fields": [
+              {
+                "NoParserAvailable": {},
+                "ElementsLimitReached": {},
+                "NotAnUtf8Str": {},
+                "MalformedGZip": {},
+                "InvalidSize": {},
+                "ParsingFailed": {
+                  "type": "XmlError"
+                }
+              }
+            ]
           }
         }
       },
@@ -33639,6 +34850,10 @@
                 "type": "*const c_void"
               }
             }
+          },
+          "LibrarySendThreadMsgCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*const c_void , ThreadSendMsg) -> bool",
+            "external": "azul_core::task::LibrarySendThreadMsgCallbackType"
           }
         }
       },
@@ -39443,6 +40658,184 @@
               {
                 "ptr": {
                   "type": "*const c_void"
+                }
+              }
+            ]
+          },
+          "RawImageFormat": {
+            "external": "azul_core::resources::RawImageFormat",
+            "enum_fields": [
+              {
+                "R8": {},
+                "RG8": {},
+                "RGB8": {},
+                "RGBA8": {},
+                "R16": {},
+                "RG16": {},
+                "RGB16": {},
+                "RGBA16": {},
+                "BGR8": {},
+                "BGRA8": {},
+                "RGBF32": {},
+                "RGBAF32": {}
+              }
+            ]
+          },
+          "AppLogLevel": {
+            "external": "azul_core::resources::AppLogLevel",
+            "enum_fields": [
+              {
+                "Off": {},
+                "Error": {},
+                "Warn": {},
+                "Info": {},
+                "Debug": {},
+                "Trace": {}
+              }
+            ]
+          },
+          "RawImageData": {
+            "external": "azul_core::resources::RawImageData",
+            "enum_fields": [
+              {
+                "U8": {
+                  "type": "U8Vec"
+                },
+                "U16": {
+                  "type": "U16Vec"
+                },
+                "F32": {
+                  "type": "F32Vec"
+                }
+              }
+            ]
+          },
+          "LoadedFontSource": {
+            "external": "azul_core::resources::LoadedFontSource",
+            "struct_fields": [
+              {
+                "data": {
+                  "type": "U8Vec"
+                },
+                "index": {
+                  "type": "u32"
+                },
+                "load_outlines": {
+                  "type": "bool"
+                }
+              }
+            ]
+          },
+          "AppConfig": {
+            "doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
+            "external": "azul_core::resources::AppConfig",
+            "struct_fields": [
+              {
+                "log_level": {
+                  "type": "AppLogLevel",
+                  "doc": "If enabled, logs error and info messages. Default is `LevelFilter::Error` to log all errors by default"
+                },
+                "enable_visual_panic_hook": {
+                  "type": "bool",
+                  "doc": "If the app crashes / panics, a window with a message box pops up. Setting this to `false` disables the popup box."
+                },
+                "enable_logging_on_panic": {
+                  "type": "bool",
+                  "doc": "If this is set to `true` (the default), a backtrace + error information gets logged to stdout and the logging file (only if logging is enabled)."
+                },
+                "enable_tab_navigation": {
+                  "type": "bool",
+                  "doc": "(STUB) Whether keyboard navigation should be enabled (default: true). Currently not implemented."
+                },
+                "termination_behavior": {
+                  "type": "AppTerminationBehavior",
+                  "doc": "Determines what happens when all windows are closed. Default: EndProcess (terminate when last window closes)."
+                }
+              }
+            ]
+          },
+          "ImageMask": {
+            "external": "azul_core::resources::ImageMask",
+            "struct_fields": [
+              {
+                "image": {
+                  "type": "ImageRef"
+                },
+                "rect": {
+                  "type": "LogicalRect"
+                },
+                "repeat": {
+                  "type": "bool"
+                }
+              }
+            ]
+          },
+          "ImageRef": {
+            "external": "azul_core::resources::ImageRef",
+            "struct_fields": [
+              {
+                "data": {
+                  "type": "*const c_void",
+                  "doc": "Shared pointer to an opaque implementation of the decoded image"
+                },
+                "copies": {
+                  "type": "*const c_void",
+                  "doc": "How many copies does this image have (if 0, the font data will be deleted on drop)"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ]
+          },
+          "RawImage": {
+            "external": "azul_core::resources::RawImage",
+            "struct_fields": [
+              {
+                "pixels": {
+                  "type": "RawImageData"
+                },
+                "width": {
+                  "type": "usize"
+                },
+                "height": {
+                  "type": "usize"
+                },
+                "premultiplied_alpha": {
+                  "type": "bool"
+                },
+                "data_format": {
+                  "type": "RawImageFormat"
+                },
+                "tag": {
+                  "type": "U8Vec"
+                }
+              }
+            ]
+          },
+          "DpiScaleFactor": {
+            "external": "azul_core::resources::DpiScaleFactor",
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "FloatValue"
+                }
+              }
+            ]
+          },
+          "AppTerminationBehavior": {
+            "doc": "Determines what happens when all application windows are closed",
+            "external": "azul_core::resources::AppTerminationBehavior",
+            "enum_fields": [
+              {
+                "ReturnToMain": {
+                  "doc": "Return control to main() when all windows are closed (if platform supports it). On macOS, this exits the NSApplication run loop and returns to main(). This is useful if you want to clean up resources or restart the event loop."
+                },
+                "RunForever": {
+                  "doc": "Keep the application running even when all windows are closed. This is the standard macOS behavior (app stays in dock until explicitly quit)."
+                },
+                "EndProcess": {
+                  "doc": "Immediately terminate the process when all windows are closed. Calls std::process::exit(0)."
                 }
               }
             ]

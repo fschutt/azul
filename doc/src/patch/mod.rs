@@ -114,6 +114,26 @@ impl ClassPatch {
             && self.constructors.is_none()
             && self.functions.is_none()
     }
+
+    /// Check if this patch is completely empty (no fields set)
+    pub fn is_empty(&self) -> bool {
+        self.external.is_none()
+            && self.doc.is_none()
+            && self.derive.is_none()
+            && self.is_boxed_object.is_none()
+            && self.clone.is_none()
+            && self.custom_destructor.is_none()
+            && self.serde.is_none()
+            && self.repr.is_none()
+            && self.const_value_type.is_none()
+            && self.constants.is_none()
+            && self.struct_fields.is_none()
+            && self.enum_fields.is_none()
+            && self.type_alias.is_none()
+            && self.callback_typedef.is_none()
+            && self.constructors.is_none()
+            && self.functions.is_none()
+    }
 }
 
 impl ApiPatch {
@@ -547,12 +567,24 @@ fn apply_module_patch(
 
     for (class_name, class_patch) in &patch.classes {
         if let Some(class_data) = module_data.classes.get_mut(class_name) {
+            // Update existing class
             patches_applied += apply_class_patch(class_data, class_patch, module_name, class_name)?;
         } else {
-            eprintln!(
-                "Warning: Class '{}' not found in module '{}'",
-                class_name, module_name
-            );
+            // Insert new class from patch
+            if !class_patch.is_empty() {
+                println!(
+                    "  ➕ Adding new class {}.{} from patch",
+                    module_name, class_name
+                );
+                let new_class_data = class_patch_to_class_data(class_patch);
+                module_data.classes.insert(class_name.clone(), new_class_data);
+                patches_applied += 1;
+            } else {
+                eprintln!(
+                    "Warning: Class '{}' not found in module '{}' and patch is empty",
+                    class_name, module_name
+                );
+            }
         }
     }
 
@@ -698,6 +730,30 @@ fn apply_class_patch(
     }
 
     Ok(patches_applied)
+}
+
+/// Convert a ClassPatch to ClassData for inserting new classes
+fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
+    ClassData {
+        doc: patch.doc.clone(),
+        external: patch.external.clone(),
+        is_boxed_object: patch.is_boxed_object.unwrap_or(false),
+        clone: patch.clone,
+        custom_destructor: patch.custom_destructor,
+        derive: patch.derive.clone(),
+        serde: patch.serde.clone(),
+        const_value_type: patch.const_value_type.clone(),
+        constants: patch.constants.clone(),
+        struct_fields: patch.struct_fields.clone(),
+        enum_fields: patch.enum_fields.clone(),
+        callback_typedef: patch.callback_typedef.clone(),
+        constructors: patch.constructors.clone(),
+        functions: patch.functions.clone(),
+        use_patches: None,
+        repr: patch.repr.clone(),
+        generic_params: None, // Patches don't contain generic_params yet
+        type_alias: patch.type_alias.clone(),
+    }
 }
 
 /// Print all external import paths for debugging/tracking
