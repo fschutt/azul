@@ -67,6 +67,7 @@ pub struct StructMetadata {
     pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
     pub callback_typedef: Option<crate::api::CallbackDefinition>,
+    pub type_alias: Option<crate::api::TypeAliasInfo>,
 }
 
 impl StructMetadata {
@@ -110,6 +111,7 @@ impl StructMetadata {
             struct_fields: class_data.struct_fields.clone(),
             enum_fields: class_data.enum_fields.clone(),
             callback_typedef: class_data.callback_typedef.clone(),
+            type_alias: class_data.type_alias.clone(),
         }
     }
 }
@@ -150,6 +152,24 @@ fn generate_single_type(
         code.push_str(&format!("{}/// {}\n", indent_str, doc));
     } else {
         code.push_str(&format!("{}/// `{}` struct\n", indent_str, struct_name));
+    }
+
+    // Handle type aliases (generic type instantiations)
+    if let Some(type_alias_info) = &struct_meta.type_alias {
+        let target_with_prefix = format!("{}{}", config.prefix, type_alias_info.target);
+        let args_with_prefix: Vec<String> = type_alias_info.generic_args
+            .iter()
+            .map(|arg| format!("{}{}", config.prefix, arg))
+            .collect();
+        
+        code.push_str(&format!(
+            "{}pub type {} = {}<{}>;\n\n",
+            indent_str,
+            struct_name,
+            target_with_prefix,
+            args_with_prefix.join(", ")
+        ));
+        return Ok(code);
     }
 
     // Handle callback typedefs

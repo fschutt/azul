@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::api::{
     ApiData, CallbackDefinition, ClassData, ConstantData, EnumVariantData, FieldData, FunctionData,
-    ModuleData, VersionData,
+    ModuleData, TypeAliasInfo, VersionData,
 };
 
 // Source code parsing and retrieval modules
@@ -76,6 +76,9 @@ pub struct ClassPatch {
     /// Patch or replace enum fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
+    /// Type alias information (for generic type instantiations)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_alias: Option<TypeAliasInfo>,
     /// Patch or replace callback typedef
     #[serde(skip_serializing_if = "Option::is_none")]
     pub callback_typedef: Option<CallbackDefinition>,
@@ -106,6 +109,7 @@ impl ClassPatch {
             && self.constants.is_none()
             && self.struct_fields.is_none()
             && self.enum_fields.is_none()
+            && self.type_alias.is_none()
             && self.callback_typedef.is_none()
             && self.constructors.is_none()
             && self.functions.is_none()

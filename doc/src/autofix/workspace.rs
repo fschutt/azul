@@ -717,11 +717,20 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 class_patch.enum_fields = Some(vec![variant_map]);
             }
         }
-        TypeKind::TypeAlias { target, doc } => {
+        TypeKind::TypeAlias { target, generic_base, generic_args, doc } => {
             // For type aliases, use existing doc or create one
             class_patch.doc = doc
                 .clone()
                 .or_else(|| Some(format!("Type alias for {}", target)));
+            
+            // If this is a generic instantiation, store that information
+            if let Some(base) = generic_base {
+                use crate::api::TypeAliasInfo;
+                class_patch.type_alias = Some(TypeAliasInfo {
+                    target: base.clone(),
+                    generic_args: generic_args.clone(),
+                });
+            }
         }
     }
 

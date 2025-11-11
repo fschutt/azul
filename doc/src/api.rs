@@ -288,12 +288,25 @@ pub struct ClassData {
     pub use_patches: Option<Vec<String>>, // For conditional patch application
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repr: Option<String>, // For things like #[repr(transparent)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generic_params: Option<Vec<String>>, // e.g., ["T", "U"] for generic types
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_alias: Option<TypeAliasInfo>, // Information about type aliases
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConstantData {
     pub r#type: String, // r# to allow "type" as field name
     pub value: String,  // Keep value as string, parsing depends on type context
+}
+
+/// Information about a type alias, including generic instantiation
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct TypeAliasInfo {
+    /// The target generic type (e.g., "CssPropertyValue")
+    pub target: String,
+    /// Generic arguments for instantiation (e.g., ["LayoutZIndex"])
+    pub generic_args: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]

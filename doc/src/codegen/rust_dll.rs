@@ -43,8 +43,46 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
     // Process all modules and classes
     for (module_name, module) in &version_data.api {
+        eprintln!("DEBUG: Processing module: {} ({} classes)", module_name, module.classes.len());
+        
         for (class_name, class_data) in &module.classes {
+            // Debug print for LayoutZIndexValue
+            if class_name == "LayoutZIndexValue" {
+                eprintln!("DEBUG: Found LayoutZIndexValue");
+                eprintln!("  external: {:?}", class_data.external);
+                eprintln!("  doc: {:?}", class_data.doc);
+                eprintln!("  type_alias: {:?}", class_data.type_alias);
+            }
+            
             code.push_str("\r\n");
+
+            // Handle type aliases (generic type instantiations)
+            if let Some(type_alias_info) = &class_data.type_alias {
+                eprintln!("DEBUG: Generating type alias for {}", class_name);
+                
+                let class_ptr_name = format!("{}{}", PREFIX, class_name);
+                
+                // Add documentation
+                if let Some(doc) = &class_data.doc {
+                    code.push_str(&format!("/// {}\r\n", doc));
+                }
+                
+                // Generate type alias: pub type Az1LayoutZIndexValue = Az1CssPropertyValue<Az1LayoutZIndex>;
+                let target_with_prefix = format!("{}{}", PREFIX, type_alias_info.target);
+                let args_with_prefix: Vec<String> = type_alias_info.generic_args
+                    .iter()
+                    .map(|arg| format!("{}{}", PREFIX, arg))
+                    .collect();
+                
+                code.push_str(&format!(
+                    "pub type {} = {}<{}>;\r\n",
+                    class_ptr_name,
+                    target_with_prefix,
+                    args_with_prefix.join(", ")
+                ));
+                
+                continue; // Skip normal class generation for type aliases
+            }
 
             // Determine class characteristics
             let class_is_boxed_object = !class_is_stack_allocated(class_data);

@@ -296,6 +296,24 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
         .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
     let api_data =
         api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
+    
+    // DEBUG: Check if type_alias field was deserialized
+    if let Some(version_data) = api_data.0.values().next() {
+        if let Some(css_module) = version_data.api.get("css") {
+            if let Some(lziv) = css_module.classes.get("LayoutZIndexValue") {
+                eprintln!("DEBUG load_api_json: LayoutZIndexValue found");
+                eprintln!("  type_alias: {:?}", lziv.type_alias);
+            } else {
+                eprintln!("DEBUG load_api_json: LayoutZIndexValue NOT found in css.classes");
+            }
+            
+            let type_alias_count = css_module.classes.values()
+                .filter(|c| c.type_alias.is_some())
+                .count();
+            eprintln!("DEBUG load_api_json: {} classes have type_alias", type_alias_count);
+        }
+    }
+    
     Ok(api_data)
 }
 

@@ -9666,7 +9666,7 @@
             ]
           },
           "StyleBoxShadowValue": {
-            "external": "azul_css::StyleBoxShadowValue",
+            "external": "azul_css::props::property::StyleBoxShadowValue",
             "derive": [
               "Copy"
             ],
@@ -9688,10 +9688,17 @@
                   "type": "StyleBoxShadow"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBoxShadow >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBoxShadow"
+              ]
+            }
           },
           "LayoutAlignContentValue": {
-            "external": "azul_css::LayoutAlignContentValue",
+            "external": "azul_css::props::property::LayoutAlignContentValue",
             "derive": [
               "Copy"
             ],
@@ -9713,10 +9720,17 @@
                   "type": "LayoutAlignContent"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutAlignContent >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignContent"
+              ]
+            }
           },
           "LayoutAlignItemsValue": {
-            "external": "azul_css::LayoutAlignItemsValue",
+            "external": "azul_css::props::property::LayoutAlignItemsValue",
             "derive": [
               "Copy"
             ],
@@ -9738,10 +9752,17 @@
                   "type": "LayoutAlignItems"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutAlignItems >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignItems"
+              ]
+            }
           },
           "LayoutBottomValue": {
-            "external": "azul_css::LayoutBottomValue",
+            "external": "azul_css::props::property::LayoutBottomValue",
             "derive": [
               "Copy"
             ],
@@ -9763,10 +9784,17 @@
                   "type": "LayoutBottom"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBottom >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBottom"
+              ]
+            }
           },
           "LayoutBoxSizingValue": {
-            "external": "azul_css::LayoutBoxSizingValue",
+            "external": "azul_css::props::property::LayoutBoxSizingValue",
             "derive": [
               "Copy"
             ],
@@ -9788,10 +9816,17 @@
                   "type": "LayoutBoxSizing"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBoxSizing >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBoxSizing"
+              ]
+            }
           },
           "LayoutFlexDirectionValue": {
-            "external": "azul_css::LayoutFlexDirectionValue",
+            "external": "azul_css::props::property::LayoutFlexDirectionValue",
             "derive": [
               "Copy"
             ],
@@ -9813,10 +9848,17 @@
                   "type": "LayoutFlexDirection"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutFlexDirection >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexDirection"
+              ]
+            }
           },
           "LayoutDisplayValue": {
-            "external": "azul_css::LayoutDisplayValue",
+            "external": "azul_css::props::property::LayoutDisplayValue",
             "derive": [
               "Copy"
             ],
@@ -9838,10 +9880,17 @@
                   "type": "LayoutDisplay"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutDisplay >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutDisplay"
+              ]
+            }
           },
           "LayoutFlexGrowValue": {
-            "external": "azul_css::LayoutFlexGrowValue",
+            "external": "azul_css::props::property::LayoutFlexGrowValue",
             "derive": [
               "Copy"
             ],
@@ -9863,10 +9912,17 @@
                   "type": "LayoutFlexGrow"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutFlexGrow >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexGrow"
+              ]
+            }
           },
           "LayoutFlexShrinkValue": {
-            "external": "azul_css::LayoutFlexShrinkValue",
+            "external": "azul_css::props::property::LayoutFlexShrinkValue",
             "derive": [
               "Copy"
             ],
@@ -9888,10 +9944,17 @@
                   "type": "LayoutFlexShrink"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutFlexShrink >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexShrink"
+              ]
+            }
           },
           "LayoutFloatValue": {
-            "external": "azul_css::LayoutFloatValue",
+            "external": "azul_css::props::property::LayoutFloatValue",
             "derive": [
               "Copy"
             ],
@@ -9913,10 +9976,17 @@
                   "type": "LayoutFloat"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutFloat >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFloat"
+              ]
+            }
           },
           "LayoutHeightValue": {
-            "external": "azul_css::LayoutHeightValue",
+            "external": "azul_css::props::property::LayoutHeightValue",
             "derive": [
               "Copy"
             ],
@@ -9938,10 +10008,17 @@
                   "type": "LayoutHeight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutHeight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutHeight"
+              ]
+            }
           },
           "LayoutJustifyContentValue": {
-            "external": "azul_css::LayoutJustifyContentValue",
+            "external": "azul_css::props::property::LayoutJustifyContentValue",
             "derive": [
               "Copy"
             ],
@@ -9963,10 +10040,17 @@
                   "type": "LayoutJustifyContent"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutJustifyContent >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifyContent"
+              ]
+            }
           },
           "LayoutLeftValue": {
-            "external": "azul_css::LayoutLeftValue",
+            "external": "azul_css::props::property::LayoutLeftValue",
             "derive": [
               "Copy"
             ],
@@ -9988,10 +10072,17 @@
                   "type": "LayoutLeft"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutLeft >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutLeft"
+              ]
+            }
           },
           "LayoutMarginBottomValue": {
-            "external": "azul_css::LayoutMarginBottomValue",
+            "external": "azul_css::props::property::LayoutMarginBottomValue",
             "derive": [
               "Copy"
             ],
@@ -10013,10 +10104,17 @@
                   "type": "LayoutMarginBottom"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMarginBottom >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginBottom"
+              ]
+            }
           },
           "LayoutMarginLeftValue": {
-            "external": "azul_css::LayoutMarginLeftValue",
+            "external": "azul_css::props::property::LayoutMarginLeftValue",
             "derive": [
               "Copy"
             ],
@@ -10038,10 +10136,17 @@
                   "type": "LayoutMarginLeft"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMarginLeft >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginLeft"
+              ]
+            }
           },
           "LayoutMarginRightValue": {
-            "external": "azul_css::LayoutMarginRightValue",
+            "external": "azul_css::props::property::LayoutMarginRightValue",
             "derive": [
               "Copy"
             ],
@@ -10063,10 +10168,17 @@
                   "type": "LayoutMarginRight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMarginRight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginRight"
+              ]
+            }
           },
           "LayoutMarginTopValue": {
-            "external": "azul_css::LayoutMarginTopValue",
+            "external": "azul_css::props::property::LayoutMarginTopValue",
             "derive": [
               "Copy"
             ],
@@ -10088,10 +10200,17 @@
                   "type": "LayoutMarginTop"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMarginTop >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginTop"
+              ]
+            }
           },
           "LayoutMaxHeightValue": {
-            "external": "azul_css::LayoutMaxHeightValue",
+            "external": "azul_css::props::property::LayoutMaxHeightValue",
             "derive": [
               "Copy"
             ],
@@ -10113,10 +10232,17 @@
                   "type": "LayoutMaxHeight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMaxHeight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMaxHeight"
+              ]
+            }
           },
           "LayoutMaxWidthValue": {
-            "external": "azul_css::LayoutMaxWidthValue",
+            "external": "azul_css::props::property::LayoutMaxWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10138,10 +10264,17 @@
                   "type": "LayoutMaxWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMaxWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMaxWidth"
+              ]
+            }
           },
           "LayoutMinHeightValue": {
-            "external": "azul_css::LayoutMinHeightValue",
+            "external": "azul_css::props::property::LayoutMinHeightValue",
             "derive": [
               "Copy"
             ],
@@ -10163,10 +10296,17 @@
                   "type": "LayoutMinHeight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMinHeight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMinHeight"
+              ]
+            }
           },
           "LayoutMinWidthValue": {
-            "external": "azul_css::LayoutMinWidthValue",
+            "external": "azul_css::props::property::LayoutMinWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10188,10 +10328,17 @@
                   "type": "LayoutMinWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutMinWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMinWidth"
+              ]
+            }
           },
           "LayoutPaddingBottomValue": {
-            "external": "azul_css::LayoutPaddingBottomValue",
+            "external": "azul_css::props::property::LayoutPaddingBottomValue",
             "derive": [
               "Copy"
             ],
@@ -10213,10 +10360,17 @@
                   "type": "LayoutPaddingBottom"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutPaddingBottom >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingBottom"
+              ]
+            }
           },
           "LayoutPaddingLeftValue": {
-            "external": "azul_css::LayoutPaddingLeftValue",
+            "external": "azul_css::props::property::LayoutPaddingLeftValue",
             "derive": [
               "Copy"
             ],
@@ -10238,10 +10392,17 @@
                   "type": "LayoutPaddingLeft"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutPaddingLeft >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingLeft"
+              ]
+            }
           },
           "LayoutPaddingRightValue": {
-            "external": "azul_css::LayoutPaddingRightValue",
+            "external": "azul_css::props::property::LayoutPaddingRightValue",
             "derive": [
               "Copy"
             ],
@@ -10263,10 +10424,17 @@
                   "type": "LayoutPaddingRight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutPaddingRight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingRight"
+              ]
+            }
           },
           "LayoutPaddingTopValue": {
-            "external": "azul_css::LayoutPaddingTopValue",
+            "external": "azul_css::props::property::LayoutPaddingTopValue",
             "derive": [
               "Copy"
             ],
@@ -10288,10 +10456,17 @@
                   "type": "LayoutPaddingTop"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutPaddingTop >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingTop"
+              ]
+            }
           },
           "LayoutPositionValue": {
-            "external": "azul_css::LayoutPositionValue",
+            "external": "azul_css::props::property::LayoutPositionValue",
             "derive": [
               "Copy"
             ],
@@ -10313,10 +10488,17 @@
                   "type": "LayoutPosition"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutPosition >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPosition"
+              ]
+            }
           },
           "LayoutRightValue": {
-            "external": "azul_css::LayoutRightValue",
+            "external": "azul_css::props::property::LayoutRightValue",
             "derive": [
               "Copy"
             ],
@@ -10338,10 +10520,17 @@
                   "type": "LayoutRight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutRight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutRight"
+              ]
+            }
           },
           "LayoutTopValue": {
-            "external": "azul_css::LayoutTopValue",
+            "external": "azul_css::props::property::LayoutTopValue",
             "derive": [
               "Copy"
             ],
@@ -10363,10 +10552,17 @@
                   "type": "LayoutTop"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutTop >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutTop"
+              ]
+            }
           },
           "LayoutWidthValue": {
-            "external": "azul_css::LayoutWidthValue",
+            "external": "azul_css::props::property::LayoutWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10388,10 +10584,17 @@
                   "type": "LayoutWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutWidth"
+              ]
+            }
           },
           "LayoutFlexWrapValue": {
-            "external": "azul_css::LayoutFlexWrapValue",
+            "external": "azul_css::props::property::LayoutFlexWrapValue",
             "derive": [
               "Copy"
             ],
@@ -10413,10 +10616,17 @@
                   "type": "LayoutFlexWrap"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutFlexWrap >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexWrap"
+              ]
+            }
           },
           "LayoutOverflowValue": {
-            "external": "azul_css::LayoutOverflowValue",
+            "external": "azul_css::props::property::LayoutOverflowValue",
             "derive": [
               "Copy"
             ],
@@ -10438,10 +10648,17 @@
                   "type": "LayoutOverflow"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutOverflow >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutOverflow"
+              ]
+            }
           },
           "ScrollbarStyleValue": {
-            "external": "azul_css::ScrollbarStyleValue",
+            "external": "azul_css::props::property::ScrollbarStyleValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10460,10 +10677,17 @@
                   "type": "ScrollbarStyle"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < ScrollbarStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ScrollbarStyle"
+              ]
+            }
           },
           "StyleBackgroundContentVecValue": {
-            "external": "azul_css::StyleBackgroundContentVecValue",
+            "external": "azul_css::props::property::StyleBackgroundContentVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10482,10 +10706,17 @@
                   "type": "StyleBackgroundContentVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBackgroundContentVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundContentVec"
+              ]
+            }
           },
           "StyleBackgroundPositionVecValue": {
-            "external": "azul_css::StyleBackgroundPositionVecValue",
+            "external": "azul_css::props::property::StyleBackgroundPositionVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10504,10 +10735,17 @@
                   "type": "StyleBackgroundPositionVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBackgroundPositionVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundPositionVec"
+              ]
+            }
           },
           "StyleBackgroundRepeatVecValue": {
-            "external": "azul_css::StyleBackgroundRepeatVecValue",
+            "external": "azul_css::props::property::StyleBackgroundRepeatVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10526,10 +10764,17 @@
                   "type": "StyleBackgroundRepeatVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBackgroundRepeatVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundRepeatVec"
+              ]
+            }
           },
           "StyleBackgroundSizeVecValue": {
-            "external": "azul_css::StyleBackgroundSizeVecValue",
+            "external": "azul_css::props::property::StyleBackgroundSizeVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10548,10 +10793,17 @@
                   "type": "StyleBackgroundSizeVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBackgroundSizeVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundSizeVec"
+              ]
+            }
           },
           "StyleBorderBottomColorValue": {
-            "external": "azul_css::StyleBorderBottomColorValue",
+            "external": "azul_css::props::property::StyleBorderBottomColorValue",
             "derive": [
               "Copy"
             ],
@@ -10573,10 +10825,17 @@
                   "type": "StyleBorderBottomColor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderBottomColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomColor"
+              ]
+            }
           },
           "StyleBorderBottomLeftRadiusValue": {
-            "external": "azul_css::StyleBorderBottomLeftRadiusValue",
+            "external": "azul_css::props::property::StyleBorderBottomLeftRadiusValue",
             "derive": [
               "Copy"
             ],
@@ -10598,10 +10857,17 @@
                   "type": "StyleBorderBottomLeftRadius"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderBottomLeftRadius >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomLeftRadius"
+              ]
+            }
           },
           "StyleBorderBottomRightRadiusValue": {
-            "external": "azul_css::StyleBorderBottomRightRadiusValue",
+            "external": "azul_css::props::property::StyleBorderBottomRightRadiusValue",
             "derive": [
               "Copy"
             ],
@@ -10623,10 +10889,17 @@
                   "type": "StyleBorderBottomRightRadius"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderBottomRightRadius >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomRightRadius"
+              ]
+            }
           },
           "StyleBorderBottomStyleValue": {
-            "external": "azul_css::StyleBorderBottomStyleValue",
+            "external": "azul_css::props::property::StyleBorderBottomStyleValue",
             "derive": [
               "Copy"
             ],
@@ -10648,10 +10921,17 @@
                   "type": "StyleBorderBottomStyle"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderBottomStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomStyle"
+              ]
+            }
           },
           "LayoutBorderBottomWidthValue": {
-            "external": "azul_css::LayoutBorderBottomWidthValue",
+            "external": "azul_css::props::property::LayoutBorderBottomWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10673,10 +10953,17 @@
                   "type": "LayoutBorderBottomWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBorderBottomWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderBottomWidth"
+              ]
+            }
           },
           "StyleBorderLeftColorValue": {
-            "external": "azul_css::StyleBorderLeftColorValue",
+            "external": "azul_css::props::property::StyleBorderLeftColorValue",
             "derive": [
               "Copy"
             ],
@@ -10698,10 +10985,17 @@
                   "type": "StyleBorderLeftColor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderLeftColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderLeftColor"
+              ]
+            }
           },
           "StyleBorderLeftStyleValue": {
-            "external": "azul_css::StyleBorderLeftStyleValue",
+            "external": "azul_css::props::property::StyleBorderLeftStyleValue",
             "derive": [
               "Copy"
             ],
@@ -10723,10 +11017,17 @@
                   "type": "StyleBorderLeftStyle"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderLeftStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderLeftStyle"
+              ]
+            }
           },
           "LayoutBorderLeftWidthValue": {
-            "external": "azul_css::LayoutBorderLeftWidthValue",
+            "external": "azul_css::props::property::LayoutBorderLeftWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10748,10 +11049,17 @@
                   "type": "LayoutBorderLeftWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBorderLeftWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderLeftWidth"
+              ]
+            }
           },
           "StyleBorderRightColorValue": {
-            "external": "azul_css::StyleBorderRightColorValue",
+            "external": "azul_css::props::property::StyleBorderRightColorValue",
             "derive": [
               "Copy"
             ],
@@ -10773,10 +11081,17 @@
                   "type": "StyleBorderRightColor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderRightColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderRightColor"
+              ]
+            }
           },
           "StyleBorderRightStyleValue": {
-            "external": "azul_css::StyleBorderRightStyleValue",
+            "external": "azul_css::props::property::StyleBorderRightStyleValue",
             "derive": [
               "Copy"
             ],
@@ -10798,10 +11113,17 @@
                   "type": "StyleBorderRightStyle"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderRightStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderRightStyle"
+              ]
+            }
           },
           "LayoutBorderRightWidthValue": {
-            "external": "azul_css::LayoutBorderRightWidthValue",
+            "external": "azul_css::props::property::LayoutBorderRightWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10823,10 +11145,17 @@
                   "type": "LayoutBorderRightWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBorderRightWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderRightWidth"
+              ]
+            }
           },
           "StyleBorderTopColorValue": {
-            "external": "azul_css::StyleBorderTopColorValue",
+            "external": "azul_css::props::property::StyleBorderTopColorValue",
             "derive": [
               "Copy"
             ],
@@ -10848,10 +11177,17 @@
                   "type": "StyleBorderTopColor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderTopColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopColor"
+              ]
+            }
           },
           "StyleBorderTopLeftRadiusValue": {
-            "external": "azul_css::StyleBorderTopLeftRadiusValue",
+            "external": "azul_css::props::property::StyleBorderTopLeftRadiusValue",
             "derive": [
               "Copy"
             ],
@@ -10873,10 +11209,17 @@
                   "type": "StyleBorderTopLeftRadius"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderTopLeftRadius >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopLeftRadius"
+              ]
+            }
           },
           "StyleBorderTopRightRadiusValue": {
-            "external": "azul_css::StyleBorderTopRightRadiusValue",
+            "external": "azul_css::props::property::StyleBorderTopRightRadiusValue",
             "derive": [
               "Copy"
             ],
@@ -10898,10 +11241,17 @@
                   "type": "StyleBorderTopRightRadius"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderTopRightRadius >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopRightRadius"
+              ]
+            }
           },
           "StyleBorderTopStyleValue": {
-            "external": "azul_css::StyleBorderTopStyleValue",
+            "external": "azul_css::props::property::StyleBorderTopStyleValue",
             "derive": [
               "Copy"
             ],
@@ -10923,10 +11273,17 @@
                   "type": "StyleBorderTopStyle"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBorderTopStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopStyle"
+              ]
+            }
           },
           "LayoutBorderTopWidthValue": {
-            "external": "azul_css::LayoutBorderTopWidthValue",
+            "external": "azul_css::props::property::LayoutBorderTopWidthValue",
             "derive": [
               "Copy"
             ],
@@ -10948,10 +11305,17 @@
                   "type": "LayoutBorderTopWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < LayoutBorderTopWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderTopWidth"
+              ]
+            }
           },
           "StyleCursorValue": {
-            "external": "azul_css::StyleCursorValue",
+            "external": "azul_css::props::property::StyleCursorValue",
             "derive": [
               "Copy"
             ],
@@ -10973,10 +11337,17 @@
                   "type": "StyleCursor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleCursor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleCursor"
+              ]
+            }
           },
           "StyleFontFamilyVecValue": {
-            "external": "azul_css::StyleFontFamilyVecValue",
+            "external": "azul_css::props::property::StyleFontFamilyVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -10995,10 +11366,17 @@
                   "type": "StyleFontFamilyVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleFontFamilyVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontFamilyVec"
+              ]
+            }
           },
           "StyleFontSizeValue": {
-            "external": "azul_css::StyleFontSizeValue",
+            "external": "azul_css::props::property::StyleFontSizeValue",
             "derive": [
               "Copy"
             ],
@@ -11020,10 +11398,17 @@
                   "type": "StyleFontSize"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleFontSize >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontSize"
+              ]
+            }
           },
           "StyleLetterSpacingValue": {
-            "external": "azul_css::StyleLetterSpacingValue",
+            "external": "azul_css::props::property::StyleLetterSpacingValue",
             "derive": [
               "Copy"
             ],
@@ -11045,10 +11430,17 @@
                   "type": "StyleLetterSpacing"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleLetterSpacing >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleLetterSpacing"
+              ]
+            }
           },
           "StyleLineHeightValue": {
-            "external": "azul_css::StyleLineHeightValue",
+            "external": "azul_css::props::property::StyleLineHeightValue",
             "derive": [
               "Copy"
             ],
@@ -11070,10 +11462,17 @@
                   "type": "StyleLineHeight"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleLineHeight >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleLineHeight"
+              ]
+            }
           },
           "StyleTabWidthValue": {
-            "external": "azul_css::StyleTabWidthValue",
+            "external": "azul_css::props::property::StyleTabWidthValue",
             "derive": [
               "Copy"
             ],
@@ -11095,10 +11494,17 @@
                   "type": "StyleTabWidth"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleTabWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTabWidth"
+              ]
+            }
           },
           "StyleTextAlignValue": {
-            "external": "azul_css::StyleTextAlignValue",
+            "external": "azul_css::props::property::StyleTextAlignValue",
             "derive": [
               "Copy"
             ],
@@ -11120,10 +11526,17 @@
                   "type": "StyleTextAlign"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleTextAlign >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextAlign"
+              ]
+            }
           },
           "StyleTextColorValue": {
-            "external": "azul_css::StyleTextColorValue",
+            "external": "azul_css::props::property::StyleTextColorValue",
             "derive": [
               "Copy"
             ],
@@ -11145,10 +11558,17 @@
                   "type": "StyleTextColor"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleTextColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextColor"
+              ]
+            }
           },
           "StyleWordSpacingValue": {
-            "external": "azul_css::StyleWordSpacingValue",
+            "external": "azul_css::props::property::StyleWordSpacingValue",
             "derive": [
               "Copy"
             ],
@@ -11170,10 +11590,17 @@
                   "type": "StyleWordSpacing"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleWordSpacing >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleWordSpacing"
+              ]
+            }
           },
           "StyleOpacityValue": {
-            "external": "azul_css::StyleOpacityValue",
+            "external": "azul_css::props::property::StyleOpacityValue",
             "derive": [
               "Copy"
             ],
@@ -11195,10 +11622,17 @@
                   "type": "StyleOpacity"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleOpacity >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleOpacity"
+              ]
+            }
           },
           "StyleTransformVecValue": {
-            "external": "azul_css::StyleTransformVecValue",
+            "external": "azul_css::props::property::StyleTransformVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -11217,10 +11651,17 @@
                   "type": "StyleTransformVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleTransformVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTransformVec"
+              ]
+            }
           },
           "StyleTransformOriginValue": {
-            "external": "azul_css::StyleTransformOriginValue",
+            "external": "azul_css::props::property::StyleTransformOriginValue",
             "derive": [
               "Copy"
             ],
@@ -11242,10 +11683,17 @@
                   "type": "StyleTransformOrigin"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleTransformOrigin >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTransformOrigin"
+              ]
+            }
           },
           "StylePerspectiveOriginValue": {
-            "external": "azul_css::StylePerspectiveOriginValue",
+            "external": "azul_css::props::property::StylePerspectiveOriginValue",
             "derive": [
               "Copy"
             ],
@@ -11267,10 +11715,17 @@
                   "type": "StyleTransformOrigin"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StylePerspectiveOrigin >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StylePerspectiveOrigin"
+              ]
+            }
           },
           "StyleBackfaceVisibilityValue": {
-            "external": "azul_css::StyleBackfaceVisibilityValue",
+            "external": "azul_css::props::property::StyleBackfaceVisibilityValue",
             "derive": [
               "Copy"
             ],
@@ -11292,10 +11747,17 @@
                   "type": "StyleBackfaceVisibility"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleBackfaceVisibility >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackfaceVisibility"
+              ]
+            }
           },
           "StyleMixBlendModeValue": {
-            "external": "azul_css::StyleMixBlendModeValue",
+            "external": "azul_css::props::property::StyleMixBlendModeValue",
             "derive": [
               "Copy"
             ],
@@ -11317,10 +11779,17 @@
                   "type": "StyleMixBlendMode"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleMixBlendMode >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleMixBlendMode"
+              ]
+            }
           },
           "StyleFilterVecValue": {
-            "external": "azul_css::StyleFilterVecValue",
+            "external": "azul_css::props::property::StyleFilterVecValue",
             "enum_fields": [
               {
                 "Auto": {}
@@ -11339,7 +11808,534 @@
                   "type": "StyleFilterVec"
                 }
               }
-            ]
+            ],
+            "doc": "Type alias for CssPropertyValue < StyleFilterVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFilterVec"
+              ]
+            }
+          },
+          "StyleVisibilityValue": {
+            "external": "azul_css::props::property::StyleVisibilityValue",
+            "doc": "Type alias for CssPropertyValue < StyleVisibility >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleVisibility"
+              ]
+            }
+          },
+          "ColumnRuleStyleValue": {
+            "external": "azul_css::props::property::ColumnRuleStyleValue",
+            "doc": "Type alias for CssPropertyValue < ColumnRuleStyle >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleStyle"
+              ]
+            }
+          },
+          "LayoutGridAutoColumnsValue": {
+            "external": "azul_css::props::property::LayoutGridAutoColumnsValue",
+            "doc": "Type alias for CssPropertyValue < GridAutoTracks >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridAutoTracks"
+              ]
+            }
+          },
+          "LayoutGapValue": {
+            "external": "azul_css::props::property::LayoutGapValue",
+            "doc": "Type alias for CssPropertyValue < LayoutGap >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutGap"
+              ]
+            }
+          },
+          "ShapeOutsideValue": {
+            "external": "azul_css::props::property::ShapeOutsideValue",
+            "doc": "Type alias for CssPropertyValue < ShapeOutside >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeOutside"
+              ]
+            }
+          },
+          "BoxDecorationBreakValue": {
+            "external": "azul_css::props::property::BoxDecorationBreakValue",
+            "doc": "Type alias for CssPropertyValue < BoxDecorationBreak >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "BoxDecorationBreak"
+              ]
+            }
+          },
+          "BreakInsideValue": {
+            "external": "azul_css::props::property::BreakInsideValue",
+            "doc": "Type alias for CssPropertyValue < BreakInside >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "BreakInside"
+              ]
+            }
+          },
+          "StyleHyphensValue": {
+            "external": "azul_css::props::property::StyleHyphensValue",
+            "doc": "Type alias for CssPropertyValue < StyleHyphens >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleHyphens"
+              ]
+            }
+          },
+          "LayoutZIndexValue": {
+            "external": "azul_css::props::property::LayoutZIndexValue",
+            "doc": "Type alias for CssPropertyValue < LayoutZIndex >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutZIndex"
+              ]
+            }
+          },
+          "ColumnRuleColorValue": {
+            "external": "azul_css::props::property::ColumnRuleColorValue",
+            "doc": "Type alias for CssPropertyValue < ColumnRuleColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleColor"
+              ]
+            }
+          },
+          "CounterResetValue": {
+            "external": "azul_css::props::property::CounterResetValue",
+            "doc": "Type alias for CssPropertyValue < CounterReset >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CounterReset"
+              ]
+            }
+          },
+          "LayoutScrollbarWidthValue": {
+            "external": "azul_css::props::property::LayoutScrollbarWidthValue",
+            "doc": "Type alias for CssPropertyValue < LayoutScrollbarWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutScrollbarWidth"
+              ]
+            }
+          },
+          "PageBreakValue": {
+            "external": "azul_css::props::property::PageBreakValue",
+            "doc": "Type alias for CssPropertyValue < PageBreak >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "PageBreak"
+              ]
+            }
+          },
+          "LayoutFlexBasisValue": {
+            "external": "azul_css::props::property::LayoutFlexBasisValue",
+            "doc": "Type alias for CssPropertyValue < LayoutFlexBasis >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexBasis"
+              ]
+            }
+          },
+          "CounterIncrementValue": {
+            "external": "azul_css::props::property::CounterIncrementValue",
+            "doc": "Type alias for CssPropertyValue < CounterIncrement >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CounterIncrement"
+              ]
+            }
+          },
+          "ColumnFillValue": {
+            "external": "azul_css::props::property::ColumnFillValue",
+            "doc": "Type alias for CssPropertyValue < ColumnFill >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnFill"
+              ]
+            }
+          },
+          "OrphansValue": {
+            "external": "azul_css::props::property::OrphansValue",
+            "doc": "Type alias for CssPropertyValue < Orphans >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Orphans"
+              ]
+            }
+          },
+          "ColumnWidthValue": {
+            "external": "azul_css::props::property::ColumnWidthValue",
+            "doc": "Type alias for CssPropertyValue < ColumnWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnWidth"
+              ]
+            }
+          },
+          "LayoutJustifySelfValue": {
+            "external": "azul_css::props::property::LayoutJustifySelfValue",
+            "doc": "Type alias for CssPropertyValue < LayoutJustifySelf >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifySelf"
+              ]
+            }
+          },
+          "ShapeMarginValue": {
+            "external": "azul_css::props::property::ShapeMarginValue",
+            "doc": "Type alias for CssPropertyValue < ShapeMargin >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeMargin"
+              ]
+            }
+          },
+          "LayoutGridColumnValue": {
+            "external": "azul_css::props::property::LayoutGridColumnValue",
+            "doc": "Type alias for CssPropertyValue < GridPlacement >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridPlacement"
+              ]
+            }
+          },
+          "ColumnSpanValue": {
+            "external": "azul_css::props::property::ColumnSpanValue",
+            "doc": "Type alias for CssPropertyValue < ColumnSpan >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnSpan"
+              ]
+            }
+          },
+          "LayoutAlignSelfValue": {
+            "external": "azul_css::props::property::LayoutAlignSelfValue",
+            "doc": "Type alias for CssPropertyValue < LayoutAlignSelf >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignSelf"
+              ]
+            }
+          },
+          "WidowsValue": {
+            "external": "azul_css::props::property::WidowsValue",
+            "doc": "Type alias for CssPropertyValue < Widows >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Widows"
+              ]
+            }
+          },
+          "ColumnCountValue": {
+            "external": "azul_css::props::property::ColumnCountValue",
+            "doc": "Type alias for CssPropertyValue < ColumnCount >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnCount"
+              ]
+            }
+          },
+          "StyleScrollbarColorValue": {
+            "external": "azul_css::props::property::StyleScrollbarColorValue",
+            "doc": "Type alias for CssPropertyValue < StyleScrollbarColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleScrollbarColor"
+              ]
+            }
+          },
+          "FlowIntoValue": {
+            "external": "azul_css::props::property::FlowIntoValue",
+            "doc": "Type alias for CssPropertyValue < FlowInto >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowInto"
+              ]
+            }
+          },
+          "StyleFontValue": {
+            "external": "azul_css::props::property::StyleFontValue",
+            "doc": "Type alias for CssPropertyValue < StyleFontFamilyVec >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontFamilyVec"
+              ]
+            }
+          },
+          "LayoutGridTemplateRowsValue": {
+            "external": "azul_css::props::property::LayoutGridTemplateRowsValue",
+            "doc": "Type alias for CssPropertyValue < GridTemplate >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridTemplate"
+              ]
+            }
+          },
+          "LayoutJustifyItemsValue": {
+            "external": "azul_css::props::property::LayoutJustifyItemsValue",
+            "doc": "Type alias for CssPropertyValue < LayoutJustifyItems >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifyItems"
+              ]
+            }
+          },
+          "LayoutTextJustifyValue": {
+            "external": "azul_css::props::property::LayoutTextJustifyValue",
+            "doc": "Type alias for CssPropertyValue < LayoutTextJustify >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutTextJustify"
+              ]
+            }
+          },
+          "SelectionColorValue": {
+            "external": "azul_css::props::property::SelectionColorValue",
+            "doc": "Type alias for CssPropertyValue < SelectionColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "SelectionColor"
+              ]
+            }
+          },
+          "LayoutWritingModeValue": {
+            "external": "azul_css::props::property::LayoutWritingModeValue",
+            "doc": "Type alias for CssPropertyValue < LayoutWritingMode >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutWritingMode"
+              ]
+            }
+          },
+          "StyleDirectionValue": {
+            "external": "azul_css::props::property::StyleDirectionValue",
+            "doc": "Type alias for CssPropertyValue < StyleDirection >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleDirection"
+              ]
+            }
+          },
+          "LayoutColumnGapValue": {
+            "external": "azul_css::props::property::LayoutColumnGapValue",
+            "doc": "Type alias for CssPropertyValue < LayoutColumnGap >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutColumnGap"
+              ]
+            }
+          },
+          "StringSetValue": {
+            "external": "azul_css::props::property::StringSetValue",
+            "doc": "Type alias for CssPropertyValue < StringSet >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StringSet"
+              ]
+            }
+          },
+          "LayoutGridTemplateColumnsValue": {
+            "external": "azul_css::props::property::LayoutGridTemplateColumnsValue",
+            "doc": "Type alias for CssPropertyValue < GridTemplate >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridTemplate"
+              ]
+            }
+          },
+          "ShapeImageThresholdValue": {
+            "external": "azul_css::props::property::ShapeImageThresholdValue",
+            "doc": "Type alias for CssPropertyValue < ShapeImageThreshold >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeImageThreshold"
+              ]
+            }
+          },
+          "CaretAnimationDurationValue": {
+            "external": "azul_css::props::property::CaretAnimationDurationValue",
+            "doc": "Type alias for CssPropertyValue < CaretAnimationDuration >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CaretAnimationDuration"
+              ]
+            }
+          },
+          "LayoutClearValue": {
+            "external": "azul_css::props::property::LayoutClearValue",
+            "doc": "Type alias for CssPropertyValue < LayoutClear >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutClear"
+              ]
+            }
+          },
+          "SelectionBackgroundColorValue": {
+            "external": "azul_css::props::property::SelectionBackgroundColorValue",
+            "doc": "Type alias for CssPropertyValue < SelectionBackgroundColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "SelectionBackgroundColor"
+              ]
+            }
+          },
+          "LayoutGridAutoRowsValue": {
+            "external": "azul_css::props::property::LayoutGridAutoRowsValue",
+            "doc": "Type alias for CssPropertyValue < GridAutoTracks >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridAutoTracks"
+              ]
+            }
+          },
+          "StyleWhiteSpaceValue": {
+            "external": "azul_css::props::property::StyleWhiteSpaceValue",
+            "doc": "Type alias for CssPropertyValue < StyleWhiteSpace >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleWhiteSpace"
+              ]
+            }
+          },
+          "CaretColorValue": {
+            "external": "azul_css::props::property::CaretColorValue",
+            "doc": "Type alias for CssPropertyValue < CaretColor >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CaretColor"
+              ]
+            }
+          },
+          "LayoutGridAutoFlowValue": {
+            "external": "azul_css::props::property::LayoutGridAutoFlowValue",
+            "doc": "Type alias for CssPropertyValue < LayoutGridAutoFlow >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutGridAutoFlow"
+              ]
+            }
+          },
+          "StyleTextDecorationValue": {
+            "external": "azul_css::props::property::StyleTextDecorationValue",
+            "doc": "Type alias for CssPropertyValue < StyleTextDecoration >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextDecoration"
+              ]
+            }
+          },
+          "ContentValue": {
+            "external": "azul_css::props::property::ContentValue",
+            "doc": "Type alias for CssPropertyValue < Content >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Content"
+              ]
+            }
+          },
+          "FlowFromValue": {
+            "external": "azul_css::props::property::FlowFromValue",
+            "doc": "Type alias for CssPropertyValue < FlowFrom >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowFrom"
+              ]
+            }
+          },
+          "ColumnRuleWidthValue": {
+            "external": "azul_css::props::property::ColumnRuleWidthValue",
+            "doc": "Type alias for CssPropertyValue < ColumnRuleWidth >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleWidth"
+              ]
+            }
+          },
+          "StyleUserSelectValue": {
+            "external": "azul_css::props::property::StyleUserSelectValue",
+            "doc": "Type alias for CssPropertyValue < StyleUserSelect >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleUserSelect"
+              ]
+            }
+          },
+          "LayoutRowGapValue": {
+            "external": "azul_css::props::property::LayoutRowGapValue",
+            "doc": "Type alias for CssPropertyValue < LayoutRowGap >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutRowGap"
+              ]
+            }
+          },
+          "LayoutGridRowValue": {
+            "external": "azul_css::props::property::LayoutGridRowValue",
+            "doc": "Type alias for CssPropertyValue < GridPlacement >",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridPlacement"
+              ]
+            }
           }
         }
       },
