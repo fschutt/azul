@@ -156,19 +156,43 @@ fn generate_single_type(
 
     // Handle type aliases (generic type instantiations)
     if let Some(type_alias_info) = &struct_meta.type_alias {
-        let target_with_prefix = format!("{}{}", config.prefix, type_alias_info.target);
-        let args_with_prefix: Vec<String> = type_alias_info.generic_args
-            .iter()
-            .map(|arg| format!("{}{}", config.prefix, arg))
-            .collect();
+        // Check if target is a primitive type (shouldn't get prefix)
+        let is_primitive = matches!(
+            type_alias_info.target.as_str(),
+            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
+            "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
+            "f32" | "f64" | "bool" | "char" | "str"
+        );
         
-        code.push_str(&format!(
-            "{}pub type {} = {}<{}>;\n\n",
-            indent_str,
-            struct_name,
-            target_with_prefix,
-            args_with_prefix.join(", ")
-        ));
+        let target_name = if is_primitive {
+            type_alias_info.target.clone()
+        } else {
+            format!("{}{}", config.prefix, type_alias_info.target)
+        };
+        
+        if type_alias_info.generic_args.is_empty() {
+            // Simple type alias without generics: pub type AzGLuint = u32;
+            code.push_str(&format!(
+                "{}pub type {} = {};\n\n",
+                indent_str,
+                struct_name,
+                target_name
+            ));
+        } else {
+            // Generic type alias: pub type AzFooValue = AzCssPropertyValue<AzFoo>;
+            let args_with_prefix: Vec<String> = type_alias_info.generic_args
+                .iter()
+                .map(|arg| format!("{}{}", config.prefix, arg))
+                .collect();
+            
+            code.push_str(&format!(
+                "{}pub type {} = {}<{}>;\n\n",
+                indent_str,
+                struct_name,
+                target_name,
+                args_with_prefix.join(", ")
+            ));
+        }
         return Ok(code);
     }
 

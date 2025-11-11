@@ -12336,6 +12336,58 @@
                 "GridPlacement"
               ]
             }
+          },
+          "CssPropertyValue": {
+            "external": "azul_css::CssPropertyValue",
+            "doc": "Generic CSS property value that can be Auto, None, Initial, Inherit, or an exact value",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "generic_params": [
+              "T"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {
+                  "type": "Struct",
+                  "fields": []
+                }
+              },
+              {
+                "None": {
+                  "type": "Struct",
+                  "fields": []
+                }
+              },
+              {
+                "Initial": {
+                  "type": "Struct",
+                  "fields": []
+                }
+              },
+              {
+                "Inherit": {
+                  "type": "Struct",
+                  "fields": []
+                }
+              },
+              {
+                "Exact": {
+                  "type": "Struct",
+                  "fields": [
+                    {
+                      "0": {
+                        "type": "T",
+                        "name": "0"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
           }
         }
       },
@@ -29170,22 +29222,52 @@
             ]
           },
           "GLuint": {
-            "external": "azul_core::gl::GLuint"
+            "external": "azul_core::gl::GLuint",
+            "type_alias": {
+              "target": "u32",
+              "generic_args": []
+            },
+            "doc": "Type alias for u32"
           },
           "GLenum": {
-            "external": "azul_core::gl::GLenum"
+            "external": "azul_core::gl::GLenum",
+            "type_alias": {
+              "target": "u32",
+              "generic_args": []
+            },
+            "doc": "Type alias for u32"
           },
           "GLvoid": {
-            "external": "azul_core::gl::GLvoid"
+            "external": "azul_core::gl::GLvoid",
+            "type_alias": {
+              "target": "c_void",
+              "generic_args": []
+            },
+            "doc": "Type alias for c_void"
           },
           "GLint": {
-            "external": "azul_core::gl::GLint"
+            "external": "azul_core::gl::GLint",
+            "type_alias": {
+              "target": "i32",
+              "generic_args": []
+            },
+            "doc": "Type alias for i32"
           },
           "GLsizei": {
-            "external": "azul_core::gl::GLsizei"
+            "external": "azul_core::gl::GLsizei",
+            "type_alias": {
+              "target": "i32",
+              "generic_args": []
+            },
+            "doc": "Type alias for i32"
           },
           "GLboolean": {
-            "external": "azul_core::gl::GLboolean"
+            "external": "azul_core::gl::GLboolean",
+            "type_alias": {
+              "target": "u8",
+              "generic_args": []
+            },
+            "doc": "Type alias for u8"
           }
         }
       },

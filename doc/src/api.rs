@@ -54,10 +54,12 @@ impl ApiData {
     /// Get the prefix for a specific version (e.g., "Az1", "Az2", etc.)
     /// Based on the version's position when sorted by date
     pub fn get_version_prefix(&self, version_name: &str) -> Option<String> {
-        self.get_versions_by_date()
-            .into_iter()
-            .find(|(name, _)| name == version_name)
-            .map(|(_, idx)| format!("Az{}", idx))
+        // Always return "Az" without version number
+        if self.0.contains_key(version_name) {
+            Some("Az".to_string())
+        } else {
+            None
+        }
     }
 
     /// Get the default prefix (uses "Az" without version number)
