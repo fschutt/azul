@@ -263,7 +263,17 @@ pub fn autofix_api_recursive(
             }
 
             // Check for field/variant changes
-            // TODO: Implement field comparison
+            if has_field_changes(api_data, class_name, &workspace_type, &mut messages) {
+                // Add workspace type to types_to_add so it generates a patch
+                // This will update the struct_fields/enum_fields
+                patch_summary
+                    .external_path_changes
+                    .push(ExternalPathChange {
+                        class_name: class_name.clone(),
+                        old_path: api_type_path.clone(),
+                        new_path: workspace_type.full_path.clone(),
+                    });
+            }
         }
     }
 

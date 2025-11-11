@@ -10968,7 +10968,7 @@
         "doc": "Default, built-in widgets (button, label, textinput, etc.)",
         "classes": {
           "Ribbon": {
-            "external": "crate::widgets::ribbon::Ribbon",
+            "external": "azul_dll::widgets::ribbon::Ribbon",
             "struct_fields": [
               {
                 "tab_active": {
@@ -10997,7 +10997,7 @@
             }
           },
           "RibbonOnTabClickedCallback": {
-            "external": "crate::widgets::ribbon::RibbonOnTabClickedCallback",
+            "external": "azul_dll::widgets::ribbon::RibbonOnTabClickedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -11033,7 +11033,7 @@
             }
           },
           "Button": {
-            "external": "crate::widgets::button::Button",
+            "external": "azul_dll::widgets::button::Button",
             "struct_fields": [
               {
                 "label": {
@@ -11119,7 +11119,7 @@
             }
           },
           "ButtonOnClick": {
-            "external": "crate::widgets::button::ButtonOnClick",
+            "external": "azul_dll::widgets::button::ButtonOnClick",
             "struct_fields": [
               {
                 "data": {
@@ -11134,7 +11134,7 @@
             ]
           },
           "FileInput": {
-            "external": "crate::widgets::file_input::FileInput",
+            "external": "azul_dll::widgets::file_input::FileInput",
             "struct_fields": [
               {
                 "state": {
@@ -11245,7 +11245,7 @@
             }
           },
           "FileInputStateWrapper": {
-            "external": "crate::widgets::file_input::FileInputStateWrapper",
+            "external": "azul_dll::widgets::file_input::FileInputStateWrapper",
             "struct_fields": [
               {
                 "inner": {
@@ -11270,7 +11270,7 @@
             ]
           },
           "FileInputState": {
-            "external": "crate::widgets::file_input::FileInputState",
+            "external": "azul_dll::widgets::file_input::FileInputState",
             "struct_fields": [
               {
                 "path": {
@@ -11280,7 +11280,7 @@
             ]
           },
           "FileInputOnPathChange": {
-            "external": "crate::widgets::file_input::FileInputOnPathChange",
+            "external": "azul_dll::widgets::file_input::FileInputOnPathChange",
             "struct_fields": [
               {
                 "data": {
@@ -11295,7 +11295,7 @@
             ]
           },
           "FileInputOnPathChangeCallback": {
-            "external": "crate::widgets::file_input::FileInputOnPathChangeCallback",
+            "external": "azul_dll::widgets::file_input::FileInputOnPathChangeCallback",
             "derive": [
               "Copy"
             ],
@@ -11334,7 +11334,7 @@
             }
           },
           "CheckBox": {
-            "external": "crate::widgets::check_box::CheckBox",
+            "external": "azul_dll::widgets::check_box::CheckBox",
             "struct_fields": [
               {
                 "state": {
@@ -11407,7 +11407,7 @@
             }
           },
           "CheckBoxStateWrapper": {
-            "external": "crate::widgets::check_box::CheckBoxStateWrapper",
+            "external": "azul_dll::widgets::check_box::CheckBoxStateWrapper",
             "struct_fields": [
               {
                 "inner": {
@@ -11422,7 +11422,7 @@
             ]
           },
           "CheckBoxOnToggle": {
-            "external": "crate::widgets::check_box::CheckBoxOnToggle",
+            "external": "azul_dll::widgets::check_box::CheckBoxOnToggle",
             "struct_fields": [
               {
                 "data": {
@@ -11437,7 +11437,7 @@
             ]
           },
           "CheckBoxOnToggleCallback": {
-            "external": "crate::widgets::check_box::CheckBoxOnToggleCallback",
+            "external": "azul_dll::widgets::check_box::CheckBoxOnToggleCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -11473,7 +11473,7 @@
             }
           },
           "CheckBoxState": {
-            "external": "crate::widgets::check_box::CheckBoxState",
+            "external": "azul_dll::widgets::check_box::CheckBoxState",
             "struct_fields": [
               {
                 "checked": {
@@ -11483,7 +11483,7 @@
             ]
           },
           "Label": {
-            "external": "crate::widgets::label::Label",
+            "external": "azul_dll::widgets::label::Label",
             "struct_fields": [
               {
                 "string": {
@@ -11519,7 +11519,7 @@
             }
           },
           "ColorInput": {
-            "external": "crate::widgets::color_input::ColorInput",
+            "external": "azul_dll::widgets::color_input::ColorInput",
             "struct_fields": [
               {
                 "state": {
@@ -11586,7 +11586,7 @@
             }
           },
           "ColorInputStateWrapper": {
-            "external": "crate::widgets::color_input::ColorInputStateWrapper",
+            "external": "azul_dll::widgets::color_input::ColorInputStateWrapper",
             "struct_fields": [
               {
                 "inner": {
@@ -11602,7 +11602,7 @@
             ]
           },
           "ColorInputState": {
-            "external": "crate::widgets::color_input::ColorInputState",
+            "external": "azul_dll::widgets::color_input::ColorInputState",
             "struct_fields": [
               {
                 "color": {
@@ -11612,7 +11612,7 @@
             ]
           },
           "ColorInputOnValueChange": {
-            "external": "crate::widgets::color_input::ColorInputOnValueChange",
+            "external": "azul_dll::widgets::color_input::ColorInputOnValueChange",
             "struct_fields": [
               {
                 "data": {
@@ -11627,7 +11627,7 @@
             ]
           },
           "ColorInputOnValueChangeCallback": {
-            "external": "crate::widgets::color_input::ColorInputOnValueChangeCallback",
+            "external": "azul_dll::widgets::color_input::ColorInputOnValueChangeCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -11663,7 +11663,7 @@
             }
           },
           "TextInput": {
-            "external": "crate::widgets::text_input::TextInput",
+            "external": "azul_dll::widgets::text_input::TextInput",
             "struct_fields": [
               {
                 "state": {
@@ -11919,7 +11919,7 @@
             }
           },
           "TextInputStateWrapper": {
-            "external": "crate::widgets::text_input::TextInputStateWrapper",
+            "external": "azul_dll::widgets::text_input::TextInputStateWrapper",
             "struct_fields": [
               {
                 "inner": {
@@ -11947,7 +11947,7 @@
             ]
           },
           "TextInputState": {
-            "external": "crate::widgets::text_input::TextInputState",
+            "external": "azul_dll::widgets::text_input::TextInputState",
             "struct_fields": [
               {
                 "text": {
@@ -11982,7 +11982,7 @@
             }
           },
           "TextInputSelection": {
-            "external": "crate::widgets::text_input::TextInputSelection",
+            "external": "azul_dll::widgets::text_input::TextInputSelection",
             "enum_fields": [
               {
                 "All": {},
@@ -11993,7 +11993,7 @@
             ]
           },
           "TextInputSelectionRange": {
-            "external": "crate::widgets::text_input::TextInputSelectionRange",
+            "external": "azul_dll::widgets::text_input::TextInputSelectionRange",
             "struct_fields": [
               {
                 "from": {
@@ -12006,7 +12006,7 @@
             ]
           },
           "TextInputOnTextInput": {
-            "external": "crate::widgets::text_input::TextInputOnTextInput",
+            "external": "azul_dll::widgets::text_input::TextInputOnTextInput",
             "struct_fields": [
               {
                 "data": {
@@ -12021,7 +12021,7 @@
             ]
           },
           "TextInputOnTextInputCallback": {
-            "external": "crate::widgets::text_input::TextInputOnTextInputCallback",
+            "external": "azul_dll::widgets::text_input::TextInputOnTextInputCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12057,7 +12057,7 @@
             }
           },
           "TextInputOnVirtualKeyDown": {
-            "external": "crate::widgets::text_input::TextInputOnVirtualKeyDown",
+            "external": "azul_dll::widgets::text_input::TextInputOnVirtualKeyDown",
             "struct_fields": [
               {
                 "data": {
@@ -12072,7 +12072,7 @@
             ]
           },
           "TextInputOnVirtualKeyDownCallback": {
-            "external": "crate::widgets::text_input::TextInputOnVirtualKeyDownCallback",
+            "external": "azul_dll::widgets::text_input::TextInputOnVirtualKeyDownCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12108,7 +12108,7 @@
             }
           },
           "TextInputOnFocusLost": {
-            "external": "crate::widgets::text_input::TextInputOnFocusLost",
+            "external": "azul_dll::widgets::text_input::TextInputOnFocusLost",
             "struct_fields": [
               {
                 "data": {
@@ -12123,7 +12123,7 @@
             ]
           },
           "TextInputOnFocusLostCallback": {
-            "external": "crate::widgets::text_input::TextInputOnFocusLostCallback",
+            "external": "azul_dll::widgets::text_input::TextInputOnFocusLostCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12159,7 +12159,7 @@
             }
           },
           "OnTextInputReturn": {
-            "external": "crate::widgets::text_input::OnTextInputReturn",
+            "external": "azul_dll::widgets::text_input::OnTextInputReturn",
             "struct_fields": [
               {
                 "update": {
@@ -12172,7 +12172,7 @@
             ]
           },
           "TextInputValid": {
-            "external": "crate::widgets::text_input::TextInputValid",
+            "external": "azul_dll::widgets::text_input::TextInputValid",
             "enum_fields": [
               {
                 "Yes": {},
@@ -12181,7 +12181,7 @@
             ]
           },
           "NumberInput": {
-            "external": "crate::widgets::number_input::NumberInput",
+            "external": "azul_dll::widgets::number_input::NumberInput",
             "struct_fields": [
               {
                 "text_input": {
@@ -12416,7 +12416,7 @@
             }
           },
           "NumberInputStateWrapper": {
-            "external": "crate::widgets::number_input::NumberInputStateWrapper",
+            "external": "azul_dll::widgets::number_input::NumberInputStateWrapper",
             "struct_fields": [
               {
                 "inner": {
@@ -12432,7 +12432,7 @@
             ]
           },
           "NumberInputState": {
-            "external": "crate::widgets::number_input::NumberInputState",
+            "external": "azul_dll::widgets::number_input::NumberInputState",
             "struct_fields": [
               {
                 "previous": {
@@ -12451,7 +12451,7 @@
             ]
           },
           "NumberInputOnValueChange": {
-            "external": "crate::widgets::number_input::NumberInputOnValueChange",
+            "external": "azul_dll::widgets::number_input::NumberInputOnValueChange",
             "struct_fields": [
               {
                 "data": {
@@ -12466,7 +12466,7 @@
             ]
           },
           "NumberInputOnValueChangeCallback": {
-            "external": "crate::widgets::number_input::NumberInputOnValueChangeCallback",
+            "external": "azul_dll::widgets::number_input::NumberInputOnValueChangeCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12502,7 +12502,7 @@
             }
           },
           "NumberInputOnFocusLost": {
-            "external": "crate::widgets::number_input::NumberInputOnFocusLost",
+            "external": "azul_dll::widgets::number_input::NumberInputOnFocusLost",
             "struct_fields": [
               {
                 "data": {
@@ -12517,7 +12517,7 @@
             ]
           },
           "NumberInputOnFocusLostCallback": {
-            "external": "crate::widgets::number_input::NumberInputOnFocusLostCallback",
+            "external": "azul_dll::widgets::number_input::NumberInputOnFocusLostCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12553,7 +12553,7 @@
             }
           },
           "ProgressBar": {
-            "external": "crate::widgets::progressbar::ProgressBar",
+            "external": "azul_dll::widgets::progressbar::ProgressBar",
             "struct_fields": [
               {
                 "state": {
@@ -12670,7 +12670,7 @@
             }
           },
           "ProgressBarState": {
-            "external": "crate::widgets::progressbar::ProgressBarState",
+            "external": "azul_dll::widgets::progressbar::ProgressBarState",
             "struct_fields": [
               {
                 "percent_done": {
@@ -12683,7 +12683,7 @@
             ]
           },
           "TabHeader": {
-            "external": "crate::widgets::tabs::TabHeader",
+            "external": "azul_dll::widgets::tabs::TabHeader",
             "struct_fields": [
               {
                 "tabs": {
@@ -12778,7 +12778,7 @@
             }
           },
           "TabHeaderState": {
-            "external": "crate::widgets::tabs::TabHeaderState",
+            "external": "azul_dll::widgets::tabs::TabHeaderState",
             "struct_fields": [
               {
                 "active_tab": {
@@ -12788,7 +12788,7 @@
             ]
           },
           "TabContent": {
-            "external": "crate::widgets::tabs::TabContent",
+            "external": "azul_dll::widgets::tabs::TabContent",
             "struct_fields": [
               {
                 "content": {
@@ -12849,7 +12849,7 @@
             }
           },
           "TabOnClick": {
-            "external": "crate::widgets::tabs::TabOnClick",
+            "external": "azul_dll::widgets::tabs::TabOnClick",
             "struct_fields": [
               {
                 "data": {
@@ -12864,7 +12864,7 @@
             ]
           },
           "TabOnClickCallback": {
-            "external": "crate::widgets::tabs::TabOnClickCallback",
+            "external": "azul_dll::widgets::tabs::TabOnClickCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12967,7 +12967,8 @@
             }
           },
           "NodeGraph": {
-            "external": "crate::widgets::node_graph::NodeGraph",
+            "doc": "Same as the NodeGraph but without generics and without the actual data",
+            "external": "azul_dll::widgets::node_graph::NodeGraph",
             "struct_fields": [
               {
                 "node_types": {
@@ -13014,7 +13015,7 @@
             }
           },
           "NodeTypeIdInfoMap": {
-            "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
+            "external": "azul_dll::widgets::node_graph::NodeTypeIdInfoMap",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13031,7 +13032,7 @@
             ]
           },
           "InputOutputTypeIdInfoMap": {
-            "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMap",
+            "external": "azul_dll::widgets::node_graph::InputOutputTypeIdInfoMap",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13048,7 +13049,7 @@
             ]
           },
           "NodeIdNodeMap": {
-            "external": "crate::widgets::node_graph::NodeIdNodeMap",
+            "external": "azul_dll::widgets::node_graph::NodeIdNodeMap",
             "struct_fields": [
               {
                 "node_id": {
@@ -13061,7 +13062,7 @@
             ]
           },
           "NodeGraphStyle": {
-            "external": "crate::widgets::node_graph::NodeGraphStyle",
+            "external": "azul_dll::widgets::node_graph::NodeGraphStyle",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13073,7 +13074,7 @@
             ]
           },
           "NodeGraphCallbacks": {
-            "external": "crate::widgets::node_graph::NodeGraphCallbacks",
+            "external": "azul_dll::widgets::node_graph::NodeGraphCallbacks",
             "struct_fields": [
               {
                 "on_node_added": {
@@ -13138,7 +13139,7 @@
             }
           },
           "DropDownOnChoiceChange": {
-            "external": "crate::widgets::drop_down::DropDownOnChoiceChange",
+            "external": "azul_dll::widgets::drop_down::DropDownOnChoiceChange",
             "struct_fields": [
               {
                 "data": {
@@ -13153,7 +13154,7 @@
             ]
           },
           "OnNodeAddedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeAddedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeAddedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13187,7 +13188,7 @@
             }
           },
           "OnNodeAdded": {
-            "external": "crate::widgets::node_graph::OnNodeAdded",
+            "external": "azul_dll::widgets::node_graph::OnNodeAdded",
             "struct_fields": [
               {
                 "data": {
@@ -13202,7 +13203,7 @@
             ]
           },
           "OnNodeRemovedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeRemovedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeRemovedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13236,7 +13237,7 @@
             }
           },
           "OnNodeRemoved": {
-            "external": "crate::widgets::node_graph::OnNodeRemoved",
+            "external": "azul_dll::widgets::node_graph::OnNodeRemoved",
             "struct_fields": [
               {
                 "data": {
@@ -13251,7 +13252,7 @@
             ]
           },
           "OnNodeGraphDraggedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeGraphDraggedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeGraphDraggedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13290,7 +13291,7 @@
             }
           },
           "OnNodeGraphDragged": {
-            "external": "crate::widgets::node_graph::OnNodeGraphDragged",
+            "external": "azul_dll::widgets::node_graph::OnNodeGraphDragged",
             "struct_fields": [
               {
                 "data": {
@@ -13305,7 +13306,7 @@
             ]
           },
           "OnNodeDraggedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeDraggedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeDraggedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13354,7 +13355,7 @@
             }
           },
           "OnNodeDragged": {
-            "external": "crate::widgets::node_graph::OnNodeDragged",
+            "external": "azul_dll::widgets::node_graph::OnNodeDragged",
             "struct_fields": [
               {
                 "data": {
@@ -13369,7 +13370,7 @@
             ]
           },
           "OnNodeConnectedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeConnectedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeConnectedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13408,7 +13409,7 @@
             }
           },
           "OnNodeConnected": {
-            "external": "crate::widgets::node_graph::OnNodeConnected",
+            "external": "azul_dll::widgets::node_graph::OnNodeConnected",
             "struct_fields": [
               {
                 "data": {
@@ -13423,7 +13424,7 @@
             ]
           },
           "OnNodeInputDisconnectedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeInputDisconnectedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeInputDisconnectedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13462,7 +13463,7 @@
             }
           },
           "OnNodeInputDisconnected": {
-            "external": "crate::widgets::node_graph::OnNodeInputDisconnected",
+            "external": "azul_dll::widgets::node_graph::OnNodeInputDisconnected",
             "struct_fields": [
               {
                 "data": {
@@ -13477,7 +13478,7 @@
             ]
           },
           "OnNodeOutputDisconnectedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeOutputDisconnectedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeOutputDisconnectedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13526,7 +13527,7 @@
             }
           },
           "OnNodeOutputDisconnected": {
-            "external": "crate::widgets::node_graph::OnNodeOutputDisconnected",
+            "external": "azul_dll::widgets::node_graph::OnNodeOutputDisconnected",
             "struct_fields": [
               {
                 "data": {
@@ -13541,7 +13542,7 @@
             ]
           },
           "OnNodeFieldEditedCallback": {
-            "external": "crate::widgets::node_graph::OnNodeFieldEditedCallback",
+            "external": "azul_dll::widgets::node_graph::OnNodeFieldEditedCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13551,7 +13552,7 @@
             ]
           },
           "InputOutputTypeId": {
-            "external": "crate::widgets::node_graph::InputOutputTypeId",
+            "external": "azul_dll::widgets::node_graph::InputOutputTypeId",
             "derive": [
               "Copy",
               "Clone",
@@ -13573,7 +13574,7 @@
             ]
           },
           "NodeTypeId": {
-            "external": "crate::widgets::node_graph::NodeTypeId",
+            "external": "azul_dll::widgets::node_graph::NodeTypeId",
             "derive": [
               "Copy",
               "Clone",
@@ -13595,7 +13596,7 @@
             ]
           },
           "NodeGraphNodeId": {
-            "external": "crate::widgets::node_graph::NodeGraphNodeId",
+            "external": "azul_dll::widgets::node_graph::NodeGraphNodeId",
             "derive": [
               "Copy",
               "Clone",
@@ -13636,7 +13637,7 @@
             ]
           },
           "NodeTypeField": {
-            "external": "crate::widgets::node_graph::NodeTypeField",
+            "external": "azul_dll::widgets::node_graph::NodeTypeField",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13653,7 +13654,7 @@
             ]
           },
           "NodeTypeFieldValue": {
-            "external": "crate::widgets::node_graph::NodeTypeFieldValue",
+            "external": "azul_dll::widgets::node_graph::NodeTypeFieldValue",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13679,7 +13680,7 @@
             ]
           },
           "InputConnection": {
-            "external": "crate::widgets::node_graph::InputConnection",
+            "external": "azul_dll::widgets::node_graph::InputConnection",
             "struct_fields": [
               {
                 "input_index": {
@@ -13692,7 +13693,7 @@
             ]
           },
           "OutputNodeAndIndex": {
-            "external": "crate::widgets::node_graph::OutputNodeAndIndex",
+            "external": "azul_dll::widgets::node_graph::OutputNodeAndIndex",
             "struct_fields": [
               {
                 "node_id": {
@@ -13705,7 +13706,7 @@
             ]
           },
           "OutputConnection": {
-            "external": "crate::widgets::node_graph::OutputConnection",
+            "external": "azul_dll::widgets::node_graph::OutputConnection",
             "struct_fields": [
               {
                 "output_index": {
@@ -13718,7 +13719,7 @@
             ]
           },
           "InputNodeAndIndex": {
-            "external": "crate::widgets::node_graph::InputNodeAndIndex",
+            "external": "azul_dll::widgets::node_graph::InputNodeAndIndex",
             "struct_fields": [
               {
                 "node_id": {
@@ -13731,7 +13732,7 @@
             ]
           },
           "NodeTypeInfo": {
-            "external": "crate::widgets::node_graph::NodeTypeInfo",
+            "external": "azul_dll::widgets::node_graph::NodeTypeInfo",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13758,7 +13759,7 @@
             ]
           },
           "InputOutputInfo": {
-            "external": "crate::widgets::node_graph::InputOutputInfo",
+            "external": "azul_dll::widgets::node_graph::InputOutputInfo",
             "derive": [
               "Serialize",
               "Deserialize"
@@ -13777,7 +13778,8 @@
             ]
           },
           "NodePosition": {
-            "external": "crate::widgets::node_graph::NodePosition",
+            "doc": "Things only relevant to the display of the node in an interactive editor - such as x and y position in the node graph, name, etc.",
+            "external": "azul_dll::widgets::node_graph::NodePosition",
             "derive": [
               "Copy",
               "Serialize",
@@ -13797,7 +13799,7 @@
             ]
           },
           "GraphDragAmount": {
-            "external": "crate::widgets::node_graph::GraphDragAmount",
+            "external": "azul_dll::widgets::node_graph::GraphDragAmount",
             "derive": [
               "Copy",
               "Serialize",
@@ -13815,7 +13817,7 @@
             ]
           },
           "NodeDragAmount": {
-            "external": "crate::widgets::node_graph::NodeDragAmount",
+            "external": "azul_dll::widgets::node_graph::NodeDragAmount",
             "derive": [
               "Copy",
               "Serialize",
@@ -13833,7 +13835,8 @@
             ]
           },
           "ListView": {
-            "external": "crate::widgets::list_view::ListView",
+            "doc": "List view, optionally able to lazy-load data",
+            "external": "azul_dll::widgets::list_view::ListView",
             "struct_fields": [
               {
                 "columns": {
@@ -13913,7 +13916,8 @@
             }
           },
           "ListViewRow": {
-            "external": "crate::widgets::list_view::ListViewRow",
+            "doc": "Row of the ListView",
+            "external": "azul_dll::widgets::list_view::ListViewRow",
             "struct_fields": [
               {
                 "cells": {
@@ -13928,7 +13932,8 @@
             ]
           },
           "ListViewState": {
-            "external": "crate::widgets::list_view::ListViewState",
+            "doc": "State of the ListView, but without row data",
+            "external": "azul_dll::widgets::list_view::ListViewState",
             "struct_fields": [
               {
                 "columns": {
@@ -13985,7 +13990,7 @@
             }
           },
           "ListViewOnLazyLoadScrollCallback": {
-            "external": "crate::widgets::list_view::ListViewOnLazyLoadScrollCallback",
+            "external": "azul_dll::widgets::list_view::ListViewOnLazyLoadScrollCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13995,7 +14000,7 @@
             ]
           },
           "ListViewOnLazyLoadScroll": {
-            "external": "crate::widgets::list_view::ListViewOnLazyLoadScroll",
+            "external": "azul_dll::widgets::list_view::ListViewOnLazyLoadScroll",
             "struct_fields": [
               {
                 "data": {
@@ -14041,7 +14046,7 @@
             }
           },
           "ListViewOnColumnClickCallback": {
-            "external": "crate::widgets::list_view::ListViewOnColumnClickCallback",
+            "external": "azul_dll::widgets::list_view::ListViewOnColumnClickCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -14051,7 +14056,7 @@
             ]
           },
           "ListViewOnColumnClick": {
-            "external": "crate::widgets::list_view::ListViewOnColumnClick",
+            "external": "azul_dll::widgets::list_view::ListViewOnColumnClick",
             "struct_fields": [
               {
                 "data": {
@@ -14097,7 +14102,7 @@
             }
           },
           "ListViewOnRowClickCallback": {
-            "external": "crate::widgets::list_view::ListViewOnRowClickCallback",
+            "external": "azul_dll::widgets::list_view::ListViewOnRowClickCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -14107,7 +14112,7 @@
             ]
           },
           "ListViewOnRowClick": {
-            "external": "crate::widgets::list_view::ListViewOnRowClick",
+            "external": "azul_dll::widgets::list_view::ListViewOnRowClick",
             "struct_fields": [
               {
                 "data": {
@@ -14122,7 +14127,7 @@
             ]
           },
           "TreeView": {
-            "external": "crate::widgets::tree_view::TreeView",
+            "external": "azul_dll::widgets::tree_view::TreeView",
             "struct_fields": [
               {
                 "root": {
@@ -14155,7 +14160,7 @@
             }
           },
           "DropDown": {
-            "external": "crate::widgets::drop_down::DropDown",
+            "external": "azul_dll::widgets::drop_down::DropDown",
             "struct_fields": [
               {
                 "choices": {
@@ -14220,7 +14225,7 @@
             }
           },
           "DropDownOnChoiceChangeCallback": {
-            "external": "crate::widgets::drop_down::DropDownOnChoiceChangeCallback",
+            "external": "azul_dll::widgets::drop_down::DropDownOnChoiceChangeCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -14230,7 +14235,7 @@
             ]
           },
           "OnNodeFieldEdited": {
-            "external": "crate::widgets::node_graph::OnNodeFieldEdited",
+            "external": "azul_dll::widgets::node_graph::OnNodeFieldEdited",
             "struct_fields": [
               {
                 "data": {
@@ -32220,7 +32225,7 @@
         "doc": "Definition of azuls internal `String` wrappers",
         "classes": {
           "FmtValue": {
-            "external": "crate::str::FmtValue",
+            "external": "azul_dll::str::FmtValue",
             "enum_fields": [
               {
                 "Bool": {
@@ -32272,7 +32277,7 @@
             ]
           },
           "FmtArg": {
-            "external": "crate::str::FmtArg",
+            "external": "azul_dll::str::FmtArg",
             "struct_fields": [
               {
                 "key": {

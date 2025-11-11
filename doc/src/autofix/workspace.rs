@@ -859,3 +859,132 @@ pub fn virtual_patch_application(
 
     Ok((all_discovered_types, patch_summary))
 }
+
+/// Check if a type has field/variant changes compared to the API
+pub fn has_field_changes(
+    api_data: &ApiData,
+    class_name: &str,
+    workspace_type: &ParsedTypeInfo,
+    messages: &mut AutofixMessages,
+) -> bool {
+    use crate::patch::index::TypeKind;
+
+    // Find the class in the API
+    let mut api_class = None;
+    'outer: for version_data in api_data.0.values() {
+        for module_data in version_data.api.values() {
+            if let Some(class_data) = module_data.classes.get(class_name) {
+                api_class = Some(class_data);
+                break 'outer;
+            }
+        }
+    }
+
+    let Some(api_class) = api_class else {
+        // Type not in API, no field changes to detect
+        return false;
+    };
+
+    // Compare struct fields
+    match &workspace_type.kind {
+        TypeKind::Struct { fields, .. } => {
+            // Check if API has struct_fields
+            let Some(api_fields) = &api_class.struct_fields else {
+                // API doesn't have struct_fields but workspace does
+                messages.info(
+                    "field-check",
+                    format!("{}: API missing struct_fields, will update", class_name),
+                );
+                return true;
+            };
+
+            // Compare field count
+            if fields.len() != api_fields.len() {
+                messages.info(
+                    "field-check",
+                    format!(
+                        "{}: Field count mismatch (workspace: {}, API: {})",
+                        class_name,
+                        fields.len(),
+                        api_fields.len()
+                    ),
+                );
+                return true;
+            }
+
+            // Compare each field
+            for ((workspace_field_name, workspace_field), api_field_map) in
+                fields.iter().zip(api_fields.iter())
+            {
+                let (api_field_name, api_field_data) = api_field_map.iter().next().unwrap();
+
+                if workspace_field_name != api_field_name {
+                    messages.info(
+                        "field-check",
+                        format!(
+                            "{}: Field name mismatch ('{}' vs '{}')",
+                            class_name, workspace_field_name, api_field_name
+                        ),
+                    );
+                    return true;
+                }
+
+                // Note: We're not comparing types because they might use different representations
+                // (e.g., *mut c_void vs *mut LayoutWindow). The important thing is that the
+                // field names match and the count is correct.
+            }
+        }
+        TypeKind::Enum { variants, .. } => {
+            // Check if API has enum_fields
+            let Some(api_variants) = &api_class.enum_fields else {
+                // API doesn't have enum_fields but workspace does
+                messages.info(
+                    "field-check",
+                    format!("{}: API missing enum_fields, will update", class_name),
+                );
+                return true;
+            };
+
+            // Compare variant count
+            if variants.len() != api_variants.len() {
+                messages.info(
+                    "field-check",
+                    format!(
+                        "{}: Variant count mismatch (workspace: {}, API: {})",
+                        class_name,
+                        variants.len(),
+                        api_variants.len()
+                    ),
+                );
+                return true;
+            }
+
+            // Compare each variant name (shallow check)
+            let workspace_variant_names: Vec<_> = variants.keys().collect();
+            let api_variant_names: Vec<_> = api_variants
+                .iter()
+                .flat_map(|m| m.keys())
+                .collect::<Vec<_>>();
+
+            for (ws_name, api_name) in workspace_variant_names.iter().zip(api_variant_names.iter())
+            {
+                if ws_name != api_name {
+                    messages.info(
+                        "field-check",
+                        format!(
+                            "{}: Variant name mismatch ('{}' vs '{}')",
+                            class_name, ws_name, api_name
+                        ),
+                    );
+                    return true;
+                }
+            }
+        }
+        TypeKind::TypeAlias { .. } => {
+            // Type aliases don't have fields to compare
+            return false;
+        }
+    }
+
+    false
+}

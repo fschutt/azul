@@ -28,8 +28,8 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     let args = args.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
-    match args[..] {
-        [_, "print"] => {
+    match &args[1..] {
+        ["print"] => {
             let api_json = load_api_json(&api_path)?;
             return print::handle_print_command(&api_json, &args[2..]);
         }
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                 api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
 
             // Get project root (parent of doc/) for resolving paths
-            let patch_path = PathBuf::from(&args[2]);
+            let patch_path = PathBuf::from(patch_file);
             let patch_path = if patch_path.is_absolute() {
                 patch_path
             } else {
@@ -267,7 +267,7 @@ fn main() -> anyhow::Result<()> {
                 report_path.display()
             );
 
-            if args.len() > 2 && args[2] == "open" {
+            if args.len() > 2 && args[1] == "open" {
                 if open::that(report_path).is_ok() {
                     println!("Opened report in default browser.");
                 } else {
