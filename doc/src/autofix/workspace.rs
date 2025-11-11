@@ -39,6 +39,10 @@ pub enum TypeOrigin {
     },
     /// Type was found in a type alias
     TypeAlias { parent_type: String },
+    /// Type was found as a generic argument (e.g., T in CssPropertyValue<T>)
+    GenericArgument { parent_type: String },
+    /// Type was found in a callback typedef parameter
+    CallbackParameter { parent_type: String },
 }
 
 impl fmt::Display for TypeOrigin {
@@ -59,6 +63,12 @@ impl fmt::Display for TypeOrigin {
             }
             Self::TypeAlias { parent_type } => {
                 write!(f, "Type alias in '{}'", parent_type)
+            }
+            Self::GenericArgument { parent_type } => {
+                write!(f, "Generic argument in type '{}'", parent_type)
+            }
+            Self::CallbackParameter { parent_type } => {
+                write!(f, "Callback parameter in '{}'", parent_type)
             }
         }
     }
@@ -277,7 +287,8 @@ pub fn collect_referenced_types_from_type_info(
                 }
             }
         }
-        TypeKind::TypeAlias { target, .. } => {
+        TypeKind::TypeAlias { target, generic_args, .. } => {
+            // Add the target type (e.g., CssPropertyValue)
             if let Some(base_type) = extract_base_type_if_not_opaque(target) {
                 types.insert(
                     base_type.clone(),
@@ -286,18 +297,49 @@ pub fn collect_referenced_types_from_type_info(
                     },
                 );
             }
+            
+            // Add all generic arguments (e.g., LayoutZIndex from CssPropertyValue<LayoutZIndex>)
+            for generic_arg in generic_args {
+                if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                    types.insert(
+                        base_type.clone(),
+                        TypeOrigin::GenericArgument {
+                            parent_type: parent_type.clone(),
+                        },
+                    );
+                }
+            }
         }
     }
 
     types
 }
 
-/// Infer module name from type path (e.g., "azul_core::dom::DomNodeId" -> "dom")
+/// Infer module name from type path using smart routing rules
+///
+/// Rules:
+/// - Types from azul_css::* -> "css"
+/// - Types ending with "Vec" -> "vec" (with auto-generated destructors)
+/// - Types ending with "Option" -> "option"
+/// - Types ending with "Result" -> "error"
+/// - Other types -> inferred from file name in path
+///
+/// Examples:
+/// - "azul_css::LayoutZIndex" -> "css"
+/// - "azul_core::callbacks::CoreCallbackDataVec" -> "vec"
+/// - "azul_core::dom::DomOption" -> "option"
+/// - "azul_core::errors::ErrorResult" -> "error"
+/// - "azul_core::foo::bar::BarType" -> "bar" (from file name)
 pub fn infer_module_from_path(type_path: &str) -> String {
     // Extract type name from path
     let type_name = type_path.split("::").last().unwrap_or("");
 
-    // Check if it's a synthetic type that should go to a specific module
+    // Rule 1: All azul_css types go to "css" module
+    if type_path.starts_with("azul_css::") || type_path.starts_with("crate::") && type_path.contains("css") {
+        return "css".to_string();
+    }
+
+    // Rule 2: Vec types go to "vec" module
     if is_vec_type(type_name)
         || is_vec_destructor_type(type_name)
         || is_vec_destructor_callback_type(type_name)
@@ -305,19 +347,28 @@ pub fn infer_module_from_path(type_path: &str) -> String {
         return "vec".to_string();
     }
 
+    // Rule 3: Option types go to "option" module
     if is_option_type(type_name) {
         return "option".to_string();
     }
 
+    // Rule 4: Result types go to "error" module
     if is_result_type(type_name) {
         return "error".to_string();
     }
 
-    // For regular types, take the part after the crate name
+    // Rule 5: For regular types, use the file name (last segment before type name)
+    // Example: "azul_core::foo::bar::BarType" -> "bar"
     let parts: Vec<&str> = type_path.split("::").collect();
 
-    if parts.len() >= 2 {
-        parts[1].to_string()
+    if parts.len() >= 3 {
+        // If path is "crate::module::Type", use "module"
+        // If path is "azul_core::module::Type", use "module"
+        // If path is "azul_core::foo::bar::Type", use "bar" (file name)
+        parts[parts.len() - 2].to_string()
+    } else if parts.len() == 2 {
+        // If path is "azul_core::Type", use the crate as module
+        parts[0].to_string()
     } else {
         "unknown".to_string()
     }

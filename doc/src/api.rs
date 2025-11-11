@@ -408,6 +408,25 @@ pub fn extract_types_from_class_data(class_data: &ClassData) -> HashSet<String> 
         }
     }
 
+    // Extract from callback_typedef
+    if let Some(callback_def) = &class_data.callback_typedef {
+        types.extend(extract_types_from_callback_definition(callback_def));
+    }
+
+    // Extract from type_alias generic arguments
+    if let Some(type_alias) = &class_data.type_alias {
+        // Add the target type (e.g., CssPropertyValue)
+        if let Some(base_type) = extract_base_type_if_not_opaque(&type_alias.target) {
+            types.insert(base_type);
+        }
+        // Add all generic arguments (e.g., LayoutZIndex from CssPropertyValue<LayoutZIndex>)
+        for generic_arg in &type_alias.generic_args {
+            if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                types.insert(base_type);
+            }
+        }
+    }
+
     types
 }
 
@@ -455,6 +474,26 @@ pub fn extract_types_from_function_data(fn_data: &FunctionData) -> HashSet<Strin
             if let Some(base_type) = extract_base_type_if_not_opaque(param_type) {
                 types.insert(base_type);
             }
+        }
+    }
+
+    types
+}
+
+/// Extract types from CallbackDefinition
+/// Skips types behind pointers
+pub fn extract_types_from_callback_definition(callback_def: &CallbackDefinition) -> HashSet<String> {
+    let mut types = HashSet::new();
+
+    // Extract return type
+    if let Some(return_data) = &callback_def.returns {
+        types.extend(extract_types_from_return_data(return_data));
+    }
+
+    // Extract parameter types
+    for arg_data in &callback_def.fn_args {
+        if let Some(base_type) = extract_base_type_if_not_opaque(&arg_data.r#type) {
+            types.insert(base_type);
         }
     }
 
