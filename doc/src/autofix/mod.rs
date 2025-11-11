@@ -11,8 +11,8 @@ use self::{
     message::{AutofixMessage, AutofixMessages, ExternalPathChange, PatchSummary, SkipReason},
     workspace::{
         are_paths_synonyms, collect_all_api_types, collect_referenced_types_from_type_info,
-        discover_type, find_type_in_workspace, generate_patches, is_workspace_type,
-        virtual_patch_application, TypeOrigin,
+        discover_type, find_type_in_workspace, generate_patches, has_field_changes,
+        is_workspace_type, virtual_patch_application, TypeOrigin,
     },
 };
 use crate::{
@@ -218,7 +218,7 @@ pub fn autofix_api_recursive(
 
     // Step 5: Virtual Patch Application - Apply patches in-memory and re-discover
     // This enables truly recursive discovery by finding dependencies of newly added types
-    let (final_types_to_add, final_patch_summary) = if !types_to_add.is_empty() {
+    let (mut final_types_to_add, final_patch_summary) = if !types_to_add.is_empty() {
         // Virtual patching will be reflected in final report
 
         virtual_patch_application(
@@ -236,12 +236,29 @@ pub fn autofix_api_recursive(
     // Step 6: Analyze existing types for changes
     let mut patch_summary = final_patch_summary;
 
+    println!("\n🔍 DEBUG: Analyzing existing types for changes...");
+    println!("   Total API types to check: {}", api_types.len());
+
     for (class_name, api_type_path) in &api_types {
+        // Debug: Print type being checked
+        if class_name == "CallbackInfo" {
+            println!("\n   ⚙️  DEBUG: Checking CallbackInfo");
+            println!("      API path: {}", api_type_path);
+        }
+
         if let Some(workspace_type) =
             find_type_in_workspace(&workspace_index, class_name, api_type_path, &mut messages)
         {
+            if class_name == "CallbackInfo" {
+                println!("      ✓ Found in workspace: {}", workspace_type.full_path);
+                println!("      Type kind: {:?}", std::mem::discriminant(&workspace_type.kind));
+            }
+
             // Skip types from self crate
             if !is_workspace_type(&workspace_type.full_path) {
+                if class_name == "CallbackInfo" {
+                    println!("      ✗ Skipped: not a workspace type");
+                }
                 messages.push(AutofixMessage::TypeSkipped {
                     type_name: class_name.clone(),
                     reason: SkipReason::ExternalCrate(workspace_type.full_path.clone()),
@@ -249,10 +266,17 @@ pub fn autofix_api_recursive(
                 continue;
             }
 
+            if class_name == "CallbackInfo" {
+                println!("      ✓ Passed workspace type check");
+            }
+
             // Check for external path changes (but skip synonyms)
             if workspace_type.full_path != *api_type_path
                 && !are_paths_synonyms(&workspace_type.full_path, api_type_path)
             {
+                if class_name == "CallbackInfo" {
+                    println!("      📝 Path changed: {} -> {}", api_type_path, workspace_type.full_path);
+                }
                 patch_summary
                     .external_path_changes
                     .push(ExternalPathChange {
@@ -263,19 +287,41 @@ pub fn autofix_api_recursive(
             }
 
             // Check for field/variant changes
-            if has_field_changes(api_data, class_name, &workspace_type, &mut messages) {
-                // Add workspace type to types_to_add so it generates a patch
-                // This will update the struct_fields/enum_fields
-                patch_summary
-                    .external_path_changes
-                    .push(ExternalPathChange {
-                        class_name: class_name.clone(),
-                        old_path: api_type_path.clone(),
-                        new_path: workspace_type.full_path.clone(),
-                    });
+            if class_name == "CallbackInfo" {
+                println!("      🔍 Checking for field changes...");
             }
+            
+            let has_changes = has_field_changes(api_data, class_name, &workspace_type, &mut messages);
+            
+            if class_name == "CallbackInfo" {
+                println!("      has_field_changes returned: {}", has_changes);
+            }
+            
+            if has_changes {
+                if class_name == "CallbackInfo" {
+                    println!("      ✅ Adding to final_types_to_add");
+                }
+                // Add workspace type to final_types_to_add so it generates a structural patch
+                // This will update the struct_fields/enum_fields in api.json
+                final_types_to_add.push(workspace_type.clone());
+                
+                // Also record as path change if paths differ
+                if workspace_type.full_path != *api_type_path {
+                    patch_summary
+                        .external_path_changes
+                        .push(ExternalPathChange {
+                            class_name: class_name.clone(),
+                            old_path: api_type_path.clone(),
+                            new_path: workspace_type.full_path.clone(),
+                        });
+                }
+            }
+        } else if class_name == "CallbackInfo" {
+            println!("      ✗ NOT found in workspace!");
         }
     }
+    
+    println!("\n   Types with changes: {}", final_types_to_add.len());
 
     // Generate patches
     let work_dir = project_root.join("target").join("autofix");

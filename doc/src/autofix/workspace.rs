@@ -867,7 +867,13 @@ pub fn has_field_changes(
     workspace_type: &ParsedTypeInfo,
     messages: &mut AutofixMessages,
 ) -> bool {
-    use crate::patch::index::TypeKind;
+    use crate::{autofix::message::AutofixMessage, patch::index::TypeKind};
+
+    let debug = class_name == "CallbackInfo";
+    
+    if debug {
+        println!("\n      🔎 DEBUG has_field_changes for CallbackInfo:");
+    }
 
     // Find the class in the API
     let mut api_class = None;
@@ -882,34 +888,58 @@ pub fn has_field_changes(
 
     let Some(api_class) = api_class else {
         // Type not in API, no field changes to detect
+        if debug {
+            println!("         ✗ Type not found in API");
+        }
         return false;
     };
+
+    if debug {
+        println!("         ✓ Found in API");
+    }
 
     // Compare struct fields
     match &workspace_type.kind {
         TypeKind::Struct { fields, .. } => {
+            if debug {
+                println!("         Workspace is a Struct with {} fields", fields.len());
+            }
+
             // Check if API has struct_fields
             let Some(api_fields) = &api_class.struct_fields else {
                 // API doesn't have struct_fields but workspace does
-                messages.info(
-                    "field-check",
-                    format!("{}: API missing struct_fields, will update", class_name),
-                );
+                if debug {
+                    println!("         ✗ API missing struct_fields, will update");
+                }
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!("{}: API missing struct_fields, will update", class_name),
+                });
                 return true;
             };
 
+            if debug {
+                println!("         API has {} struct_fields", api_fields.len());
+            }
+
             // Compare field count
             if fields.len() != api_fields.len() {
-                messages.info(
-                    "field-check",
-                    format!(
+                if debug {
+                    println!("         ✅ Field count mismatch! workspace={}, API={}", fields.len(), api_fields.len());
+                }
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!(
                         "{}: Field count mismatch (workspace: {}, API: {})",
                         class_name,
                         fields.len(),
                         api_fields.len()
                     ),
-                );
+                });
                 return true;
+            }
+
+            if debug {
+                println!("         Field counts match ({})", fields.len());
+                println!("         Comparing field names:");
             }
 
             // Compare each field
@@ -918,14 +948,20 @@ pub fn has_field_changes(
             {
                 let (api_field_name, api_field_data) = api_field_map.iter().next().unwrap();
 
+                if debug {
+                    println!("           - workspace: {}, API: {}", workspace_field_name, api_field_name);
+                }
+
                 if workspace_field_name != api_field_name {
-                    messages.info(
-                        "field-check",
-                        format!(
+                    if debug {
+                        println!("           ✅ Name mismatch!");
+                    }
+                    messages.push(AutofixMessage::GenericWarning {
+                        message: format!(
                             "{}: Field name mismatch ('{}' vs '{}')",
                             class_name, workspace_field_name, api_field_name
                         ),
-                    );
+                    });
                     return true;
                 }
 
@@ -933,29 +969,31 @@ pub fn has_field_changes(
                 // (e.g., *mut c_void vs *mut LayoutWindow). The important thing is that the
                 // field names match and the count is correct.
             }
+
+            if debug {
+                println!("         ✗ No differences found");
+            }
         }
         TypeKind::Enum { variants, .. } => {
             // Check if API has enum_fields
             let Some(api_variants) = &api_class.enum_fields else {
                 // API doesn't have enum_fields but workspace does
-                messages.info(
-                    "field-check",
-                    format!("{}: API missing enum_fields, will update", class_name),
-                );
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!("{}: API missing enum_fields, will update", class_name),
+                });
                 return true;
             };
 
             // Compare variant count
             if variants.len() != api_variants.len() {
-                messages.info(
-                    "field-check",
-                    format!(
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!(
                         "{}: Variant count mismatch (workspace: {}, API: {})",
                         class_name,
                         variants.len(),
                         api_variants.len()
                     ),
-                );
+                });
                 return true;
             }
 
@@ -969,13 +1007,12 @@ pub fn has_field_changes(
             for (ws_name, api_name) in workspace_variant_names.iter().zip(api_variant_names.iter())
             {
                 if ws_name != api_name {
-                    messages.info(
-                        "field-check",
-                        format!(
+                    messages.push(AutofixMessage::GenericWarning {
+                        message: format!(
                             "{}: Variant name mismatch ('{}' vs '{}')",
                             class_name, ws_name, api_name
                         ),
-                    );
+                    });
                     return true;
                 }
             }

@@ -748,21 +748,39 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
     let mut components = Vec::new();
 
     while let Some(dir) = current {
-        if dir.join("Cargo.toml").exists() {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
             // Found the crate root
-            if let Ok(toml_content) = fs::read_to_string(dir.join("Cargo.toml")) {
-                if let Ok(toml_value) = toml_content.parse::<toml::Value>() {
-                    if let Some(package) = toml_value.get("package") {
-                        if let Some(name) = package.get("name") {
+            if let Ok(toml_content) = fs::read_to_string(&cargo_toml) {
+                match toml_content.parse::<toml::Table>() {
+                    Ok(toml_table) => {
+                        if let Some(package) = toml_table.get("package") {                        if let Some(name) = package.get("name") {
+                            if debug {
+                                println!("   ✓ Found 'name' field: {:?}", name);
+                            }
                             if let Some(name_str) = name.as_str() {
                                 let crate_name = name_str.replace('-', "_");
+                                
+                                if debug {
+                                    println!("   ✓ Crate name: {} -> {}", name_str, crate_name);
+                                    println!("   Components before reverse: {:?}", components);
+                                }
 
                                 // Build module path from components
                                 components.reverse();
 
+                                if debug {
+                                    println!("   Components after reverse: {:?}", components);
+                                }
+
                                 // Remove "src" and the file name itself
                                 if let Some(filename) = file_path.file_stem() {
                                     let filename_str = filename.to_string_lossy();
+                                    
+                                    if debug {
+                                        println!("   Filename: {}", filename_str);
+                                    }
+                                    
                                     if filename_str != "lib" && filename_str != "mod" {
                                         // File name becomes part of the module path
                                         // unless it's lib.rs or mod.rs
@@ -770,14 +788,41 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
                                         if filename_str != "main" {
                                             module_path.push(filename_str.to_string());
                                         }
+                                        
+                                        if debug {
+                                            println!("   ✅ Result: {}::{}", crate_name, module_path.join("::"));
+                                        }
+                                        
                                         return Ok((crate_name, module_path));
                                     }
                                 }
 
+                                if debug {
+                                    println!("   ✅ Result: {}::{}", crate_name, components.join("::"));
+                                }
+                                
                                 return Ok((crate_name, components));
                             }
+                        } else {
+                            if debug {
+                                println!("   ❌ No 'name' field in [package]");
+                            }
+                        }
+                    } else {
+                        if debug {
+                            println!("   ❌ No [package] section found");
                         }
                     }
+                    },
+                    Err(e) => {
+                        if debug {
+                            println!("   ❌ Failed to parse TOML: {}", e);
+                        }
+                    }
+                }
+            } else {
+                if debug {
+                    println!("   ❌ Failed to read Cargo.toml");
                 }
             }
             break;
@@ -787,6 +832,9 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
         if let Some(dir_name) = dir.file_name() {
             let name = dir_name.to_string_lossy().to_string();
             if name != "src" {
+                if debug {
+                    println!("   Adding component: {}", name);
+                }
                 components.push(name);
             }
         }
@@ -800,6 +848,11 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
+    
+    if debug {
+        println!("   ❌ No Cargo.toml found, returning unknown_crate::{}", filename);
+    }
+    
     Ok(("unknown_crate".to_string(), vec![filename.to_string()]))
 }
 
