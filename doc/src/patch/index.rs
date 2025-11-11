@@ -513,6 +513,7 @@ fn find_all_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
         path.extension() == Some(std::ffi::OsStr::new("rs"))
             && !path_str.contains("/target/")
             && !path_str.contains("/.git/")
+            && !path_str.contains("/REFACTORING/") // Exclude refactoring files
             && !path_str.contains("/api/rust/src/") // Exclude generated API
     })?;
     Ok(files)
@@ -522,8 +523,10 @@ fn find_all_rust_files(root: &Path) -> Result<Vec<PathBuf>> {
 fn find_files_with_name(root: &Path, filename: &str) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     visit_dirs_with_filter(root, &mut files, |path| {
+        let path_str = path.to_string_lossy();
         path.file_name() == Some(std::ffi::OsStr::new(filename))
-            && !path.to_string_lossy().contains("/target/")
+            && !path_str.contains("/target/")
+            && !path_str.contains("/REFACTORING/") // Exclude refactoring directory
     })?;
     Ok(files)
 }
@@ -540,7 +543,11 @@ where
     // Skip certain directories
     if let Some(name) = dir.file_name() {
         let name_str = name.to_string_lossy();
-        if name_str == "target" || name_str == ".git" || name_str.starts_with('.') {
+        if name_str == "target" 
+            || name_str == ".git" 
+            || name_str == "REFACTORING" // Skip refactoring directory
+            || name_str.starts_with('.')
+        {
             return Ok(());
         }
     }
@@ -764,7 +771,7 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
                                 // Remove "src" and the file name itself
                                 if let Some(filename) = file_path.file_stem() {
                                     let filename_str = filename.to_string_lossy();
-                                    
+
                                     if filename_str != "lib" && filename_str != "mod" {
                                         // File name becomes part of the module path
                                         // unless it's lib.rs or mod.rs
@@ -772,11 +779,11 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
                                         if filename_str != "main" {
                                             module_path.push(filename_str.to_string());
                                         }
-                                        
+
                                         return Ok((crate_name, module_path));
                                     }
                                 }
-                                
+
                                 return Ok((crate_name, components));
                             }
                         }
@@ -803,7 +810,7 @@ fn infer_module_path(file_path: &Path) -> Result<(String, Vec<String>)> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    
+
     Ok(("unknown_crate".to_string(), vec![filename.to_string()]))
 }
 

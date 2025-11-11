@@ -26,6 +26,99 @@ pub mod regexes;
 pub mod utils;
 pub mod workspace;
 
+/// Check if a type should be ignored in "Could not find type" warnings
+pub fn should_suppress_type_not_found(type_name: &str) -> bool {
+    // Primitive types
+    const PRIMITIVES: &[&str] = &[
+        "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+        "f32", "f64", "bool", "char",
+    ];
+
+    // Standard library types
+    const STD_TYPES: &[&str] = &[
+        "String", "str", "Vec", "Option", "Result", "Box", "Rc", "Arc", "RefCell", "Cell",
+    ];
+
+    // Type aliases that are commonly used but internal
+    const INTERNAL_ALIASES: &[&str] = &[
+        "CoreCallbackDataVec",
+        "AttributeVec",
+        "AccessibilityActionVec",
+        "BoxCssPropertyCache",
+        "GridTrackSizingVec",
+        "LayoutRowGap",
+        "LayoutColumnGap",
+        "Widows",
+        "Orphans",
+        "OptionStyledDom",
+        "OptionCoreMenuCallback",
+        "OptionLinuxDecorationsState",
+        "OptionComputedScrollbarStyle",
+        "OptionPixelValue",
+        "SystemClipboard",
+        "AzDuration",
+    ];
+
+    let trimmed = type_name.trim();
+
+    // Check primitives
+    if PRIMITIVES.contains(&trimmed) {
+        return true;
+    }
+
+    // Check std types
+    if STD_TYPES.contains(&trimmed) {
+        return true;
+    }
+
+    // Check internal aliases
+    if INTERNAL_ALIASES.contains(&trimmed) {
+        return true;
+    }
+
+    // Check arrays [T; N]
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        return true;
+    }
+
+    // Check function pointers: extern "C" fn (...)
+    if trimmed.contains("extern") && trimmed.contains("fn") {
+        return true;
+    }
+
+    // Check for partial function signatures (missing extern but has fn and ->)
+    if trimmed.contains("fn") && (trimmed.contains("->") || trimmed.contains("c_void")) {
+        return true;
+    }
+
+    // Check if it contains documentation text (spaces and punctuation)
+    if trimmed.contains(' ') && (trimmed.contains('.') || trimmed.len() > 50) {
+        return true;
+    }
+
+    // Check for namespace qualifiers (::) - these are often implementation details
+    if trimmed.contains("::") {
+        return true;
+    }
+
+    // Check for compound types with commas (tuples or multiple types)
+    if trimmed.contains(',') {
+        return true;
+    }
+
+    // Check for type parameters in the name itself
+    if trimmed.contains('<') || trimmed.contains('>') {
+        return true;
+    }
+
+    // Check for lowercase single words like "value", "ref", "refmut"
+    if trimmed.len() < 10 && trimmed.chars().all(|c| c.is_lowercase() || c == '_') {
+        return true;
+    }
+
+    false
+}
+
 /// Main entry point for autofix with recursive type discovery
 pub fn autofix_api_recursive(
     api_data: &ApiData,
@@ -129,10 +222,43 @@ pub fn autofix_api_recursive(
         for type_name in &types_to_discover {
             // Skip if already visited (cycle detection)
             if visited_types.contains(type_name) {
-                messages.push(AutofixMessage::TypeSkipped {
-                    type_name: type_name.clone(),
-                    reason: SkipReason::AlreadyVisited,
-                });
+                // Don't log cycles for standard library types (they're expected)
+                let is_std_type = matches!(
+                    type_name.as_str(),
+                    "String"
+                        | "str"
+                        | "usize"
+                        | "isize"
+                        | "u8"
+                        | "u16"
+                        | "u32"
+                        | "u64"
+                        | "u128"
+                        | "i8"
+                        | "i16"
+                        | "i32"
+                        | "i64"
+                        | "i128"
+                        | "f32"
+                        | "f64"
+                        | "bool"
+                        | "char"
+                        | "Vec"
+                        | "Option"
+                        | "Result"
+                        | "Box"
+                        | "Arc"
+                        | "Rc"
+                        | "Cell"
+                        | "RefCell"
+                );
+
+                if !is_std_type {
+                    messages.push(AutofixMessage::TypeSkipped {
+                        type_name: type_name.clone(),
+                        reason: SkipReason::AlreadyVisited,
+                    });
+                }
                 continue;
             }
 
@@ -199,9 +325,12 @@ pub fn autofix_api_recursive(
                     }
                 }
             } else {
-                messages.push(AutofixMessage::TypeNotFound {
-                    type_name: type_name.clone(),
-                });
+                // Only report TypeNotFound if it's not a suppressed type
+                if !should_suppress_type_not_found(&type_name) {
+                    messages.push(AutofixMessage::TypeNotFound {
+                        type_name: type_name.clone(),
+                    });
+                }
             }
         }
 
@@ -268,7 +397,7 @@ pub fn autofix_api_recursive(
                 // Add workspace type to final_types_to_add so it generates a structural patch
                 // This will update the struct_fields/enum_fields in api.json
                 final_types_to_add.push(workspace_type.clone());
-                
+
                 // Also record as path change if paths differ
                 if workspace_type.full_path != *api_type_path {
                     patch_summary

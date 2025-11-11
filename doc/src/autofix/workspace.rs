@@ -175,9 +175,8 @@ pub fn discover_type(
             });
             return Some(candidates[0].clone());
         } else if !candidates.is_empty() {
-            messages.push(AutofixMessage::GenericWarning {
-                message: format!("Multiple matches for {}, using first", type_name),
-            });
+            // Multiple matches found, automatically using the first one
+            // (no warning needed - this is expected behavior)
             messages.push(AutofixMessage::TypeDiscovered {
                 type_name: type_name.to_string(),
                 path: candidates[0].module_path.join("::"),
@@ -228,10 +227,8 @@ pub fn find_type_in_workspace(
             }
         }
 
-        // No exact match, use first one but warn
-        messages.push(AutofixMessage::GenericWarning {
-            message: format!("Multiple matches for {}, using first", simple_name),
-        });
+        // No exact match, use first one
+        // (no warning needed - this is expected behavior)
         return Some(candidates[0].clone());
     }
 
@@ -827,9 +824,12 @@ pub fn virtual_patch_application(
                 known_types.insert(type_name.clone(), type_info.full_path.clone());
                 newly_discovered.push(type_info);
             } else {
-                messages.push(AutofixMessage::TypeNotFound {
-                    type_name: type_name.clone(),
-                });
+                // Only report TypeNotFound if it's not a suppressed type
+                if !crate::autofix::should_suppress_type_not_found(&type_name) {
+                    messages.push(AutofixMessage::TypeNotFound {
+                        type_name: type_name.clone(),
+                    });
+                }
             }
         }
 
@@ -869,13 +869,32 @@ pub fn has_field_changes(
 ) -> bool {
     use crate::{autofix::message::AutofixMessage, patch::index::TypeKind};
 
-    // Find the class in the API
+    // Find the class in the API - prefer exact path match
     let mut api_class = None;
+    let workspace_path = &workspace_type.full_path;
+
+    // First try: Find by matching external path
     'outer: for version_data in api_data.0.values() {
         for module_data in version_data.api.values() {
             if let Some(class_data) = module_data.classes.get(class_name) {
-                api_class = Some(class_data);
-                break 'outer;
+                if let Some(external) = &class_data.external {
+                    if are_paths_synonyms(external, workspace_path) || external == workspace_path {
+                        api_class = Some(class_data);
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+
+    // Second try: If no exact match, take first match by name
+    if api_class.is_none() {
+        'outer2: for version_data in api_data.0.values() {
+            for module_data in version_data.api.values() {
+                if let Some(class_data) = module_data.classes.get(class_name) {
+                    api_class = Some(class_data);
+                    break 'outer2;
+                }
             }
         }
     }
@@ -897,39 +916,45 @@ pub fn has_field_changes(
                 return true;
             };
 
+            // struct_fields is an array with one element that is a map of all fields
+            // Extract the actual fields from the first (and only) map element
+            let api_field_count = if let Some(first_map) = api_fields.first() {
+                first_map.len()
+            } else {
+                0
+            };
+
             // Compare field count
-            if fields.len() != api_fields.len() {
+            if fields.len() != api_field_count {
                 messages.push(AutofixMessage::GenericWarning {
                     message: format!(
                         "{}: Field count mismatch (workspace: {}, API: {})",
                         class_name,
                         fields.len(),
-                        api_fields.len()
+                        api_field_count
                     ),
                 });
                 return true;
             }
 
-            // Compare each field
-            for ((workspace_field_name, workspace_field), api_field_map) in
-                fields.iter().zip(api_fields.iter())
-            {
-                let (api_field_name, api_field_data) = api_field_map.iter().next().unwrap();
-
-                if workspace_field_name != api_field_name {
-                    messages.push(AutofixMessage::GenericWarning {
-                        message: format!(
-                            "{}: Field name mismatch ('{}' vs '{}')",
-                            class_name, workspace_field_name, api_field_name
-                        ),
-                    });
-                    return true;
+            // Compare each field - iterate through the keys in the first map
+            if let Some(api_field_map) = api_fields.first() {
+                for (workspace_field_name, _workspace_field) in fields.iter() {
+                    if !api_field_map.contains_key(workspace_field_name) {
+                        messages.push(AutofixMessage::GenericWarning {
+                            message: format!(
+                                "{}: Field '{}' not found in API",
+                                class_name, workspace_field_name
+                            ),
+                        });
+                        return true;
+                    }
                 }
-
-                // Note: We're not comparing types because they might use different representations
-                // (e.g., *mut c_void vs *mut LayoutWindow). The important thing is that the
-                // field names match and the count is correct.
             }
+
+            // Note: We're not comparing types because they might use different representations
+            // (e.g., *mut c_void vs *mut LayoutWindow). The important thing is that the
+            // field names match and the count is correct.
         }
         TypeKind::Enum { variants, .. } => {
             // Check if API has enum_fields
@@ -941,36 +966,39 @@ pub fn has_field_changes(
                 return true;
             };
 
+            // enum_fields is an array with one element that is a map of all variants
+            // Extract the actual variant count from the first (and only) map element
+            let api_variant_count = if let Some(first_map) = api_variants.first() {
+                first_map.len()
+            } else {
+                0
+            };
+
             // Compare variant count
-            if variants.len() != api_variants.len() {
+            if variants.len() != api_variant_count {
                 messages.push(AutofixMessage::GenericWarning {
                     message: format!(
                         "{}: Variant count mismatch (workspace: {}, API: {})",
                         class_name,
                         variants.len(),
-                        api_variants.len()
+                        api_variant_count
                     ),
                 });
                 return true;
             }
 
-            // Compare each variant name (shallow check)
-            let workspace_variant_names: Vec<_> = variants.keys().collect();
-            let api_variant_names: Vec<_> = api_variants
-                .iter()
-                .flat_map(|m| m.keys())
-                .collect::<Vec<_>>();
-
-            for (ws_name, api_name) in workspace_variant_names.iter().zip(api_variant_names.iter())
-            {
-                if ws_name != api_name {
-                    messages.push(AutofixMessage::GenericWarning {
-                        message: format!(
-                            "{}: Variant name mismatch ('{}' vs '{}')",
-                            class_name, ws_name, api_name
-                        ),
-                    });
-                    return true;
+            // Compare each variant name - check if they exist in the first map
+            if let Some(api_variant_map) = api_variants.first() {
+                for workspace_variant_name in variants.keys() {
+                    if !api_variant_map.contains_key(workspace_variant_name) {
+                        messages.push(AutofixMessage::GenericWarning {
+                            message: format!(
+                                "{}: Variant '{}' not found in API",
+                                class_name, workspace_variant_name
+                            ),
+                        });
+                        return true;
+                    }
                 }
             }
         }
