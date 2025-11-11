@@ -42,6 +42,7 @@ use crate::{
 
 /// Represents the detected platform.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum Platform {
     Windows,
     MacOs,
@@ -54,14 +55,16 @@ pub enum Platform {
 
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum DesktopEnvironment {
     Gnome,
     Kde,
-    Other(String),
+    Other(AzString),
 }
 
 /// The overall theme type.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum Theme {
     #[default]
     Light,
