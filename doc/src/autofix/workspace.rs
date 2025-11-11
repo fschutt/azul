@@ -869,12 +869,6 @@ pub fn has_field_changes(
 ) -> bool {
     use crate::{autofix::message::AutofixMessage, patch::index::TypeKind};
 
-    let debug = class_name == "CallbackInfo";
-    
-    if debug {
-        println!("\n      🔎 DEBUG has_field_changes for CallbackInfo:");
-    }
-
     // Find the class in the API
     let mut api_class = None;
     'outer: for version_data in api_data.0.values() {
@@ -888,44 +882,23 @@ pub fn has_field_changes(
 
     let Some(api_class) = api_class else {
         // Type not in API, no field changes to detect
-        if debug {
-            println!("         ✗ Type not found in API");
-        }
         return false;
     };
-
-    if debug {
-        println!("         ✓ Found in API");
-    }
 
     // Compare struct fields
     match &workspace_type.kind {
         TypeKind::Struct { fields, .. } => {
-            if debug {
-                println!("         Workspace is a Struct with {} fields", fields.len());
-            }
-
             // Check if API has struct_fields
             let Some(api_fields) = &api_class.struct_fields else {
                 // API doesn't have struct_fields but workspace does
-                if debug {
-                    println!("         ✗ API missing struct_fields, will update");
-                }
                 messages.push(AutofixMessage::GenericWarning {
                     message: format!("{}: API missing struct_fields, will update", class_name),
                 });
                 return true;
             };
 
-            if debug {
-                println!("         API has {} struct_fields", api_fields.len());
-            }
-
             // Compare field count
             if fields.len() != api_fields.len() {
-                if debug {
-                    println!("         ✅ Field count mismatch! workspace={}, API={}", fields.len(), api_fields.len());
-                }
                 messages.push(AutofixMessage::GenericWarning {
                     message: format!(
                         "{}: Field count mismatch (workspace: {}, API: {})",
@@ -937,25 +910,13 @@ pub fn has_field_changes(
                 return true;
             }
 
-            if debug {
-                println!("         Field counts match ({})", fields.len());
-                println!("         Comparing field names:");
-            }
-
             // Compare each field
             for ((workspace_field_name, workspace_field), api_field_map) in
                 fields.iter().zip(api_fields.iter())
             {
                 let (api_field_name, api_field_data) = api_field_map.iter().next().unwrap();
 
-                if debug {
-                    println!("           - workspace: {}, API: {}", workspace_field_name, api_field_name);
-                }
-
                 if workspace_field_name != api_field_name {
-                    if debug {
-                        println!("           ✅ Name mismatch!");
-                    }
                     messages.push(AutofixMessage::GenericWarning {
                         message: format!(
                             "{}: Field name mismatch ('{}' vs '{}')",
@@ -968,10 +929,6 @@ pub fn has_field_changes(
                 // Note: We're not comparing types because they might use different representations
                 // (e.g., *mut c_void vs *mut LayoutWindow). The important thing is that the
                 // field names match and the count is correct.
-            }
-
-            if debug {
-                println!("         ✗ No differences found");
             }
         }
         TypeKind::Enum { variants, .. } => {
