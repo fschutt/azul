@@ -19,7 +19,7 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 anyhow = "1.0"
 indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
-cargo_metadata = "0.23.0"
+cargo_metadata = "0.21.0"
 zip = "6.0.0"
 open = "5.3.2"
 tempfile = "3.19.1"

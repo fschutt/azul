@@ -20,9 +20,9 @@ pub mod x11;
 
 use std::{cell::RefCell, sync::Arc};
 
-use azul_core::resources::AppConfig;
+use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 pub use resources::AppResources;
 use rust_fontconfig::FcFontCache;
 
@@ -107,6 +107,16 @@ impl PlatformWindow for LinuxWindow {
         match self {
             LinuxWindow::X11(w) => w.request_redraw(),
             LinuxWindow::Wayland(w) => w.request_redraw(),
+        }
+    }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        match self {
+            LinuxWindow::X11(w) => w.sync_clipboard(clipboard_manager),
+            LinuxWindow::Wayland(w) => w.sync_clipboard(clipboard_manager),
         }
     }
 }
@@ -196,7 +206,11 @@ pub fn run(
 ) -> Result<(), WindowError> {
     // Create shared resources for all windows
     let resources = Arc::new(AppResources::new(config, fc_cache));
-    let mut window = LinuxWindow::new_with_resources(root_window, resources)?;
+
+    // Extract app_data from resources for the constructor
+    let app_data = resources.app_data.clone();
+
+    let mut window = LinuxWindow::new_with_resources(root_window, app_data, resources)?;
 
     while window.is_open() {
         while let Some(_event) = window.poll_event() {

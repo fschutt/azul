@@ -555,6 +555,9 @@
 #![deny(clippy::all)]
 #![allow(warnings)]
 
+/// Clipboard error type
+pub mod clipboard_error;
+
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app
 /// state
 pub mod app;
@@ -608,7 +611,8 @@ pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
     #[cfg(all(feature = "font_loading", feature = "std"))]
     pub use azul_layout::font::loading::FontReloadError;
-    pub use clipboard2::ClipboardError;
+
+    pub use crate::desktop::clipboard_error::ClipboardError;
 }
 
 pub use azul_core::{callbacks, dom, gl, style, styled_dom, task};

@@ -3,8 +3,9 @@
 //! This module provides access to CGDirectDisplayID and related
 //! display enumeration functions for monitor identification.
 
-use objc2_foundation::{NSDictionary, NSNumber, NSString};
 use std::sync::Arc;
+
+use objc2_foundation::{NSDictionary, NSNumber, NSString};
 
 /// CGDirectDisplayID - unique identifier for a physical display
 pub type CGDirectDisplayID = u32;
@@ -15,8 +16,7 @@ pub const CG_MAIN_DISPLAY_ID: CGDirectDisplayID = 0;
 /// Core Graphics function pointers loaded via dlopen
 pub struct CoreGraphicsFunctions {
     cg_main_display_id: unsafe extern "C" fn() -> CGDirectDisplayID,
-    cg_display_bounds:
-        unsafe extern "C" fn(display: CGDirectDisplayID) -> objc2_foundation::NSRect,
+    cg_display_bounds: unsafe extern "C" fn(display: CGDirectDisplayID) -> objc2_foundation::NSRect,
 
     // Keep the library handle to prevent unloading
     #[allow(dead_code)]
@@ -65,9 +65,7 @@ impl CoreGraphicsFunctions {
 ///
 /// The deviceDescription dictionary contains a "NSScreenNumber" key
 /// which maps to the CGDirectDisplayID for that screen.
-pub fn get_display_id_from_screen(
-    screen: &objc2_app_kit::NSScreen,
-) -> Option<CGDirectDisplayID> {
+pub fn get_display_id_from_screen(screen: &objc2_app_kit::NSScreen) -> Option<CGDirectDisplayID> {
     unsafe {
         use objc2::msg_send;
 
@@ -107,8 +105,10 @@ pub fn compute_monitor_hash(
     display_id: CGDirectDisplayID,
     bounds: objc2_foundation::NSRect,
 ) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        hash::{Hash, Hasher},
+    };
 
     let mut hasher = DefaultHasher::new();
 

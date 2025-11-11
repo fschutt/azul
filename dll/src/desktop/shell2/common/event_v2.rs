@@ -182,7 +182,6 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{self, FullWindowState},
 };
-use clipboard2::{Clipboard as _, SystemClipboard};
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
@@ -203,6 +202,61 @@ const MAX_EVENT_RECURSION_DEPTH: usize = 5;
 /// This ID is reserved for the framework's auto-scroll timer and should not
 /// be used by user code. Value chosen to avoid conflicts with typical timer IDs.
 const AUTO_SCROLL_TIMER_ID: usize = 0xABCD_1234;
+
+// ============================================================================
+// Platform-specific Clipboard Helpers
+// ============================================================================
+
+/// Get clipboard text content (platform-specific)
+#[inline]
+fn get_system_clipboard() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::desktop::shell2::windows::clipboard::get_clipboard_content()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::desktop::shell2::macos::clipboard::get_clipboard_content()
+    }
+    #[cfg(all(target_os = "linux", feature = "x11"))]
+    {
+        crate::desktop::shell2::linux::x11::clipboard::get_clipboard_content()
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        all(target_os = "linux", feature = "x11")
+    )))]
+    {
+        None
+    }
+}
+
+/// Set clipboard text content (platform-specific)
+#[inline]
+fn set_system_clipboard(text: String) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use clipboard_win::{formats, set_clipboard};
+        set_clipboard(formats::Unicode, &text).is_ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::desktop::shell2::macos::clipboard::write_to_clipboard(&text).is_ok()
+    }
+    #[cfg(all(target_os = "linux", feature = "x11"))]
+    {
+        crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        all(target_os = "linux", feature = "x11")
+    )))]
+    {
+        false
+    }
+}
 
 /// Timer callback for auto-scroll during drag selection.
 ///
@@ -1171,11 +1225,8 @@ pub trait PlatformWindowV2 {
                                 if let Some(clipboard_content) =
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
-                                    // Create system clipboard and copy text
-                                    if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
-                                        let _ = clipboard
-                                            .set_string_contents(clipboard_content.plain_text);
-                                    }
+                                    // Copy text to system clipboard
+                                    set_system_clipboard(clipboard_content.plain_text);
                                 }
                             }
                         }
@@ -1188,20 +1239,12 @@ pub trait PlatformWindowV2 {
                                 if let Some(clipboard_content) =
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
-                                    if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
-                                        if clipboard
-                                            .set_string_contents(
-                                                clipboard_content.plain_text.clone(),
-                                            )
-                                            .is_ok()
+                                    if set_system_clipboard(clipboard_content.plain_text.clone()) {
+                                        // Then delete the selection
+                                        if let Some(affected_nodes) =
+                                            layout_window.delete_selection(*target, false)
                                         {
-                                            // Then delete the selection
-                                            if let Some(affected_nodes) =
-                                                layout_window.delete_selection(*target, false)
-                                            {
-                                                text_selection_affected_nodes
-                                                    .extend(affected_nodes);
-                                            }
+                                            text_selection_affected_nodes.extend(affected_nodes);
                                         }
                                     }
                                 }
@@ -1210,16 +1253,14 @@ pub trait PlatformWindowV2 {
                         KeyboardShortcut::Paste => {
                             // Handle Ctrl+V: Insert clipboard text at cursor
                             if let Some(layout_window) = self.get_layout_window_mut() {
-                                if let Ok(clipboard) = clipboard2::SystemClipboard::new() {
-                                    if let Ok(clipboard_text) = clipboard.get_string_contents() {
-                                        // Insert text at current cursor position
-                                        // TODO: Implement paste operation through TextInputManager
-                                        // For now, treat it like text input
-                                        let affected_nodes =
-                                            layout_window.process_text_input(&clipboard_text);
-                                        for (node_id, _) in affected_nodes {
-                                            text_selection_affected_nodes.push(node_id);
-                                        }
+                                if let Some(clipboard_text) = get_system_clipboard() {
+                                    // Insert text at current cursor position
+                                    // TODO: Implement paste operation through TextInputManager
+                                    // For now, treat it like text input
+                                    let affected_nodes =
+                                        layout_window.process_text_input(&clipboard_text);
+                                    for (node_id, _) in affected_nodes {
+                                        text_selection_affected_nodes.push(node_id);
                                     }
                                 }
                             }

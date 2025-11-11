@@ -62,6 +62,8 @@
 //! cargo run --bin kitchen_sink --features desktop
 //! ```
 
+use std::fs;
+
 use azul_core::{
     callbacks::{
         IFrameCallbackInfo, IFrameCallbackReturn, IFrameCallbackType, LayoutCallbackInfo,
@@ -85,12 +87,9 @@ use azul_css::{
     },
 };
 use azul_dll::desktop::{
-    app::App, 
-    dialogs::save_file_dialog,
-    resources::AppConfig as DllAppConfig,
+    app::App, dialogs::save_file_dialog, resources::AppConfig as DllAppConfig,
 };
 use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions, xml::DomXmlExt};
-use std::fs;
 
 // ============================================================================
 // APPLICATION STATE
@@ -287,10 +286,10 @@ extern "C" fn on_dropdown_button_click(data: &mut RefAny, info: &mut CallbackInf
 // Export code to Rust
 extern "C" fn on_export_rust(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     let app_data = _data.downcast_ref::<KitchenSinkApp>().unwrap();
-    
+
     // Get Rust code from editor content
     let rust_code = compile_to_rust(&app_data.code_content);
-    
+
     // Open save dialog
     if let Some(path) = save_file_dialog("Export Rust Code", Some("output.rs")) {
         if let Err(e) = fs::write(path.as_str(), rust_code) {
@@ -299,16 +298,16 @@ extern "C" fn on_export_rust(_data: &mut RefAny, _info: &mut CallbackInfo) -> Up
             eprintln!("[EXPORT] Rust code exported successfully");
         }
     }
-    
+
     Update::DoNothing
 }
 
 // Export code to C
 extern "C" fn on_export_c(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     let app_data = _data.downcast_ref::<KitchenSinkApp>().unwrap();
-    
+
     let c_code = compile_to_c(&app_data.code_content);
-    
+
     if let Some(path) = save_file_dialog("Export C Code", Some("output.c")) {
         if let Err(e) = fs::write(path.as_str(), c_code) {
             eprintln!("[EXPORT] Failed to write C file: {}", e);
@@ -316,16 +315,16 @@ extern "C" fn on_export_c(_data: &mut RefAny, _info: &mut CallbackInfo) -> Updat
             eprintln!("[EXPORT] C code exported successfully");
         }
     }
-    
+
     Update::DoNothing
 }
 
 // Export code to C++
 extern "C" fn on_export_cpp(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     let app_data = _data.downcast_ref::<KitchenSinkApp>().unwrap();
-    
+
     let cpp_code = compile_to_cpp(&app_data.code_content);
-    
+
     if let Some(path) = save_file_dialog("Export C++ Code", Some("output.cpp")) {
         if let Err(e) = fs::write(path.as_str(), cpp_code) {
             eprintln!("[EXPORT] Failed to write C++ file: {}", e);
@@ -333,16 +332,16 @@ extern "C" fn on_export_cpp(_data: &mut RefAny, _info: &mut CallbackInfo) -> Upd
             eprintln!("[EXPORT] C++ code exported successfully");
         }
     }
-    
+
     Update::DoNothing
 }
 
 // Export code to Python
 extern "C" fn on_export_python(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     let app_data = _data.downcast_ref::<KitchenSinkApp>().unwrap();
-    
+
     let python_code = compile_to_python(&app_data.code_content);
-    
+
     if let Some(path) = save_file_dialog("Export Python Code", Some("output.py")) {
         if let Err(e) = fs::write(path.as_str(), python_code) {
             eprintln!("[EXPORT] Failed to write Python file: {}", e);
@@ -350,7 +349,7 @@ extern "C" fn on_export_python(_data: &mut RefAny, _info: &mut CallbackInfo) -> 
             eprintln!("[EXPORT] Python code exported successfully");
         }
     }
-    
+
     Update::DoNothing
 }
 
@@ -363,46 +362,38 @@ fn compile_to_rust(xml_content: &str) -> String {
     {
         use azul_core::xml::{str_to_rust_code, XmlComponentMap};
         use azul_layout::xml::parse_xml_string;
-        
+
         // Parse XML string
         let parsed = match parse_xml_string(xml_content) {
             Ok(parsed) => parsed,
             Err(e) => {
                 return format!(
-                    "// Error parsing XML:\n// {}\n\n\
-                     fn main() {{\n\
-                         println!(\"XML Parse Error\");\n\
-                     }}",
+                    "// Error parsing XML:\n// {}\n\nfn main() {{\nprintln!(\"XML Parse \
+                     Error\");\n}}",
                     e
                 );
             }
         };
-        
+
         // Compile to Rust
         let mut component_map = XmlComponentMap::default();
         match str_to_rust_code(parsed.as_ref(), "", &mut component_map) {
             Ok(rust_code) => rust_code,
             Err(e) => {
                 format!(
-                    "// Error compiling XML to Rust:\n// {}\n\n\
-                     fn main() {{\n\
-                         println!(\"Compilation Error\");\n\
-                     }}",
+                    "// Error compiling XML to Rust:\n// {}\n\nfn main() \
+                     {{\nprintln!(\"Compilation Error\");\n}}",
                     e
                 )
             }
         }
     }
-    
+
     #[cfg(not(feature = "xml"))]
     {
         format!(
-            "// XML compilation requires 'xml' feature\n\
-             // Source XML:\n\
-             /*\n{}\n*/\n\n\
-             fn main() {{\n\
-                 println!(\"XML feature not enabled\");\n\
-             }}\n",
+            "// XML compilation requires 'xml' feature\n// Source XML:\n/*\n{}\n*/\n\nfn main() \
+             {{\nprintln!(\"XML feature not enabled\");\n}}\n",
             xml_content
         )
     }
@@ -411,14 +402,9 @@ fn compile_to_rust(xml_content: &str) -> String {
 fn compile_to_c(xml_content: &str) -> String {
     // TODO: Implement XML -> C compilation
     format!(
-        "/* Auto-generated C code from XML */\n\
-         /* Source XML:\n{}\n*/\n\n\
-         /* TODO: Implement XML to C compilation */\n\
-         #include <stdio.h>\n\n\
-         int main() {{\n\
-             printf(\"Generated from XML\\n\");\n\
-             return 0;\n\
-         }}\n",
+        "/* Auto-generated C code from XML */\n/* Source XML:\n{}\n*/\n\n/* TODO: Implement XML \
+         to C compilation */\n#include <stdio.h>\n\nint main() {{\nprintf(\"Generated from \
+         XML\\n\");\nreturn 0;\n}}\n",
         xml_content
     )
 }
@@ -426,15 +412,9 @@ fn compile_to_c(xml_content: &str) -> String {
 fn compile_to_cpp(xml_content: &str) -> String {
     // TODO: Implement XML -> C++ compilation
     format!(
-        "// Auto-generated C++ code from XML\n\
-         // Source XML:\n\
-         /*\n{}\n*/\n\n\
-         // TODO: Implement XML to C++ compilation\n\
-         #include <iostream>\n\n\
-         int main() {{\n\
-             std::cout << \"Generated from XML\" << std::endl;\n\
-             return 0;\n\
-         }}\n",
+        "// Auto-generated C++ code from XML\n// Source XML:\n/*\n{}\n*/\n\n// TODO: Implement \
+         XML to C++ compilation\n#include <iostream>\n\nint main() {{\nstd::cout << \"Generated \
+         from XML\" << std::endl;\nreturn 0;\n}}\n",
         xml_content
     )
 }
@@ -442,14 +422,9 @@ fn compile_to_cpp(xml_content: &str) -> String {
 fn compile_to_python(xml_content: &str) -> String {
     // TODO: Implement XML -> Python compilation
     format!(
-        "# Auto-generated Python code from XML\n\
-         # Source XML:\n\
-         '''\n{}\n'''\n\n\
-         # TODO: Implement XML to Python compilation\n\
-         def main():\n\
-             print('Generated from XML')\n\n\
-         if __name__ == '__main__':\n\
-             main()\n",
+        "# Auto-generated Python code from XML\n# Source XML:\n'''\n{}\n'''\n\n# TODO: Implement \
+         XML to Python compilation\ndef main():\nprint('Generated from XML')\n\nif __name__ == \
+         '__main__':\nmain()\n",
         xml_content
     )
 }
@@ -518,28 +493,28 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
     let menu = if app_data.active_tab == 5 {
         // Code Editor tab - show Compile and Debug menus
         Menu::new(MenuItemVec::from_vec(vec![
-            MenuItem::String(
-                StringMenuItem::new("File".into()).with_children(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::new("File".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("New".into())),
                     MenuItem::String(StringMenuItem::new("Open".into())),
                     MenuItem::Separator,
                     MenuItem::String(StringMenuItem::new("Quit".into())),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("Edit".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("Edit".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("Copy".into())),
                     MenuItem::String(StringMenuItem::new("Paste".into())),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("View".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("View".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("Zoom In".into())),
                     MenuItem::String(StringMenuItem::new("Zoom Out".into())),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("Compile".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("Compile".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(
                         StringMenuItem::new("Export to Rust...".into())
                             .with_callback(data_clone.clone(), on_export_rust as usize),
@@ -556,39 +531,39 @@ extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) ->
                         StringMenuItem::new("Export to Python...".into())
                             .with_callback(data_clone.clone(), on_export_python as usize),
                     ),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("Debug".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("Debug".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("Run".into())),
                     MenuItem::String(StringMenuItem::new("Step Over".into())),
                     MenuItem::String(StringMenuItem::new("Step Into".into())),
-                ])),
-            ),
+                ]),
+            )),
         ]))
     } else {
         // Other tabs - standard menu without Compile/Debug
         Menu::new(MenuItemVec::from_vec(vec![
-            MenuItem::String(
-                StringMenuItem::new("File".into()).with_children(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::new("File".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("New".into())),
                     MenuItem::String(StringMenuItem::new("Open".into())),
                     MenuItem::Separator,
                     MenuItem::String(StringMenuItem::new("Quit".into())),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("Edit".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("Edit".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("Copy".into())),
                     MenuItem::String(StringMenuItem::new("Paste".into())),
-                ])),
-            ),
-            MenuItem::String(
-                StringMenuItem::new("View".into()).with_children(MenuItemVec::from_vec(vec![
+                ]),
+            )),
+            MenuItem::String(StringMenuItem::new("View".into()).with_children(
+                MenuItemVec::from_vec(vec![
                     MenuItem::String(StringMenuItem::new("Zoom In".into())),
                     MenuItem::String(StringMenuItem::new("Zoom Out".into())),
-                ])),
-            ),
+                ]),
+            )),
         ]))
     };
     eprintln!("[KITCHEN_SINK] Menu created");

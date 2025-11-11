@@ -1,6 +1,7 @@
 //! X11 implementation for Linux using the shell2 architecture.
 
 pub mod accessibility;
+pub mod clipboard;
 pub mod defines;
 pub mod dlopen;
 pub mod events;
@@ -33,7 +34,7 @@ use azul_core::{
 use azul_layout::{
     managers::hover::InputPointId,
     window::LayoutWindow,
-    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
     ScrollbarDragState,
 };
 use rust_fontconfig::FcFontCache;
@@ -53,13 +54,10 @@ use crate::desktop::{
 };
 
 /// X11 error handler to prevent application crashes
-/// 
+///
 /// The default X11 error handler terminates the entire application.
 /// This custom handler logs the error and allows the app to continue.
-extern "C" fn x11_error_handler(
-    _display: *mut Display,
-    event: *mut XErrorEvent,
-) -> c_int {
+extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent) -> c_int {
     let error = unsafe { *event };
     eprintln!(
         "[X11 Error] Opcode: {}, Resource ID: {:#x}, Serial: {}, Error Code: {}",
@@ -141,9 +139,14 @@ impl PlatformWindow for X11Window {
     where
         Self: Sized,
     {
-        let resources = Arc::new(super::AppResources::default_for_testing());
         let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-        Self::new_with_resources(options, app_data_arc, resources)
+        let resources = Arc::new(super::AppResources {
+            config: azul_core::resources::AppConfig::default(),
+            fc_cache: Arc::new(rust_fontconfig::FcFontCache::default()),
+            app_data: app_data_arc,
+            system_style: Arc::new(azul_css::system::SystemStyle::new()),
+        });
+        Self::new_with_resources(options, resources)
     }
 
     fn get_state(&self) -> FullWindowState {
@@ -317,6 +320,13 @@ impl PlatformWindow for X11Window {
             (self.xlib.XSendEvent)(self.display, self.window, 0, ExposureMask, &mut event);
             (self.xlib.XFlush)(self.display);
         }
+    }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        clipboard::sync_clipboard(clipboard_manager);
     }
 
     fn close(&mut self) {
@@ -1580,11 +1590,15 @@ impl X11Window {
                     &mut prop,
                 );
 
-                if result == 0 && !prop.is_null() && actual_type == defines::XA_ATOM && actual_format == 32 {
+                if result == 0
+                    && !prop.is_null()
+                    && actual_type == defines::XA_ATOM
+                    && actual_format == 32
+                {
                     // Read atoms as u32 (protocol uses 32-bit values even on 64-bit systems)
                     let atoms = std::slice::from_raw_parts(prop as *const u32, nitems as usize);
                     let net_wm_state_above_u32 = net_wm_state_above as u32;
-                    
+
                     let mut new_atoms: Vec<u32> = atoms
                         .iter()
                         .filter(|&&atom| atom != net_wm_state_above_u32)

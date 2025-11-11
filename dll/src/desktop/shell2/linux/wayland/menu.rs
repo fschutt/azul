@@ -21,7 +21,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::system::SystemStyle;
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::WindowCreateOptions;
 
 use super::WaylandWindow;
 
@@ -117,13 +117,13 @@ pub fn create_menu_popup_options(
 
     let menu_data_refany = RefAny::new(menu_data);
 
-    // Create window state
-    let mut state = WindowState::default();
-    state.size.dimensions = menu_size;
-    state.title = "Menu".to_string().into();
+    // Create window options
+    let mut options = WindowCreateOptions::default();
+    options.state.size.dimensions = menu_size;
+    options.state.title = "Menu".to_string().into();
 
     // Set layout callback with marshaled data
-    state.layout_callback =
+    options.state.layout_callback =
         azul_core::callbacks::LayoutCallback::Marshaled(MarshaledLayoutCallback {
             marshal_data: menu_data_refany,
             cb: MarshaledLayoutCallbackInner {
@@ -132,18 +132,11 @@ pub fn create_menu_popup_options(
         });
 
     // Set window flags for popup behavior
-    state.flags.decorations = azul_core::window::WindowDecorations::None;
-    state.flags.is_always_on_top = true;
-    state.flags.is_resizable = false;
+    options.state.flags.decorations = azul_core::window::WindowDecorations::None;
+    options.state.flags.is_always_on_top = true;
+    options.state.flags.is_resizable = false;
 
-    WindowCreateOptions {
-        state,
-        size_to_content: false,
-        renderer: None.into(),
-        theme: None.into(),
-        create_callback: None.into(),
-        hot_reload: false,
-    }
+    options
 }
 
 /// Calculate menu size from Menu structure

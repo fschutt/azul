@@ -21,7 +21,7 @@ use azul_core::{
     window::WindowPosition,
 };
 use azul_css::system::SystemStyle;
-use azul_layout::window_state::{WindowCreateOptions, WindowState};
+use azul_layout::window_state::WindowCreateOptions;
 
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
@@ -115,35 +115,28 @@ pub fn create_menu_window_options(
         system_style: system_style.clone(),
     };
 
-    // Create window state with menu layout callback
-    let mut window_state = WindowState::default();
+    // Create window options with menu layout callback
+    let mut options = WindowCreateOptions::default();
 
     // Set window position
-    window_state.position = WindowPosition::Initialized(azul_core::geom::PhysicalPosition { x, y });
+    options.state.position =
+        WindowPosition::Initialized(azul_core::geom::PhysicalPosition { x, y });
 
     // Set window size
-    window_state.size.dimensions = LogicalSize::new(menu_width as f32, menu_height as f32);
+    options.state.size.dimensions = LogicalSize::new(menu_width as f32, menu_height as f32);
 
     // Configure window flags for popup behavior
-    window_state.flags.decorations = azul_core::window::WindowDecorations::None;
-    window_state.flags.is_always_on_top = true;
-    window_state.flags.is_resizable = false;
+    options.state.flags.decorations = azul_core::window::WindowDecorations::None;
+    options.state.flags.is_always_on_top = true;
+    options.state.flags.is_resizable = false;
 
     // Set layout callback with marshaled data
-    window_state.layout_callback = LayoutCallback::Marshaled(MarshaledLayoutCallback {
+    options.state.layout_callback = LayoutCallback::Marshaled(MarshaledLayoutCallback {
         marshal_data: RefAny::new(menu_data),
         cb: MarshaledLayoutCallbackInner {
             cb: menu_layout_callback,
         },
     });
 
-    // Create window options
-    WindowCreateOptions {
-        state: window_state,
-        size_to_content: false,
-        renderer: None.into(),
-        theme: None.into(),
-        create_callback: None.into(),
-        hot_reload: false,
-    }
+    options
 }

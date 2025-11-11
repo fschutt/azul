@@ -42,6 +42,7 @@ accesskit = { version = "0.21.1", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+x11-clipboard = { version = "0.9.3", optional = true }
 accesskit_unix = { version = "0.17.2", optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]
@@ -60,12 +61,16 @@ winapi = { version = "0.3.9", default-features = false, features = [
     "wingdi", 
     "commdlg"
 ] }
+clipboard-win = { version = "5.4", optional = true }
 accesskit_windows = { version = "0.29.2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cgl = "0.3.2"
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"] }
 objc2 = "0.6.0"
+objc = "0.2"
+objc-foundation = "0.1"
+objc_id = "0.1"
 block2 = "0.6.0"
 libloading = "0.8.0"
 accesskit_macos = { version = "0.22.2", optional = true }
@@ -104,7 +109,7 @@ use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
 accessibility = ["accesskit", "azul-layout/accessibility", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
-desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
+desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "x11-clipboard", "clipboard-win", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]

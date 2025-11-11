@@ -7,6 +7,7 @@
 //! Note: Uses dynamic loading (dlopen) to avoid linker errors
 //! and ensure compatibility across Linux distributions.
 
+pub mod clipboard;
 mod defines;
 mod dlopen;
 mod events;
@@ -38,7 +39,7 @@ use azul_core::{
 use azul_layout::{
     managers::hover::InputPointId,
     window::LayoutWindow,
-    window_state::{FullWindowState, WindowCreateOptions, WindowState},
+    window_state::{FullWindowState, WindowCreateOptions},
     ScrollbarDragState,
 };
 use rust_fontconfig::FcFontCache;
@@ -227,7 +228,7 @@ pub struct WaylandPopup {
     pointer_state: events::PointerState,
     is_open: bool,
     configured: bool,
-    
+
     // Listener context - must be freed on drop
     listener_context: *mut PopupListenerContext,
 
@@ -567,6 +568,13 @@ impl PlatformWindow for WaylandWindow {
         if self.configured {
             self.present().ok();
         }
+    }
+
+    fn sync_clipboard(
+        &mut self,
+        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
+    ) {
+        clipboard::sync_clipboard(clipboard_manager);
     }
 }
 
@@ -2098,7 +2106,7 @@ impl Drop for WaylandWindow {
                 }
                 self.pointer_state.cursor_theme = std::ptr::null_mut();
             }
-            
+
             // Clean up window surfaces
             if !self.xdg_toplevel.is_null() {
                 (self.wayland.wl_proxy_destroy)(self.xdg_toplevel as _);
@@ -2129,11 +2137,45 @@ impl CpuFallbackState {
         let stride = width * 4;
         let size = stride * height;
 
+        // Try memfd_create first (Linux 3.17+, glibc 2.27+)
+        // Fall back to shm_open for older systems
         let fd = unsafe {
-            libc::memfd_create(CString::new("azul-fb").unwrap().as_ptr(), libc::MFD_CLOEXEC)
+            #[cfg(target_os = "linux")]
+            {
+                // Try memfd_create via syscall if libc doesn't have it
+                let result = libc::syscall(
+                    libc::SYS_memfd_create,
+                    CString::new("azul-fb").unwrap().as_ptr(),
+                    1 as libc::c_int,
+                ); // MFD_CLOEXEC = 1
+
+                if result != -1 {
+                    result as libc::c_int
+                } else {
+                    // Fallback to shm_open for older glibc
+                    let name = CString::new(format!("/azul-fb-{}", std::process::id())).unwrap();
+                    let fd = libc::shm_open(
+                        name.as_ptr(),
+                        libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,
+                        0o600,
+                    );
+                    if fd != -1 {
+                        // Unlink immediately so it's cleaned up when closed
+                        libc::shm_unlink(name.as_ptr());
+                    }
+                    fd
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                -1
+            }
         };
+
         if fd == -1 {
-            return Err(WindowError::PlatformError("memfd_create failed".into()));
+            return Err(WindowError::PlatformError(
+                "Failed to create shared memory".into(),
+            ));
         }
 
         if unsafe { libc::ftruncate(fd, size as libc::off_t) } == -1 {
@@ -2535,7 +2577,11 @@ impl WaylandPopup {
         };
 
         unsafe {
-            (wayland.xdg_popup_add_listener)(xdg_popup, &popup_listener, listener_context_ptr as *mut _);
+            (wayland.xdg_popup_add_listener)(
+                xdg_popup,
+                &popup_listener,
+                listener_context_ptr as *mut _,
+            );
         }
 
         // 9. Grab pointer for exclusive input (using parent's last serial)
@@ -2648,7 +2694,7 @@ impl WaylandPopup {
 impl Drop for WaylandPopup {
     fn drop(&mut self) {
         self.close();
-        
+
         // Free the listener context if it was allocated
         if !self.listener_context.is_null() {
             unsafe {
@@ -2680,7 +2726,7 @@ extern "C" fn popup_xdg_surface_configure(
         eprintln!("[xdg_popup] configure: null data pointer!");
         return;
     }
-    
+
     unsafe {
         let ctx = &*(data as *const PopupListenerContext);
         // Acknowledge configure using the Wayland instance from context
@@ -3016,7 +3062,7 @@ extern "C" fn popup_configure(
         eprintln!("[xdg_popup] configure: null data pointer!");
         return;
     }
-    
+
     eprintln!(
         "[xdg_popup] configure: x={}, y={}, width={}, height={}",
         x, y, width, height
@@ -3031,16 +3077,16 @@ extern "C" fn popup_done(data: *mut c_void, xdg_popup: *mut defines::xdg_popup) 
         eprintln!("[xdg_popup] popup_done: null data pointer!");
         return;
     }
-    
+
     eprintln!("[xdg_popup] popup_done: compositor dismissed popup");
-    
+
     unsafe {
         let ctx = &*(data as *const PopupListenerContext);
         // Destroy the popup when compositor dismisses it
         (ctx.wayland.xdg_popup_destroy)(xdg_popup);
-        (ctx.wayland.xdg_surface_destroy)(ctx.xdg_surface);
+        (ctx.wayland.wl_proxy_destroy)(ctx.xdg_surface as *mut _);
     }
-    
+
     // TODO: Signal to application that popup was dismissed
     // This would require storing a callback or channel in PopupListenerContext
 }

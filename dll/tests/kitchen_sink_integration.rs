@@ -1,12 +1,12 @@
 /// Integration test for Kitchen Sink XML compilation functionality
-/// 
+///
 /// This module tests the compile_to_rust() function from kitchen_sink.rs
 
 #[cfg(all(test, feature = "xml"))]
 mod kitchen_sink_xml_tests {
     // Import the compile_to_rust function from kitchen_sink
     // Since kitchen_sink.rs is a binary, we need to test the compilation logic directly
-    
+
     use azul_core::xml::{str_to_rust_code, XmlComponentMap};
     use azul_layout::xml::parse_xml_string;
 
@@ -17,25 +17,21 @@ mod kitchen_sink_xml_tests {
             Ok(parsed) => parsed,
             Err(e) => {
                 return format!(
-                    "// Error parsing XML:\n// {}\n\n\
-                     fn main() {{\n\
-                         println!(\"XML Parse Error\");\n\
-                     }}",
+                    "// Error parsing XML:\n// {}\n\nfn main() {{\nprintln!(\"XML Parse \
+                     Error\");\n}}",
                     e
                 );
             }
         };
-        
+
         // Compile to Rust
         let mut component_map = XmlComponentMap::default();
         match str_to_rust_code(parsed.as_ref(), "", &mut component_map) {
             Ok(rust_code) => rust_code,
             Err(e) => {
                 format!(
-                    "// Error compiling XML to Rust:\n// {}\n\n\
-                     fn main() {{\n\
-                         println!(\"Compilation Error\");\n\
-                     }}",
+                    "// Error compiling XML to Rust:\n// {}\n\nfn main() \
+                     {{\nprintln!(\"Compilation Error\");\n}}",
                     e
                 )
             }
@@ -53,14 +49,14 @@ mod kitchen_sink_xml_tests {
     </body>
 </html>
 "#;
-        
+
         let result = compile_to_rust(xml);
-        
+
         // Should produce valid Rust code
         assert!(result.contains("fn main()"));
         assert!(result.contains("use azul::"));
         assert!(result.contains("pub fn render() -> Dom"));
-        
+
         // Should not contain error messages
         assert!(!result.contains("Error parsing XML"));
         assert!(!result.contains("Compilation Error"));
@@ -81,9 +77,9 @@ mod kitchen_sink_xml_tests {
     </body>
 </html>
 "#;
-        
+
         let result = compile_to_rust(xml);
-        
+
         // Should handle CSS styles
         assert!(result.contains("fn main()"));
         assert!(result.contains("main") || result.contains("Class"));
@@ -100,9 +96,9 @@ mod kitchen_sink_xml_tests {
         <div>Unclosed div
     </body>
 "#;
-        
+
         let result = compile_to_rust(xml);
-        
+
         // Should return error message
         assert!(result.contains("Error parsing XML") || result.contains("fn main()"));
     }
@@ -116,9 +112,9 @@ mod kitchen_sink_xml_tests {
     <body></body>
 </html>
 "#;
-        
+
         let result = compile_to_rust(xml);
-        
+
         // Should still generate valid Rust code even for empty body
         assert!(result.contains("fn main()"));
         assert!(result.contains("pub fn render() -> Dom"));
@@ -139,9 +135,9 @@ mod kitchen_sink_xml_tests {
     </body>
 </html>
 "#;
-        
+
         let result = compile_to_rust(xml);
-        
+
         // Should handle nested structures
         assert!(result.contains("fn main()"));
         assert!(result.contains("with_children") || result.contains(".add_child"));

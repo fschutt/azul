@@ -145,6 +145,12 @@ pub mod constants {
     pub const WS_TABSTOP: u32 = 0x00010000;
     pub const WS_POPUP: u32 = 0x80000000;
 
+    // Combined Window Style
+    // WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
+    // WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+    pub const WS_OVERLAPPEDWINDOW: u32 =
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+
     // Extended Window Styles
     pub const WS_EX_APPWINDOW: u32 = 0x00040000;
     pub const WS_EX_ACCEPTFILES: u32 = 0x00000010;

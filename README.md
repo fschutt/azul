@@ -35,3 +35,32 @@ object model for rapid development of beautiful, native desktop applications
 > Visit https://azul.rs/reftest in order to see the current testing and development
 > of the core rendering / HTML layouting engine.
 
+## Building
+
+### Quick Start (macOS Native)
+
+```bash
+cd dll
+cargo build --release
+```
+
+### Cross-Compilation (macOS → Linux/Windows)
+
+Azul supports cross-compilation from macOS to Linux and Windows targets. See **[CROSS_COMPILATION.md](CROSS_COMPILATION.md)** for detailed instructions.
+
+**Quick setup:**
+
+```bash
+# Install toolchains
+brew tap messense/macos-cross-toolchains
+brew install x86_64-unknown-linux-gnu mingw-w64
+
+# Add Rust targets
+rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-gnu
+
+# Build for all platforms
+cd dll
+cargo build --release --target x86_64-unknown-linux-gnu  # Linux
+cargo build --release --target x86_64-pc-windows-gnu     # Windows
+cargo build --release                                     # macOS (native)
+```

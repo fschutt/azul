@@ -49,7 +49,7 @@ taffy = { version = "0.9.1", default-features = false, features = ["std", "flexb
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender", "accessibility"]
 std = ["azul-core/std"]
-cpurender = ["tiny-skia", "allsorts"]
+cpurender = ["tiny-skia", "allsorts", "gl-context-loader"]
 text_layout = ["unicode-normalization", "allsorts", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
 accessibility = ["accesskit"]
 pdf = ["text_layout"]

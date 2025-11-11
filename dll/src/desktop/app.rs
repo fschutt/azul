@@ -10,7 +10,6 @@ use azul_core::{
 };
 use azul_css::{impl_option, impl_option_inner, AzString};
 use azul_layout::{timer::Timer, window_state::WindowCreateOptions};
-use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone)]
@@ -180,7 +179,7 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 #[repr(C)]
 #[derive(Clone)]
 pub struct Clipboard {
-    pub _native: Box<Arc<Mutex<SystemClipboard>>>,
+    pub _phantom: std::marker::PhantomData<()>,
     pub run_destructor: bool,
 }
 
@@ -194,31 +193,53 @@ impl_option!(Clipboard, OptionClipboard, copy = false, [Clone, Debug]);
 
 impl Clipboard {
     pub fn new() -> Option<Self> {
-        let clipboard = SystemClipboard::new().ok()?;
         Some(Self {
-            _native: Box::new(Arc::new(Mutex::new(clipboard))),
+            _phantom: std::marker::PhantomData,
             run_destructor: true,
         })
     }
 
     /// Returns the contents of the system clipboard
     pub fn get_clipboard_string(&self) -> Option<AzString> {
-        self._native
-            .lock()
-            .ok()?
-            .get_string_contents()
-            .map(|o| o.into())
-            .ok()
+        #[cfg(target_os = "windows")]
+        {
+            crate::desktop::shell2::windows::clipboard::get_clipboard_content().map(|s| s.into())
+        }
+        #[cfg(target_os = "macos")]
+        {
+            crate::desktop::shell2::macos::clipboard::get_clipboard_content().map(|s| s.into())
+        }
+        #[cfg(target_os = "linux")]
+        {
+            crate::desktop::shell2::linux::x11::clipboard::get_clipboard_content().map(|s| s.into())
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            None
+        }
     }
 
     /// Sets the contents of the system clipboard
     pub fn set_clipboard_string(&mut self, contents: AzString) -> Option<()> {
-        Arc::get_mut(&mut *self._native)?
-            .get_mut()
-            .ok()?
-            .set_string_contents(contents.into_library_owned_string())
-            .ok()?;
-        Some(())
+        let text = contents.into_library_owned_string();
+
+        #[cfg(target_os = "windows")]
+        {
+            use clipboard_win::{formats, set_clipboard};
+            set_clipboard(formats::Unicode, &text).ok()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            crate::desktop::shell2::macos::clipboard::write_to_clipboard(&text).ok()
+        }
+        #[cfg(target_os = "linux")]
+        {
+            crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).ok()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            None
+        }
     }
 }
 

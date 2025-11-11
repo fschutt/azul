@@ -21,12 +21,9 @@ mod xml_compilation_tests {
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            "",
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Check that output contains expected Rust code patterns
         assert!(rust_code.contains("fn main()"));
@@ -57,22 +54,19 @@ mod xml_compilation_tests {
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            "",
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Verify structure
         assert!(rust_code.contains("pub mod ui"));
         assert!(rust_code.contains("pub fn render() -> Dom"));
         assert!(rust_code.contains("fn main()"));
-        
+
         // Verify CSS classes/IDs are present
         assert!(rust_code.contains("container") || rust_code.contains("Class"));
         assert!(rust_code.contains("text") || rust_code.contains("Id"));
-        
+
         // Verify content is present (either as text or in Dom::text calls)
         assert!(rust_code.contains("Click Me") || rust_code.contains("Dom::text"));
         assert!(rust_code.contains("Some text") || rust_code.contains("Dom::text"));
@@ -96,12 +90,9 @@ mod xml_compilation_tests {
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            "",
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Should be valid Rust code structure
         assert!(rust_code.contains("#![windows_subsystem"));
@@ -111,7 +102,7 @@ mod xml_compilation_tests {
         assert!(rust_code.contains("extern \"C\" fn render"));
         assert!(rust_code.contains("fn main()"));
         assert!(rust_code.contains("App::new"));
-        
+
         // Should contain the actual content
         assert!(rust_code.contains("Line 1"));
         assert!(rust_code.contains("Line 2"));
@@ -129,12 +120,9 @@ mod xml_compilation_tests {
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            "",
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Even with empty body, should have valid structure
         assert!(rust_code.contains("fn main()"));
@@ -171,20 +159,17 @@ mod xml_compilation_tests {
 "#;
 
         let custom_imports = "use std::collections::HashMap;";
-        
+
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            custom_imports,
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), custom_imports, &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Custom imports should be included
         assert!(rust_code.contains("use std::collections::HashMap"));
     }
-    
+
     #[test]
     fn test_realistic_kitchen_sink_example() {
         // Realistic example from the code editor tab
@@ -209,20 +194,17 @@ mod xml_compilation_tests {
 
         let parsed = parse_xml_string(xml_input).expect("Failed to parse XML");
         let mut component_map = XmlComponentMap::default();
-        
-        let rust_code = str_to_rust_code(
-            parsed.as_ref(),
-            "",
-            &mut component_map,
-        ).expect("Failed to compile to Rust");
+
+        let rust_code = str_to_rust_code(parsed.as_ref(), "", &mut component_map)
+            .expect("Failed to compile to Rust");
 
         // Should compile without errors
         assert!(rust_code.contains("fn main()"));
         assert!(rust_code.contains("pub fn render() -> Dom"));
-        
+
         // Should handle CSS styling
         assert!(rust_code.contains("editor") || rust_code.contains("Class"));
-        
+
         // Should be compilable Rust code structure
         assert!(rust_code.contains("use azul::"));
         assert!(rust_code.contains("App::new"));

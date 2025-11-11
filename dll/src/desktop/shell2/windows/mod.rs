@@ -14,6 +14,7 @@
 //! - Common shell2 modules: Compositor, error handling
 
 pub mod accessibility;
+pub mod clipboard;
 pub mod dlopen;
 mod dpi;
 pub mod event;
@@ -2441,10 +2442,7 @@ impl PlatformWindow for Win32Window {
         &mut self,
         clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
     ) {
-        // TODO: Implement Windows clipboard synchronization
-        // 1. If clipboard_manager has pending copy content, write to Windows clipboard
-        // 2. Clear clipboard manager after sync
-        clipboard_manager.clear();
+        clipboard::sync_clipboard(clipboard_manager);
     }
 }
 

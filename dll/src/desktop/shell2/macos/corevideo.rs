@@ -6,8 +6,10 @@
 //! We use dlopen instead of static linking to support older macOS versions
 //! where CoreVideo might not be available or behave differently.
 
-use std::os::raw::{c_void, c_int};
-use std::sync::Arc;
+use std::{
+    os::raw::{c_int, c_void},
+    sync::Arc,
+};
 
 /// CVDisplayLink opaque pointer
 pub type CVDisplayLinkRef = *mut c_void;
@@ -59,8 +61,11 @@ pub type CVDisplayLinkOutputCallback = extern "C" fn(
 pub struct CoreVideoFunctions {
     // CVDisplayLink functions
     // Note: CVDisplayLinkCreateWithCGDisplays takes an array of display IDs and count
-    cv_display_link_create_with_cg_displays:
-        unsafe extern "C" fn(display_array: *const u32, count: u32, display_link_out: *mut CVDisplayLinkRef) -> CVReturn,
+    cv_display_link_create_with_cg_displays: unsafe extern "C" fn(
+        display_array: *const u32,
+        count: u32,
+        display_link_out: *mut CVDisplayLinkRef,
+    ) -> CVReturn,
     cv_display_link_set_output_callback: unsafe extern "C" fn(
         display_link: CVDisplayLinkRef,
         callback: CVDisplayLinkOutputCallback,
@@ -70,7 +75,7 @@ pub struct CoreVideoFunctions {
     cv_display_link_stop: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> CVReturn,
     cv_display_link_release: unsafe extern "C" fn(display_link: CVDisplayLinkRef),
     cv_display_link_is_running: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> bool,
-    
+
     // Keep the library handle to prevent unloading
     #[allow(dead_code)]
     lib: libloading::Library,
@@ -83,8 +88,10 @@ impl CoreVideoFunctions {
     pub fn load() -> Result<Arc<Self>, String> {
         unsafe {
             // Try to load CoreVideo framework
-            let lib = libloading::Library::new("/System/Library/Frameworks/CoreVideo.framework/CoreVideo")
-                .map_err(|e| format!("Failed to load CoreVideo framework: {}", e))?;
+            let lib = libloading::Library::new(
+                "/System/Library/Frameworks/CoreVideo.framework/CoreVideo",
+            )
+            .map_err(|e| format!("Failed to load CoreVideo framework: {}", e))?;
 
             // Load CVDisplayLink functions
             let cv_display_link_create_with_cg_displays = *lib
@@ -128,13 +135,13 @@ impl CoreVideoFunctions {
         unsafe {
             let mut display_link: CVDisplayLinkRef = std::ptr::null_mut();
             let display_array = [display_id];
-            
+
             let result = (self.cv_display_link_create_with_cg_displays)(
                 display_array.as_ptr(),
                 1, // count
                 &mut display_link,
             );
-            
+
             if result == K_CV_RETURN_SUCCESS {
                 if display_link.is_null() {
                     return Err(-1);
@@ -153,9 +160,7 @@ impl CoreVideoFunctions {
         callback: CVDisplayLinkOutputCallback,
         user_info: *mut c_void,
     ) -> CVReturn {
-        unsafe {
-            (self.cv_display_link_set_output_callback)(display_link, callback, user_info)
-        }
+        unsafe { (self.cv_display_link_set_output_callback)(display_link, callback, user_info) }
     }
 
     /// Start the CVDisplayLink
@@ -187,10 +192,7 @@ pub struct DisplayLink {
 
 impl DisplayLink {
     /// Create a new DisplayLink for a specific display
-    pub fn new(
-        display_id: u32,
-        cv_functions: Arc<CoreVideoFunctions>,
-    ) -> Result<Self, CVReturn> {
+    pub fn new(display_id: u32, cv_functions: Arc<CoreVideoFunctions>) -> Result<Self, CVReturn> {
         let display_link = cv_functions.create_display_link(display_id)?;
         Ok(Self {
             display_link,
