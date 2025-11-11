@@ -12351,40 +12351,20 @@
             ],
             "enum_fields": [
               {
-                "Auto": {
-                  "type": "Struct",
-                  "fields": []
-                }
+                "Auto": {}
               },
               {
-                "None": {
-                  "type": "Struct",
-                  "fields": []
-                }
+                "None": {}
               },
               {
-                "Initial": {
-                  "type": "Struct",
-                  "fields": []
-                }
+                "Initial": {}
               },
               {
-                "Inherit": {
-                  "type": "Struct",
-                  "fields": []
-                }
+                "Inherit": {}
               },
               {
                 "Exact": {
-                  "type": "Struct",
-                  "fields": [
-                    {
-                      "0": {
-                        "type": "T",
-                        "name": "0"
-                      }
-                    }
-                  ]
+                  "type": "T"
                 }
               }
             ]

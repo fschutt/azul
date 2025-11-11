@@ -68,6 +68,7 @@ pub struct StructMetadata {
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
     pub callback_typedef: Option<crate::api::CallbackDefinition>,
     pub type_alias: Option<crate::api::TypeAliasInfo>,
+    pub generic_params: Option<Vec<String>>,
 }
 
 impl StructMetadata {
@@ -112,6 +113,7 @@ impl StructMetadata {
             enum_fields: class_data.enum_fields.clone(),
             callback_typedef: class_data.callback_typedef.clone(),
             type_alias: class_data.type_alias.clone(),
+            generic_params: class_data.generic_params.clone(),
         }
     }
 }
@@ -535,16 +537,32 @@ fn generate_struct_definition(
     code.push_str(&opt_derive_default);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
-    code.push_str(&format!("{}pub struct {} {{\n", indent_str, struct_name));
+    
+    // Add generic parameters if present
+    let generic_params_str = if let Some(params) = &struct_meta.generic_params {
+        if params.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", params.join(", "))
+        }
+    } else {
+        String::new()
+    };
+    
+    code.push_str(&format!("{}pub struct {}{} {{\n", indent_str, struct_name, generic_params_str));
 
     // Generate fields
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
             let field_type = &field_data.r#type;
-            let (prefix, base_type, suffix) = analyze_type(field_type);
-
-            if is_primitive_arg(&base_type) {
-                // Primitive type - use as-is
+            
+            // Check if this is a generic type parameter (like T)
+            let is_generic_param = struct_meta.generic_params.as_ref()
+                .map(|params| params.contains(&field_type.to_string()))
+                .unwrap_or(false);
+            
+            if is_generic_param {
+                // Generic type parameter - use as-is
                 let visibility = if field_name == "ptr" && config.private_pointers {
                     "pub(crate)"
                 } else {
@@ -555,45 +573,60 @@ fn generate_struct_definition(
                     indent_str, visibility, field_name, field_type
                 ));
             } else {
-                // Complex type - need to resolve and add prefix
-                if let Some((_, class_name)) =
-                    search_for_class_by_class_name(version_data, &base_type)
-                {
-                    let visibility = if field_name == "ptr" {
+                let (prefix, base_type, suffix) = analyze_type(field_type);
+
+                if is_primitive_arg(&base_type) {
+                    // Primitive type - use as-is
+                    let visibility = if field_name == "ptr" && config.private_pointers {
                         "pub(crate)"
                     } else {
                         "pub"
                     };
-
-                    // Check if we need wrapper postfix (for enums in Python bindings)
-                    let mut field_postfix = config.wrapper_postfix.clone();
-                    let prevent_wrapper_recursion = !config.wrapper_postfix.is_empty()
-                        && struct_name.ends_with(&config.wrapper_postfix);
-
-                    if let Some(found_class) = get_class(version_data, "", class_name) {
-                        let found_is_enum = found_class.enum_fields.is_some();
-                        if !found_is_enum || prevent_wrapper_recursion {
-                            field_postfix.clear();
-                        }
-                    }
-
                     code.push_str(&format!(
-                        "{}    {} {}: {}{}{}{}{},\n",
-                        indent_str,
-                        visibility,
-                        field_name,
-                        prefix,
-                        &config.prefix,
-                        class_name,
-                        field_postfix,
-                        suffix
+                        "{}    {} {}: {},\n",
+                        indent_str, visibility, field_name, field_type
                     ));
                 } else {
-                    // Type not found - use as-is
-                    code.push_str(&format!(
-                        "{}    pub {}: {},\n",
-                        indent_str, field_name, field_type
-                    ));
+                    // Complex type - need to resolve and add prefix
+                    if let Some((_, class_name)) =
+                        search_for_class_by_class_name(version_data, &base_type)
+                    {
+                        let visibility = if field_name == "ptr" {
+                            "pub(crate)"
+                        } else {
+                            "pub"
+                        };
+
+                        // Check if we need wrapper postfix (for enums in Python bindings)
+                        let mut field_postfix = config.wrapper_postfix.clone();
+                        let prevent_wrapper_recursion = !config.wrapper_postfix.is_empty()
+                            && struct_name.ends_with(&config.wrapper_postfix);
+
+                        if let Some(found_class) = get_class(version_data, "", class_name) {
+                            let found_is_enum = found_class.enum_fields.is_some();
+                            if !found_is_enum || prevent_wrapper_recursion {
+                                field_postfix.clear();
+                            }
+                        }
+
+                        code.push_str(&format!(
+                            "{}    {} {}: {}{}{}{}{},\n",
+                            indent_str,
+                            visibility,
+                            field_name,
+                            prefix,
+                            &config.prefix,
+                            class_name,
+                            field_postfix,
+                            suffix
+                        ));
+                    } else {
+                        // Type not found - use as-is
+                        code.push_str(&format!(
+                            "{}    pub {}: {},\n",
+                            indent_str, field_name, field_type
+                        ));
+                    }
                 }
             }
         }
@@ -766,13 +799,36 @@ fn generate_enum_definition(
     code.push_str(&opt_derive_default);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
-    code.push_str(&format!("{}pub enum {} {{\n", indent_str, struct_name));
+    
+    // Add generic parameters if present
+    let generic_params_str = if let Some(params) = &struct_meta.generic_params {
+        if params.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", params.join(", "))
+        }
+    } else {
+        String::new()
+    };
+    
+    code.push_str(&format!("{}pub enum {}{} {{\n", indent_str, struct_name, generic_params_str));
 
     // Generate variants
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
             if let Some(variant_type) = &variant_data.r#type {
-                if is_primitive_arg(variant_type) {
+                // Check if this is a generic type parameter (like T)
+                let is_generic_param = struct_meta.generic_params.as_ref()
+                    .map(|params| params.contains(&variant_type.to_string()))
+                    .unwrap_or(false);
+                
+                if is_generic_param {
+                    // Generic type parameter - use as-is
+                    code.push_str(&format!(
+                        "{}    {}({}),\n",
+                        indent_str, variant_name, variant_type
+                    ));
+                } else if is_primitive_arg(variant_type) {
                     // Primitive variant
                     code.push_str(&format!(
                         "{}    {}({}),\n",
