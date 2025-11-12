@@ -5,28 +5,15 @@
 # Linux Cross-Compilation Setup (x86_64-unknown-linux-gnu)
 # =============================================================================
 #
-# REQUIRED: Install the Linux cross-compilation toolchain:
+# On macOS, use cargo-zigbuild for Linux cross-compilation:
 #
-#   brew tap messense/macos-cross-toolchains
-#   brew install x86_64-unknown-linux-gnu
-#
-# This installs:
-#   - x86_64-unknown-linux-gnu-gcc (C compiler)
-#   - x86_64-unknown-linux-gnu-g++ (C++ compiler)
-#   - x86_64-unknown-linux-gnu-ar (archiver)
-#   - Complete Linux glibc headers and libraries
-#
-# After installation, you can build for Linux:
-#   cd dll
-#   cargo build --release --bin kitchen_sink --target x86_64-unknown-linux-gnu
+#   cargo install cargo-zigbuild
+#   cargo zigbuild --release --bin kitchen_sink --target x86_64-unknown-linux-gnu
 #
 # The resulting binary will be at:
 #   target/x86_64-unknown-linux-gnu/release/kitchen_sink
 #
 # =============================================================================
-
-[target.x86_64-unknown-linux-gnu]
-linker = "x86_64-unknown-linux-gnu-gcc"
 
 # =============================================================================
 # Windows Cross-Compilation Setup (x86_64-pc-windows-gnu)
