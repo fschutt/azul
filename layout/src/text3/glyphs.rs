@@ -118,6 +118,8 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
         match &item.item {
             ShapedItem::Cluster(cluster) => {
                 let writing_mode = cluster.style.writing_mode;
+                eprintln!("[get_glyph_runs] Cluster at pos=({}, {}), writing_mode={:?}, {} glyphs", 
+                    item.position.x, item.position.y, writing_mode, cluster.glyphs.len());
                 process_glyphs(&cluster.glyphs, item.position.x, writing_mode);
             }
             // This is a rare case for tate-chu-yoko (mixed horizontal+vertical text)

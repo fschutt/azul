@@ -784,7 +784,8 @@ fn test_empty_input_layout() {
 
     let main_layout = result.fragment_layouts.get("main").unwrap();
     assert!(main_layout.items.is_empty());
-    assert_eq!(main_layout.bounds.width, 0.0);
-    assert_eq!(main_layout.bounds.height, 0.0);
+    let main_bounds = main_layout.bounds();
+    assert_eq!(main_bounds.width, 0.0);
+    assert_eq!(main_bounds.height, 0.0);
     assert!(result.remaining_items.is_empty());
 }

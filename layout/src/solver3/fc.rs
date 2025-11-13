@@ -521,9 +521,12 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     );
 
     if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
+        let frag_bounds = main_frag.bounds();
         eprintln!(
-            "[layout_ifc] ✓ Found 'main' fragment with {} items",
-            main_frag.items.len()
+            "[layout_ifc] ✓ Found 'main' fragment with {} items, bounds={}x{}",
+            main_frag.items.len(),
+            frag_bounds.width,
+            frag_bounds.height
         );
         eprintln!(
             "[layout_ifc] ✓ Storing inline_layout_result on node {}",
@@ -534,7 +537,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         node.inline_layout_result = Some(main_frag.clone());
 
         // Extract the overall size and baseline for the IFC root.
-        output.overflow_size = LogicalSize::new(main_frag.bounds.width, main_frag.bounds.height);
+        output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
         output.baseline = main_frag.last_baseline();
         node.baseline = output.baseline;
 
@@ -634,6 +637,14 @@ fn translate_to_text3_constraints<'a>(
     // Note: vertical_align and text_orientation property getters not yet available, using defaults
     let vertical_align = StyleVerticalAlign::default();
     let text_orientation = text3::cache::TextOrientation::default();
+
+    eprintln!(
+        "[translate_to_text3_constraints] dom_id={:?}, available_size={}x{}, setting available_width={}",
+        dom_id,
+        constraints.available_size.width,
+        constraints.available_size.height,
+        constraints.available_size.width
+    );
 
     UnifiedConstraints {
         exclusion_margin: 0.0,                   // TODO: support -azul-exclusion-margin

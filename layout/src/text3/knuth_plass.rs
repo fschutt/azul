@@ -53,7 +53,6 @@ pub(super) fn kp_layout<T: ParsedFontTrait>(
     if items.is_empty() {
         return Ok(UnifiedLayout {
             items: Vec::new(),
-            bounds: Rect::default(),
             overflow: OverflowInfo::default(),
             used_fonts: std::collections::BTreeMap::new(),
         });
@@ -418,15 +417,8 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
         start_node = end_node;
     }
 
-    let bounds = Rect {
-        x: 0.0,
-        y: 0.0,
-        width: constraints.available_width,
-        height: cross_axis_pen,
-    };
     UnifiedLayout {
         items: positioned_items,
-        bounds,
         overflow: OverflowInfo::default(),
         used_fonts: std::collections::BTreeMap::new(),
     }

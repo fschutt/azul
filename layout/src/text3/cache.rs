@@ -2255,7 +2255,6 @@ pub struct PositionedItem<T: ParsedFontTrait> {
 #[derive(Debug, Clone)]
 pub struct UnifiedLayout<T: ParsedFontTrait> {
     pub items: Vec<PositionedItem<T>>,
-    pub bounds: Rect,
     /// Information about content that did not fit.
     pub overflow: OverflowInfo<T>,
     /// Map of font hashes to the actual parsed fonts used in this layout.
@@ -2265,6 +2264,41 @@ pub struct UnifiedLayout<T: ParsedFontTrait> {
 }
 
 impl<T: ParsedFontTrait> UnifiedLayout<T> {
+    /// Calculate the bounding box of all positioned items.
+    /// This is computed on-demand rather than cached.
+    pub fn bounds(&self) -> Rect {
+        if self.items.is_empty() {
+            return Rect::default();
+        }
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+
+        for item in &self.items {
+            let item_x = item.position.x;
+            let item_y = item.position.y;
+            
+            // Get item dimensions
+            let item_bounds = item.item.bounds();
+            let item_width = item_bounds.width;
+            let item_height = item_bounds.height;
+
+            min_x = min_x.min(item_x);
+            min_y = min_y.min(item_y);
+            max_x = max_x.max(item_x + item_width);
+            max_y = max_y.max(item_y + item_height);
+        }
+
+        Rect {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -4295,12 +4329,19 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         "--- [DEBUG] Exiting perform_fragment_layout, positioned {} items ---",
         positioned_items.len()
     );
+    
     let mut layout = UnifiedLayout {
         items: positioned_items,
-        bounds: layout_bounds,
         overflow: OverflowInfo::default(),
         used_fonts: std::collections::BTreeMap::new(),
     };
+
+    // Calculate bounds on demand via the bounds() method
+    let calculated_bounds = layout.bounds();
+    println!(
+        "--- [DEBUG] Calculated bounds: width={}, height={} ---",
+        calculated_bounds.width, calculated_bounds.height
+    );
 
     // Collect all fonts used in this layout
     layout.collect_used_fonts();
@@ -4702,6 +4743,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     y: main_axis_pen,
                 }
             } else {
+                println!("[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, item_ascent={}", 
+                    main_axis_pen, item_baseline_pos, item_ascent);
                 Point {
                     y: item_baseline_pos - item_ascent,
                     x: main_axis_pen,

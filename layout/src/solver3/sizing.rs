@@ -300,20 +300,20 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         let min_width = min_layout
             .fragment_layouts
             .get("min")
-            .map(|l| l.bounds.width)
+            .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
         let max_width = max_layout
             .fragment_layouts
             .get("max")
-            .map(|l| l.bounds.width)
+            .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
         // The height is typically calculated at the max_content_width.
         let height = max_layout
             .fragment_layouts
             .get("max")
-            .map(|l| l.bounds.height)
+            .map(|l| l.bounds().height)
             .unwrap_or(0.0);
 
         Ok(IntrinsicSizes {

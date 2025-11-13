@@ -96,9 +96,12 @@ impl GpuStateManager {
             let content_size = node
                 .inline_layout_result
                 .as_ref()
-                .map(|l| LogicalSize {
-                    width: l.bounds.width,
-                    height: l.bounds.height,
+                .map(|l| {
+                    let bounds = l.bounds();
+                    LogicalSize {
+                        width: bounds.width,
+                        height: bounds.height,
+                    }
                 })
                 .unwrap_or(container_size);
 

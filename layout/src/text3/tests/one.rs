@@ -630,13 +630,8 @@ fn test_empty_input_layout() {
         .unwrap()
         .items
         .is_empty());
-    assert_eq!(
-        result.fragment_layouts.get("main").unwrap().bounds.width,
-        0.0
-    );
-    assert_eq!(
-        result.fragment_layouts.get("main").unwrap().bounds.height,
-        0.0
-    );
+    let main_bounds = result.fragment_layouts.get("main").unwrap().bounds();
+    assert_eq!(main_bounds.width, 0.0);
+    assert_eq!(main_bounds.height, 0.0);
     assert!(result.remaining_items.is_empty());
 }
