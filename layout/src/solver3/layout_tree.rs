@@ -118,6 +118,8 @@ pub struct LayoutNode<T: ParsedFontTrait> {
 pub enum AnonymousBoxType {
     /// Anonymous block box wrapping inline content
     InlineWrapper,
+    /// Anonymous box for a list item marker (bullet or number)
+    ListItemMarker,
     /// Anonymous table wrapper
     TableWrapper,
     /// Anonymous table row group (tbody)
@@ -280,8 +282,17 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             node_idx, display_type
         );
 
+        // If this is a list-item, inject an anonymous marker box as its first child
+        if display_type == LayoutDisplay::ListItem {
+            self.create_anonymous_node(
+                node_idx,
+                AnonymousBoxType::ListItemMarker,
+                FormattingContext::Inline, // The marker itself contains inline text
+            );
+        }
+
         match display_type {
-            LayoutDisplay::Block | LayoutDisplay::InlineBlock | LayoutDisplay::FlowRoot => {
+            LayoutDisplay::Block | LayoutDisplay::InlineBlock | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
                 self.process_block_children(styled_dom, dom_id, node_idx)?
             }
             LayoutDisplay::Table => self.process_table_children(styled_dom, dom_id, node_idx)?,
@@ -547,6 +558,7 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::Table
             | LayoutDisplay::TableRow
             | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::ListItem
     )
 }
 
@@ -760,12 +772,17 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
+        
+        // ListItem establishes its own Block Formatting Context for its content
+        LayoutDisplay::ListItem => FormattingContext::Block {
+            establishes_new_context: true,
+        },
+        
         LayoutDisplay::Initial | LayoutDisplay::Inherit => FormattingContext::Block {
             establishes_new_context: true,
         },
         // These less common display types default to block behavior
-        LayoutDisplay::ListItem
-        | LayoutDisplay::TableColumn
+        LayoutDisplay::TableColumn
         | LayoutDisplay::RunIn
         | LayoutDisplay::Marker => FormattingContext::Block {
             establishes_new_context: true,

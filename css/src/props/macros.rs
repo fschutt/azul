@@ -534,6 +534,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::CounterIncrement => {
                 CssProperty::CounterIncrement(CssPropertyValue::$content_type)
             }
+            CssPropertyType::ListStyleType => {
+                CssProperty::ListStyleType(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ListStylePosition => {
+                CssProperty::ListStylePosition(CssPropertyValue::$content_type)
+            }
             CssPropertyType::StringSet => CssProperty::StringSet(CssPropertyValue::$content_type),
         }
     }};

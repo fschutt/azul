@@ -13,7 +13,7 @@ use azul_css::props::{
         LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent,
         LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
     },
-    style::StyleTextAlign,
+    style::{StyleTextAlign, lists::{StyleListStyleType, StyleListStylePosition}},
 };
 
 use crate::{
@@ -485,4 +485,38 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         line_height,
         ..Default::default()
     }
+}
+
+pub fn get_list_style_type(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+) -> StyleListStyleType {
+    let Some(id) = dom_id else {
+        return StyleListStyleType::default();
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_list_style_type(node_data, &id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_list_style_position(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+) -> StyleListStylePosition {
+    let Some(id) = dom_id else {
+        return StyleListStylePosition::default();
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_list_style_position(node_data, &id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
 }

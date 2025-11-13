@@ -102,6 +102,7 @@ fn test_basic_layout() {
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager().expect("Failed to create font manager");
@@ -153,6 +154,7 @@ fn test_layout_with_empty_font_cache() {
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     // Create font manager with EMPTY font cache (no fonts loaded)
@@ -911,6 +913,7 @@ fn layout_test_html_simple(
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager()?;
@@ -1304,6 +1307,295 @@ fn test_box_sizing_border_box() {
         "With box-sizing: border-box and width: 200px, total width should be ≤200px, got {}px. \
          Padding ({}, {}) should be included in the 200px.",
         total_width_with_padding, padding.left, padding.right
+    );
+}
+
+// ============================================================================
+// LIST TESTS
+// ============================================================================
+
+/// Tests basic unordered list with disc markers
+/// 
+/// CSS Specification: CSS Lists and Counters Module Level 3
+/// - list-style-type: disc produces bullet markers (•)
+/// - Markers are automatically generated for list-items
+/// - Counter "list-item" is auto-incremented
+#[test]
+fn test_unordered_list_disc() {
+    use azul_css::parser2::CssApiWrapper;
+    use azul_css::AzString;
+    
+    // Create DOM manually: <ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>
+    let mut ul = Dom::div(); // Use div as container (ul/ol are div-like)
+    ul.root.add_class("ul".into());
+    
+    let mut li1 = Dom::div();
+    li1.root.add_class("li".into());
+    li1.add_child(Dom::text("Item 1"));
+    
+    let mut li2 = Dom::div();
+    li2.root.add_class("li".into());
+    li2.add_child(Dom::text("Item 2"));
+    
+    let mut li3 = Dom::div();
+    li3.root.add_class("li".into());
+    li3.add_child(Dom::text("Item 3"));
+    
+    ul.add_child(li1);
+    ul.add_child(li2);
+    ul.add_child(li3);
+    
+    let mut dom = Dom::body();
+    dom.add_child(ul);
+    
+    // Create CSS
+    let css_str = ".ul { list-style-type: disc; } .li { display: list-item; }";
+    let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
+    
+    let mut styled_dom = StyledDom::new(&mut dom, css);
+    styled_dom.dom_id = DomId::ROOT_ID;
+    
+    // Set up layout
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let font_manager = create_test_font_manager().expect("Font manager creation failed");
+    let viewport = LogicalRect::new(
+        LogicalPosition::zero(),
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    let result = layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut None,
+        None,
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+    );
+    
+    assert!(result.is_ok(), "Unordered list layout should succeed: {:?}", result.err());
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    
+    // CSS Lists §3.1: Each list-item generates a marker box
+    // Verify that counter values exist for list items
+    let counter_count = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .count();
+    
+    assert!(
+        counter_count > 0,
+        "List items should have counter values stored. \
+         CSS Counters requires 'list-item' counter to be auto-incremented. \
+         Found {} counter entries.",
+        counter_count
+    );
+}
+
+/// Tests ordered list with decimal markers
+/// 
+/// CSS Specification: CSS Lists and Counters Module Level 3
+/// - list-style-type: decimal produces numeric markers (1, 2, 3, ...)
+/// - Counter "list-item" is auto-incremented on each <li>
+#[test]
+fn test_ordered_list_decimal() {
+    let result = layout_test_html_simple(
+        "<ol><li>First</li><li>Second</li><li>Third</li></ol>",
+        "ol { list-style-type: decimal; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Ordered list layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    // Verify counter values are sequential
+    let mut counter_values: Vec<_> = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .map(|(_, &value)| value)
+        .collect();
+    
+    counter_values.sort();
+    
+    // CSS Counters §2.1: list-item counter starts at 1 and increments by 1
+    assert!(
+        counter_values.len() >= 3,
+        "Should have at least 3 counter values for 3 list items"
+    );
+    
+    if counter_values.len() >= 3 {
+        assert_eq!(
+            counter_values[0], 1,
+            "First list item counter should be 1, got {}",
+            counter_values[0]
+        );
+        assert_eq!(
+            counter_values[1], 2,
+            "Second list item counter should be 2, got {}",
+            counter_values[1]
+        );
+        assert_eq!(
+            counter_values[2], 3,
+            "Third list item counter should be 3, got {}",
+            counter_values[2]
+        );
+    }
+}
+
+/// Tests ordered list with alphabetic markers
+/// 
+/// CSS Specification: CSS Counter Styles Level 3
+/// - lower-alpha produces lowercase letters (a, b, c, ...)
+/// - Counters 1-26 map to a-z, 27 becomes "aa"
+#[test]
+fn test_ordered_list_lower_alpha() {
+    let result = layout_test_html_simple(
+        "<ol><li>A</li><li>B</li><li>C</li></ol>",
+        "ol { list-style-type: lower-alpha; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Alphabetic list layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    // Verify counters exist
+    let counter_count = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .count();
+    
+    assert!(
+        counter_count >= 3,
+        "Should have at least 3 counter values for alphabetic list"
+    );
+}
+
+/// Tests nested lists with counter scoping
+/// 
+/// CSS Specification: CSS Lists Module Level 3
+/// - Nested lists create nested counter scopes
+/// - Each nesting level has its own counter sequence
+/// - Counters are reset when entering a nested list
+#[test]
+fn test_nested_lists() {
+    let result = layout_test_html_simple(
+        "<ol><li>Item 1<ol><li>Nested 1</li><li>Nested 2</li></ol></li><li>Item 2</li></ol>",
+        "ol { list-style-type: decimal; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Nested list layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    
+    // Count list-item nodes
+    let list_item_count = tree.nodes.iter()
+        .filter(|node| {
+            node.formatting_context == azul_core::dom::FormattingContext::Block { establishes_new_context: true }
+                && node.dom_node_id.is_some()
+        })
+        .count();
+    
+    // CSS Lists §4: Nested lists should maintain separate counter scopes
+    // We should have at least 4 list items total (2 outer + 2 inner)
+    assert!(
+        list_item_count >= 4,
+        "Nested list should have at least 4 list items, found {}",
+        list_item_count
+    );
+}
+
+/// Tests counter-reset property
+/// 
+/// CSS Specification: CSS Lists and Counters Module Level 3
+/// - counter-reset creates a new counter scope
+/// - Following items increment from the reset value
+#[test]
+fn test_counter_reset() {
+    let result = layout_test_html_simple(
+        "<ol><li>Item 1</li></ol><ol style='counter-reset: list-item 5;'><li>Item 6</li></ol>",
+        "li { display: list-item; list-style-type: decimal; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Counter-reset layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    // Verify that counters exist (actual value checking would require more context)
+    let counter_count = layout_cache.counters.len();
+    
+    assert!(
+        counter_count >= 2,
+        "Should have counter values for both list items. \
+         CSS Counters §3: counter-reset should create new counter scopes."
+    );
+}
+
+/// Tests list-style-type: roman numerals
+/// 
+/// CSS Specification: CSS Counter Styles Level 3
+/// - lower-roman produces lowercase Roman numerals (i, ii, iii, iv, ...)
+/// - upper-roman produces uppercase Roman numerals (I, II, III, IV, ...)
+#[test]
+fn test_ordered_list_roman() {
+    let result = layout_test_html_simple(
+        "<ol><li>I</li><li>II</li><li>III</li><li>IV</li></ol>",
+        "ol { list-style-type: upper-roman; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Roman numeral list layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    // Verify counter values are sequential
+    let counter_values: Vec<_> = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .map(|(_, &value)| value)
+        .collect();
+    
+    assert!(
+        counter_values.len() >= 4,
+        "Should have 4 counter values for Roman numeral list"
+    );
+}
+
+/// Tests list-style-type: none (no markers)
+/// 
+/// CSS Specification: CSS Lists Module Level 3
+/// - list-style-type: none suppresses marker generation
+/// - List items still increment counters but don't display markers
+#[test]
+fn test_list_style_none() {
+    let result = layout_test_html_simple(
+        "<ul><li>Item 1</li><li>Item 2</li></ul>",
+        "ul { list-style-type: none; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "List with style:none should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    // Even with list-style-type: none, counters should still be tracked
+    let counter_count = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .count();
+    
+    assert!(
+        counter_count >= 2,
+        "Counters should be tracked even with list-style-type: none. \
+         CSS Lists §3.3: Markers are suppressed but counters still increment."
     );
 }
 

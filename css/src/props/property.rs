@@ -39,7 +39,7 @@ use crate::{
         },
         style::{
             background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
-            filter::*, scrollbar::*, text::*, transform::*, SelectionBackgroundColor,
+            filter::*, lists::*, scrollbar::*, text::*, transform::*, SelectionBackgroundColor,
             SelectionColor,
         },
     },
@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 128] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 130] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -220,6 +220,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 128] = [
     (CssPropertyType::Content, "content"),
     (CssPropertyType::CounterReset, "counter-reset"),
     (CssPropertyType::CounterIncrement, "counter-increment"),
+    (CssPropertyType::ListStyleType, "list-style-type"),
+    (CssPropertyType::ListStylePosition, "list-style-position"),
     (CssPropertyType::StringSet, "string-set"),
 ];
 
@@ -343,6 +345,8 @@ pub type ShapeImageThresholdValue = CssPropertyValue<ShapeImageThreshold>;
 pub type ContentValue = CssPropertyValue<Content>;
 pub type CounterResetValue = CssPropertyValue<CounterReset>;
 pub type CounterIncrementValue = CssPropertyValue<CounterIncrement>;
+pub type StyleListStyleTypeValue = CssPropertyValue<StyleListStyleType>;
+pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -566,6 +570,8 @@ pub enum CssProperty {
     Content(ContentValue),
     CounterReset(CounterResetValue),
     CounterIncrement(CounterIncrementValue),
+    ListStyleType(StyleListStyleTypeValue),
+    ListStylePosition(StyleListStylePositionValue),
     StringSet(StringSetValue),
 }
 
@@ -722,6 +728,8 @@ pub enum CssPropertyType {
     Content,
     CounterReset,
     CounterIncrement,
+    ListStyleType,
+    ListStylePosition,
     StringSet,
 }
 
@@ -890,6 +898,8 @@ impl CssPropertyType {
             CssPropertyType::Content => "content",
             CssPropertyType::CounterReset => "counter-reset",
             CssPropertyType::CounterIncrement => "counter-increment",
+            CssPropertyType::ListStyleType => "list-style-type",
+            CssPropertyType::ListStylePosition => "list-style-position",
             CssPropertyType::StringSet => "string-set",
         }
     }
@@ -1114,6 +1124,8 @@ pub enum CssParsingError<'a> {
     // Content
     Content, // Simplified errors for now
     Counter,
+    ListStyleType(StyleListStyleTypeParseError<'a>),
+    ListStylePosition(StyleListStylePositionParseError<'a>),
     StringSet,
 }
 
@@ -1249,6 +1261,8 @@ pub enum CssParsingErrorOwned {
     // Content
     Content,
     Counter,
+    ListStyleType(StyleListStyleTypeParseErrorOwned),
+    ListStylePosition(StyleListStylePositionParseErrorOwned),
     StringSet,
 }
 
@@ -1352,6 +1366,8 @@ impl_display! { CssParsingError<'a>, {
     GenericParseError => "Failed to parse value",
     Content => "Failed to parse content property",
     Counter => "Failed to parse counter property",
+    ListStyleType(e) => format!("Invalid list-style-type: {}", e),
+    ListStylePosition(e) => format!("Invalid list-style-position: {}", e),
     StringSet => "Failed to parse string-set property",
 }}
 
@@ -1749,6 +1765,12 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::GenericParseError => CssParsingErrorOwned::GenericParseError,
             CssParsingError::Content => CssParsingErrorOwned::Content,
             CssParsingError::Counter => CssParsingErrorOwned::Counter,
+            CssParsingError::ListStyleType(e) => {
+                CssParsingErrorOwned::ListStyleType(e.to_contained())
+            }
+            CssParsingError::ListStylePosition(e) => {
+                CssParsingErrorOwned::ListStylePosition(e.to_contained())
+            }
             CssParsingError::StringSet => CssParsingErrorOwned::StringSet,
         }
     }
@@ -1908,6 +1930,10 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::GenericParseError => CssParsingError::GenericParseError,
             CssParsingErrorOwned::Content => CssParsingError::Content,
             CssParsingErrorOwned::Counter => CssParsingError::Counter,
+            CssParsingErrorOwned::ListStyleType(e) => CssParsingError::ListStyleType(e.to_shared()),
+            CssParsingErrorOwned::ListStylePosition(e) => {
+                CssParsingError::ListStylePosition(e.to_shared())
+            }
             CssParsingErrorOwned::StringSet => CssParsingError::StringSet,
         }
     }
@@ -2169,6 +2195,16 @@ pub fn parse_css_property<'a>(
             CssPropertyType::CounterIncrement => CssProperty::CounterIncrement(
                 parse_counter_increment(value)
                     .map_err(|_| CssParsingError::Counter)?
+                    .into(),
+            ),
+            CssPropertyType::ListStyleType => CssProperty::ListStyleType(
+                parse_style_list_style_type(value)
+                    .map_err(|e| CssParsingError::ListStyleType(e))?
+                    .into(),
+            ),
+            CssPropertyType::ListStylePosition => CssProperty::ListStylePosition(
+                parse_style_list_style_position(value)
+                    .map_err(|e| CssParsingError::ListStylePosition(e))?
                     .into(),
             ),
             CssPropertyType::StringSet => CssProperty::StringSet(
@@ -2898,6 +2934,8 @@ impl_from_css_prop!(ShapeImageThreshold, CssProperty::ShapeImageThreshold);
 impl_from_css_prop!(Content, CssProperty::Content);
 impl_from_css_prop!(CounterReset, CssProperty::CounterReset);
 impl_from_css_prop!(CounterIncrement, CssProperty::CounterIncrement);
+impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
+impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
 
 impl CssProperty {
@@ -3035,6 +3073,8 @@ impl CssProperty {
             CssProperty::Content(v) => v.get_css_value_fmt(),
             CssProperty::CounterReset(v) => v.get_css_value_fmt(),
             CssProperty::CounterIncrement(v) => v.get_css_value_fmt(),
+            CssProperty::ListStyleType(v) => v.get_css_value_fmt(),
+            CssProperty::ListStylePosition(v) => v.get_css_value_fmt(),
             CssProperty::StringSet(v) => v.get_css_value_fmt(),
         }
     }
@@ -3451,6 +3491,8 @@ impl CssProperty {
             CssProperty::Content(_) => CssPropertyType::Content,
             CssProperty::CounterReset(_) => CssPropertyType::CounterReset,
             CssProperty::CounterIncrement(_) => CssPropertyType::CounterIncrement,
+            CssProperty::ListStyleType(_) => CssPropertyType::ListStyleType,
+            CssProperty::ListStylePosition(_) => CssPropertyType::ListStylePosition,
             CssProperty::StringSet(_) => CssPropertyType::StringSet,
         }
     }
@@ -3786,6 +3828,12 @@ impl CssProperty {
     }
     pub const fn counter_increment(input: CounterIncrement) -> Self {
         CssProperty::CounterIncrement(CssPropertyValue::Exact(input))
+    }
+    pub const fn list_style_type(input: StyleListStyleType) -> Self {
+        CssProperty::ListStyleType(CssPropertyValue::Exact(input))
+    }
+    pub const fn list_style_position(input: StyleListStylePosition) -> Self {
+        CssProperty::ListStylePosition(CssPropertyValue::Exact(input))
     }
     pub const fn string_set(input: StringSet) -> Self {
         CssProperty::StringSet(CssPropertyValue::Exact(input))
@@ -4568,6 +4616,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
+        match self {
+            CssProperty::ListStyleType(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_list_style_position(&self) -> Option<&StyleListStylePositionValue> {
+        match self {
+            CssProperty::ListStylePosition(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_string_set(&self) -> Option<&StringSetValue> {
         match self {
             CssProperty::StringSet(f) => Some(f),
@@ -4719,6 +4779,8 @@ impl CssProperty {
             Content(c) => c.is_initial(),
             CounterReset(c) => c.is_initial(),
             CounterIncrement(c) => c.is_initial(),
+            ListStyleType(c) => c.is_initial(),
+            ListStylePosition(c) => c.is_initial(),
             StringSet(c) => c.is_initial(),
         }
     }
@@ -5005,6 +5067,12 @@ impl CssProperty {
     }
     pub const fn const_counter_increment(input: CounterIncrement) -> Self {
         CssProperty::CounterIncrement(CounterIncrementValue::Exact(input))
+    }
+    pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
+        CssProperty::ListStyleType(StyleListStyleTypeValue::Exact(input))
+    }
+    pub const fn const_list_style_position(input: StyleListStylePosition) -> Self {
+        CssProperty::ListStylePosition(StyleListStylePositionValue::Exact(input))
     }
     pub const fn const_string_set(input: StringSet) -> Self {
         CssProperty::StringSet(StringSetValue::Exact(input))
@@ -5524,6 +5592,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::CounterIncrement(p) => format!(
             "CssProperty::CounterIncrement({})",
             print_css_property_value(p, tabs, "CounterIncrement")
+        ),
+        CssProperty::ListStyleType(p) => format!(
+            "CssProperty::ListStyleType({})",
+            print_css_property_value(p, tabs, "StyleListStyleType")
+        ),
+        CssProperty::ListStylePosition(p) => format!(
+            "CssProperty::ListStylePosition({})",
+            print_css_property_value(p, tabs, "StyleListStylePosition")
         ),
         CssProperty::StringSet(p) => format!(
             "CssProperty::StringSet({})",

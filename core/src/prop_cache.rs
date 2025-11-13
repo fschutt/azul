@@ -67,7 +67,8 @@ use azul_css::{
             StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
             StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
             StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
-            StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
+            StyleLineHeightValue, StyleListStylePositionValue, StyleListStyleTypeValue,
+            StyleMixBlendModeValue, StyleOpacityValue,
             StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
             StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
@@ -2718,6 +2719,24 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleBoxShadowValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextShadow)
             .and_then(|p| p.as_text_shadow())
+    }
+    pub fn get_list_style_type<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleListStyleTypeValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ListStyleType)
+            .and_then(|p| p.as_list_style_type())
+    }
+    pub fn get_list_style_position<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleListStylePositionValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ListStylePosition)
+            .and_then(|p| p.as_list_style_position())
     }
 
     // Width calculation methods

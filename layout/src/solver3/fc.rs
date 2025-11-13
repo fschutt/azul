@@ -815,6 +815,29 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         ifc_root_index,
         children.len()
     );
+    
+    // Check if the first child is a list item marker (anonymous box)
+    if let Some(&first_child_idx) = children.first() {
+        if let Some(first_child) = tree.get(first_child_idx) {
+            if first_child.is_anonymous {
+                use crate::solver3::layout_tree::AnonymousBoxType;
+                if let Some(AnonymousBoxType::ListItemMarker) = first_child.anonymous_type {
+                    // Generate marker text and add it to inline content
+                    let marker_text = generate_list_marker_text(tree, ctx.styled_dom, first_child_idx, ctx.counters);
+                    if !marker_text.is_empty() {
+                        eprintln!("[collect_and_measure_inline_content] ✓ Generated list marker: '{}'", marker_text);
+                        content.push(InlineContent::Text(StyledRun {
+                            text: marker_text,
+                            style: get_style_properties_with_context(tree, ctx.styled_dom, ifc_root_index),
+                            logical_start_byte: 0,
+                        }));
+                    }
+                    // Skip this marker node in the following iterations
+                    // (we already handled it)
+                }
+            }
+        }
+    }
 
     // IMPORTANT: We need to traverse the DOM, not just the layout tree!
     // According to CSS spec, a block container with inline-level children establishes
@@ -1147,5 +1170,69 @@ fn collapse_margins(a: f32, b: f32) -> f32 {
         a.min(b)
     } else {
         a + b
+    }
+}
+
+/// Generates marker text for a list item marker.
+///
+/// This function looks up the counter value from the cache and formats it
+/// according to the list-style-type property.
+fn generate_list_marker_text<T: ParsedFontTrait>(
+    tree: &LayoutTree<T>,
+    styled_dom: &StyledDom,
+    marker_index: usize,
+    counters: &BTreeMap<(usize, String), i32>,
+) -> String {
+    use crate::solver3::{counters::format_counter, getters::get_list_style_type};
+    
+    // Get the parent list-item node
+    let marker_node = match tree.get(marker_index) {
+        Some(n) => n,
+        None => return String::new(),
+    };
+    
+    let parent_index = match marker_node.parent {
+        Some(p) => p,
+        None => return String::new(),
+    };
+    
+    let parent_node = match tree.get(parent_index) {
+        Some(n) => n,
+        None => return String::new(),
+    };
+    
+    let parent_dom_id = match parent_node.dom_node_id {
+        Some(id) => id,
+        None => return String::new(),
+    };
+    
+    // Get list-style-type from the list-item element
+    let list_style_type = get_list_style_type(styled_dom, Some(parent_dom_id));
+    
+    // Get the counter value for "list-item" counter
+    let counter_value = counters
+        .get(&(parent_index, "list-item".to_string()))
+        .copied()
+        .unwrap_or(1);
+    
+    // Format the counter according to the list-style-type
+    let marker_text = format_counter(counter_value, list_style_type);
+    
+    // For ordered lists (non-symbolic markers), add a period and space
+    // For unordered lists (symbolic markers like •, ◦, ▪), just add a space
+    if matches!(
+        list_style_type,
+        azul_css::props::style::lists::StyleListStyleType::Decimal
+            | azul_css::props::style::lists::StyleListStyleType::DecimalLeadingZero
+            | azul_css::props::style::lists::StyleListStyleType::LowerAlpha
+            | azul_css::props::style::lists::StyleListStyleType::UpperAlpha
+            | azul_css::props::style::lists::StyleListStyleType::LowerRoman
+            | azul_css::props::style::lists::StyleListStyleType::UpperRoman
+            | azul_css::props::style::lists::StyleListStyleType::LowerGreek
+            | azul_css::props::style::lists::StyleListStyleType::UpperGreek
+    ) {
+        format!("{}. ", marker_text)
+    } else {
+        format!("{} ", marker_text)
     }
 }

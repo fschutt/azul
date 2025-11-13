@@ -74,6 +74,10 @@ pub struct LayoutCache<T: ParsedFontTrait> {
     pub scroll_ids: BTreeMap<usize, u64>,
     /// Mapping from scroll ID to DOM NodeId for hit testing
     pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
+    /// CSS counter values for each node and counter name.
+    /// Key: (layout_index, counter_name), Value: counter value
+    /// This stores the computed counter values after processing counter-reset and counter-increment.
+    pub counters: BTreeMap<(usize, String), i32>,
 }
 
 /// The result of a reconciliation pass.
@@ -739,4 +743,188 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
     node_self_hash.hash(&mut hasher);
     child_hashes.hash(&mut hasher);
     SubtreeHash(hasher.finish())
+}
+
+/// Computes CSS counter values for all nodes in the layout tree.
+///
+/// This function traverses the tree in document order and processes counter-reset
+/// and counter-increment properties. The computed values are stored in cache.counters.
+///
+/// CSS counters work with a stack-based scoping model:
+/// - `counter-reset` creates a new scope and sets the counter to a value
+/// - `counter-increment` increments the counter in the current scope
+/// - When leaving a subtree, counter scopes are popped
+pub fn compute_counters<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree<T>,
+    counters: &mut BTreeMap<(usize, String), i32>,
+) {
+    use azul_css::props::property::CssProperty;
+    use std::collections::HashMap;
+    
+    // Track counter stacks: counter_name -> Vec<value>
+    // Each entry in the Vec represents a nested scope
+    let mut counter_stacks: HashMap<String, Vec<i32>> = HashMap::new();
+    
+    // Stack to track which counters were reset at each tree level
+    // When we pop back up the tree, we need to pop these counter scopes
+    let mut scope_stack: Vec<Vec<String>> = Vec::new();
+    
+    compute_counters_recursive(
+        styled_dom,
+        tree,
+        tree.root,
+        counters,
+        &mut counter_stacks,
+        &mut scope_stack,
+    );
+}
+
+fn compute_counters_recursive<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree<T>,
+    node_idx: usize,
+    counters: &mut BTreeMap<(usize, String), i32>,
+    counter_stacks: &mut std::collections::HashMap<String, Vec<i32>>,
+    scope_stack: &mut Vec<Vec<String>>,
+) {
+    let node = match tree.get(node_idx) {
+        Some(n) => n,
+        None => return,
+    };
+    
+    // Only process real DOM nodes, not anonymous boxes
+    let dom_id = match node.dom_node_id {
+        Some(id) => id,
+        None => {
+            // For anonymous boxes, just recurse to children
+            for &child_idx in &node.children {
+                compute_counters_recursive(
+                    styled_dom,
+                    tree,
+                    child_idx,
+                    counters,
+                    counter_stacks,
+                    scope_stack,
+                );
+            }
+            return;
+        }
+    };
+    
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
+    let cache = &styled_dom.css_property_cache.ptr;
+    
+    // Track which counters we reset at this level (for cleanup later)
+    let mut reset_counters_at_this_level = Vec::new();
+    
+    // CSS Lists §3: display: list-item automatically increments the "list-item" counter
+    // Check if this is a list-item
+    let display = cache.get_display(node_data, &dom_id, node_state)
+        .and_then(|d| d.get_property().copied());
+    let is_list_item = matches!(display, Some(azul_css::props::layout::LayoutDisplay::ListItem));
+    
+    // Process counter-reset
+    if let Some(counter_reset_value) = cache.get_counter_reset(node_data, &dom_id, node_state) {
+        if let Some(counter_reset) = counter_reset_value.get_property() {
+            let reset_str = counter_reset.inner.as_str();
+            if reset_str != "none" {
+                // Parse counter-reset: "counter-name value"
+                // e.g., "list-item 0" or "section 1"
+                let parts: Vec<&str> = reset_str.split_whitespace().collect();
+                if !parts.is_empty() {
+                    let counter_name = parts[0].to_string();
+                    let reset_value = if parts.len() > 1 {
+                        parts[1].parse::<i32>().unwrap_or(0)
+                    } else {
+                        0 // Default reset value is 0
+                    };
+                    
+                    // Reset the counter by pushing a new scope
+                    counter_stacks
+                        .entry(counter_name.clone())
+                        .or_default()
+                        .push(reset_value);
+                    reset_counters_at_this_level.push(counter_name);
+                }
+            }
+        }
+    }
+    
+    // Process counter-increment
+    if let Some(counter_inc_value) = cache.get_counter_increment(node_data, &dom_id, node_state) {
+        if let Some(counter_inc) = counter_inc_value.get_property() {
+            let inc_str = counter_inc.inner.as_str();
+            if inc_str != "none" {
+                // Parse counter-increment: "counter-name value"
+                // e.g., "list-item 1" or "list-item"
+                let parts: Vec<&str> = inc_str.split_whitespace().collect();
+                if !parts.is_empty() {
+                    let counter_name = parts[0].to_string();
+                    let inc_value = if parts.len() > 1 {
+                        parts[1].parse::<i32>().unwrap_or(1)
+                    } else {
+                        1 // Default increment value is 1
+                    };
+                    
+                    // Increment the counter in the current scope
+                    let stack = counter_stacks.entry(counter_name.clone()).or_default();
+                    if stack.is_empty() {
+                        // Auto-initialize if counter doesn't exist
+                        stack.push(inc_value);
+                    } else {
+                        if let Some(current) = stack.last_mut() {
+                            *current += inc_value;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // CSS Lists §3: display: list-item automatically increments "list-item" counter
+    if is_list_item {
+        let counter_name = "list-item".to_string();
+        let stack = counter_stacks.entry(counter_name.clone()).or_default();
+        if stack.is_empty() {
+            // Auto-initialize if counter doesn't exist
+            stack.push(1);
+        } else {
+            if let Some(current) = stack.last_mut() {
+                *current += 1;
+            }
+        }
+    }
+    
+    // Store the current counter values for this node
+    for (counter_name, stack) in counter_stacks.iter() {
+        if let Some(&value) = stack.last() {
+            counters.insert((node_idx, counter_name.clone()), value);
+        }
+    }
+    
+    // Push scope tracking for cleanup
+    scope_stack.push(reset_counters_at_this_level.clone());
+    
+    // Recurse to children
+    for &child_idx in &node.children {
+        compute_counters_recursive(
+            styled_dom,
+            tree,
+            child_idx,
+            counters,
+            counter_stacks,
+            scope_stack,
+        );
+    }
+    
+    // Pop counter scopes that were created at this level
+    if let Some(reset_counters) = scope_stack.pop() {
+        for counter_name in reset_counters {
+            if let Some(stack) = counter_stacks.get_mut(&counter_name) {
+                stack.pop();
+            }
+        }
+    }
 }

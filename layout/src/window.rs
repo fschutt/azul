@@ -315,6 +315,7 @@ impl LayoutWindow {
                 viewport: None,
                 scroll_ids: BTreeMap::new(),
                 scroll_id_to_node_id: BTreeMap::new(),
+                counters: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -579,6 +580,7 @@ impl LayoutWindow {
             viewport: None,
             scroll_ids: BTreeMap::new(),
             scroll_id_to_node_id: BTreeMap::new(),
+            counters: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();

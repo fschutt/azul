@@ -4,6 +4,7 @@
 
 pub mod cache;
 pub mod cascade;
+pub mod counters;
 pub mod display_list;
 pub mod fc;
 pub mod geometry;
@@ -62,6 +63,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub font_manager: &'a FontManager<T, Q>,
     pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
+    pub counters: &'a BTreeMap<(usize, String), i32>,
 }
 
 impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
@@ -90,16 +92,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
-    let mut ctx = LayoutContext {
+    // Create temporary context without counters for tree generation
+    let mut counter_values = BTreeMap::new();
+    let mut ctx_temp = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
         selections,
         debug_messages,
+        counters: &counter_values,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
     let (mut new_tree, mut recon_result) =
-        cache::reconcile_and_invalidate(&mut ctx, cache, viewport)?;
+        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
@@ -107,6 +112,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
             node.taffy_cache.clear();
         }
     }
+    
+    // Step 1.3: Compute CSS Counters
+    // This must be done after tree generation but before layout,
+    // as list markers need counter values during formatting context layout
+    cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
+    
+    // Now create the real context with computed counters
+    let mut ctx = LayoutContext {
+        styled_dom: &new_dom,
+        font_manager,
+        selections,
+        debug_messages,
+        counters: &counter_values,
+    };
 
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
@@ -233,6 +252,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
+    cache.counters = counter_values;
 
     Ok(display_list)
 }

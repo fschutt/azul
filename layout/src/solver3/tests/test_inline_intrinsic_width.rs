@@ -63,6 +63,7 @@ mod inline_intrinsic_width_tests {
             viewport: None,
             scroll_ids: BTreeMap::new(),
             scroll_id_to_node_id: BTreeMap::new(),
+            counters: BTreeMap::new(),
         };
         let mut text_cache = TextLayoutCache::new();
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
@@ -168,6 +169,7 @@ mod inline_intrinsic_width_tests {
             viewport: None,
             scroll_ids: BTreeMap::new(),
             scroll_id_to_node_id: BTreeMap::new(),
+            counters: BTreeMap::new(),
         };
         let mut text_cache = TextLayoutCache::new();
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
