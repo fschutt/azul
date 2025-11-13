@@ -146,7 +146,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
     }
 
     fn calculate_block_intrinsic_sizes(
-        &self,
+        &mut self,
         tree: &LayoutTree<T>,
         node_index: usize,
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
@@ -158,6 +158,31 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         } else {
             LayoutWritingMode::default()
         };
+
+        // If there are no layout children but this block contains text content directly,
+        // we need to calculate intrinsic sizes based on the text
+        if child_intrinsics.is_empty() && node.dom_node_id.is_some() {
+            let dom_id = node.dom_node_id.unwrap();
+            let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+            
+            // Check if this node has DOM children with text
+            let has_text = dom_id
+                .az_children(node_hierarchy)
+                .any(|child_id| {
+                    let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                    matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                });
+            
+            if has_text {
+                self.ctx.debug_log(&format!(
+                    "Block node {} has no layout children but has text DOM children - calculating as inline content",
+                    node_index
+                ));
+                // This block contains inline content (text), so calculate its intrinsic size
+                // using inline content measurement
+                return self.calculate_inline_intrinsic_sizes(tree, node_index);
+            }
+        }
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -337,26 +362,71 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 }
 
 /// Gathers all inline content for the intrinsic sizing pass.
+/// 
+/// This function recursively collects text and inline-level content according to
+/// CSS Sizing Level 3, Section 4.1: "Intrinsic Sizes"
+/// https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes
+///
+/// For inline formatting contexts, we need to gather:
+/// 1. Text nodes (inline content)
+/// 2. Inline-level boxes (display: inline, inline-block, etc.)
+/// 3. Atomic inline-level elements (replaced elements like images)
+///
+/// The key difference from `collect_and_measure_inline_content` in fc.rs is that
+/// this version is used for intrinsic sizing (calculating min/max-content widths)
+/// before the actual layout pass, so it must recursively gather content from
+/// inline descendants without laying them out first.
 fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     ctx.debug_log(&format!(
-        "Collecting inline content from node {}",
+        "Collecting inline content from node {} for intrinsic sizing",
         ifc_root_index
     ));
 
     let mut content = Vec::new();
-    let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    
+    // Recursively collect inline content from this node and its inline descendants
+    collect_inline_content_recursive(ctx, tree, ifc_root_index, &mut content)?;
+    
+    ctx.debug_log(&format!(
+        "Collected {} inline content items from node {}",
+        content.len(),
+        ifc_root_index
+    ));
+    
+    Ok(content)
+}
 
-    // Check if the root itself is a text node
-    if let Some(dom_id) = ifc_root_node.dom_node_id {
+/// Recursive helper for collecting inline content.
+///
+/// According to CSS Sizing Level 3, the intrinsic size of an inline formatting context
+/// is based on all inline-level content, including text in nested inline elements.
+///
+/// This function:
+/// - Collects text from the current node if it's a text node
+/// - Collects text from DOM children (text nodes may not be in layout tree)
+/// - Recursively collects from inline children (display: inline)
+/// - Treats non-inline children as atomic inline-level boxes
+fn collect_inline_content_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &LayoutTree<T>,
+    node_index: usize,
+    content: &mut Vec<InlineContent>,
+) -> Result<()> {
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    
+    // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
+    // We need to check the DOM children for text content.
+    if let Some(dom_id) = node.dom_node_id {
+        // First check if THIS node is a text node
         if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
             let style_props = get_style_properties(ctx.styled_dom, dom_id);
             ctx.debug_log(&format!(
-                "Root node has text: '{}', font: {}",
-                text, style_props.font_selector.family
+                "Found text in node {}: '{}'",
+                node_index, text
             ));
             content.push(InlineContent::Text(StyledRun {
                 text,
@@ -364,18 +434,59 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 logical_start_byte: 0,
             }));
         }
+        
+        // CRITICAL: Also check DOM children for text nodes!
+        // Text nodes are often not represented as separate layout nodes.
+        let node_hierarchy = &ctx.styled_dom.node_hierarchy.as_container();
+        for child_id in dom_id.az_children(node_hierarchy) {
+            // Check if this DOM child is a text node
+            let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
+            if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
+                let text = text_data.as_str().to_string();
+                let style_props = get_style_properties(ctx.styled_dom, child_id);
+                ctx.debug_log(&format!(
+                    "Found text in DOM child of node {}: '{}'",
+                    node_index, text
+                ));
+                content.push(InlineContent::Text(StyledRun {
+                    text,
+                    style: Arc::new(style_props),
+                    logical_start_byte: 0,
+                }));
+            }
+        }
     }
 
-    // Also collect from children, which is necessary for mixed inline content
-    // like `<div>Text <span>more text</span></div>`
-    for &child_index in &ifc_root_node.children {
+    // Process layout tree children (these are elements with layout properties)
+    for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let Some(dom_id) = child_node.dom_node_id else {
+        let Some(child_dom_id) = child_node.dom_node_id else {
             continue;
         };
 
-        if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
+        let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
+        
+        // CSS Sizing Level 3: Inline-level boxes participate in the IFC
+        if display == LayoutDisplay::Inline {
+            // Recursively collect content from inline children
+            // This is CRITICAL for proper intrinsic width calculation!
+            ctx.debug_log(&format!(
+                "Recursing into inline child at node {}",
+                child_index
+            ));
+            collect_inline_content_recursive(ctx, tree, child_index, content)?;
+        } else {
+            // Non-inline children are treated as atomic inline-level boxes
+            // (e.g., inline-block, images, floats)
+            // Their intrinsic size must have been calculated in the bottom-up pass
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
+            
+            ctx.debug_log(&format!(
+                "Found atomic inline child at node {}: display={:?}, intrinsic_width={}",
+                child_index, display, intrinsic_sizes.max_content_width
+            ));
+            
+            // Represent as a rectangular shape with the child's intrinsic dimensions
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: crate::text3::cache::Size {
@@ -388,15 +499,10 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 stroke: None,
                 baseline_offset: intrinsic_sizes.max_content_height,
             }));
-        } else if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-            content.push(InlineContent::Text(StyledRun {
-                text,
-                style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
-                logical_start_byte: 0,
-            }));
         }
     }
-    Ok(content)
+    
+    Ok(())
 }
 
 // Keep old name as an alias for backward compatibility

@@ -4230,8 +4230,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     let num_columns = fragment_constraints.columns.max(1);
     let total_column_gap = fragment_constraints.column_gap * (num_columns - 1) as f32;
-    let column_width =
-        (fragment_constraints.available_width - total_column_gap) / num_columns as f32;
+    
+    // Handle infinite available_width (used for intrinsic sizing / max-content measurement).
+    // With infinite width, column_width would be INFINITY, which causes NaN when multiplied
+    // by 0 for the first column. Instead, treat as effectively unbounded (very large).
+    let column_width = if fragment_constraints.available_width.is_infinite() {
+        f32::MAX / 2.0  // Large but safe value that won't overflow when multiplied
+    } else {
+        (fragment_constraints.available_width - total_column_gap) / num_columns as f32
+    };
     let mut current_column = 0;
     println!("Column width calculated: {}", column_width);
 
@@ -4708,12 +4715,21 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - final_segment_width;
-        let mut main_axis_pen = segment.start_x
-            + match physical_align {
+        
+        // Handle infinite width: when available_width is infinite (for intrinsic sizing),
+        // alignment calculations would produce infinite offsets. In this case, treat as
+        // left-aligned (offset = 0) since we're measuring natural content width.
+        let alignment_offset = if segment.width.is_infinite() {
+            0.0  // No alignment offset for infinite width
+        } else {
+            match physical_align {
                 TextAlign::Center => remaining_space / 2.0,
                 TextAlign::Right => remaining_space,
                 _ => 0.0, // Left, Justify
-            };
+            }
+        };
+        
+        let mut main_axis_pen = segment.start_x + alignment_offset;
         println!(
             "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: {}",
             segment.width, final_segment_width, remaining_space, main_axis_pen

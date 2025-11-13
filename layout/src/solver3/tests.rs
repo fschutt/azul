@@ -33,6 +33,9 @@ use crate::{
     window_state::FullWindowState,
 };
 
+// Include the inline intrinsic width tests
+mod test_inline_intrinsic_width;
+
 /// Helper function to create a test font cache with in-memory fonts
 fn create_test_fc_cache() -> FcFontCache {
     let mut fc_cache = FcFontCache::default();
