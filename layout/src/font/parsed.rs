@@ -2,7 +2,10 @@ use core::fmt;
 use std::{collections::BTreeMap, sync::Arc};
 
 use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
     layout::{GDEFTable, LayoutCache, LayoutCacheData, GPOS, GSUB},
+    subset::{subset as allsorts_subset, whole_font, CmapTarget, SubsetProfile},
     tables::{
         cmap::owned::CmapSubtable as OwnedCmapSubtable,
         glyf::{
@@ -10,8 +13,9 @@ use allsorts::{
             CompositeGlyphScale, EmptyGlyph, Glyph, Point, SimpleGlyph,
         },
         kern::owned::KernTable,
-        HheaTable, MaxpTable,
+        FontTableProvider, HheaTable, MaxpTable,
     },
+    tag,
 };
 use azul_core::resources::{
     GlyphOutline, GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
@@ -43,6 +47,10 @@ pub struct ParsedFont {
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub mock: Option<Box<MockFont>>,
+    /// Original font bytes (needed to reconstruct font via allsorts)
+    pub original_bytes: Vec<u8>,
+    /// Original font index in the font file (for font collections)
+    pub original_index: usize,
 }
 
 impl fmt::Debug for ParsedFont {
@@ -295,6 +303,8 @@ impl ParsedFont {
             glyph_records_decoded,
             space_width: None,
             mock: None,
+            original_bytes: font_bytes.to_vec(),
+            original_index: font_index,
         };
 
         // Calculate space width
@@ -374,6 +384,62 @@ impl ParsedFont {
             line_gap: self.font_metrics.line_gap,
             units_per_em: self.font_metrics.units_per_em,
         }
+    }
+
+    /// Convert the ParsedFont back to bytes using allsorts::whole_font
+    /// This reconstructs the entire font from the parsed data
+    /// 
+    /// # Arguments
+    /// * `tags` - Optional list of specific table tags to include (None = all tables)
+    pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
+        let scope = ReadScope::new(&self.original_bytes);
+        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
+        let provider = font_file
+            .table_provider(self.original_index)
+            .map_err(|e| e.to_string())?;
+        
+        let tags_to_use = tags.unwrap_or(&[tag::CMAP, tag::HEAD, tag::HHEA, tag::HMTX, 
+            tag::MAXP, tag::NAME, tag::OS_2, tag::POST, tag::GLYF, tag::LOCA]);
+        
+        whole_font(&provider, tags_to_use).map_err(|e| e.to_string())
+    }
+
+    /// Create a subset font containing only the specified glyph IDs
+    /// Returns the subset font bytes and a mapping from old to new glyph IDs
+    /// 
+    /// # Arguments
+    /// * `glyph_ids` - The glyph IDs to include in the subset (glyph 0/.notdef is always included)
+    /// * `cmap_target` - Target cmap format (Unicode for web, MacRoman for compatibility)
+    /// 
+    /// # Returns
+    /// A tuple of (subset_font_bytes, glyph_mapping) where glyph_mapping maps
+    /// original_glyph_id -> (new_glyph_id, original_char)
+    pub fn subset(
+        &self, 
+        glyph_ids: &[(u16, char)],
+        cmap_target: CmapTarget,
+    ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
+        let scope = ReadScope::new(&self.original_bytes);
+        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
+        let provider = font_file
+            .table_provider(self.original_index)
+            .map_err(|e| e.to_string())?;
+
+        // Build glyph mapping: original_id -> (new_id, char)
+        let glyph_mapping: BTreeMap<u16, (u16, char)> = glyph_ids
+            .iter()
+            .enumerate()
+            .map(|(new_id, &(original_id, ch))| (original_id, (new_id as u16, ch)))
+            .collect();
+
+        // Extract just the glyph IDs for subsetting
+        let ids: Vec<u16> = glyph_ids.iter().map(|(id, _)| *id).collect();
+
+        // Use PDF profile for embedding fonts in PDFs
+        let font_bytes = allsorts_subset(&provider, &ids, &SubsetProfile::Pdf, cmap_target)
+            .map_err(|e| format!("Subset error: {:?}", e))?;
+
+        Ok((font_bytes, glyph_mapping))
     }
 }
 

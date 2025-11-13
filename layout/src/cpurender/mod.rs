@@ -231,6 +231,16 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
+            DisplayListItem::TextLayout {
+                layout,
+                bounds,
+                font_hash,
+                font_size_px,
+                color,
+            } => {
+                // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
+                // The actual glyphs are rendered via Text items
+            }
             DisplayListItem::Image { bounds, key } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();

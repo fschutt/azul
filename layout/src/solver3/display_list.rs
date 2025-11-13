@@ -81,6 +81,7 @@ use crate::{
         UnifiedLayout,
     },
 };
+use std::sync::Arc;
 
 /// Border widths for all four sides
 #[derive(Debug, Clone, Copy)]
@@ -144,12 +145,23 @@ pub enum DisplayListItem {
         styles: StyleBorderStyles,
         border_radius: StyleBorderRadius,
     },
+    /// Text rendered with individual glyph positioning (for simple renderers)
     Text {
         glyphs: Vec<GlyphInstance>,
         font_hash: FontHash, // Changed from FontRef - just store the hash
         font_size_px: f32,
         color: ColorU,
         clip_rect: LogicalRect,
+    },
+    /// Text layout with full metadata (for PDF, accessibility, etc.)
+    /// This is pushed BEFORE the individual Text items and contains
+    /// the original text, glyph-to-unicode mapping, and positioning info
+    TextLayout {
+        layout: Arc<dyn std::any::Any + Send + Sync>, // Type-erased UnifiedLayout<T>
+        bounds: LogicalRect,
+        font_hash: FontHash,
+        font_size_px: f32,
+        color: ColorU,
     },
     /// Underline decoration for text (CSS text-decoration: underline)
     Underline {
@@ -414,6 +426,25 @@ impl DisplayListBuilder {
         }
     }
 
+    pub fn push_text_layout(
+        &mut self,
+        layout: Arc<dyn std::any::Any + Send + Sync>,
+        bounds: LogicalRect,
+        font_hash: FontHash,
+        font_size_px: f32,
+        color: ColorU,
+    ) {
+        if color.a > 0 {
+            self.items.push(DisplayListItem::TextLayout {
+                layout,
+                bounds,
+                font_hash,
+                font_size_px,
+                color,
+            });
+        }
+    }
+
     pub fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
             self.items.push(DisplayListItem::Underline {
@@ -450,7 +481,7 @@ impl DisplayListBuilder {
 }
 
 /// Main entry point for generating the display list.
-pub fn generate_display_list<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &LayoutTree<T>,
     calculated_positions: &BTreeMap<usize, LogicalPosition>,
@@ -517,7 +548,7 @@ struct StackingContext {
 
 impl<'a, 'b, T, Q> DisplayListGenerator<'a, 'b, T, Q>
 where
-    T: ParsedFontTrait,
+    T: ParsedFontTrait + Sync + 'static,
     Q: FontLoaderTrait<T>,
 {
     pub fn new(
@@ -1137,6 +1168,17 @@ where
         // TODO: Handle text decorations (underline, strikethrough, etc.)
         // TODO: Handle text shadows
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
+        
+        // Push the TextLayout item FIRST, containing the full UnifiedLayout for PDF/accessibility
+        // This provides complete metadata including original text and glyph-to-unicode mapping
+        builder.push_text_layout(
+            Arc::new(layout.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+            container_rect,
+            FontHash::from_hash(0), // Will be updated per glyph run
+            12.0, // Default font size, will be updated per glyph run
+            ColorU { r: 0, g: 0, b: 0, a: 255 }, // Default color
+        );
+        
         let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
 
         eprintln!(

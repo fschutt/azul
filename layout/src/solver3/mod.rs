@@ -75,7 +75,7 @@ impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
 }
 
 /// Main entry point for the incremental, cached layout engine
-pub fn layout_document<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
     cache: &mut LayoutCache<T>,
     text_cache: &mut TextLayoutCache<T>,
     new_dom: StyledDom,
