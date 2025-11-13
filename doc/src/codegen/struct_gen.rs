@@ -158,7 +158,7 @@ fn generate_single_type(
 
     // Handle type aliases (generic type instantiations)
     if let Some(type_alias_info) = &struct_meta.type_alias {
-        // Check if target is a primitive type (shouldn't get prefix)
+        // Check if target is a primitive type or function pointer (shouldn't get prefix)
         let is_primitive = matches!(
             type_alias_info.target.as_str(),
             "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
@@ -166,7 +166,10 @@ fn generate_single_type(
             "f32" | "f64" | "bool" | "char" | "str"
         );
         
-        let target_name = if is_primitive {
+        // Check if target is a function pointer (starts with "extern")
+        let is_function_ptr = type_alias_info.target.starts_with("extern");
+        
+        let target_name = if is_primitive || is_function_ptr {
             type_alias_info.target.clone()
         } else {
             format!("{}{}", config.prefix, type_alias_info.target)

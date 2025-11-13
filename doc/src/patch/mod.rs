@@ -729,6 +729,17 @@ fn apply_class_patch(
         patches_applied += 1;
     }
 
+    if let Some(new_type_alias) = &patch.type_alias {
+        println!(
+            "  📝 Patching {}.{}: type_alias",
+            module_name, class_name
+        );
+        println!("     Old: {:?}", class_data.type_alias);
+        println!("     New: {:?}", new_type_alias);
+        class_data.type_alias = Some(new_type_alias.clone());
+        patches_applied += 1;
+    }
+
     Ok(patches_applied)
 }
 

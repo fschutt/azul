@@ -735,10 +735,13 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             // Convert IndexMap<String, FieldInfo> to Vec<IndexMap<String, FieldData>>
             let mut field_map = IndexMap::new();
             for (field_name, field_info) in fields {
+                // Normalize the field type for FFI (Box<T> -> *const c_void, etc.)
+                let (normalized_type, _) = crate::autofix::utils::normalize_generic_type(&field_info.ty);
+                
                 field_map.insert(
                     field_name.clone(),
                     FieldData {
-                        r#type: field_info.ty.clone(),
+                        r#type: normalized_type,
                         doc: field_info.doc.clone(),
                         derive: None,
                     },
@@ -755,10 +758,14 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             // Convert IndexMap<String, VariantInfo> to Vec<IndexMap<String, EnumVariantData>>
             let mut variant_map = IndexMap::new();
             for (variant_name, variant_info) in variants {
+                // Normalize variant type for FFI (Box<T> -> *const c_void, etc.)
+                let normalized_type = variant_info.ty.as_ref()
+                    .map(|ty| crate::autofix::utils::normalize_generic_type(ty).0);
+                
                 variant_map.insert(
                     variant_name.clone(),
                     EnumVariantData {
-                        r#type: variant_info.ty.clone(),
+                        r#type: normalized_type,
                         doc: variant_info.doc.clone(),
                     },
                 );
@@ -774,12 +781,21 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 .clone()
                 .or_else(|| Some(format!("Type alias for {}", target)));
             
-            // If this is a generic instantiation, store that information
+            // Store type alias information
+            // For generic instantiations: CssPropertyValue<LayoutZIndex>
+            // For simple aliases: GridTemplate
+            use crate::api::TypeAliasInfo;
             if let Some(base) = generic_base {
-                use crate::api::TypeAliasInfo;
+                // Generic type alias: target = CssPropertyValue<T>, base = CssPropertyValue
                 class_patch.type_alias = Some(TypeAliasInfo {
                     target: base.clone(),
                     generic_args: generic_args.clone(),
+                });
+            } else {
+                // Simple type alias: target = GridTemplate, no generics
+                class_patch.type_alias = Some(TypeAliasInfo {
+                    target: target.clone(),
+                    generic_args: vec![],
                 });
             }
         }
@@ -1063,7 +1079,15 @@ pub fn has_field_changes(
             }
         }
         TypeKind::TypeAlias { .. } => {
-            // Type aliases don't have fields to compare
+            // Check if API has type_alias field
+            if api_class.type_alias.is_none() {
+                // API doesn't have type_alias but workspace has a type alias
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!("{}: API missing type_alias field, will update", class_name),
+                });
+                return true;
+            }
+            // Type alias exists in both - no field comparison needed
             return false;
         }
     }

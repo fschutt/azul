@@ -2213,6 +2213,10 @@
                 "type": "StyledDom",
                 "doc": "The styled DOM rendered from the application state"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (&mut RefAny , &mut RefAny , &mut LayoutCallbackInfo ,) -> StyledDom",
+              "generic_args": []
             }
           },
           "LayoutCallbackInner": {
@@ -2249,6 +2253,10 @@
                 "type": "StyledDom",
                 "doc": "The styled DOM rendered from the application state"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (&mut RefAny , &mut LayoutCallbackInfo) -> StyledDom",
+              "generic_args": []
             }
           },
           "Callback": {
@@ -2285,6 +2293,10 @@
                 "type": "Update",
                 "doc": "Whether this callback has modified the application state in such a way that a full UI redraw is unavoidable. If any callback returns true, the `LayoutCallback` of the window will be called again to render the next frame."
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (&mut RefAny , &mut CallbackInfo) -> Update",
+              "generic_args": []
             }
           },
           "CallbackInfo": {
@@ -3764,6 +3776,10 @@
                 "type": "IFrameCallbackReturn",
                 "doc": "Contains the returned `StyledDom` as well as information about the initial scroll position of the new DOM plus scrollbar / overflow information"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (&mut RefAny , &mut IFrameCallbackInfo) -> IFrameCallbackReturn",
+              "generic_args": []
             }
           },
           "IFrameCallbackInfo": {
@@ -3869,6 +3885,10 @@
               "returns": {
                 "type": "ImageRef"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (&mut RefAny , &mut RenderImageCallbackInfo) -> ImageRef",
+              "generic_args": []
             }
           },
           "RenderImageCallbackInfo": {
@@ -13554,7 +13574,11 @@
           },
           "GridAutoTracks": {
             "doc": "Type alias for GridTemplate",
-            "external": "azul_css::props::layout::grid::GridAutoTracks"
+            "external": "azul_css::props::layout::grid::GridAutoTracks",
+            "type_alias": {
+              "target": "GridTemplate",
+              "generic_args": []
+            }
           },
           "PageBreak": {
             "doc": "Represents a `break-before` or `break-after` CSS property value.",
@@ -31518,7 +31542,7 @@
             "struct_fields": [
               {
                 "tree": {
-                  "type": "Boxusvg::Tree"
+                  "type": "*const c_void"
                 },
                 "run_destructor": {
                   "type": "bool"
@@ -31603,7 +31627,7 @@
             "struct_fields": [
               {
                 "node": {
-                  "type": "Boxusvg::Group"
+                  "type": "*const c_void"
                 },
                 "run_destructor": {
                   "type": "bool"
@@ -33644,13 +33668,28 @@
             ]
           },
           "XmlTagName": {
-            "external": "azul_core::xml::XmlTagName"
+            "doc": "Tag of an XML node, such as the \"button\" in `<button>Hello</button>`.",
+            "external": "azul_core::xml::XmlTagName",
+            "type_alias": {
+              "target": "AzString",
+              "generic_args": []
+            }
           },
           "XmlAttributeMap": {
-            "external": "azul_core::xml::XmlAttributeMap"
+            "doc": "Attributes of an XML node, such as `[\"color\" => \"blue\"]` in `<button color=\"blue\" />`.",
+            "external": "azul_core::xml::XmlAttributeMap",
+            "type_alias": {
+              "target": "StringPairVec",
+              "generic_args": []
+            }
           },
           "XmlTextContent": {
-            "external": "azul_core::xml::XmlTextContent"
+            "doc": "(Unparsed) text content of an XML node, such as the \"Hello\" in `<button>Hello</button>`.",
+            "external": "azul_core::xml::XmlTextContent",
+            "type_alias": {
+              "target": "OptionAzString",
+              "generic_args": []
+            }
           }
         }
       },
@@ -34774,15 +34813,21 @@
             ]
           },
           "CheckThreadFinishedCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*const c_void) -> bool",
             "external": "azul_core::task::CheckThreadFinishedCallbackType",
             "callback_typedef": {
               "fn_args": [],
               "returns": {
                 "type": "bool"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (*const c_void) -> bool",
+              "generic_args": []
             }
           },
           "InstantPtrDestructorCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*mut AzInstantPtr)",
             "external": "azul_core::task::InstantPtrDestructorCallbackType",
             "callback_typedef": {
               "fn_args": [
@@ -34795,9 +34840,14 @@
               "returns": {
                 "type": "c_void"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (*mut AzInstantPtr)",
+              "generic_args": []
             }
           },
           "ThreadReceiverDestructorCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*mut ThreadReceiverInner)",
             "external": "azul_core::task::ThreadReceiverDestructorCallbackType",
             "callback_typedef": {
               "fn_args": [
@@ -34810,9 +34860,14 @@
               "returns": {
                 "type": "c_void"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (*mut ThreadReceiverInner)",
+              "generic_args": []
             }
           },
           "ThreadRecvCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*const c_void) -> OptionThreadSendMsg",
             "external": "azul_core::task::ThreadRecvCallbackType",
             "callback_typedef": {
               "fn_args": [
@@ -34825,18 +34880,28 @@
               "returns": {
                 "type": "*const c_void"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (*const c_void) -> OptionThreadSendMsg",
+              "generic_args": []
             }
           },
           "GetSystemTimeCallbackType": {
+            "doc": "Get the current system type, equivalent to `std::time::Instant::now()`, except it also works on systems that don't have a clock (such as embedded timers)",
             "external": "azul_core::task::GetSystemTimeCallbackType",
             "callback_typedef": {
               "fn_args": [],
               "returns": {
                 "type": "SystemTick"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn () -> Instant",
+              "generic_args": []
             }
           },
           "InstantPtrCloneCallbackType": {
+            "doc": "Type alias for extern \"C\" fn (*const AzInstantPtr) -> AzInstantPtr",
             "external": "azul_core::task::InstantPtrCloneCallbackType",
             "callback_typedef": {
               "fn_args": [
@@ -34849,11 +34914,19 @@
               "returns": {
                 "type": "*const c_void"
               }
+            },
+            "type_alias": {
+              "target": "extern \"C\" fn (*const AzInstantPtr) -> AzInstantPtr",
+              "generic_args": []
             }
           },
           "LibrarySendThreadMsgCallbackType": {
             "doc": "Type alias for extern \"C\" fn (*const c_void , ThreadSendMsg) -> bool",
-            "external": "azul_core::task::LibrarySendThreadMsgCallbackType"
+            "external": "azul_core::task::LibrarySendThreadMsgCallbackType",
+            "type_alias": {
+              "target": "extern \"C\" fn (*const c_void , ThreadSendMsg) -> bool",
+              "generic_args": []
+            }
           }
         }
       },
