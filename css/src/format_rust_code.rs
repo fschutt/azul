@@ -408,6 +408,7 @@ impl_pixel_value_fmt!(LayoutPaddingLeft);
 impl FormatAsRustCode for LayoutWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
+            LayoutWidth::Auto => "LayoutWidth::Auto".to_string(),
             LayoutWidth::Px(px) => format!("LayoutWidth::Px({})", format_pixel_value(px)),
             LayoutWidth::MinContent => "LayoutWidth::MinContent".to_string(),
             LayoutWidth::MaxContent => "LayoutWidth::MaxContent".to_string(),
@@ -418,6 +419,7 @@ impl FormatAsRustCode for LayoutWidth {
 impl FormatAsRustCode for LayoutHeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
+            LayoutHeight::Auto => "LayoutHeight::Auto".to_string(),
             LayoutHeight::Px(px) => format!("LayoutHeight::Px({})", format_pixel_value(px)),
             LayoutHeight::MinContent => "LayoutHeight::MinContent".to_string(),
             LayoutHeight::MaxContent => "LayoutHeight::MaxContent".to_string(),

@@ -582,7 +582,10 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let node_hier = match hierarchy.get(node_id) {
         Some(n) => n,
-        None => return false,
+        None => {
+            eprintln!("[has_only_inline_children] NodeId({:?}) not found in hierarchy", node_id);
+            return false;
+        }
     };
 
     // Get the first child
@@ -590,13 +593,21 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
     // If there are no children, it's not an IFC (it's empty)
     if current_child.is_none() {
+        eprintln!("[has_only_inline_children] NodeId({:?}) has no children", node_id);
         return false;
     }
 
+    eprintln!("[has_only_inline_children] Checking NodeId({:?})", node_id);
+
     // Check all children
     while let Some(child_id) = current_child {
-        if !is_inline_level(styled_dom, child_id) {
+        let is_inline = is_inline_level(styled_dom, child_id);
+        eprintln!("  Child NodeId({:?}): is_inline={}", child_id, is_inline);
+        
+        if !is_inline {
             // Found a block-level child
+            eprintln!("[has_only_inline_children] NodeId({:?}) has block-level child NodeId({:?}) -> BLOCK FC", 
+                node_id, child_id);
             return false;
         }
 
@@ -609,6 +620,7 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     }
 
     // All children are inline-level
+    eprintln!("[has_only_inline_children] NodeId({:?}) has only inline children -> INLINE FC", node_id);
     true
 }
 
@@ -640,12 +652,15 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
             .get_display(node_data, &node_id, node_state)
             .and_then(|v| v.get_property().copied())
         {
+            eprintln!("  get_display_type: CSS FOUND display={:?}", d);
             return d;
         }
     }
 
     // Fallback to default HTML display types
-    styled_dom.node_data.as_container()[node_id].get_default_display()
+    let default_display = styled_dom.node_data.as_container()[node_id].get_default_display();
+    eprintln!("  get_display_type: Using DEFAULT display={:?}", default_display);
+    default_display
 }
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.
@@ -700,12 +715,17 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     // They participate in their parent's inline formatting context.
     use azul_core::dom::NodeType;
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    eprintln!("[determine_formatting_context] NodeId({:?}), node_type={:?}", node_id, node_data.get_node_type());
+    
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
         // Text nodes are inline-level content within their parent's IFC
+        eprintln!("  -> TEXT NODE, returning Inline FC");
         return FormattingContext::Inline;
     }
 
     let display_type = get_display_type(styled_dom, node_id);
+    eprintln!("  display_type={:?}", display_type);
 
     match display_type {
         LayoutDisplay::Inline => FormattingContext::Inline,
@@ -716,9 +736,11 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
             if has_only_inline_children(styled_dom, node_id) {
                 // This block container should establish an IFC for its inline children
+                eprintln!("  -> BLOCK with only inline children, returning Inline FC");
                 FormattingContext::Inline
             } else {
                 // Normal BFC
+                eprintln!("  -> BLOCK with block-level children, returning Block FC");
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,

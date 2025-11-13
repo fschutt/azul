@@ -44,6 +44,7 @@ macro_rules! define_dimension_property {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutWidth {
+    Auto,  // NEW: Represents CSS 'auto' or unset value
     Px(PixelValue),
     MinContent,
     MaxContent,
@@ -51,7 +52,7 @@ pub enum LayoutWidth {
 
 impl Default for LayoutWidth {
     fn default() -> Self {
-        LayoutWidth::Px(PixelValue::zero())
+        LayoutWidth::Auto  // FIXED: Auto is now the default, not Px(0)
     }
 }
 
@@ -64,6 +65,7 @@ impl PixelValueTaker for LayoutWidth {
 impl PrintAsCssValue for LayoutWidth {
     fn print_as_css_value(&self) -> String {
         match self {
+            LayoutWidth::Auto => "auto".to_string(),
             LayoutWidth::Px(v) => v.to_string(),
             LayoutWidth::MinContent => "min-content".to_string(),
             LayoutWidth::MaxContent => "max-content".to_string(),
@@ -87,6 +89,8 @@ impl LayoutWidth {
             // otherwise
             (_, LayoutWidth::Px(b)) if t >= 0.5 => LayoutWidth::Px(*b),
             (LayoutWidth::Px(a), _) if t < 0.5 => LayoutWidth::Px(*a),
+            // Handle Auto variant
+            (LayoutWidth::Auto, LayoutWidth::Auto) => LayoutWidth::Auto,
             (a, _) if t < 0.5 => *a,
             (_, b) => *b,
         }
@@ -97,6 +101,7 @@ impl LayoutWidth {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutHeight {
+    Auto,  // NEW: Represents CSS 'auto' or unset value
     Px(PixelValue),
     MinContent,
     MaxContent,
@@ -104,7 +109,7 @@ pub enum LayoutHeight {
 
 impl Default for LayoutHeight {
     fn default() -> Self {
-        LayoutHeight::Px(PixelValue::zero())
+        LayoutHeight::Auto  // FIXED: Auto is now the default, not Px(0)
     }
 }
 
@@ -117,6 +122,7 @@ impl PixelValueTaker for LayoutHeight {
 impl PrintAsCssValue for LayoutHeight {
     fn print_as_css_value(&self) -> String {
         match self {
+            LayoutHeight::Auto => "auto".to_string(),
             LayoutHeight::Px(v) => v.to_string(),
             LayoutHeight::MinContent => "min-content".to_string(),
             LayoutHeight::MaxContent => "max-content".to_string(),
@@ -140,6 +146,8 @@ impl LayoutHeight {
             // otherwise
             (_, LayoutHeight::Px(b)) if t >= 0.5 => LayoutHeight::Px(*b),
             (LayoutHeight::Px(a), _) if t < 0.5 => LayoutHeight::Px(*a),
+            // Handle Auto variant
+            (LayoutHeight::Auto, LayoutHeight::Auto) => LayoutHeight::Auto,
             (a, _) if t < 0.5 => *a,
             (_, b) => *b,
         }
@@ -290,6 +298,7 @@ mod parser {
     ) -> Result<LayoutWidth, LayoutWidthParseError<'a>> {
         let trimmed = input.trim();
         match trimmed {
+            "auto" => Ok(LayoutWidth::Auto),
             "min-content" => Ok(LayoutWidth::MinContent),
             "max-content" => Ok(LayoutWidth::MaxContent),
             _ => parse_pixel_value(trimmed)
@@ -349,6 +358,7 @@ mod parser {
     ) -> Result<LayoutHeight, LayoutHeightParseError<'a>> {
         let trimmed = input.trim();
         match trimmed {
+            "auto" => Ok(LayoutHeight::Auto),
             "min-content" => Ok(LayoutHeight::MinContent),
             "max-content" => Ok(LayoutHeight::MaxContent),
             _ => parse_pixel_value(trimmed)

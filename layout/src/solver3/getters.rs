@@ -47,13 +47,13 @@ get_css_property!(
     get_css_width,
     get_width,
     LayoutWidth,
-    LayoutWidth::default()
+    LayoutWidth::default()  // FIXED: Now returns Auto, which is semantically correct
 );
 get_css_property!(
     get_css_height,
     get_height,
     LayoutHeight,
-    LayoutHeight::default()
+    LayoutHeight::default()  // FIXED: Now returns Auto, which is semantically correct
 );
 get_css_property!(
     get_writing_mode,

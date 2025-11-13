@@ -971,6 +971,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutGridContainer
 
 fn from_layout_width(val: LayoutWidth) -> Dimension {
     match val {
+        LayoutWidth::Auto => Dimension::auto(),  // NEW: Handle Auto variant
         LayoutWidth::Px(px) => {
             // Try to extract pixel or percent value
             match px.to_pixels_no_percent() {
@@ -987,6 +988,7 @@ fn from_layout_width(val: LayoutWidth) -> Dimension {
 
 fn from_layout_height(val: LayoutHeight) -> Dimension {
     match val {
+        LayoutHeight::Auto => Dimension::auto(),  // NEW: Handle Auto variant
         LayoutHeight::Px(px) => {
             // Try to extract pixel or percent value
             match px.to_pixels_no_percent() {

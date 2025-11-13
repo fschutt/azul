@@ -614,15 +614,33 @@ pub fn calculate_used_size_for_node(
     let css_width = get_css_width(styled_dom, id, node_state);
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
+    let display = get_display_property(styled_dom, Some(id));
 
     eprintln!(
-        "[calculate_used_size_for_node] css_width={:?}, css_height={:?}",
-        css_width, css_height
+        "[calculate_used_size_for_node] css_width={:?}, css_height={:?}, display={:?}",
+        css_width, css_height, display
     );
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width {
+        LayoutWidth::Auto => {
+            // 'auto' width resolution depends on the display type.
+            match display {
+                LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
+                    // For block-level, non-replaced elements, 'auto' width fills the
+                    // containing block (minus margins, borders, padding)
+                    containing_block_size.width
+                },
+                LayoutDisplay::Inline | LayoutDisplay::InlineBlock => {
+                    // For inline-level elements, 'auto' width is the shrink-to-fit width,
+                    // which is the max-content width
+                    intrinsic.max_content_width
+                },
+                // Flex and Grid item sizing is handled by Taffy, not this function.
+                _ => intrinsic.max_content_width,
+            }
+        },
         LayoutWidth::Px(px) => {
             // Resolve percentage or absolute pixel value
             match px.to_pixels_no_percent() {
@@ -640,6 +658,12 @@ pub fn calculate_used_size_for_node(
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // Percentage values for `height` are resolved against the containing block's height.
     let resolved_height = match css_height {
+        LayoutHeight::Auto => {
+            // For 'auto' height, we initially use the intrinsic content height.
+            // For block containers, this will be updated later in the layout process
+            // after the children's heights are known.
+            intrinsic.max_content_height
+        },
         LayoutHeight::Px(px) => {
             // Resolve percentage or absolute pixel value
             match px.to_pixels_no_percent() {

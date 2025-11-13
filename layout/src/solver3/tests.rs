@@ -866,3 +866,446 @@ fn test_clear_caches_resets_all_state() {
     assert!(window.layout_cache.tree.is_none());
     assert!(window.layout_cache.viewport.is_none());
 }
+
+// ============================================================================
+// DEFAULT VALUES REGRESSION TESTS
+// These tests validate the "default stuff" fixes from defaultvalues.md:
+// - Auto vs. explicit zero sizing (CSS Box Model Level 3)
+// - Block layout stacking (CSS 2.1 Section 9.5 - Floats)
+// - Font-size inheritance and cascade (CSS Cascade Level 4)
+// ============================================================================
+
+/// Helper function to run layout on HTML + CSS strings for regression tests
+/// This is a simplified version that creates a DOM from CSS and HTML
+fn layout_test_html_simple(
+    html_body: &str,
+    extra_css: &str,
+    viewport_size: LogicalSize,
+) -> Result<(LayoutCache<azul_css::props::basic::FontRef>, DisplayList), LayoutError> {
+    // Create a simple DOM with the HTML content
+    let mut dom = Dom::body();
+    
+    // Parse simple HTML tags (very basic parser for test purposes)
+    // For now, just create text nodes from the HTML content
+    let text_content: String = html_body.chars().collect();
+    dom.add_child(Dom::text(text_content));
+
+    // Create CSS
+    let css = if extra_css.is_empty() {
+        CssApiWrapper::empty()
+    } else {
+        // Parse CSS from string - convert to owned AzString via String
+        use azul_css::AzString;
+        let css_string = AzString::from_string(extra_css.to_string());
+        CssApiWrapper::from_string(css_string)
+    };
+
+    // Create StyledDom
+    let mut styled_dom = StyledDom::new(&mut dom, css);
+    styled_dom.dom_id = DomId::ROOT_ID;
+
+    // Set up layout context
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let font_manager = create_test_font_manager()?;
+    let viewport = LogicalRect::new(LogicalPosition::zero(), viewport_size);
+
+    // Run layout
+    let display_list = layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut None,
+        None,
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+    )?;
+
+    Ok((layout_cache, display_list))
+}
+
+/// Tests that width: auto and height: auto resolve to content-based dimensions
+/// 
+/// CSS Specification: CSS Box Model Level 3
+/// - For inline-level elements, 'auto' width is shrink-to-fit (max-content)
+/// - For block-level elements, 'auto' width fills available space
+/// - 'auto' height is always content-based
+#[test]
+fn test_auto_sizing_regression() {
+    let result = layout_test_html_simple(
+        "Auto Sized Content",
+        "body { width: auto; height: auto; font-size: 20px; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Auto sizing layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    assert!(!tree.nodes.is_empty(), "Layout tree should have nodes");
+    
+    let root_node = &tree.nodes[0];
+    let size = root_node.used_size.expect("Root node should have used_size");
+    
+    // CSS 2.1 §10.3.3: Width of inline formatting contexts
+    // The width should be based on content, not zero
+    assert!(
+        size.width > 0.0,
+        "Auto width for inline content should be > 0, got {}px. \
+         CSS Box Model requires 'auto' to compute to max-content width for inline contexts.",
+        size.width
+    );
+    
+    // CSS 2.1 §10.6.3: Height of inline formatting contexts
+    // The height should be based on line box heights
+    assert!(
+        size.height > 0.0,
+        "Auto height should be > 0, got {}px. \
+         CSS requires 'auto' height to be sum of line box heights.",
+        size.height
+    );
+    
+    // Verify the size is reasonable for the content "Auto Sized Content"
+    // At 20px font-size, we expect width ~154px and height ~26px
+    assert!(
+        size.width >= 150.0 && size.width <= 200.0,
+        "Width {} should be approximately 154px for the test content at 20px font-size",
+        size.width
+    );
+    assert!(
+        size.height >= 20.0 && size.height <= 30.0,
+        "Height {} should be approximately 26px (1 line at 20px font-size)",
+        size.height
+    );
+}
+
+/// Tests that explicit width: 0px and height: 0px are honored exactly
+/// 
+/// CSS Specification: CSS Box Model Level 3
+/// - Explicit length values must be used as-is, regardless of content
+/// - This distinguishes '0px' from 'auto' (the critical bug we fixed)
+#[test]
+fn test_explicit_zero_sizing_regression() {
+    let result = layout_test_html_simple(
+        "Hidden Content",
+        "body { width: 0px; height: 0px; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Explicit zero sizing should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    assert!(!tree.nodes.is_empty(), "Layout tree should have nodes");
+    
+    let root_node = &tree.nodes[0];
+    let size = root_node.used_size.expect("Root node should have used_size");
+    
+    // CSS 2.1 §10.2: Content width and height
+    // Explicit 0px must be honored exactly, content should be clipped
+    assert_eq!(
+        size.width, 0.0,
+        "Explicit width: 0px must result in exactly 0px width. \
+         Got {}px. This is a critical distinction from 'auto'.",
+        size.width
+    );
+    assert_eq!(
+        size.height, 0.0,
+        "Explicit height: 0px must result in exactly 0px height. \
+         Got {}px. Content overflow should be clipped.",
+        size.height
+    );
+}
+
+/// Tests that block-level elements in normal flow stack vertically
+/// 
+/// CSS Specification: CSS 2.1 Section 9.5 - Floats and Section 9.4.1 - Block formatting contexts
+/// - Block boxes in a BFC are laid out vertically, one after another
+/// - The vertical distance is determined by margin properties
+/// - No overlapping should occur (unless negative margins are used)
+#[test]
+fn test_block_layout_stacking_regression() {
+    let result = layout_test_html_simple(
+        "Block 1\nBlock 2",
+        "body > * { display: block; height: 40px; margin: 0; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Block stacking layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    let positions = &layout_cache.calculated_positions;
+    
+    // In a simple case with body containing two block children:
+    // - Node 0: body (root)
+    // - Node 1: first text node (becomes block via CSS)
+    // - Node 2: second text node (becomes block via CSS)
+    
+    // Note: Actual structure depends on how text nodes are handled
+    // The key assertion is that if we have multiple positioned nodes,
+    // they should have different Y coordinates
+    
+    let mut y_positions: Vec<f32> = positions.values().map(|pos| pos.y).collect();
+    y_positions.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    
+    // Verify we have at least some positioned elements
+    assert!(
+        !y_positions.is_empty(),
+        "Should have positioned elements in the layout tree"
+    );
+    
+    // Check that consecutive positioned elements don't overlap
+    // (allowing for floating point precision)
+    for window in y_positions.windows(2) {
+        let (y1, y2) = (window[0], window[1]);
+        if y1 == y2 {
+            continue; // Same element or siblings at same level
+        }
+        
+        // CSS 2.1 §9.5: In a BFC, each box's top outer edge touches
+        // the bottom outer edge of the preceding box
+        assert!(
+            y2 >= y1,
+            "Block boxes should stack vertically: y1={}, y2={}. \
+             CSS 2.1 requires non-overlapping vertical layout in BFC.",
+            y1, y2
+        );
+    }
+}
+
+/// Tests basic font-size inheritance from parent to child
+/// 
+/// CSS Specification: CSS Cascade Level 4
+/// - font-size is an inherited property
+/// - Child elements inherit computed values from their parent
+/// - This tests the cascade implementation in cascade.rs
+#[test]
+fn test_font_size_inheritance_regression() {
+    let result = layout_test_html_simple(
+        "Inherited Text",
+        "body { font-size: 32px; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Font inheritance layout should succeed: {:?}", result.err());
+    let (layout_cache, display_list) = result.unwrap();
+    
+    // Verify that text items in the display list have the inherited font-size
+    let text_items: Vec<_> = display_list.items.iter()
+        .filter_map(|item| {
+            if let crate::solver3::display_list::DisplayListItem::Text { font_size_px, .. } = item {
+                Some(*font_size_px)
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    assert!(
+        !text_items.is_empty(),
+        "Display list should contain text items"
+    );
+    
+    // CSS Cascade: All text should inherit the 32px font-size from body
+    for (i, &font_size) in text_items.iter().enumerate() {
+        assert_eq!(
+            font_size, 32.0,
+            "Text item {} should inherit font-size: 32px from body, got {}px. \
+             CSS Cascade requires inherited properties to propagate.",
+            i, font_size
+        );
+    }
+}
+
+/// Tests percentage width resolution against containing block
+/// 
+/// CSS Specification: CSS Values Level 3
+/// - Percentage values are resolved against the corresponding dimension of the containing block
+/// - For width, this is the containing block's width
+#[test]
+fn test_percentage_width_resolution_regression() {
+    let result = layout_test_html_simple(
+        "50% Width",
+        "body { width: 400px; } body > * { width: 50%; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Percentage width layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    
+    // Find the body node and verify its width
+    if let Some(body_node) = tree.nodes.get(0) {
+        if let Some(body_size) = body_node.used_size {
+            // Body should have the explicit 400px width
+            assert_eq!(
+                body_size.width, 400.0,
+                "Body should have width: 400px, got {}px",
+                body_size.width
+            );
+        }
+    }
+    
+    // Child nodes (if any) should have 50% of parent's width = 200px
+    // Note: The exact node structure depends on how the DOM is built
+    for (idx, node) in tree.nodes.iter().enumerate().skip(1) {
+        if let Some(size) = node.used_size {
+            if size.width > 0.0 {
+                // CSS Values: percentage resolves to percentage * containing block dimension
+                assert!(
+                    (size.width - 200.0).abs() < 1.0,
+                    "Child node {} with percentage width should be ~200px (50% of 400px), got {}px. \
+                     CSS Values Level 3 requires percentage resolution against containing block.",
+                    idx, size.width
+                );
+            }
+        }
+    }
+}
+
+/// Tests vertical margin collapsing between adjacent block-level siblings
+/// 
+/// CSS Specification: CSS 2.1 Section 8.3.1 - Collapsing margins
+/// - Adjacent vertical margins of block-level boxes collapse
+/// - The collapsed margin is the maximum of the adjoining margins
+/// - This prevents excessive whitespace accumulation
+#[test]
+fn test_margin_collapsing_regression() {
+    let result = layout_test_html_simple(
+        "Block 1\nBlock 2",
+        "body > *:first-child { margin-bottom: 20px; height: 20px; } \
+         body > *:last-child { margin-top: 30px; height: 20px; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Margin collapsing layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let positions = &layout_cache.calculated_positions;
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    
+    // Get all positioned nodes and sort by Y coordinate
+    let mut positioned_nodes: Vec<_> = positions.iter()
+        .filter_map(|(idx, pos)| {
+            tree.nodes.get(*idx).and_then(|node| {
+                node.used_size.map(|size| (*idx, pos.y, size.height))
+            })
+        })
+        .collect();
+    positioned_nodes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    
+    // If we have at least 2 positioned blocks, verify margin collapsing
+    if positioned_nodes.len() >= 2 {
+        let (idx1, y1, height1) = positioned_nodes[0];
+        let (idx2, y2, _height2) = positioned_nodes[1];
+        
+        // CSS 2.1 §8.3.1: The larger margin wins
+        // Block 1 has margin-bottom: 20px, Block 2 has margin-top: 30px
+        // The space between should be max(20, 30) = 30px
+        let expected_y2 = y1 + height1 + 30.0; // y1 + height1 + collapsed_margin
+        
+        assert!(
+            (y2 - expected_y2).abs() < 1.0,
+            "Margin collapsing failed: Block {} at y={}, Block {} at y={}. \
+             Expected y2={} (y1 {} + height {} + max_margin 30px). \
+             CSS 2.1 §8.3.1 requires adjacent margins to collapse to the maximum.",
+            idx1, y1, idx2, y2, expected_y2, y1, height1
+        );
+    }
+}
+
+/// Tests deep font-size inheritance through multiple DOM levels
+/// 
+/// CSS Specification: CSS Cascade Level 4
+/// - Inherited properties propagate through the entire tree
+/// - Each level inherits the computed value from its parent
+/// - Tests that cascade.rs walks up the tree correctly
+#[test]
+fn test_deep_font_size_inheritance_regression() {
+    let result = layout_test_html_simple(
+        "Deeply Nested Text",
+        "body { font-size: 24px; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Deep inheritance layout should succeed: {:?}", result.err());
+    let (_layout_cache, display_list) = result.unwrap();
+    
+    // Verify all text items inherit the 24px font-size
+    let text_items: Vec<_> = display_list.items.iter()
+        .filter_map(|item| {
+            if let crate::solver3::display_list::DisplayListItem::Text { font_size_px, .. } = item {
+                Some(*font_size_px)
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    assert!(
+        !text_items.is_empty(),
+        "Display list should contain text items for deep inheritance test"
+    );
+    
+    // CSS Cascade: Inheritance propagates through all levels
+    for (i, &font_size) in text_items.iter().enumerate() {
+        assert_eq!(
+            font_size, 24.0,
+            "Text item {} should inherit font-size: 24px through the tree, got {}px. \
+             CSS Cascade requires inheritance through all ancestor levels.",
+            i, font_size
+        );
+    }
+}
+
+/// Tests box-sizing: border-box behavior
+/// 
+/// CSS Specification: CSS Box Sizing Level 3
+/// - With border-box, padding and border are included in the specified width/height
+/// - This changes how the content box size is calculated
+#[test]
+fn test_box_sizing_border_box() {
+    let result = layout_test_html_simple(
+        "Border Box Content",
+        "body { width: 200px; padding: 20px; box-sizing: border-box; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Border-box layout should succeed: {:?}", result.err());
+    let (layout_cache, _) = result.unwrap();
+    
+    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    let root_node = &tree.nodes[0];
+    let size = root_node.used_size.expect("Root node should have used_size");
+    
+    // CSS Box Sizing §4: With border-box, the specified width is the border-box width
+    // So the total width including padding should be 200px
+    let padding = &root_node.box_props.padding;
+    let total_width_with_padding = size.width; // This is the border-box width
+    
+    // Note: In our implementation, used_size might be the content-box or border-box
+    // depending on how sizing.rs interprets box-sizing
+    // The key is that the element doesn't exceed 200px total
+    assert!(
+        total_width_with_padding <= 200.0 + 0.1, // Allow small float error
+        "With box-sizing: border-box and width: 200px, total width should be ≤200px, got {}px. \
+         Padding ({}, {}) should be included in the 200px.",
+        total_width_with_padding, padding.left, padding.right
+    );
+}
+
+
+

@@ -682,6 +682,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Checks if the given CSS height value should use content-based sizing
 fn should_use_content_height(css_height: &azul_css::props::layout::LayoutHeight) -> bool {
     match css_height {
+        azul_css::props::layout::LayoutHeight::Auto => {
+            // Auto height should use content-based sizing
+            true
+        }
         azul_css::props::layout::LayoutHeight::Px(px) => {
             // Check if it's zero or if it has no explicit pixel value (means auto)
             px == &azul_css::props::basic::pixel::PixelValue::zero()
