@@ -256,34 +256,45 @@ impl VecContents {
 // Helper functions for formatting values
 
 pub fn format_pixel_value(p: &PixelValue) -> String {
+    let value = p.number.get();
+    
+    // Extract integer and fractional parts
+    // For example: 1.5 -> pre_comma=1, post_comma=50
+    //              0.83 -> pre_comma=0, post_comma=83
+    //              2.0 -> pre_comma=2, post_comma=0
+    let pre_comma = libm::floorf(value) as isize;
+    let fraction = value - pre_comma as f32;
+    // Multiply by 100 to get two decimal places, then round
+    let post_comma = libm::roundf(fraction * 100.0) as isize;
+    
     match p.metric {
         SizeMetric::Px => format!(
-            "PixelValue::const_px({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_from_metric_fractional(SizeMetric::Px, {}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::Pt => format!(
-            "PixelValue::const_pt({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_pt_fractional({}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::Em => format!(
-            "PixelValue::const_em({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_em_fractional({}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::Percent => format!(
-            "PixelValue::const_percent({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_from_metric_fractional(SizeMetric::Percent, {}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::In => format!(
-            "PixelValue::const_in({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_from_metric_fractional(SizeMetric::In, {}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::Cm => format!(
-            "PixelValue::const_cm({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_from_metric_fractional(SizeMetric::Cm, {}, {})",
+            pre_comma, post_comma
         ),
         SizeMetric::Mm => format!(
-            "PixelValue::const_mm({})",
-            libm::roundf(p.number.get()) as isize
+            "PixelValue::const_from_metric_fractional(SizeMetric::Mm, {}, {})",
+            pre_comma, post_comma
         ),
     }
 }

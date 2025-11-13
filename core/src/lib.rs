@@ -60,6 +60,8 @@ pub mod svg;
 pub mod task;
 /// CSS transform computation
 pub mod transform;
+/// User-agent default stylesheet
+pub mod ua_css;
 /// Handles the UI layout and UI layout solver
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API

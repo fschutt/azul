@@ -5487,6 +5487,7 @@ impl LayoutWindow {
                 };
 
                 // Reset GL state after callback
+                #[cfg(feature = "gl_context_loader")]
                 if let Some(gl) = gl_context.as_ref() {
                     use gl_context_loader::gl;
                     gl.bind_framebuffer(gl::FRAMEBUFFER, 0);

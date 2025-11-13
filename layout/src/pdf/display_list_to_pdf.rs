@@ -11,8 +11,9 @@ use super::{
 };
 use crate::{
     solver3::display_list::{DisplayList, DisplayListItem},
-    text3::cache::{FontRef, ParsedFontTrait},
+    text3::cache::{FontHash, ParsedFontTrait},
 };
+use azul_css::props::basic::ColorU;
 
 /// Result of converting a display list to PDF operations.
 #[derive(Debug, Clone)]
@@ -125,15 +126,17 @@ fn convert_display_list_item(
 
         DisplayListItem::Text {
             glyphs,
-            font,
+            font_hash,
+            font_size_px,
             color,
             clip_rect,
         } => {
             // Text rendering
             ops.push(PdfOp::BeginText);
 
-            // Register the font
-            resources.register_font(font.clone());
+            // Register the font (we'll need to resolve the FontHash to FontRef later)
+            // For now, just note that we need this font
+            // resources.register_font_hash(*font_hash);
 
             // Note: This is a simplified version. Real implementation would need to:
             // 1. Position individual glyphs based on their positions

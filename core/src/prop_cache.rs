@@ -1127,8 +1127,9 @@ impl CssPropertyCache {
             }
         }
 
-        // Nothing found, use the default
-        None
+        // User-agent stylesheet fallback (lowest precedence)
+        // Check if the node type has a default value for this property
+        crate::ua_css::get_ua_property(node_data.node_type.clone(), *css_property_type)
     }
 
     pub fn get_background_content<'a>(
@@ -2987,5 +2988,71 @@ impl CssPropertyCache {
         self.get_margin_bottom(node_data, node_id, styled_node_state)
             .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_height)))
             .unwrap_or(0.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dom::NodeType;
+
+    #[test]
+    fn test_ua_css_p_tag_properties() {
+        // Create an empty CssPropertyCache
+        let cache = CssPropertyCache::empty(1);
+        
+        // Create a minimal <p> tag NodeData using public API
+        let mut node_data = NodeData::new(NodeType::P);
+        
+        let node_id = NodeId::new(0);
+        let node_state = StyledNodeState::default();
+        
+        // Test that <p> has display: block from UA CSS
+        let display = cache.get_display(&node_data, &node_id, &node_state);
+        assert!(display.is_some(), "Expected <p> to have display property from UA CSS");
+        if let Some(d) = display {
+            if let Some(display_value) = d.get_property() {
+                assert_eq!(*display_value, LayoutDisplay::Block, 
+                    "Expected <p> to have display: block, got {:?}", display_value);
+            }
+        }
+        
+        // Test that <p> has width: 100% from UA CSS
+        let width = cache.get_width(&node_data, &node_id, &node_state);
+        assert!(width.is_some(), "Expected <p> to have width property from UA CSS");
+        if let Some(w) = width {
+            println!("Width value: {:?}", w);
+        }
+        
+        // Test that <p> does NOT have a default height from UA CSS
+        // (height should be auto, which means None)
+        let height = cache.get_height(&node_data, &node_id, &node_state);
+        println!("Height for <p> tag: {:?}", height);
+        
+        // Height should be None because <p> should use auto height
+        assert!(height.is_none(), 
+            "Expected <p> to NOT have explicit height (should be auto), but got {:?}", height);
+    }
+
+    #[test]
+    fn test_ua_css_body_tag_properties() {
+        let cache = CssPropertyCache::empty(1);
+        
+        let node_data = NodeData::new(NodeType::Body);
+        
+        let node_id = NodeId::new(0);
+        let node_state = StyledNodeState::default();
+        
+        // Test that <body> has width: 100% from UA CSS
+        let width = cache.get_width(&node_data, &node_id, &node_state);
+        assert!(width.is_some(), "Expected <body> to have width: 100% from UA CSS");
+        
+        // Test that <body> has height: 100% from UA CSS
+        let height = cache.get_height(&node_data, &node_id, &node_state);
+        assert!(height.is_some(), "Expected <body> to have height: 100% from UA CSS");
+        
+        // Test margins are zero
+        let margin_top = cache.get_margin_top(&node_data, &node_id, &node_state);
+        assert!(margin_top.is_some(), "Expected <body> to have margin-top: 0 from UA CSS");
     }
 }

@@ -6,9 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use azul_core::resources::ImageKey;
+use azul_css::props::basic::FontRef;
 
 use super::pdf_ops::FontId;
-use crate::text3::cache::FontRef;
 
 /// Tracks all resources (fonts, images) needed to render a PDF document.
 #[derive(Debug, Clone, Default)]

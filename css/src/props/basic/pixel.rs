@@ -144,11 +144,34 @@ impl PixelValue {
         Self::const_from_metric(SizeMetric::Em, value)
     }
 
+    /// Creates an em value from a fractional number in const context.
+    ///
+    /// # Arguments
+    /// * `pre_comma` - The integer part (e.g., 1 for 1.5em)
+    /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5em, 83 for 0.83em)
+    ///
+    /// # Examples
+    /// ```
+    /// // 1.5em = const_em_fractional(1, 5)
+    /// // 0.83em = const_em_fractional(0, 83)
+    /// // 1.17em = const_em_fractional(1, 17)
+    /// ```
+    #[inline]
+    pub const fn const_em_fractional(pre_comma: isize, post_comma: isize) -> Self {
+        Self::const_from_metric_fractional(SizeMetric::Em, pre_comma, post_comma)
+    }
+
     /// Same as `PixelValue::pt()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
     pub const fn const_pt(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Pt, value)
+    }
+
+    /// Creates a pt value from a fractional number in const context.
+    #[inline]
+    pub const fn const_pt_fractional(pre_comma: isize, post_comma: isize) -> Self {
+        Self::const_from_metric_fractional(SizeMetric::Pt, pre_comma, post_comma)
     }
 
     /// Same as `PixelValue::pt()`, but only accepts whole numbers,
@@ -184,6 +207,20 @@ impl PixelValue {
         Self {
             metric,
             number: FloatValue::const_new(value),
+        }
+    }
+
+    /// Creates a PixelValue from a fractional number in const context.
+    ///
+    /// # Arguments
+    /// * `metric` - The size metric (Px, Em, Pt, etc.)
+    /// * `pre_comma` - The integer part
+    /// * `post_comma` - The fractional part as digits
+    #[inline]
+    pub const fn const_from_metric_fractional(metric: SizeMetric, pre_comma: isize, post_comma: isize) -> Self {
+        Self {
+            metric,
+            number: FloatValue::const_new_fractional(pre_comma, post_comma),
         }
     }
 

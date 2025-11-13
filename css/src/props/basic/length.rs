@@ -41,6 +41,24 @@ impl PercentageValue {
         }
     }
 
+    /// Creates a PercentageValue from a fractional number in const context.
+    ///
+    /// # Arguments
+    /// * `pre_comma` - The integer part (e.g., 100 for 100.5%)
+    /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5%)
+    ///
+    /// # Examples
+    /// ```
+    /// // 100% = const_new_fractional(100, 0)
+    /// // 50.5% = const_new_fractional(50, 5)
+    /// ```
+    #[inline]
+    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+        Self {
+            number: FloatValue::const_new_fractional(pre_comma, post_comma),
+        }
+    }
+
     #[inline]
     pub fn new(value: f32) -> Self {
         Self {
@@ -97,6 +115,28 @@ impl FloatValue {
     pub const fn const_new(value: isize) -> Self {
         Self {
             number: value * FP_PRECISION_MULTIPLIER_CONST,
+        }
+    }
+
+    /// Creates a FloatValue from a fractional number in const context.
+    ///
+    /// This is needed because f32 operations are not allowed in const fn,
+    /// but we still want to represent values like 1.5, 0.83, etc.
+    ///
+    /// # Arguments
+    /// * `pre_comma` - The integer part (e.g., 1 for 1.5)
+    /// * `post_comma` - The fractional part as a single digit (e.g., 5 for 0.5)
+    ///
+    /// # Examples
+    /// ```
+    /// // 1.5 = const_new_fractional(1, 5)
+    /// // 0.83 = const_new_fractional(0, 83)
+    /// // 1.17 = const_new_fractional(1, 17)
+    /// ```
+    #[inline]
+    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+        Self {
+            number: pre_comma * FP_PRECISION_MULTIPLIER_CONST + post_comma * (FP_PRECISION_MULTIPLIER_CONST / 100),
         }
     }
 
