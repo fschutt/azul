@@ -380,70 +380,135 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         Ok(())
     }
 
+    /// CSS 2.2 Section 17.2.1 - Anonymous box generation for tables:
+    /// "Generate missing child wrappers. If a child C of a table-row parent P is not a 
+    /// table-cell, then generate an anonymous table-cell box around C and all consecutive 
+    /// siblings of C that are not table-cells."
+    ///
     /// Handles children of a `display: table`, inserting anonymous `table-row`
     /// wrappers for any direct `table-cell` children.
+    ///
+    /// Per CSS 2.2 Section 17.2.1, Stage 2 & 3:
+    /// - Stage 2: Wrap consecutive table-cell children in anonymous table-rows
+    /// - Stage 1 (implemented here): Skip whitespace-only text nodes
     fn process_table_children(
         &mut self,
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
     ) -> Result<()> {
+        let parent_display = get_display_type(styled_dom, parent_dom_id);
         let mut row_children = Vec::new();
+        
         for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            // CSS 2.2 Section 17.2.1, Stage 1: Skip whitespace-only text nodes
+            // "Remove all irrelevant boxes. These are boxes that do not contain table-related 
+            // boxes and do not themselves have 'display' set to a table-related value."
+            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
+                eprintln!("  DEBUG: Skipping whitespace-only text node in table structure");
+                continue;
+            }
+            
             let child_display = get_display_type(styled_dom, child_id);
+            
+            // CSS 2.2 Section 17.2.1, Stage 2:
+            // "Generate missing child wrappers"
             if child_display == LayoutDisplay::TableCell {
+                // Accumulate consecutive table-cell children
                 row_children.push(child_id);
             } else {
+                // CSS 2.2 Section 17.2.1, Stage 2:
+                // If we have accumulated cells, wrap them in an anonymous table-row
                 if !row_children.is_empty() {
                     let anon_row_idx = self.create_anonymous_node(
                         parent_idx,
                         AnonymousBoxType::TableRow,
                         FormattingContext::TableRow,
                     );
+                    eprintln!("  DEBUG: Created anonymous table-row at index {} for {} cells", 
+                             anon_row_idx, row_children.len());
+                    
                     for cell_id in row_children.drain(..) {
                         self.process_node(styled_dom, cell_id, Some(anon_row_idx))?;
                     }
                 }
+                
+                // Process non-cell child (could be row, row-group, caption, etc.)
                 self.process_node(styled_dom, child_id, Some(parent_idx))?;
             }
         }
+        
+        // CSS 2.2 Section 17.2.1, Stage 2:
+        // Flush any remaining accumulated cells
         if !row_children.is_empty() {
             let anon_row_idx = self.create_anonymous_node(
                 parent_idx,
                 AnonymousBoxType::TableRow,
                 FormattingContext::TableRow,
             );
+            eprintln!("  DEBUG: Created anonymous table-row at index {} for {} trailing cells", 
+                     anon_row_idx, row_children.len());
+            
             for cell_id in row_children {
                 self.process_node(styled_dom, cell_id, Some(anon_row_idx))?;
             }
         }
+        
         Ok(())
     }
 
-    /// Handles children of a `display: table-row-group`, inserting anonymous `table-row`s.
+    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
+    /// Handles children of a `display: table-row-group`, `table-header-group`, 
+    /// or `table-footer-group`, inserting anonymous `table-row` wrappers as needed.
+    ///
+    /// The logic is identical to process_table_children per CSS 2.2 Section 17.2.1:
+    /// "If a child C of a table-row-group parent P is not a table-row, then generate 
+    /// an anonymous table-row box around C and all consecutive siblings of C that are 
+    /// not table-rows."
     fn process_table_row_group_children(
         &mut self,
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
     ) -> Result<()> {
-        // This logic is identical to process_table_children for our purposes
+        // CSS 2.2 Section 17.2.1: Row groups need the same anonymous box generation
+        // as tables (wrapping consecutive non-row children in anonymous rows)
         self.process_table_children(styled_dom, parent_dom_id, parent_idx)
     }
 
-    /// Handles children of a `display: table-row`, inserting anonymous `table-cell` wrappers.
+    /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 2:
+    /// "Generate missing child wrappers. If a child C of a table-row parent P is not a 
+    /// table-cell, then generate an anonymous table-cell box around C and all consecutive 
+    /// siblings of C that are not table-cells."
+    ///
+    /// Handles children of a `display: table-row`, inserting anonymous `table-cell` wrappers
+    /// for any non-cell children.
     fn process_table_row_children(
         &mut self,
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
     ) -> Result<()> {
+        let parent_display = get_display_type(styled_dom, parent_dom_id);
+        
         for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            // CSS 2.2 Section 17.2.1, Stage 1: Skip whitespace-only text nodes
+            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
+                eprintln!("  DEBUG: Skipping whitespace-only text node in table-row");
+                continue;
+            }
+            
             let child_display = get_display_type(styled_dom, child_id);
+            
+            // CSS 2.2 Section 17.2.1, Stage 2:
+            // "If a child C of a table-row parent P is not a table-cell, then generate 
+            // an anonymous table-cell box around C"
             if child_display == LayoutDisplay::TableCell {
+                // Normal table cell - process directly
                 self.process_node(styled_dom, child_id, Some(parent_idx))?;
             } else {
-                // Any other child must be wrapped in an anonymous cell
+                // CSS 2.2 Section 17.2.1, Stage 2:
+                // Non-cell child must be wrapped in an anonymous table-cell
                 let anon_cell_idx = self.create_anonymous_node(
                     parent_idx,
                     AnonymousBoxType::TableCell,
@@ -451,13 +516,24 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                         establishes_new_context: true,
                     },
                 );
+                eprintln!("  DEBUG: Created anonymous table-cell at index {} for non-cell child", 
+                         anon_cell_idx);
+                
                 self.process_node(styled_dom, child_id, Some(anon_cell_idx))?;
             }
         }
+        
         Ok(())
     }
 
+    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
+    /// "In this process, inline-level boxes are wrapped in anonymous boxes as needed 
+    /// to satisfy the constraints of the table model."
+    ///
     /// Helper to create an anonymous node in the tree.
+    /// Anonymous boxes don't have a corresponding DOM node and are used to enforce
+    /// the CSS box model structure (e.g., wrapping inline content in blocks,
+    /// or creating missing table structural elements).
     fn create_anonymous_node(
         &mut self,
         parent: usize,
@@ -465,11 +541,17 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         fc: FormattingContext,
     ) -> usize {
         let index = self.nodes.len();
+        
+        eprintln!("  DEBUG: Creating anonymous box type {:?} at index {} with parent {}", 
+                 anon_type, index, parent);
+        
+        // CSS 2.2 Section 17.2.1: Anonymous boxes inherit properties from their 
+        // enclosing non-anonymous box
         self.nodes.push(LayoutNode {
-            dom_node_id: None,
+            dom_node_id: None,  // Anonymous boxes have no DOM correspondence
             parent: Some(parent),
             formatting_context: fc,
-            box_props: BoxProps::default(),
+            box_props: BoxProps::default(),  // Anonymous boxes inherit from parent
             taffy_cache: TaffyCache::new(),
             is_anonymous: true,
             anonymous_type: Some(anon_type),
@@ -484,6 +566,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             inline_layout_result: None,
             scrollbar_info: None,
         });
+        
         self.nodes[parent].children.push(index);
         index
     }
@@ -651,6 +734,125 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
     let _ = styled_dom;
     let _ = dom_id;
     BoxProps::default()
+}
+
+/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
+/// "Remove all irrelevant boxes. These are boxes that do not contain table-related boxes
+/// and do not themselves have 'display' set to a table-related value. In this context,
+/// 'irrelevant boxes' means anonymous inline boxes that contain only white space."
+///
+/// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
+/// Returns true if the node is a text node containing only whitespace characters.
+fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_core::dom::NodeType;
+    
+    let binding = styled_dom.node_data.as_container();
+    let node_data = binding.get(node_id);
+    if let Some(data) = node_data {
+        if let NodeType::Text(text) = data.get_node_type() {
+            // Check if the text contains only whitespace characters
+            // Per CSS 2.2 Section 17.2.1: whitespace-only anonymous boxes are irrelevant
+            return text.chars().all(|c| c.is_whitespace());
+        }
+    }
+    
+    false
+}
+
+/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
+/// Determines if a node should be skipped in table structure generation.
+/// Whitespace-only text nodes are "irrelevant" and should not generate boxes
+/// when they appear between table-related elements.
+///
+/// Returns true if the node should be skipped (i.e., it's whitespace-only text
+/// and the parent is a table structural element).
+fn should_skip_for_table_structure(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    parent_display: LayoutDisplay,
+) -> bool {
+    // CSS 2.2 Section 17.2.1: Only skip whitespace text nodes when parent is 
+    // a table structural element (table, row group, row)
+    matches!(
+        parent_display,
+        LayoutDisplay::Table
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
+    ) && is_whitespace_only_text(styled_dom, node_id)
+}
+
+/// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 3:
+/// "Generate missing parents. For each table-cell box C in a sequence of consecutive 
+/// table-cell boxes (that are not part of a table-row), an anonymous table-row box 
+/// is generated around C and its consecutive table-cell siblings.
+/// 
+/// For each proper table child C in a sequence of consecutive proper table children 
+/// that are misparented (i.e., their parent is not a table element), an anonymous 
+/// table box is generated around C and its consecutive siblings."
+///
+/// This function checks if a node needs a parent wrapper and returns the appropriate
+/// anonymous box type, or None if no wrapper is needed.
+fn needs_table_parent_wrapper(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    parent_display: LayoutDisplay,
+) -> Option<AnonymousBoxType> {
+    let child_display = get_display_type(styled_dom, node_id);
+    
+    eprintln!("  [needs_table_parent_wrapper] child={:?}, parent={:?}", 
+             child_display, parent_display);
+    
+    // CSS 2.2 Section 17.2.1, Stage 3:
+    // If we have a table-cell but parent is not a table-row, need anonymous row
+    if child_display == LayoutDisplay::TableCell {
+        match parent_display {
+            LayoutDisplay::TableRow 
+            | LayoutDisplay::TableRowGroup 
+            | LayoutDisplay::TableHeaderGroup 
+            | LayoutDisplay::TableFooterGroup => {
+                // Parent can contain cells directly or via rows - no wrapper needed
+                None
+            }
+            _ => {
+                eprintln!("  [needs_table_parent_wrapper] table-cell needs anonymous row wrapper");
+                Some(AnonymousBoxType::TableRow)
+            }
+        }
+    }
+    // If we have a table-row but parent is not a table/row-group, need anonymous table
+    else if matches!(child_display, LayoutDisplay::TableRow) {
+        match parent_display {
+            LayoutDisplay::Table 
+            | LayoutDisplay::TableRowGroup 
+            | LayoutDisplay::TableHeaderGroup 
+            | LayoutDisplay::TableFooterGroup => {
+                None // Parent is correct
+            }
+            _ => {
+                eprintln!("  [needs_table_parent_wrapper] table-row needs anonymous table wrapper");
+                Some(AnonymousBoxType::TableWrapper)
+            }
+        }
+    }
+    // If we have a row-group but parent is not a table, need anonymous table
+    else if matches!(
+        child_display,
+        LayoutDisplay::TableRowGroup 
+        | LayoutDisplay::TableHeaderGroup 
+        | LayoutDisplay::TableFooterGroup
+    ) {
+        match parent_display {
+            LayoutDisplay::Table => None,
+            _ => {
+                eprintln!("  [needs_table_parent_wrapper] row-group needs anonymous table wrapper");
+                Some(AnonymousBoxType::TableWrapper)
+            }
+        }
+    } else {
+        None
+    }
 }
 
 // Determines the display type of a node based on its tag and CSS properties.

@@ -698,7 +698,7 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
-        StyledDom {
+        let mut styled_dom = StyledDom {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
             node_data: compact_dom.node_data.internal.into(),
@@ -711,7 +711,17 @@ impl StyledDom {
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
             dom_id: DomId::ROOT_ID, // Will be assigned by layout engine for iframes
+        };
+
+        // Generate anonymous table elements if needed (CSS 2.2 Section 17.2.1)
+        // This must happen after CSS cascade but before layout
+        // Anonymous nodes are marked with is_anonymous=true and are skipped by CallbackInfo
+        #[cfg(feature = "table_layout")]
+        if let Err(e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
+            eprintln!("Warning: Failed to generate anonymous table elements: {:?}", e);
         }
+
+        styled_dom
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`

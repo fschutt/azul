@@ -73,6 +73,8 @@ use azul_css::{
             StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue,
+            LayoutTableLayoutValue, StyleBorderCollapseValue, LayoutBorderSpacingValue,
+            StyleCaptionSideValue, StyleEmptyCellsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -2754,6 +2756,51 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleListStylePositionValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::ListStylePosition)
             .and_then(|p| p.as_list_style_position())
+    }
+    pub fn get_table_layout<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutTableLayoutValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TableLayout)
+            .and_then(|p| p.as_table_layout())
+    }
+    pub fn get_border_collapse<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleBorderCollapseValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderCollapse)
+            .and_then(|p| p.as_border_collapse())
+    }
+    pub fn get_border_spacing<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a LayoutBorderSpacingValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderSpacing)
+            .and_then(|p| p.as_border_spacing())
+    }
+    pub fn get_caption_side<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleCaptionSideValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaptionSide)
+            .and_then(|p| p.as_caption_side())
+    }
+    pub fn get_empty_cells<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleEmptyCellsValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::EmptyCells)
+            .and_then(|p| p.as_empty_cells())
     }
 
     // Width calculation methods

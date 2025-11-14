@@ -1138,19 +1138,44 @@ impl CallbackInfo {
         self.hit_dom_node
     }
 
+    /// Check if a node is anonymous (generated for table layout)
+    fn is_node_anonymous(&self, dom_id: &DomId, node_id: NodeId) -> bool {
+        let layout_window = self.get_layout_window();
+        let layout_result = match layout_window.get_layout_result(dom_id) {
+            Some(lr) => lr,
+            None => return false,
+        };
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = match node_data_cont.get(node_id) {
+            Some(nd) => nd,
+            None => return false,
+        };
+        node_data.is_anonymous()
+    }
+
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        let parent_id = hier_item.parent_id()?;
-        Some(DomNodeId {
-            dom: node_id.dom,
-            node: NodeHierarchyItemId {
-                inner: parent_id.index(),
-            },
-        })
+        
+        // Skip anonymous parent nodes - walk up the tree until we find a non-anonymous node
+        let mut current_parent_id = hier_item.parent_id()?;
+        loop {
+            if !self.is_node_anonymous(&node_id.dom, current_parent_id) {
+                return Some(DomNodeId {
+                    dom: node_id.dom,
+                    node: NodeHierarchyItemId {
+                        inner: current_parent_id.index(),
+                    },
+                });
+            }
+            
+            // This parent is anonymous, try its parent
+            let parent_hier_item = node_hierarchy.get(current_parent_id)?;
+            current_parent_id = parent_hier_item.parent_id()?;
+        }
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
@@ -1159,13 +1184,23 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        let sibling_id = hier_item.previous_sibling_id()?;
-        Some(DomNodeId {
-            dom: node_id.dom,
-            node: NodeHierarchyItemId {
-                inner: sibling_id.index(),
-            },
-        })
+        
+        // Skip anonymous siblings - walk backwards until we find a non-anonymous node
+        let mut current_sibling_id = hier_item.previous_sibling_id()?;
+        loop {
+            if !self.is_node_anonymous(&node_id.dom, current_sibling_id) {
+                return Some(DomNodeId {
+                    dom: node_id.dom,
+                    node: NodeHierarchyItemId {
+                        inner: current_sibling_id.index(),
+                    },
+                });
+            }
+            
+            // This sibling is anonymous, try the previous one
+            let sibling_hier_item = node_hierarchy.get(current_sibling_id)?;
+            current_sibling_id = sibling_hier_item.previous_sibling_id()?;
+        }
     }
 
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
@@ -1174,13 +1209,23 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        let sibling_id = hier_item.next_sibling_id()?;
-        Some(DomNodeId {
-            dom: node_id.dom,
-            node: NodeHierarchyItemId {
-                inner: sibling_id.index(),
-            },
-        })
+        
+        // Skip anonymous siblings - walk forwards until we find a non-anonymous node
+        let mut current_sibling_id = hier_item.next_sibling_id()?;
+        loop {
+            if !self.is_node_anonymous(&node_id.dom, current_sibling_id) {
+                return Some(DomNodeId {
+                    dom: node_id.dom,
+                    node: NodeHierarchyItemId {
+                        inner: current_sibling_id.index(),
+                    },
+                });
+            }
+            
+            // This sibling is anonymous, try the next one
+            let sibling_hier_item = node_hierarchy.get(current_sibling_id)?;
+            current_sibling_id = sibling_hier_item.next_sibling_id()?;
+        }
     }
 
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
@@ -1189,13 +1234,23 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        let child_id = hier_item.first_child_id(node_id_internal)?;
-        Some(DomNodeId {
-            dom: node_id.dom,
-            node: NodeHierarchyItemId {
-                inner: child_id.index(),
-            },
-        })
+        
+        // Get first child, then skip anonymous nodes
+        let mut current_child_id = hier_item.first_child_id(node_id_internal)?;
+        loop {
+            if !self.is_node_anonymous(&node_id.dom, current_child_id) {
+                return Some(DomNodeId {
+                    dom: node_id.dom,
+                    node: NodeHierarchyItemId {
+                        inner: current_child_id.index(),
+                    },
+                });
+            }
+            
+            // This child is anonymous, try the next sibling
+            let child_hier_item = node_hierarchy.get(current_child_id)?;
+            current_child_id = child_hier_item.next_sibling_id()?;
+        }
     }
 
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
@@ -1204,13 +1259,23 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        let child_id = hier_item.last_child_id()?;
-        Some(DomNodeId {
-            dom: node_id.dom,
-            node: NodeHierarchyItemId {
-                inner: child_id.index(),
-            },
-        })
+        
+        // Get last child, then skip anonymous nodes by walking backwards
+        let mut current_child_id = hier_item.last_child_id()?;
+        loop {
+            if !self.is_node_anonymous(&node_id.dom, current_child_id) {
+                return Some(DomNodeId {
+                    dom: node_id.dom,
+                    node: NodeHierarchyItemId {
+                        inner: current_child_id.index(),
+                    },
+                });
+            }
+            
+            // This child is anonymous, try the previous sibling
+            let child_hier_item = node_hierarchy.get(current_child_id)?;
+            current_child_id = child_hier_item.previous_sibling_id()?;
+        }
     }
 
     // ===== Node Data and State =====

@@ -852,6 +852,343 @@ fn translate_to_text3_constraints<'a>(
 }
 
 /// Lays out a Table Formatting Context.
+/// Table column information for layout calculations
+#[derive(Debug, Clone)]
+pub struct TableColumnInfo {
+    /// Minimum width required for this column
+    pub min_width: f32,
+    /// Maximum width desired for this column
+    pub max_width: f32,
+    /// Computed final width for this column
+    pub computed_width: Option<f32>,
+}
+
+/// Information about a table cell for layout
+#[derive(Debug, Clone)]
+pub struct TableCellInfo {
+    /// Node index in the layout tree
+    pub node_index: usize,
+    /// Column index (0-based)
+    pub column: usize,
+    /// Number of columns this cell spans
+    pub colspan: usize,
+    /// Row index (0-based)
+    pub row: usize,
+    /// Number of rows this cell spans
+    pub rowspan: usize,
+}
+
+/// Table layout context - holds all information needed for table layout
+#[derive(Debug)]
+struct TableLayoutContext {
+    /// Information about each column
+    columns: Vec<TableColumnInfo>,
+    /// Information about each cell
+    cells: Vec<TableCellInfo>,
+    /// Number of rows in the table
+    num_rows: usize,
+    /// Whether to use fixed or auto layout algorithm
+    use_fixed_layout: bool,
+    /// Computed height for each row
+    row_heights: Vec<f32>,
+    /// Border collapse mode
+    border_collapse: azul_css::props::layout::StyleBorderCollapse,
+    /// Border spacing (only used when border_collapse is Separate)
+    border_spacing: azul_css::props::layout::LayoutBorderSpacing,
+}
+
+impl TableLayoutContext {
+    fn new() -> Self {
+        Self {
+            columns: Vec::new(),
+            cells: Vec::new(),
+            num_rows: 0,
+            use_fixed_layout: false,
+            row_heights: Vec::new(),
+            border_collapse: azul_css::props::layout::StyleBorderCollapse::Separate,
+            border_spacing: azul_css::props::layout::LayoutBorderSpacing::default(),
+        }
+    }
+}
+
+/// Source of a border in the border conflict resolution algorithm
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BorderSource {
+    Table = 0,
+    ColumnGroup = 1,
+    Column = 2,
+    RowGroup = 3,
+    Row = 4,
+    Cell = 5,
+}
+
+/// Information about a border for conflict resolution
+#[derive(Debug, Clone)]
+pub struct BorderInfo {
+    pub width: f32,
+    pub style: azul_css::props::style::BorderStyle,
+    pub color: azul_css::props::basic::ColorU,
+    pub source: BorderSource,
+}
+
+impl BorderInfo {
+    pub fn new(
+        width: f32,
+        style: azul_css::props::style::BorderStyle,
+        color: azul_css::props::basic::ColorU,
+        source: BorderSource,
+    ) -> Self {
+        Self {
+            width,
+            style,
+            color,
+            source,
+        }
+    }
+    
+    /// Get the priority of a border style for conflict resolution
+    /// Higher number = higher priority
+    pub fn style_priority(style: &azul_css::props::style::BorderStyle) -> u8 {
+        use azul_css::props::style::BorderStyle;
+        match style {
+            BorderStyle::Hidden => 255, // Highest - suppresses all borders
+            BorderStyle::None => 0,     // Lowest - loses to everything
+            BorderStyle::Double => 8,
+            BorderStyle::Solid => 7,
+            BorderStyle::Dashed => 6,
+            BorderStyle::Dotted => 5,
+            BorderStyle::Ridge => 4,
+            BorderStyle::Outset => 3,
+            BorderStyle::Groove => 2,
+            BorderStyle::Inset => 1,
+        }
+    }
+    
+    /// Compare two borders for conflict resolution per CSS 2.2 Section 17.6.2.1
+    /// Returns the winning border
+    pub fn resolve_conflict(a: &BorderInfo, b: &BorderInfo) -> Option<BorderInfo> {
+        use azul_css::props::style::BorderStyle;
+        
+        // 1. 'hidden' wins and suppresses all borders
+        if a.style == BorderStyle::Hidden || b.style == BorderStyle::Hidden {
+            return None;
+        }
+        
+        // 2. Filter out 'none' - if both are none, no border
+        let a_is_none = a.style == BorderStyle::None;
+        let b_is_none = b.style == BorderStyle::None;
+        
+        if a_is_none && b_is_none {
+            return None;
+        }
+        if a_is_none {
+            return Some(b.clone());
+        }
+        if b_is_none {
+            return Some(a.clone());
+        }
+        
+        // 3. Wider border wins
+        if a.width > b.width {
+            return Some(a.clone());
+        }
+        if b.width > a.width {
+            return Some(b.clone());
+        }
+        
+        // 4. If same width, compare style priority
+        let a_priority = Self::style_priority(&a.style);
+        let b_priority = Self::style_priority(&b.style);
+        
+        if a_priority > b_priority {
+            return Some(a.clone());
+        }
+        if b_priority > a_priority {
+            return Some(b.clone());
+        }
+        
+        // 5. If same style, source priority: Cell > Row > RowGroup > Column > ColumnGroup > Table
+        if a.source > b.source {
+            return Some(a.clone());
+        }
+        if b.source > a.source {
+            return Some(b.clone());
+        }
+        
+        // 6. Same priority - prefer first one (left/top in LTR)
+        Some(a.clone())
+    }
+}
+
+/// Get border information for a node
+fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+    source: BorderSource,
+) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::props::style::BorderStyle;
+    use azul_css::props::basic::ColorU;
+    
+    let default_border = BorderInfo::new(
+        0.0,
+        BorderStyle::None,
+        ColorU { r: 0, g: 0, b: 0, a: 0 },
+        source,
+    );
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        // Top border
+        let top = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_top_style(node_data, &dom_id, &node_state) {
+            if let Some(style_val) = style.get_property() {
+                let width = ctx.styled_dom.css_property_cache.ptr.get_border_top_width(node_data, &dom_id, &node_state)
+                    .and_then(|w| w.get_property())
+                    .map(|w| w.inner.to_pixels(1.0))
+                    .unwrap_or(0.0);
+                let color = ctx.styled_dom.css_property_cache.ptr.get_border_top_color(node_data, &dom_id, &node_state)
+                    .and_then(|c| c.get_property())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+                BorderInfo::new(width, style_val.inner, color, source)
+            } else {
+                default_border.clone()
+            }
+        } else {
+            default_border.clone()
+        };
+        
+        // Right border
+        let right = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_right_style(node_data, &dom_id, &node_state) {
+            if let Some(style_val) = style.get_property() {
+                let width = ctx.styled_dom.css_property_cache.ptr.get_border_right_width(node_data, &dom_id, &node_state)
+                    .and_then(|w| w.get_property())
+                    .map(|w| w.inner.to_pixels(1.0))
+                    .unwrap_or(0.0);
+                let color = ctx.styled_dom.css_property_cache.ptr.get_border_right_color(node_data, &dom_id, &node_state)
+                    .and_then(|c| c.get_property())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+                BorderInfo::new(width, style_val.inner, color, source)
+            } else {
+                default_border.clone()
+            }
+        } else {
+            default_border.clone()
+        };
+        
+        // Bottom border
+        let bottom = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_style(node_data, &dom_id, &node_state) {
+            if let Some(style_val) = style.get_property() {
+                let width = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_width(node_data, &dom_id, &node_state)
+                    .and_then(|w| w.get_property())
+                    .map(|w| w.inner.to_pixels(1.0))
+                    .unwrap_or(0.0);
+                let color = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_color(node_data, &dom_id, &node_state)
+                    .and_then(|c| c.get_property())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+                BorderInfo::new(width, style_val.inner, color, source)
+            } else {
+                default_border.clone()
+            }
+        } else {
+            default_border.clone()
+        };
+        
+        // Left border
+        let left = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_left_style(node_data, &dom_id, &node_state) {
+            if let Some(style_val) = style.get_property() {
+                let width = ctx.styled_dom.css_property_cache.ptr.get_border_left_width(node_data, &dom_id, &node_state)
+                    .and_then(|w| w.get_property())
+                    .map(|w| w.inner.to_pixels(1.0))
+                    .unwrap_or(0.0);
+                let color = ctx.styled_dom.css_property_cache.ptr.get_border_left_color(node_data, &dom_id, &node_state)
+                    .and_then(|c| c.get_property())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+                BorderInfo::new(width, style_val.inner, color, source)
+            } else {
+                default_border.clone()
+            }
+        } else {
+            default_border.clone()
+        };
+        
+        (top, right, bottom, left)
+    } else {
+        (default_border.clone(), default_border.clone(), default_border.clone(), default_border)
+    }
+}
+
+/// Get the table-layout property for a table node
+fn get_table_layout_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> azul_css::props::layout::LayoutTableLayout {
+    use azul_css::props::layout::LayoutTableLayout;
+    use azul_core::styled_dom::StyledNodeState;
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_table_layout(node_data, &dom_id, &node_state) {
+            if let Some(value) = prop.get_property() {
+                return *value;
+            }
+        }
+    }
+    
+    LayoutTableLayout::Auto // Default
+}
+
+/// Get the border-collapse property for a table node
+fn get_border_collapse_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> azul_css::props::layout::StyleBorderCollapse {
+    use azul_css::props::layout::StyleBorderCollapse;
+    use azul_core::styled_dom::StyledNodeState;
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_collapse(node_data, &dom_id, &node_state) {
+            if let Some(value) = prop.get_property() {
+                return *value;
+            }
+        }
+    }
+    
+    StyleBorderCollapse::Separate // Default
+}
+
+/// Get the border-spacing property for a table node
+fn get_border_spacing_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> azul_css::props::layout::LayoutBorderSpacing {
+    use azul_css::props::layout::LayoutBorderSpacing;
+    use azul_core::styled_dom::StyledNodeState;
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_spacing(node_data, &dom_id, &node_state) {
+            if let Some(value) = prop.get_property() {
+                return *value;
+            }
+        }
+    }
+    
+    LayoutBorderSpacing::default() // Default: 0
+}
+
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
@@ -859,16 +1196,634 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    ctx.debug_log("Laying out table (STUB)");
-    // A real implementation would be a multi-pass algorithm:
-    // 1. Determine number of columns and create a grid structure.
-    // 2. Calculate min/max content width for each cell.
-    // 3. Resolve column widths based on table width and cell constraints.
-    // 4. Layout cells within their final column widths to determine row heights.
-    // 5. Position cells within the final grid.
+    ctx.debug_log("Laying out table");
+    
+    // Multi-pass table layout algorithm:
+    // 1. Analyze table structure - identify rows, cells, columns
+    // 2. Determine table-layout property (fixed vs auto)
+    // 3. Calculate column widths
+    // 4. Layout cells and calculate row heights
+    // 5. Position cells in final grid
+    
+    // Get the table node to read CSS properties
+    let table_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?.clone();
+    
+    // Phase 1: Analyze table structure
+    let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
+    
+    // Phase 2: Read CSS properties and determine layout algorithm
+    use azul_css::props::layout::LayoutTableLayout;
+    let table_layout = get_table_layout_property(ctx, &table_node);
+    table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
+    
+    // Read border properties
+    table_ctx.border_collapse = get_border_collapse_property(ctx, &table_node);
+    table_ctx.border_spacing = get_border_spacing_property(ctx, &table_node);
+    
+    ctx.debug_log(&format!(
+        "Table layout: {:?}, border-collapse: {:?}, border-spacing: {:?}",
+        table_layout, table_ctx.border_collapse, table_ctx.border_spacing
+    ));
+    
+    // Phase 3: Calculate column widths
+    if table_ctx.use_fixed_layout {
+        calculate_column_widths_fixed(&mut table_ctx, constraints.available_size.width);
+    } else {
+        calculate_column_widths_auto(&mut table_ctx, tree, text_cache, ctx, constraints)?;
+    }
+    
+    // Phase 4: Calculate row heights based on cell content
+    calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
+    
+    // Phase 5: Position cells in final grid
+    position_table_cells(&mut table_ctx, tree, ctx, node_index, constraints)?;
+    
+    // Calculate final table size including border-spacing
+    let mut table_width: f32 = table_ctx.columns.iter()
+        .filter_map(|col| col.computed_width)
+        .sum();
+    let mut table_height: f32 = table_ctx.row_heights.iter().sum();
+    
+    // Add border-spacing to table size if border-collapse is separate
+    use azul_css::props::layout::StyleBorderCollapse;
+    if table_ctx.border_collapse == StyleBorderCollapse::Separate {
+        let h_spacing = table_ctx.border_spacing.horizontal.to_pixels(1.0); // TODO: Use proper DPI
+        let v_spacing = table_ctx.border_spacing.vertical.to_pixels(1.0);
+        
+        // Add spacing: left + (n-1 between columns) + right = n+1 spacings
+        let num_cols = table_ctx.columns.len();
+        if num_cols > 0 {
+            table_width += h_spacing * (num_cols + 1) as f32;
+        }
+        
+        // Add spacing: top + (n-1 between rows) + bottom = n+1 spacings
+        if table_ctx.num_rows > 0 {
+            table_height += v_spacing * (table_ctx.num_rows + 1) as f32;
+        }
+    }
+    
+    // Create output with the table's final size
+    let output = LayoutOutput {
+        overflow_size: LogicalSize {
+            width: table_width,
+            height: table_height,
+        },
+        positions: BTreeMap::new(), // Positions are set in position_table_cells
+        baseline: None, // Tables don't have a baseline
+    };
+    
+    Ok(output)
+}
 
-    // For now, we fall back to simple block stacking.
-    layout_bfc(ctx, tree, text_cache, node_index, constraints)
+/// Analyze the table structure to identify rows, cells, and columns
+fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    tree: &LayoutTree<T>,
+    table_index: usize,
+    ctx: &mut LayoutContext<T, Q>,
+) -> Result<TableLayoutContext> {
+    let mut table_ctx = TableLayoutContext::new();
+    
+    let table_node = tree.get(table_index).ok_or(LayoutError::InvalidTree)?;
+    
+    // Traverse children to find rows
+    for &child_idx in &table_node.children {
+        if let Some(child) = tree.get(child_idx) {
+            // Check if this is a table row or row group
+            match child.formatting_context {
+                FormattingContext::TableRow => {
+                    analyze_table_row(tree, child_idx, &mut table_ctx, ctx)?;
+                }
+                FormattingContext::TableRowGroup => {
+                    // Process rows within the row group
+                    for &row_idx in &child.children {
+                        if let Some(row) = tree.get(row_idx) {
+                            if matches!(row.formatting_context, FormattingContext::TableRow) {
+                                analyze_table_row(tree, row_idx, &mut table_ctx, ctx)?;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    ctx.debug_log(&format!("Table structure: {} rows, {} columns, {} cells", 
+                          table_ctx.num_rows, table_ctx.columns.len(), table_ctx.cells.len()));
+    
+    Ok(table_ctx)
+}
+
+/// Analyze a table row to identify cells and update column count
+fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    tree: &LayoutTree<T>,
+    row_index: usize,
+    table_ctx: &mut TableLayoutContext,
+    _ctx: &mut LayoutContext<T, Q>,
+) -> Result<()> {
+    let row_node = tree.get(row_index).ok_or(LayoutError::InvalidTree)?;
+    let row_num = table_ctx.num_rows;
+    table_ctx.num_rows += 1;
+    
+    let mut col_index = 0;
+    
+    for &cell_idx in &row_node.children {
+        if let Some(cell) = tree.get(cell_idx) {
+            if matches!(cell.formatting_context, FormattingContext::TableCell) {
+                // Get colspan and rowspan (TODO: from CSS properties)
+                let colspan = 1; // TODO: Get from CSS
+                let rowspan = 1; // TODO: Get from CSS
+                
+                let cell_info = TableCellInfo {
+                    node_index: cell_idx,
+                    column: col_index,
+                    colspan,
+                    row: row_num,
+                    rowspan,
+                };
+                
+                table_ctx.cells.push(cell_info);
+                
+                // Update column count
+                let max_col = col_index + colspan;
+                while table_ctx.columns.len() < max_col {
+                    table_ctx.columns.push(TableColumnInfo {
+                        min_width: 0.0,
+                        max_width: 0.0,
+                        computed_width: None,
+                    });
+                }
+                
+                col_index += colspan;
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Calculate column widths using the fixed table layout algorithm
+fn calculate_column_widths_fixed(
+    table_ctx: &mut TableLayoutContext,
+    available_width: f32,
+) {
+    // Fixed layout: distribute width equally
+    // TODO: Respect column width properties and first-row cell widths
+    let num_cols = table_ctx.columns.len();
+    if num_cols == 0 {
+        return;
+    }
+    
+    let col_width = available_width / num_cols as f32;
+    for col in &mut table_ctx.columns {
+        col.computed_width = Some(col_width);
+    }
+}
+
+/// Measure a cell's minimum content width (with maximum wrapping)
+fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    cell_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<f32> {
+    // Minimum content width: layout with very small available width to force maximum wrapping
+    let min_constraints = LayoutConstraints {
+        available_size: LogicalSize {
+            width: 0.0, // Force wrapping
+            height: f32::INFINITY,
+        },
+        writing_mode: constraints.writing_mode,
+        bfc_state: None, // Don't propagate BFC state for measurement
+        text_align: constraints.text_align,
+    };
+    
+    let mut temp_positions = BTreeMap::new();
+    let mut temp_scrollbar_reflow = false;
+    
+    crate::solver3::cache::calculate_layout_for_subtree(
+        ctx,
+        tree,
+        text_cache,
+        cell_index,
+        LogicalPosition::zero(),
+        min_constraints.available_size,
+        &mut temp_positions,
+        &mut temp_scrollbar_reflow,
+    )?;
+    
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let size = cell_node.used_size.unwrap_or_default();
+    
+    // Add padding and border to get the total minimum width
+    let padding = &cell_node.box_props.padding;
+    let border = &cell_node.box_props.border;
+    let writing_mode = constraints.writing_mode;
+    
+    let min_width = size.width
+        + padding.cross_start(writing_mode)
+        + padding.cross_end(writing_mode)
+        + border.cross_start(writing_mode)
+        + border.cross_end(writing_mode);
+    
+    Ok(min_width)
+}
+
+/// Measure a cell's maximum content width (without wrapping)
+fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    cell_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<f32> {
+    // Maximum content width: layout with infinite available width to prevent wrapping
+    let max_constraints = LayoutConstraints {
+        available_size: LogicalSize {
+            width: f32::INFINITY, // No wrapping
+            height: f32::INFINITY,
+        },
+        writing_mode: constraints.writing_mode,
+        bfc_state: None, // Don't propagate BFC state for measurement
+        text_align: constraints.text_align,
+    };
+    
+    let mut temp_positions = BTreeMap::new();
+    let mut temp_scrollbar_reflow = false;
+    
+    crate::solver3::cache::calculate_layout_for_subtree(
+        ctx,
+        tree,
+        text_cache,
+        cell_index,
+        LogicalPosition::zero(),
+        max_constraints.available_size,
+        &mut temp_positions,
+        &mut temp_scrollbar_reflow,
+    )?;
+    
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let size = cell_node.used_size.unwrap_or_default();
+    
+    // Add padding and border to get the total maximum width
+    let padding = &cell_node.box_props.padding;
+    let border = &cell_node.box_props.border;
+    let writing_mode = constraints.writing_mode;
+    
+    let max_width = size.width
+        + padding.cross_start(writing_mode)
+        + padding.cross_end(writing_mode)
+        + border.cross_start(writing_mode)
+        + border.cross_end(writing_mode);
+    
+    Ok(max_width)
+}
+
+/// Calculate column widths using the auto table layout algorithm
+fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    table_ctx: &mut TableLayoutContext,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    ctx: &mut LayoutContext<T, Q>,
+    constraints: &LayoutConstraints,
+) -> Result<()> {
+    // Auto layout: calculate min/max content width for each cell
+    let num_cols = table_ctx.columns.len();
+    if num_cols == 0 {
+        return Ok(());
+    }
+    
+    // Step 1: Measure all cells to determine column min/max widths
+    for cell_info in &table_ctx.cells {
+        let min_width = measure_cell_min_content_width(
+            ctx,
+            tree,
+            text_cache,
+            cell_info.node_index,
+            constraints,
+        )?;
+        
+        let max_width = measure_cell_max_content_width(
+            ctx,
+            tree,
+            text_cache,
+            cell_info.node_index,
+            constraints,
+        )?;
+        
+        // Handle single-column cells
+        if cell_info.colspan == 1 {
+            let col = &mut table_ctx.columns[cell_info.column];
+            col.min_width = col.min_width.max(min_width);
+            col.max_width = col.max_width.max(max_width);
+        } else {
+            // Handle multi-column cells (colspan > 1)
+            // Distribute the cell's min/max width across the spanned columns
+            distribute_cell_width_across_columns(
+                &mut table_ctx.columns,
+                cell_info.column,
+                cell_info.colspan,
+                min_width,
+                max_width,
+            );
+        }
+    }
+    
+    // Step 2: Calculate final column widths based on available space
+    let total_min_width: f32 = table_ctx.columns.iter().map(|c| c.min_width).sum();
+    let total_max_width: f32 = table_ctx.columns.iter().map(|c| c.max_width).sum();
+    let available_width = constraints.available_size.width;
+    
+    if available_width >= total_max_width {
+        // Case 1: Plenty of space - use max widths
+        for col in &mut table_ctx.columns {
+            col.computed_width = Some(col.max_width);
+        }
+    } else if available_width >= total_min_width {
+        // Case 2: Between min and max - interpolate proportionally
+        let scale = (available_width - total_min_width) / (total_max_width - total_min_width);
+        for col in &mut table_ctx.columns {
+            let interpolated = col.min_width + (col.max_width - col.min_width) * scale;
+            col.computed_width = Some(interpolated);
+        }
+    } else {
+        // Case 3: Not enough space - scale down from min widths
+        let scale = available_width / total_min_width;
+        for col in &mut table_ctx.columns {
+            col.computed_width = Some(col.min_width * scale);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Distribute a multi-column cell's width across the columns it spans
+fn distribute_cell_width_across_columns(
+    columns: &mut [TableColumnInfo],
+    start_col: usize,
+    colspan: usize,
+    cell_min_width: f32,
+    cell_max_width: f32,
+) {
+    let end_col = start_col + colspan;
+    if end_col > columns.len() {
+        return;
+    }
+    
+    // Calculate current total of spanned columns
+    let current_min_total: f32 = columns[start_col..end_col].iter().map(|c| c.min_width).sum();
+    let current_max_total: f32 = columns[start_col..end_col].iter().map(|c| c.max_width).sum();
+    
+    // Only distribute if the cell needs more space than currently available
+    if cell_min_width > current_min_total {
+        let extra_min = cell_min_width - current_min_total;
+        let per_col = extra_min / colspan as f32;
+        for col in &mut columns[start_col..end_col] {
+            col.min_width += per_col;
+        }
+    }
+    
+    if cell_max_width > current_max_total {
+        let extra_max = cell_max_width - current_max_total;
+        let per_col = extra_max / colspan as f32;
+        for col in &mut columns[start_col..end_col] {
+            col.max_width += per_col;
+        }
+    }
+}
+
+/// Layout a cell with its computed column width to determine its content height
+fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    cell_index: usize,
+    cell_width: f32,
+    constraints: &LayoutConstraints,
+) -> Result<f32> {
+    // Layout the cell with the computed width to get its natural height
+    let cell_constraints = LayoutConstraints {
+        available_size: LogicalSize {
+            width: cell_width,
+            height: f32::INFINITY, // Let height be determined by content
+        },
+        writing_mode: constraints.writing_mode,
+        bfc_state: None,
+        text_align: constraints.text_align,
+    };
+    
+    let mut temp_positions = BTreeMap::new();
+    let mut temp_scrollbar_reflow = false;
+    
+    crate::solver3::cache::calculate_layout_for_subtree(
+        ctx,
+        tree,
+        text_cache,
+        cell_index,
+        LogicalPosition::zero(),
+        cell_constraints.available_size,
+        &mut temp_positions,
+        &mut temp_scrollbar_reflow,
+    )?;
+    
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let size = cell_node.used_size.unwrap_or_default();
+    
+    // Add padding and border to get the total height
+    let padding = &cell_node.box_props.padding;
+    let border = &cell_node.box_props.border;
+    let writing_mode = constraints.writing_mode;
+    
+    let total_height = size.height
+        + padding.main_start(writing_mode)
+        + padding.main_end(writing_mode)
+        + border.main_start(writing_mode)
+        + border.main_end(writing_mode);
+    
+    Ok(total_height)
+}
+
+/// Calculate row heights based on cell content after column widths are determined
+fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    table_ctx: &mut TableLayoutContext,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    ctx: &mut LayoutContext<T, Q>,
+    constraints: &LayoutConstraints,
+) -> Result<()> {
+    // Initialize row heights
+    table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
+    
+    // First pass: Calculate heights for cells that don't span multiple rows
+    for cell_info in &table_ctx.cells {
+        // Get the cell's width (sum of column widths if colspan > 1)
+        let mut cell_width = 0.0;
+        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
+            if let Some(col) = table_ctx.columns.get(col_idx) {
+                if let Some(width) = col.computed_width {
+                    cell_width += width;
+                }
+            }
+        }
+        
+        // Layout the cell to get its height
+        let cell_height = layout_cell_for_height(
+            ctx,
+            tree,
+            text_cache,
+            cell_info.node_index,
+            cell_width,
+            constraints,
+        )?;
+        
+        // For single-row cells, update the row height
+        if cell_info.rowspan == 1 {
+            let current_height = table_ctx.row_heights[cell_info.row];
+            table_ctx.row_heights[cell_info.row] = current_height.max(cell_height);
+        }
+    }
+    
+    // Second pass: Handle cells that span multiple rows (rowspan > 1)
+    for cell_info in &table_ctx.cells {
+        if cell_info.rowspan > 1 {
+            // Get the cell's width
+            let mut cell_width = 0.0;
+            for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
+                if let Some(col) = table_ctx.columns.get(col_idx) {
+                    if let Some(width) = col.computed_width {
+                        cell_width += width;
+                    }
+                }
+            }
+            
+            // Layout the cell to get its height
+            let cell_height = layout_cell_for_height(
+                ctx,
+                tree,
+                text_cache,
+                cell_info.node_index,
+                cell_width,
+                constraints,
+            )?;
+            
+            // Calculate the current total height of spanned rows
+            let end_row = cell_info.row + cell_info.rowspan;
+            let current_total: f32 = table_ctx.row_heights[cell_info.row..end_row]
+                .iter()
+                .sum();
+            
+            // If the cell needs more height, distribute extra height across spanned rows
+            if cell_height > current_total {
+                let extra_height = cell_height - current_total;
+                let per_row = extra_height / cell_info.rowspan as f32;
+                
+                for row_idx in cell_info.row..end_row {
+                    table_ctx.row_heights[row_idx] += per_row;
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Position all cells in the table grid with calculated widths and heights
+fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    table_ctx: &mut TableLayoutContext,
+    tree: &mut LayoutTree<T>,
+    ctx: &mut LayoutContext<T, Q>,
+    table_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<()> {
+    ctx.debug_log("Positioning table cells in grid");
+    
+    // Get border spacing values if border-collapse is separate
+    use azul_css::props::layout::StyleBorderCollapse;
+    let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
+        // Convert PixelValue to f32
+        let h = table_ctx.border_spacing.horizontal.to_pixels(1.0); // TODO: Use proper DPI
+        let v = table_ctx.border_spacing.vertical.to_pixels(1.0);
+        (h, v)
+    } else {
+        (0.0, 0.0)
+    };
+    
+    ctx.debug_log(&format!(
+        "Border spacing: h={:.2}, v={:.2}",
+        h_spacing, v_spacing
+    ));
+    
+    // Calculate cumulative column positions (x-offsets) with spacing
+    let mut col_positions = vec![0.0; table_ctx.columns.len()];
+    let mut x_offset = h_spacing; // Start with spacing on the left
+    for (i, col) in table_ctx.columns.iter().enumerate() {
+        col_positions[i] = x_offset;
+        if let Some(width) = col.computed_width {
+            x_offset += width + h_spacing; // Add spacing between columns
+        }
+    }
+    
+    // Calculate cumulative row positions (y-offsets) with spacing
+    let mut row_positions = vec![0.0; table_ctx.num_rows];
+    let mut y_offset = v_spacing; // Start with spacing on the top
+    for (i, &height) in table_ctx.row_heights.iter().enumerate() {
+        row_positions[i] = y_offset;
+        y_offset += height + v_spacing; // Add spacing between rows
+    }
+    
+    // Position each cell
+    for cell_info in &table_ctx.cells {
+        let cell_node = tree.get_mut(cell_info.node_index)
+            .ok_or(LayoutError::InvalidTree)?;
+        
+        // Calculate cell position
+        let x = col_positions.get(cell_info.column).copied().unwrap_or(0.0);
+        let y = row_positions.get(cell_info.row).copied().unwrap_or(0.0);
+        
+        // Calculate cell size (sum of spanned columns/rows)
+        let mut width = 0.0;
+        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
+            if let Some(col) = table_ctx.columns.get(col_idx) {
+                if let Some(col_width) = col.computed_width {
+                    width += col_width;
+                    // Add spacing between spanned columns (but not after the last one)
+                    if col_idx < cell_info.column + cell_info.colspan - 1 {
+                        width += h_spacing;
+                    }
+                }
+            }
+        }
+        
+        let mut height = 0.0;
+        let end_row = cell_info.row + cell_info.rowspan;
+        for row_idx in cell_info.row..end_row {
+            if let Some(&row_height) = table_ctx.row_heights.get(row_idx) {
+                height += row_height;
+                // Add spacing between spanned rows (but not after the last one)
+                if row_idx < end_row - 1 {
+                    height += v_spacing;
+                }
+            }
+        }
+        
+        // Update cell's used size and position
+        let writing_mode = constraints.writing_mode;
+        cell_node.used_size = Some(LogicalSize { width, height });
+        
+        // Store position relative to table origin
+        let position = LogicalPosition::from_main_cross(y, x, writing_mode);
+        
+        // The position will be used by the parent table to position this cell
+        // For now, we just ensure the size is set correctly
+        // The actual positioning in the render tree happens in the cache module
+        ctx.debug_log(&format!(
+            "Cell at row={}, col={}: pos=({:.2}, {:.2}), size=({:.2}x{:.2})",
+            cell_info.row, cell_info.column, x, y, width, height
+        ));
+    }
+    
+    Ok(())
 }
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
