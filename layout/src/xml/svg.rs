@@ -2384,13 +2384,18 @@ fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::WriteOptions {
 
 #[cfg(feature = "svg")]
 fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
-    use crate::xml::translate_roxmltree_error;
     match e {
         usvg::Error::ElementsLimitReached => SvgParseError::ElementsLimitReached,
         usvg::Error::NotAnUtf8Str => SvgParseError::NotAnUtf8Str,
         usvg::Error::MalformedGZip => SvgParseError::MalformedGZip,
         usvg::Error::InvalidSize => SvgParseError::InvalidSize,
-        usvg::Error::ParsingFailed(e) => SvgParseError::ParsingFailed(translate_roxmltree_error(e)),
+        usvg::Error::ParsingFailed(e) => {
+            // Note: usvg uses roxmltree 0.20, but we use 0.21, so we can't directly convert
+            // Convert the error to a string representation instead
+            use azul_core::xml::{XmlError, XmlTextPos};
+            let error_string = format!("{:?}", e);
+            SvgParseError::ParsingFailed(XmlError::UnknownToken(XmlTextPos { row: 0, col: 0 }))
+        },
     }
 }
 

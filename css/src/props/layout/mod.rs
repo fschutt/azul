@@ -11,10 +11,11 @@ pub mod overflow;
 pub mod position;
 pub mod shape;
 pub mod spacing;
+pub mod table;
 pub mod text;
 pub mod wrapping;
 
 pub use self::{
     column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*, overflow::*,
-    position::*, shape::*, spacing::*, text::*, wrapping::*,
+    position::*, shape::*, spacing::*, table::*, text::*, wrapping::*,
 };

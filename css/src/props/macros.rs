@@ -547,6 +547,21 @@ macro_rules! css_property_from_type {
                 CssProperty::ListStylePosition(CssPropertyValue::$content_type)
             }
             CssPropertyType::StringSet => CssProperty::StringSet(CssPropertyValue::$content_type),
+            CssPropertyType::TableLayout => {
+                CssProperty::TableLayout(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BorderCollapse => {
+                CssProperty::BorderCollapse(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BorderSpacing => {
+                CssProperty::BorderSpacing(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::CaptionSide => {
+                CssProperty::CaptionSide(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::EmptyCells => {
+                CssProperty::EmptyCells(CssPropertyValue::$content_type)
+            }
         }
     }};
 }

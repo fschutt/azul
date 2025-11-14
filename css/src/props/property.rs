@@ -35,7 +35,7 @@ use crate::{
         formatter::PrintAsCssValue,
         layout::{
             column::*, dimensions::*, display::*, flex::*, flow::*, fragmentation::*, grid::*,
-            overflow::*, position::*, shape::*, spacing::*, text::*, wrapping::*,
+            overflow::*, position::*, shape::*, spacing::*, table::*, text::*, wrapping::*,
         },
         style::{
             background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
@@ -346,6 +346,11 @@ pub type ShapeInsideValue = CssPropertyValue<ShapeInside>;
 pub type ClipPathValue = CssPropertyValue<ClipPath>;
 pub type ShapeMarginValue = CssPropertyValue<ShapeMargin>;
 pub type ShapeImageThresholdValue = CssPropertyValue<ShapeImageThreshold>;
+pub type LayoutTableLayoutValue = CssPropertyValue<LayoutTableLayout>;
+pub type StyleBorderCollapseValue = CssPropertyValue<StyleBorderCollapse>;
+pub type LayoutBorderSpacingValue = CssPropertyValue<LayoutBorderSpacing>;
+pub type StyleCaptionSideValue = CssPropertyValue<StyleCaptionSide>;
+pub type StyleEmptyCellsValue = CssPropertyValue<StyleEmptyCells>;
 pub type ContentValue = CssPropertyValue<Content>;
 pub type CounterResetValue = CssPropertyValue<CounterReset>;
 pub type CounterIncrementValue = CssPropertyValue<CounterIncrement>;
@@ -573,6 +578,11 @@ pub enum CssProperty {
     ClipPath(ClipPathValue),
     ShapeMargin(ShapeMarginValue),
     ShapeImageThreshold(ShapeImageThresholdValue),
+    TableLayout(LayoutTableLayoutValue),
+    BorderCollapse(StyleBorderCollapseValue),
+    BorderSpacing(LayoutBorderSpacingValue),
+    CaptionSide(StyleCaptionSideValue),
+    EmptyCells(StyleEmptyCellsValue),
     Content(ContentValue),
     CounterReset(CounterResetValue),
     CounterIncrement(CounterIncrementValue),
@@ -733,6 +743,11 @@ pub enum CssPropertyType {
     ClipPath,
     ShapeMargin,
     ShapeImageThreshold,
+    TableLayout,
+    BorderCollapse,
+    BorderSpacing,
+    CaptionSide,
+    EmptyCells,
     Content,
     CounterReset,
     CounterIncrement,
@@ -905,6 +920,11 @@ impl CssPropertyType {
             CssPropertyType::ClipPath => "clip-path",
             CssPropertyType::ShapeMargin => "shape-margin",
             CssPropertyType::ShapeImageThreshold => "shape-image-threshold",
+            CssPropertyType::TableLayout => "table-layout",
+            CssPropertyType::BorderCollapse => "border-collapse",
+            CssPropertyType::BorderSpacing => "border-spacing",
+            CssPropertyType::CaptionSide => "caption-side",
+            CssPropertyType::EmptyCells => "empty-cells",
             CssPropertyType::Content => "content",
             CssPropertyType::CounterReset => "counter-reset",
             CssPropertyType::CounterIncrement => "counter-increment",
@@ -2232,6 +2252,31 @@ pub fn parse_css_property<'a>(
                     .map_err(|_| CssParsingError::StringSet)?
                     .into(),
             ),
+            CssPropertyType::TableLayout => CssProperty::TableLayout(
+                parse_table_layout(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::BorderCollapse => CssProperty::BorderCollapse(
+                parse_border_collapse(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::BorderSpacing => CssProperty::BorderSpacing(
+                parse_border_spacing(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::CaptionSide => CssProperty::CaptionSide(
+                parse_caption_side(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::EmptyCells => CssProperty::EmptyCells(
+                parse_empty_cells(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
         },
     })
 }
@@ -2959,6 +3004,11 @@ impl_from_css_prop!(CounterIncrement, CssProperty::CounterIncrement);
 impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
 impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
+impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
+impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
+impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
+impl_from_css_prop!(StyleCaptionSide, CssProperty::CaptionSide);
+impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
 
 impl CssProperty {
     pub fn key(&self) -> &'static str {
@@ -3100,6 +3150,11 @@ impl CssProperty {
             CssProperty::ListStyleType(v) => v.get_css_value_fmt(),
             CssProperty::ListStylePosition(v) => v.get_css_value_fmt(),
             CssProperty::StringSet(v) => v.get_css_value_fmt(),
+            CssProperty::TableLayout(v) => v.get_css_value_fmt(),
+            CssProperty::BorderCollapse(v) => v.get_css_value_fmt(),
+            CssProperty::BorderSpacing(v) => v.get_css_value_fmt(),
+            CssProperty::CaptionSide(v) => v.get_css_value_fmt(),
+            CssProperty::EmptyCells(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -3520,6 +3575,11 @@ impl CssProperty {
             CssProperty::ListStyleType(_) => CssPropertyType::ListStyleType,
             CssProperty::ListStylePosition(_) => CssPropertyType::ListStylePosition,
             CssProperty::StringSet(_) => CssPropertyType::StringSet,
+            CssProperty::TableLayout(_) => CssPropertyType::TableLayout,
+            CssProperty::BorderCollapse(_) => CssPropertyType::BorderCollapse,
+            CssProperty::BorderSpacing(_) => CssPropertyType::BorderSpacing,
+            CssProperty::CaptionSide(_) => CssPropertyType::CaptionSide,
+            CssProperty::EmptyCells(_) => CssPropertyType::EmptyCells,
         }
     }
 
@@ -3869,6 +3929,21 @@ impl CssProperty {
     }
     pub const fn string_set(input: StringSet) -> Self {
         CssProperty::StringSet(CssPropertyValue::Exact(input))
+    }
+    pub const fn table_layout(input: LayoutTableLayout) -> Self {
+        CssProperty::TableLayout(CssPropertyValue::Exact(input))
+    }
+    pub const fn border_collapse(input: StyleBorderCollapse) -> Self {
+        CssProperty::BorderCollapse(CssPropertyValue::Exact(input))
+    }
+    pub const fn border_spacing(input: LayoutBorderSpacing) -> Self {
+        CssProperty::BorderSpacing(CssPropertyValue::Exact(input))
+    }
+    pub const fn caption_side(input: StyleCaptionSide) -> Self {
+        CssProperty::CaptionSide(CssPropertyValue::Exact(input))
+    }
+    pub const fn empty_cells(input: StyleEmptyCells) -> Self {
+        CssProperty::EmptyCells(CssPropertyValue::Exact(input))
     }
 
     pub const fn as_z_index(&self) -> Option<&LayoutZIndexValue> {
@@ -4678,6 +4753,36 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
+        match self {
+            CssProperty::TableLayout(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_border_collapse(&self) -> Option<&StyleBorderCollapseValue> {
+        match self {
+            CssProperty::BorderCollapse(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_border_spacing(&self) -> Option<&LayoutBorderSpacingValue> {
+        match self {
+            CssProperty::BorderSpacing(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_caption_side(&self) -> Option<&StyleCaptionSideValue> {
+        match self {
+            CssProperty::CaptionSide(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_empty_cells(&self) -> Option<&StyleEmptyCellsValue> {
+        match self {
+            CssProperty::EmptyCells(f) => Some(f),
+            _ => None,
+        }
+    }
 
     pub const fn as_scrollbar_width(&self) -> Option<&LayoutScrollbarWidthValue> {
         match self {
@@ -4828,6 +4933,11 @@ impl CssProperty {
             ListStyleType(c) => c.is_initial(),
             ListStylePosition(c) => c.is_initial(),
             StringSet(c) => c.is_initial(),
+            TableLayout(c) => c.is_initial(),
+            BorderCollapse(c) => c.is_initial(),
+            BorderSpacing(c) => c.is_initial(),
+            CaptionSide(c) => c.is_initial(),
+            EmptyCells(c) => c.is_initial(),
         }
     }
 
@@ -5128,6 +5238,21 @@ impl CssProperty {
     }
     pub const fn const_string_set(input: StringSet) -> Self {
         CssProperty::StringSet(StringSetValue::Exact(input))
+    }
+    pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
+        CssProperty::TableLayout(LayoutTableLayoutValue::Exact(input))
+    }
+    pub const fn const_border_collapse(input: StyleBorderCollapse) -> Self {
+        CssProperty::BorderCollapse(StyleBorderCollapseValue::Exact(input))
+    }
+    pub const fn const_border_spacing(input: LayoutBorderSpacing) -> Self {
+        CssProperty::BorderSpacing(LayoutBorderSpacingValue::Exact(input))
+    }
+    pub const fn const_caption_side(input: StyleCaptionSide) -> Self {
+        CssProperty::CaptionSide(StyleCaptionSideValue::Exact(input))
+    }
+    pub const fn const_empty_cells(input: StyleEmptyCells) -> Self {
+        CssProperty::EmptyCells(StyleEmptyCellsValue::Exact(input))
     }
 }
 
@@ -5664,6 +5789,26 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::StringSet(p) => format!(
             "CssProperty::StringSet({})",
             print_css_property_value(p, tabs, "StringSet")
+        ),
+        CssProperty::TableLayout(p) => format!(
+            "CssProperty::TableLayout({})",
+            print_css_property_value(p, tabs, "LayoutTableLayout")
+        ),
+        CssProperty::BorderCollapse(p) => format!(
+            "CssProperty::BorderCollapse({})",
+            print_css_property_value(p, tabs, "StyleBorderCollapse")
+        ),
+        CssProperty::BorderSpacing(p) => format!(
+            "CssProperty::BorderSpacing({})",
+            print_css_property_value(p, tabs, "LayoutBorderSpacing")
+        ),
+        CssProperty::CaptionSide(p) => format!(
+            "CssProperty::CaptionSide({})",
+            print_css_property_value(p, tabs, "StyleCaptionSide")
+        ),
+        CssProperty::EmptyCells(p) => format!(
+            "CssProperty::EmptyCells({})",
+            print_css_property_value(p, tabs, "StyleEmptyCells")
         ),
     }
 }

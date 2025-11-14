@@ -1551,6 +1551,11 @@ pub struct NodeDataExt {
     pub menu_bar: Option<Box<Menu>>,
     /// Context menu that should be opened when the item is left-clicked.
     pub context_menu: Option<Box<Menu>>,
+    /// Whether this node is an anonymous box (generated for table layout).
+    /// Anonymous boxes are not part of the original DOM tree and are created
+    /// by the layout engine to satisfy table layout requirements (e.g., wrapping
+    /// non-table children of table elements in anonymous table-row/table-cell boxes).
+    pub is_anonymous: bool,
     // ... insert further API extensions here...
 }
 
@@ -2646,6 +2651,12 @@ impl NodeData {
     pub fn get_context_menu(&self) -> Option<&Box<Menu>> {
         self.extra.as_ref().and_then(|e| e.context_menu.as_ref())
     }
+    
+    /// Returns whether this node is an anonymous box generated for table layout.
+    #[inline]
+    pub fn is_anonymous(&self) -> bool {
+        self.extra.as_ref().map(|e| e.is_anonymous).unwrap_or(false)
+    }
 
     #[inline(always)]
     pub fn set_node_type(&mut self, node_type: NodeType) {
@@ -2682,6 +2693,14 @@ impl NodeData {
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
             .accessibility = Some(Box::new(accessibility_info));
+    }
+    
+    /// Marks this node as an anonymous box (generated for table layout).
+    #[inline]
+    pub fn set_anonymous(&mut self, is_anonymous: bool) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .is_anonymous = is_anonymous;
     }
     #[inline]
     pub fn set_menu_bar(&mut self, menu_bar: Menu) {

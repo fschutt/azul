@@ -18,6 +18,8 @@ pub mod macros;
 pub mod callbacks;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
+/// Table layout support (anonymous box generation)
+pub mod dom_table;
 /// Type definitions for Glyphs
 pub mod glyph;
 /// Functions to manage adding fonts + images, garbage collection
