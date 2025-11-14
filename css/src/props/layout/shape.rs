@@ -2,23 +2,50 @@
 
 use alloc::string::{String, ToString};
 
-use crate::props::{
-    basic::{
-        length::{parse_float_value, FloatValue},
-        pixel::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+use crate::{
+    props::{
+        basic::{
+            length::{parse_float_value, FloatValue},
+            pixel::{
+                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+            },
         },
+        formatter::PrintAsCssValue,
     },
-    formatter::PrintAsCssValue,
+    shape::Shape,
 };
 
-// For now, shape-outside is a string, since parsing basic-shape is complex.
-// A full implementation would parse circle(), polygon(), etc. into enums.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+/// CSS shape-outside property for wrapping text around shapes
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
 pub enum ShapeOutside {
     None,
-    Shape(String), // Placeholder for basic-shape, shape-box, url()
+    Shape(Shape),
+}
+
+impl Eq for ShapeOutside {}
+impl core::hash::Hash for ShapeOutside {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        if let ShapeOutside::Shape(s) = self {
+            s.hash(state);
+        }
+    }
+}
+impl PartialOrd for ShapeOutside {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ShapeOutside {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (ShapeOutside::None, ShapeOutside::None) => core::cmp::Ordering::Equal,
+            (ShapeOutside::None, ShapeOutside::Shape(_)) => core::cmp::Ordering::Less,
+            (ShapeOutside::Shape(_), ShapeOutside::None) => core::cmp::Ordering::Greater,
+            (ShapeOutside::Shape(a), ShapeOutside::Shape(b)) => a.cmp(b),
+        }
+    }
 }
 
 impl Default for ShapeOutside {
@@ -31,10 +58,107 @@ impl PrintAsCssValue for ShapeOutside {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::None => "none".to_string(),
-            Self::Shape(s) => s.clone(),
+            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
         }
     }
 }
+
+/// CSS shape-inside property for flowing text within shapes
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ShapeInside {
+    None,
+    Shape(Shape),
+}
+
+impl Eq for ShapeInside {}
+impl core::hash::Hash for ShapeInside {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        if let ShapeInside::Shape(s) = self {
+            s.hash(state);
+        }
+    }
+}
+impl PartialOrd for ShapeInside {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ShapeInside {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (ShapeInside::None, ShapeInside::None) => core::cmp::Ordering::Equal,
+            (ShapeInside::None, ShapeInside::Shape(_)) => core::cmp::Ordering::Less,
+            (ShapeInside::Shape(_), ShapeInside::None) => core::cmp::Ordering::Greater,
+            (ShapeInside::Shape(a), ShapeInside::Shape(b)) => a.cmp(b),
+        }
+    }
+}
+
+impl Default for ShapeInside {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl PrintAsCssValue for ShapeInside {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::None => "none".to_string(),
+            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
+        }
+    }
+}
+
+/// CSS clip-path property for clipping element rendering
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ClipPath {
+    None,
+    Shape(Shape),
+}
+
+impl Eq for ClipPath {}
+impl core::hash::Hash for ClipPath {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        if let ClipPath::Shape(s) = self {
+            s.hash(state);
+        }
+    }
+}
+impl PartialOrd for ClipPath {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ClipPath {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (ClipPath::None, ClipPath::None) => core::cmp::Ordering::Equal,
+            (ClipPath::None, ClipPath::Shape(_)) => core::cmp::Ordering::Less,
+            (ClipPath::Shape(_), ClipPath::None) => core::cmp::Ordering::Greater,
+            (ClipPath::Shape(a), ClipPath::Shape(b)) => a.cmp(b),
+        }
+    }
+}
+
+impl Default for ClipPath {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl PrintAsCssValue for ClipPath {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::None => "none".to_string(),
+            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
+        }
+    }
+}
+
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -81,7 +205,25 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeOutside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ShapeOutside::None => String::from("ShapeOutside::None"),
-            ShapeOutside::Shape(s) => format!("ShapeOutside::Shape(String::from({:?}))", s),
+            ShapeOutside::Shape(_s) => String::from("ShapeOutside::Shape(/* ... */)"), // TODO
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ShapeInside {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ShapeInside::None => String::from("ShapeInside::None"),
+            ShapeInside::Shape(_s) => String::from("ShapeInside::Shape(/* ... */)"), // TODO
+        }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for ClipPath {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            ClipPath::None => String::from("ClipPath::None"),
+            ClipPath::Shape(_s) => String::from("ClipPath::Shape(/* ... */)"), // TODO
         }
     }
 }
@@ -110,14 +252,38 @@ mod parser {
     use core::num::ParseFloatError;
 
     use super::*;
+    use crate::shape_parser::{parse_shape, ShapeParseError};
 
-    // A simplified parser for shape-outside.
-    pub fn parse_shape_outside(input: &str) -> Result<ShapeOutside, ()> {
+    /// Parser for shape-outside property
+    pub fn parse_shape_outside(input: &str) -> Result<ShapeOutside, ShapeParseError> {
         let trimmed = input.trim();
         if trimmed == "none" {
             Ok(ShapeOutside::None)
         } else {
-            Ok(ShapeOutside::Shape(trimmed.to_string()))
+            let shape = parse_shape(trimmed)?;
+            Ok(ShapeOutside::Shape(shape))
+        }
+    }
+
+    /// Parser for shape-inside property
+    pub fn parse_shape_inside(input: &str) -> Result<ShapeInside, ShapeParseError> {
+        let trimmed = input.trim();
+        if trimmed == "none" {
+            Ok(ShapeInside::None)
+        } else {
+            let shape = parse_shape(trimmed)?;
+            Ok(ShapeInside::Shape(shape))
+        }
+    }
+
+    /// Parser for clip-path property
+    pub fn parse_clip_path(input: &str) -> Result<ClipPath, ShapeParseError> {
+        let trimmed = input.trim();
+        if trimmed == "none" {
+            Ok(ClipPath::None)
+        } else {
+            let shape = parse_shape(trimmed)?;
+            Ok(ClipPath::Shape(shape))
         }
     }
 
@@ -148,12 +314,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_shape_simplified() {
-        assert_eq!(parse_shape_outside("none").unwrap(), ShapeOutside::None);
-        assert_eq!(
-            parse_shape_outside("circle(50%)").unwrap(),
-            ShapeOutside::Shape("circle(50%)".to_string())
-        );
+    fn test_parse_shape_properties() {
+        // Test shape-outside
+        assert!(matches!(parse_shape_outside("none").unwrap(), ShapeOutside::None));
+        assert!(matches!(
+            parse_shape_outside("circle(50px)").unwrap(),
+            ShapeOutside::Shape(_)
+        ));
+
+        // Test shape-inside
+        assert!(matches!(parse_shape_inside("none").unwrap(), ShapeInside::None));
+        assert!(matches!(
+            parse_shape_inside("circle(100px at 50px 50px)").unwrap(),
+            ShapeInside::Shape(_)
+        ));
+
+        // Test clip-path
+        assert!(matches!(parse_clip_path("none").unwrap(), ClipPath::None));
+        assert!(matches!(
+            parse_clip_path("polygon(0 0, 100px 0, 100px 100px, 0 100px)").unwrap(),
+            ClipPath::Shape(_)
+        ));
+
+        // Test existing properties
         assert_eq!(
             parse_shape_margin("10px").unwrap().inner,
             PixelValue::px(10.0)

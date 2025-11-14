@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 130] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 132] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -212,6 +212,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 130] = [
     (CssPropertyType::FlowInto, "flow-into"),
     (CssPropertyType::FlowFrom, "flow-from"),
     (CssPropertyType::ShapeOutside, "shape-outside"),
+    (CssPropertyType::ShapeInside, "shape-inside"),
+    (CssPropertyType::ClipPath, "clip-path"),
     (CssPropertyType::ShapeMargin, "shape-margin"),
     (
         CssPropertyType::ShapeImageThreshold,
@@ -340,6 +342,8 @@ pub type ColumnRuleColorValue = CssPropertyValue<ColumnRuleColor>;
 pub type FlowIntoValue = CssPropertyValue<FlowInto>;
 pub type FlowFromValue = CssPropertyValue<FlowFrom>;
 pub type ShapeOutsideValue = CssPropertyValue<ShapeOutside>;
+pub type ShapeInsideValue = CssPropertyValue<ShapeInside>;
+pub type ClipPathValue = CssPropertyValue<ClipPath>;
 pub type ShapeMarginValue = CssPropertyValue<ShapeMargin>;
 pub type ShapeImageThresholdValue = CssPropertyValue<ShapeImageThreshold>;
 pub type ContentValue = CssPropertyValue<Content>;
@@ -565,6 +569,8 @@ pub enum CssProperty {
     FlowInto(FlowIntoValue),
     FlowFrom(FlowFromValue),
     ShapeOutside(ShapeOutsideValue),
+    ShapeInside(ShapeInsideValue),
+    ClipPath(ClipPathValue),
     ShapeMargin(ShapeMarginValue),
     ShapeImageThreshold(ShapeImageThresholdValue),
     Content(ContentValue),
@@ -723,6 +729,8 @@ pub enum CssPropertyType {
     FlowInto,
     FlowFrom,
     ShapeOutside,
+    ShapeInside,
+    ClipPath,
     ShapeMargin,
     ShapeImageThreshold,
     Content,
@@ -893,6 +901,8 @@ impl CssPropertyType {
             CssPropertyType::FlowInto => "flow-into",
             CssPropertyType::FlowFrom => "flow-from",
             CssPropertyType::ShapeOutside => "shape-outside",
+            CssPropertyType::ShapeInside => "shape-inside",
+            CssPropertyType::ClipPath => "clip-path",
             CssPropertyType::ShapeMargin => "shape-margin",
             CssPropertyType::ShapeImageThreshold => "shape-image-threshold",
             CssPropertyType::Content => "content",
@@ -2174,6 +2184,16 @@ pub fn parse_css_property<'a>(
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::ShapeInside => CssProperty::ShapeInside(
+                parse_shape_inside(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::ClipPath => CssProperty::ClipPath(
+                parse_clip_path(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(parse_shape_margin(value)?.into())
             }
@@ -2929,6 +2949,8 @@ impl_from_css_prop!(ColumnRuleColor, CssProperty::ColumnRuleColor);
 impl_from_css_prop!(FlowInto, CssProperty::FlowInto);
 impl_from_css_prop!(FlowFrom, CssProperty::FlowFrom);
 impl_from_css_prop!(ShapeOutside, CssProperty::ShapeOutside);
+impl_from_css_prop!(ShapeInside, CssProperty::ShapeInside);
+impl_from_css_prop!(ClipPath, CssProperty::ClipPath);
 impl_from_css_prop!(ShapeMargin, CssProperty::ShapeMargin);
 impl_from_css_prop!(ShapeImageThreshold, CssProperty::ShapeImageThreshold);
 impl_from_css_prop!(Content, CssProperty::Content);
@@ -3068,6 +3090,8 @@ impl CssProperty {
             CssProperty::FlowInto(v) => v.get_css_value_fmt(),
             CssProperty::FlowFrom(v) => v.get_css_value_fmt(),
             CssProperty::ShapeOutside(v) => v.get_css_value_fmt(),
+            CssProperty::ShapeInside(v) => v.get_css_value_fmt(),
+            CssProperty::ClipPath(v) => v.get_css_value_fmt(),
             CssProperty::ShapeMargin(v) => v.get_css_value_fmt(),
             CssProperty::ShapeImageThreshold(v) => v.get_css_value_fmt(),
             CssProperty::Content(v) => v.get_css_value_fmt(),
@@ -3486,6 +3510,8 @@ impl CssProperty {
             CssProperty::FlowInto(_) => CssPropertyType::FlowInto,
             CssProperty::FlowFrom(_) => CssPropertyType::FlowFrom,
             CssProperty::ShapeOutside(_) => CssPropertyType::ShapeOutside,
+            CssProperty::ShapeInside(_) => CssPropertyType::ShapeInside,
+            CssProperty::ClipPath(_) => CssPropertyType::ClipPath,
             CssProperty::ShapeMargin(_) => CssPropertyType::ShapeMargin,
             CssProperty::ShapeImageThreshold(_) => CssPropertyType::ShapeImageThreshold,
             CssProperty::Content(_) => CssPropertyType::Content,
@@ -3813,6 +3839,12 @@ impl CssProperty {
     }
     pub const fn shape_outside(input: ShapeOutside) -> Self {
         CssProperty::ShapeOutside(CssPropertyValue::Exact(input))
+    }
+    pub const fn shape_inside(input: ShapeInside) -> Self {
+        CssProperty::ShapeInside(CssPropertyValue::Exact(input))
+    }
+    pub const fn clip_path(input: ClipPath) -> Self {
+        CssProperty::ClipPath(CssPropertyValue::Exact(input))
     }
     pub const fn shape_margin(input: ShapeMargin) -> Self {
         CssProperty::ShapeMargin(CssPropertyValue::Exact(input))
@@ -4586,6 +4618,18 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_shape_inside(&self) -> Option<&ShapeInsideValue> {
+        match self {
+            CssProperty::ShapeInside(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_clip_path(&self) -> Option<&ClipPathValue> {
+        match self {
+            CssProperty::ClipPath(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_shape_margin(&self) -> Option<&ShapeMarginValue> {
         match self {
             CssProperty::ShapeMargin(f) => Some(f),
@@ -4774,6 +4818,8 @@ impl CssProperty {
             FlowInto(c) => c.is_initial(),
             FlowFrom(c) => c.is_initial(),
             ShapeOutside(c) => c.is_initial(),
+            ShapeInside(c) => c.is_initial(),
+            ClipPath(c) => c.is_initial(),
             ShapeMargin(c) => c.is_initial(),
             ShapeImageThreshold(c) => c.is_initial(),
             Content(c) => c.is_initial(),
@@ -5052,6 +5098,12 @@ impl CssProperty {
     }
     pub const fn const_shape_outside(input: ShapeOutside) -> Self {
         CssProperty::ShapeOutside(ShapeOutsideValue::Exact(input))
+    }
+    pub const fn const_shape_inside(input: ShapeInside) -> Self {
+        CssProperty::ShapeInside(ShapeInsideValue::Exact(input))
+    }
+    pub const fn const_clip_path(input: ClipPath) -> Self {
+        CssProperty::ClipPath(ClipPathValue::Exact(input))
     }
     pub const fn const_shape_margin(input: ShapeMargin) -> Self {
         CssProperty::ShapeMargin(ShapeMarginValue::Exact(input))
@@ -5572,6 +5624,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::ShapeOutside(p) => format!(
             "CssProperty::ShapeOutside({})",
             print_css_property_value(p, tabs, "ShapeOutside")
+        ),
+        CssProperty::ShapeInside(p) => format!(
+            "CssProperty::ShapeInside({})",
+            print_css_property_value(p, tabs, "ShapeInside")
+        ),
+        CssProperty::ClipPath(p) => format!(
+            "CssProperty::ClipPath({})",
+            print_css_property_value(p, tabs, "ClipPath")
         ),
         CssProperty::ShapeMargin(p) => format!(
             "CssProperty::ShapeMargin({})",

@@ -66,7 +66,3 @@ pnm = ["image/pnm"]
 font_loading = []
 xml = ["roxmltree", "xmlwriter", "xmlparser"]
 svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml", "geo-booleanop", "geo", "gl-context-loader"]
-
-[[example]]
-name = "pdf_export"
-required-features = ["pdf"]

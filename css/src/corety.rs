@@ -252,3 +252,31 @@ impl_option!(
 );
 impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+
+// Manual implementations for Hash and Ord on OptionF32 (since f32 doesn't implement these traits)
+impl core::hash::Hash for OptionF32 {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            OptionF32::None => 0u8.hash(state),
+            OptionF32::Some(v) => {
+                1u8.hash(state);
+                v.to_bits().hash(state);
+            }
+        }
+    }
+}
+
+impl Eq for OptionF32 {}
+
+impl Ord for OptionF32 {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (OptionF32::None, OptionF32::None) => core::cmp::Ordering::Equal,
+            (OptionF32::None, OptionF32::Some(_)) => core::cmp::Ordering::Less,
+            (OptionF32::Some(_), OptionF32::None) => core::cmp::Ordering::Greater,
+            (OptionF32::Some(a), OptionF32::Some(b)) => {
+                a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal)
+            }
+        }
+    }
+}

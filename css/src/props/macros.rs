@@ -521,6 +521,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::ShapeOutside => {
                 CssProperty::ShapeOutside(CssPropertyValue::$content_type)
             }
+            CssPropertyType::ShapeInside => {
+                CssProperty::ShapeInside(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ClipPath => {
+                CssProperty::ClipPath(CssPropertyValue::$content_type)
+            }
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(CssPropertyValue::$content_type)
             }

@@ -627,7 +627,7 @@ fn translate_to_text3_constraints<'a>(
     use crate::text3::cache::TextAlign as Text3TextAlign;
 
     // Convert floats into exclusion zones for text3 to flow around.
-    let shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
+    let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
         bfc_state
             .floats
             .floats
@@ -650,7 +650,86 @@ fn translate_to_text3_constraints<'a>(
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
 
-    // TODO: support shape-outside, shape boundaries, flow-from, flow-into
+    // Read CSS Shapes properties
+    // For reference box, use the element's CSS height if available, otherwise available_size
+    // This is important because available_size.height might be infinite during auto height calculation
+    let ref_box_height = if constraints.available_size.height.is_finite() {
+        constraints.available_size.height
+    } else {
+        // Try to get explicit CSS height
+        // For percentage resolution, use the width as reference (since height is infinite)
+        let css_height = styled_dom
+            .css_property_cache
+            .ptr
+            .get_height(node_data, &id, node_state)
+            .and_then(|v| v.get_property())
+            .and_then(|h| match h {
+                azul_css::props::layout::dimensions::LayoutHeight::Px(v) => {
+                    Some(v.to_pixels(constraints.available_size.width))
+                },
+                _ => None,
+            })
+            .unwrap_or(constraints.available_size.width); // Fallback: use width as height (square)
+        css_height
+    };
+    
+    let reference_box = crate::text3::cache::Rect {
+        x: 0.0,
+        y: 0.0,
+        width: constraints.available_size.width,
+        height: ref_box_height,
+    };
+
+    // shape-inside: Text flows within the shape boundary
+    eprintln!("[DEBUG] Checking shape-inside for node {:?}", id);
+    eprintln!("[DEBUG] Reference box: {:?} (available_size height was: {})", reference_box, constraints.available_size.height);
+    
+    let shape_boundaries = styled_dom
+        .css_property_cache
+        .ptr
+        .get_shape_inside(node_data, &id, node_state)
+        .and_then(|v| {
+            eprintln!("[DEBUG] Got shape-inside value: {:?}", v);
+            v.get_property()
+        })
+        .and_then(|shape_inside| {
+            eprintln!("[DEBUG] shape-inside property: {:?}", shape_inside);
+            if let azul_css::props::layout::ShapeInside::Shape(css_shape) = shape_inside {
+                eprintln!("[DEBUG] Converting CSS shape to ShapeBoundary: {:?}", css_shape);
+                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
+                eprintln!("[DEBUG] Created ShapeBoundary: {:?}", boundary);
+                Some(vec![boundary])
+            } else {
+                eprintln!("[DEBUG] shape-inside is None");
+                None
+            }
+        })
+        .unwrap_or_default();
+    
+    eprintln!("[DEBUG] Final shape_boundaries count: {}", shape_boundaries.len());
+
+    // shape-outside: Text wraps around the shape (adds to exclusions)
+    eprintln!("[DEBUG] Checking shape-outside for node {:?}", id);
+    if let Some(shape_outside_value) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_shape_outside(node_data, &id, node_state)
+    {
+        eprintln!("[DEBUG] Got shape-outside value: {:?}", shape_outside_value);
+        if let Some(shape_outside) = shape_outside_value.get_property() {
+            eprintln!("[DEBUG] shape-outside property: {:?}", shape_outside);
+            if let azul_css::props::layout::ShapeOutside::Shape(css_shape) = shape_outside {
+                eprintln!("[DEBUG] Converting CSS shape-outside to ShapeBoundary: {:?}", css_shape);
+                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
+                eprintln!("[DEBUG] Created ShapeBoundary (exclusion): {:?}", boundary);
+                shape_exclusions.push(boundary);
+            }
+        }
+    } else {
+        eprintln!("[DEBUG] No shape-outside value found");
+    }
+
+    // TODO: clip-path will be used for rendering clipping (not text layout)
 
     let writing_mode = styled_dom
         .css_property_cache
@@ -735,8 +814,8 @@ fn translate_to_text3_constraints<'a>(
         },
         available_width: constraints.available_size.width,
         available_height: Some(constraints.available_size.height),
-        shape_boundaries: Vec::new(), // TODO: support shape-outside
-        shape_exclusions,
+        shape_boundaries, // CSS shape-inside: text flows within shape
+        shape_exclusions, // CSS shape-outside + floats: text wraps around shapes
         writing_mode: Some(match writing_mode {
             LayoutWritingMode::HorizontalTb => text3::cache::WritingMode::HorizontalTb,
             LayoutWritingMode::VerticalRl => text3::cache::WritingMode::VerticalRl,

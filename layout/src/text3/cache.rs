@@ -1475,6 +1475,96 @@ impl PartialEq for ShapeBoundary {
 }
 impl Eq for ShapeBoundary {}
 
+impl ShapeBoundary {
+    /// Converts a CSS shape (from azul-css) to a layout engine ShapeBoundary
+    /// 
+    /// # Arguments
+    /// * `css_shape` - The parsed CSS shape from azul-css
+    /// * `reference_box` - The containing box for resolving coordinates (from layout solver)
+    /// 
+    /// # Returns
+    /// A ShapeBoundary ready for use in the text layout engine
+    pub fn from_css_shape(css_shape: &azul_css::shape::Shape, reference_box: Rect) -> Self {
+        use azul_css::shape::Shape as CssShape;
+        
+        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Input CSS shape: {:?}", css_shape);
+        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Reference box: {:?}", reference_box);
+        
+        let result = match css_shape {
+            CssShape::Circle(circle) => {
+                let center = Point {
+                    x: reference_box.x + circle.center.x,
+                    y: reference_box.y + circle.center.y,
+                };
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}", 
+                    circle.center.x, circle.center.y, circle.radius);
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), radius: {}", 
+                    center.x, center.y, circle.radius);
+                ShapeBoundary::Circle {
+                    center,
+                    radius: circle.radius,
+                }
+            }
+            
+            CssShape::Ellipse(ellipse) => {
+                let center = Point {
+                    x: reference_box.x + ellipse.center.x,
+                    y: reference_box.y + ellipse.center.y,
+                };
+                let radii = Size {
+                    width: ellipse.radius_x,
+                    height: ellipse.radius_y,
+                };
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, {})", 
+                    center.x, center.y, radii.width, radii.height);
+                ShapeBoundary::Ellipse { center, radii }
+            }
+            
+            CssShape::Polygon(polygon) => {
+                let points = polygon.points.as_ref()
+                    .iter()
+                    .map(|pt| Point {
+                        x: reference_box.x + pt.x,
+                        y: reference_box.y + pt.y,
+                    })
+                    .collect();
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Polygon - {} points", polygon.points.as_ref().len());
+                ShapeBoundary::Polygon { points }
+            }
+            
+            CssShape::Inset(inset) => {
+                // Inset defines distances from reference box edges
+                let x = reference_box.x + inset.left;
+                let y = reference_box.y + inset.top;
+                let width = reference_box.width - inset.left - inset.right;
+                let height = reference_box.height - inset.top - inset.bottom;
+                
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})", 
+                    inset.top, inset.right, inset.bottom, inset.left);
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, w={}, h={}", 
+                    x, y, width, height);
+                
+                ShapeBoundary::Rectangle(Rect {
+                    x,
+                    y,
+                    width: width.max(0.0),
+                    height: height.max(0.0),
+                })
+            }
+            
+            CssShape::Path(path) => {
+                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Path - fallback to rectangle");
+                // TODO: Parse SVG path data into PathSegments
+                // For now, fall back to rectangle
+                ShapeBoundary::Rectangle(reference_box)
+            }
+        };
+        
+        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Result: {:?}", result);
+        result
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InlineBreak {
     pub break_type: BreakType,
@@ -4271,6 +4361,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             (column_width + fragment_constraints.column_gap) * current_column as f32;
         let mut line_top_y = 0.0;
         let mut line_index = 0;
+        let mut empty_segment_count = 0; // Failsafe counter for infinite loops
+        const MAX_EMPTY_SEGMENTS: usize = 1000; // Maximum allowed consecutive empty segments
 
         while !cursor.is_done() {
             if let Some(max_height) = fragment_constraints.available_height {
@@ -4299,13 +4391,51 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             );
 
             if line_constraints.segments.is_empty() {
+                empty_segment_count += 1;
                 println!(
-                    "  No available segments at y={}, skipping to next line.",
-                    line_top_y
+                    "  No available segments at y={}, skipping to next line. (empty count: {}/{})",
+                    line_top_y, empty_segment_count, MAX_EMPTY_SEGMENTS
                 );
+                
+                // Failsafe: If we've skipped too many lines without content, break out
+                if empty_segment_count >= MAX_EMPTY_SEGMENTS {
+                    println!("  ⚠️ WARNING: Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS);
+                    println!("  This likely means the shape constraints are too restrictive or positioned incorrectly.");
+                    println!("  Current y={}, shape boundaries might be outside this range.", line_top_y);
+                    break;
+                }
+                
+                // Additional check: If we have shapes and are far beyond the expected height,
+                // also break to avoid infinite loops
+                if !fragment_constraints.shape_boundaries.is_empty() && empty_segment_count > 50 {
+                    // Calculate maximum shape height
+                    let max_shape_y: f32 = fragment_constraints
+                        .shape_boundaries
+                        .iter()
+                        .map(|shape| {
+                            match shape {
+                                ShapeBoundary::Circle { center, radius } => center.y + radius,
+                                ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
+                                ShapeBoundary::Polygon { points } => points.iter().map(|p| p.y).fold(0.0, f32::max),
+                                ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
+                                ShapeBoundary::Path { .. } => f32::MAX, // Can't determine for path
+                            }
+                        })
+                        .fold(0.0, f32::max);
+                    
+                    if line_top_y > max_shape_y + 100.0 {
+                        println!("  ⚠️ INFO: Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y);
+                        println!("  Shape boundaries exist but no segments available - text cannot fit in shape.");
+                        break;
+                    }
+                }
+                
                 line_top_y += fragment_constraints.line_height;
                 continue;
             }
+            
+            // Reset counter when we find valid segments
+            empty_segment_count = 0;
 
             let (mut line_items, was_hyphenated) =
                 break_one_line(cursor, &line_constraints, false, hyphenator.as_ref());

@@ -57,7 +57,7 @@ use azul_css::{
             LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
             LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
             SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue,
-            ShapeMarginValue, ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
+            ShapeMarginValue, ShapeOutsideValue, ShapeInsideValue, ClipPathValue, StringSetValue, StyleBackfaceVisibilityValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
             StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
@@ -1573,6 +1573,39 @@ impl CssPropertyCache {
             .and_then(|p| p.as_clear())
     }
 
+    // Method for getting shape-outside property
+    pub fn get_shape_outside<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ShapeOutsideValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ShapeOutside)
+            .and_then(|p| p.as_shape_outside())
+    }
+
+    // Method for getting shape-inside property
+    pub fn get_shape_inside<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ShapeInsideValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ShapeInside)
+            .and_then(|p| p.as_shape_inside())
+    }
+
+    // Method for getting clip-path property
+    pub fn get_clip_path<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a ClipPathValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ClipPath)
+            .and_then(|p| p.as_clip_path())
+    }
+
     // Method for getting scrollbar-style property
     pub fn get_scrollbar_style<'a>(
         &'a self,
@@ -1830,22 +1863,6 @@ impl CssPropertyCache {
     ) -> Option<&'a FlowFromValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::FlowFrom)
             .and_then(|p| p.as_flow_from())
-    }
-
-    // Method for getting shape-outside property
-    pub fn get_shape_outside<'a>(
-        &'a self,
-        node_data: &'a NodeData,
-        node_id: &NodeId,
-        node_state: &StyledNodeState,
-    ) -> Option<&'a ShapeOutsideValue> {
-        self.get_property(
-            node_data,
-            node_id,
-            node_state,
-            &CssPropertyType::ShapeOutside,
-        )
-        .and_then(|p| p.as_shape_outside())
     }
 
     // Method for getting shape-margin property
