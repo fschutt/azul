@@ -895,6 +895,8 @@ struct TableLayoutContext {
     border_collapse: azul_css::props::layout::StyleBorderCollapse,
     /// Border spacing (only used when border_collapse is Separate)
     border_spacing: azul_css::props::layout::LayoutBorderSpacing,
+    /// CSS 2.2 Section 17.4: Index of table-caption child, if any
+    caption_index: Option<usize>,
 }
 
 impl TableLayoutContext {
@@ -907,6 +909,7 @@ impl TableLayoutContext {
             row_heights: Vec::new(),
             border_collapse: azul_css::props::layout::StyleBorderCollapse::Separate,
             border_spacing: azul_css::props::layout::LayoutBorderSpacing::default(),
+            caption_index: None,
         }
     }
 }
@@ -1189,6 +1192,33 @@ fn get_border_spacing_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     LayoutBorderSpacing::default() // Default: 0
 }
 
+/// CSS 2.2 Section 17.4 - Tables in the visual formatting model:
+/// "The caption box is a block box that retains its own content, padding, border, and margin areas.
+/// The caption-side property specifies the position of the caption box with respect to the table box."
+///
+/// Get the caption-side property for a table node.
+/// Returns Top (default) or Bottom.
+fn get_caption_side_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> azul_css::props::layout::StyleCaptionSide {
+    use azul_css::props::layout::StyleCaptionSide;
+    use azul_core::styled_dom::StyledNodeState;
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_caption_side(node_data, &dom_id, &node_state) {
+            if let Some(value) = prop.get_property() {
+                return *value;
+            }
+        }
+    }
+    
+    StyleCaptionSide::Top // Default per CSS 2.2
+}
+
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
@@ -1262,11 +1292,74 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
     
-    // Create output with the table's final size
+    // CSS 2.2 Section 17.4: Layout and position the caption if present
+    // "The caption box is a block box that retains its own content, padding, border, and margin areas."
+    let caption_side = get_caption_side_property(ctx, &table_node);
+    let mut caption_height = 0.0;
+    let mut table_y_offset = 0.0;
+    
+    if let Some(caption_idx) = table_ctx.caption_index {
+        ctx.debug_log(&format!("Laying out caption with caption-side: {:?}", caption_side));
+        
+        // Layout caption as a block with the table's width as available width
+        let caption_constraints = LayoutConstraints {
+            available_size: LogicalSize {
+                width: table_width,
+                height: constraints.available_size.height,
+            },
+            writing_mode: constraints.writing_mode,
+            bfc_state: None, // Caption creates its own BFC
+            text_align: constraints.text_align,
+        };
+        
+        // Layout the caption node
+        let caption_output = layout_formatting_context(ctx, tree, text_cache, caption_idx, &caption_constraints)?;
+        caption_height = caption_output.overflow_size.height;
+        
+        // Position caption based on caption-side property
+        use azul_css::props::layout::StyleCaptionSide;
+        let caption_position = match caption_side {
+            StyleCaptionSide::Top => {
+                // Caption on top: position at y=0, table starts below caption
+                table_y_offset = caption_height;
+                LogicalPosition { x: 0.0, y: 0.0 }
+            }
+            StyleCaptionSide::Bottom => {
+                // Caption on bottom: table starts at y=0, caption below table
+                LogicalPosition { x: 0.0, y: table_height }
+            }
+        };
+        
+        // Store caption position
+        if let Some(caption_node) = tree.get_mut(caption_idx) {
+            caption_node.relative_position = Some(caption_position);
+            ctx.debug_log(&format!("Caption positioned at x={:.2}, y={:.2}, height={:.2}", 
+                                 caption_position.x, caption_position.y, caption_height));
+        }
+    }
+    
+    // Adjust all table cell positions if caption is on top
+    if table_y_offset > 0.0 {
+        ctx.debug_log(&format!("Adjusting table cells by y offset: {:.2}", table_y_offset));
+        
+        // Traverse all cells and adjust their y positions
+        for cell_info in &table_ctx.cells {
+            if let Some(cell_node) = tree.get_mut(cell_info.node_index) {
+                if let Some(pos) = cell_node.relative_position.as_mut() {
+                    pos.y += table_y_offset;
+                }
+            }
+        }
+    }
+    
+    // Total table height includes caption
+    let total_height = table_height + caption_height;
+    
+    // Create output with the table's final size (including caption)
     let output = LayoutOutput {
         overflow_size: LogicalSize {
             width: table_width,
-            height: table_height,
+            height: total_height,
         },
         positions: BTreeMap::new(), // Positions are set in position_table_cells
         baseline: None, // Tables don't have a baseline
@@ -1285,9 +1378,17 @@ fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     let table_node = tree.get(table_index).ok_or(LayoutError::InvalidTree)?;
     
-    // Traverse children to find rows
+    // CSS 2.2 Section 17.4: A table may have one table-caption child.
+    // Traverse children to find caption, rows, and row groups
     for &child_idx in &table_node.children {
         if let Some(child) = tree.get(child_idx) {
+            // Check if this is a table caption
+            if matches!(child.formatting_context, FormattingContext::TableCaption) {
+                ctx.debug_log(&format!("Found table caption at index {}", child_idx));
+                table_ctx.caption_index = Some(child_idx);
+                continue;
+            }
+            
             // Check if this is a table row or row group
             match child.formatting_context {
                 FormattingContext::TableRow => {
@@ -1308,8 +1409,11 @@ fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
     
-    ctx.debug_log(&format!("Table structure: {} rows, {} columns, {} cells", 
-                          table_ctx.num_rows, table_ctx.columns.len(), table_ctx.cells.len()));
+    ctx.debug_log(&format!("Table structure: {} rows, {} columns, {} cells{}", 
+                          table_ctx.num_rows, 
+                          table_ctx.columns.len(), 
+                          table_ctx.cells.len(),
+                          if table_ctx.caption_index.is_some() { ", has caption" } else { "" }));
     
     Ok(table_ctx)
 }
