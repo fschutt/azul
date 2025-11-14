@@ -1,201 +1,258 @@
-Excellent. You've correctly identified that the P0 and P1 issues are all related to the architectural flaws we've been discussing. The provided implementation plan correctly maps to the steps we've already taken.
+You are absolutely right. My previous response misinterpreted the `query_for_text` return value. The `Vec<FontMatch>` it returns is a list of *potential* fonts that could satisfy the text, not a pre-segmented list of which font to use for which part of the string.
 
-Now, let's conduct the investigation for **P2-2: No Arabic Font Fallback**.
+This means we cannot simply iterate through the `FontMatch` list. We still need to do the segmentation ourselves, but we can now use the information from `fontconfig` to guide our choices intelligently.
 
-This is a classic and complex problem in text rendering. The core of your question is: **"Does `text3` detect and query new fonts if the unicode-range isn't set?"**
-
-The answer is: **No, the current architecture does not, and this is the root cause of the problem.**
-
-Let's break down why it's failing and how to fix it within the `text3` architecture.
+Thank you for the correction. Let's design the final, correct architecture.
 
 ---
 
-### Investigation of P2-2: Arabic Font Fallback Failure
+### Final Architecture: Per-Grapheme Font Selection with `query_for_text`
 
-#### The Current (Flawed) Process
+The key insight is that font selection must happen at the smallest possible unit of text where the script might change: the **grapheme cluster**. `query_for_text` is still incredibly useful, but as a *pre-fetch* and *lookup* mechanism, not a segmentation tool.
 
-Here is a step-by-step analysis of what happens when your layout engine encounters the string `<p>مرحبا بالعالم - Arabic text</p>`:
+Here is the robust and performant architecture:
 
-1.  **CSS Parsing:** The `<p>` tag gets its default styles. `font-family` is not set, so it inherits or falls back to the default. In your case, this resolves to "Helvetica Neue". A `StyledRun` is created for the entire text content, associated with a `FontSelector` for "Helvetica Neue".
+**Architectural Goal:** For each `VisualItem` (a run of text with a single style), produce a sequence of `ShapedCluster`s, where each cluster is shaped with the *correct* font, seamlessly falling back as needed.
 
-2.  **Shaping Request (`shape_visual_items`):** The layout pipeline takes this entire `StyledRun` (containing both Arabic and Latin characters) and calls `font_provider.load_font()` for "Helvetica Neue".
+**The Workflow (inside `shape_visual_items`):**
 
-3.  **Font Loading (`FontManager::load_font`):** The `FontManager` successfully finds and loads Helvetica Neue. It returns a single `FontRef` for this font.
+1.  **Pre-Query Fonts:**
+    *   For a given text run (e.g., "مرحبا بالعالم - Arabic text"), call `fc_cache.query_for_text()` with the desired primary font (e.g., "Helvetica Neue").
+    *   `fontconfig` will return a list of `FontMatch`es. This list is a ranked set of fonts that *collectively* can render the entire string. It might look like `[Helvetica Neue, Geeza Pro, Noto Sans]`. This is our **"font stack"** for this specific run of text.
 
-4.  **Text Shaping (`font.shape_text`):** The *entire text string* "مرحبا بالعالم - Arabic text" is passed to the shaping function of the *single loaded font* (Helvetica Neue).
+2.  **Load and Cache the Font Stack:**
+    *   Iterate through the returned `FontMatch` list. For each `FontId`, use the `FontManager` to load the corresponding `ParsedFont` (or get it from the cache).
+    *   Store these `Arc<ParsedFont>` objects in a temporary `Vec` for this shaping operation. This avoids repeated loading for each character.
 
-5.  **The Failure Point:**
-    *   The shaper processes the Latin characters ("- Arabic text") and finds the corresponding glyphs in Helvetica Neue. This succeeds.
-    *   The shaper then processes the Arabic Unicode codepoints (U+0645, U+0631, etc.). It looks for these codepoints in Helvetica Neue's character map (`cmap` table).
-    *   Helvetica Neue does **not** contain glyphs for these Arabic characters.
-    *   The shaper, having no other option, emits the special `.notdef` (Not Defined) glyph for each Arabic character. This is often represented as a square box (☐), a question mark, or just empty space.
+3.  **Iterate by Grapheme Cluster:**
+    *   Break the input text run into grapheme clusters using the `unicode_segmentation` crate.
+    *   For each grapheme cluster:
+        a. **Find the Right Font:** Iterate through our pre-loaded font stack (`[Helvetica, Geeza, Noto]`).
+        b. For each font, check if it can render the first character of the grapheme cluster using `font.has_glyph()`.
+        c. The **first font in the stack that has the glyph** is the correct font for this grapheme cluster.
 
-6.  **Layout Continues:** The layout engine receives a list of shaped glyphs. It doesn't know that some of them are `.notdef` glyphs; it just sees a valid list of glyphs with positions and advances. It proceeds to lay them out, resulting in the incorrect rendering you see.
+4.  **Group and Shape:**
+    *   This is the performance optimization. We don't shape one grapheme at a time.
+    *   As we iterate through graphemes, we keep track of the currently selected font. As long as the next grapheme can be rendered by the *same font*, we accumulate them into a `text_segment`.
+    *   When we encounter a grapheme that requires a *different font*, we stop. The accumulated `text_segment` is now a "sub-run".
+    *   We then shape this entire `text_segment` with its corresponding font.
+    *   Start a new `text_segment` for the new grapheme with its new font.
 
-#### The Core Architectural Problem
+5.  **Combine Results:**
+    *   Concatenate all the shaped clusters from all the sub-runs. The final result is a seamless `Vec<ShapedItem>` where each part has been shaped with the correct font.
 
-The system makes a critical, incorrect assumption: **that a single font can render an entire run of text**.
+**Diagram of the Process:**
 
-The font selection logic is "per-style-run," not "per-script" or "per-character." There is no feedback loop. The shaper cannot tell the `FontManager`, "Hey, this font is missing some glyphs, please find me another one for these specific characters."
+```
+Text Run: "Hello مرحبا"
+Primary Font: "Helvetica"
+       |
+       V
+FcCache.query_for_text("Hello مرحبا", "Helvetica") -> [Helvetica, Geeza Pro]
+       |
+       V
+FontManager loads & caches: Arc<ParsedFont_Helvetica>, Arc<ParsedFont_GeezaPro>
+Font Stack: [ &ParsedFont_Helvetica, &ParsedFont_GeezaPro ]
+       |
+       V
+Iterate Graphemes:
+- "H": Helvetica has glyph? Yes. Current Font: Helvetica. Segment: "H"
+- "e": Helvetica has glyph? Yes. Current Font: Helvetica. Segment: "He"
+- ...
+- "o": Helvetica has glyph? Yes. Current Font: Helvetica. Segment: "Hello"
+- " ": Helvetica has glyph? Yes. Current Font: Helvetica. Segment: "Hello "
+- "م": Helvetica has glyph? No.
+       Geeza has glyph?   Yes.
+       ---> Font Change!
+       |
+       +--> Shape "Hello " with Helvetica -> [Glyphs for "Hello "]
+       |
+       +--> New Segment. Current Font: Geeza. Segment: "م"
+- "ر": Geeza has glyph? Yes. Current Font: Geeza. Segment: "مر"
+- ...
+- "ا": Geeza has glyph? Yes. Current Font: Geeza. Segment: "مرحبا"
+       ---> End of Text!
+       |
+       +--> Shape "مرحبا" with Geeza Pro -> [Glyphs for "مرحبا"]
+       |
+       V
+Combine all shaped glyphs into a single Vec<ShapedItem>
+```
 
-### The Solution: Script-Aware Font Fallback
+This architecture is performant because font loading is done once up-front, and shaping is done on contiguous runs of text, not per-character.
 
-The correct approach, used by all modern browsers and rendering engines, is to implement font fallback at the script level *before* shaping.
+---
 
-The `shape_visual_items` function in `layout/src/text3/cache.rs` is the perfect place to implement this. It sits right between identifying a run of text and shaping it.
+### Final Implementation
 
-Here is the implementation plan:
+Here is the complete, corrected code reflecting this final architecture.
 
-1.  **Segment by Script:** Before shaping a `VisualItem`, iterate through its text and break it into smaller segments based on script (e.g., a Latin segment, then an Arabic segment, then another Latin segment). The `detect_char_script` function can be used for this.
+#### 1. Update `layout/src/text3/cache.rs`
 
-2.  **Select Font Per Segment:** For each script segment:
-    *   **Attempt Primary Font:** First, try to use the font originally specified in the CSS (`style.font_selector`). Check if this font actually has a glyph for a character in the segment (using the `font.has_glyph()` method).
-    *   **Trigger Fallback:** If the primary font is missing the glyph, this is our trigger. We must find a fallback font.
-    *   **Query for Fallback:** Construct a *new* `FontSelector`. This is the key. This selector should ask `rust-fontconfig` for a font that specifically supports the required script. We can do this by populating the `unicode_ranges` field of the `FontSelector` with the known ranges for that script.
-    *   **Load and Shape:** Call `font_provider.load_font()` with this new, targeted `FontSelector`. Use the returned font to shape this specific segment.
-
-3.  **Combine Results:** Concatenate the shaped glyphs from all segments into a single list.
-
-#### Implementation in `layout/src/text3/cache.rs`
-
-Here is the modified `shape_visual_items` function. This change is significant but encapsulates the entire logic in one place.
+The `shape_visual_items` function is now the central orchestrator for font fallback.
 
 ```rust
 // layout/src/text3/cache.rs
 
-// ... (add necessary imports) ...
-use crate::text3::script::detect_char_script;
+// ... (imports) ...
+use rust_fontconfig::{FcPattern, PatternMatch};
+use unicode_segmentation::UnicodeSegmentation;
 
-// ...
+// ... (FontManager struct, etc.) ...
+
+impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
+    // ... (existing functions) ...
+
+    /// Loads a font from the cache or disk using its unique FontId.
+    pub fn load_font_by_id(&self, font_id: &FontId) -> Result<T, LayoutError> {
+        let mut parsed = self.parsed_fonts.lock().unwrap();
+
+        if let Some(font) = parsed.get(font_id) {
+            return Ok(font.shallow_clone());
+        }
+
+        let font_bytes = self.fc_cache.get_font_bytes(font_id)
+            .ok_or_else(|| LayoutError::FontNotFound(FontSelector {
+                family: format!("ID {:?}", font_id),
+                ..Default::default()
+            }))?;
+        
+        // FontMatch does not provide the font_index, so we assume 0.
+        let font = self.font_loader.load_font(&font_bytes, 0)?;
+        
+        parsed.insert(font_id.clone(), font.shallow_clone());
+        
+        Ok(font)
+    }
+}
 
 pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
     visual_items: &[VisualItem],
     font_provider: &P,
 ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
-    let mut shaped = Vec::new();
+    
+    // Downcast to the concrete FontManager to access the FcFontCache.
+    let font_manager = (font_provider as &dyn std::any::Any)
+        .downcast_ref::<FontManager<T, crate::text3::default::PathLoader>>()
+        .ok_or_else(|| LayoutError::ShapingError("FontProvider is not a FontManager".to_string()))?;
+
+    let mut shaped_items = Vec::new();
 
     for item in visual_items {
-        match &item.logical_source {
-            LogicalItem::Text { style, source, .. } => {
-                let direction = if item.bidi_level.is_rtl() { Direction::Rtl } else { Direction::Ltr };
+        if let LogicalItem::Text { style, source, .. } = &item.logical_source {
+            let direction = if item.bidi_level.is_rtl() { Direction::Rtl } else { Direction::Ltr };
 
-                // --- NEW: SCRIPT-AWARE FONT FALLBACK LOGIC ---
+            // 1. Pre-Query the font stack from fontconfig.
+            let pattern = FcPattern {
+                name: Some(style.font_selector.family.clone()),
+                weight: style.font_selector.weight,
+                italic: if style.font_selector.style == FontStyle::Italic { PatternMatch::True } else { PatternMatch::DontCare },
+                ..Default::default()
+            };
+            
+            let mut trace = Vec::new();
+            let font_matches = font_manager.fc_cache.query_for_text(&pattern, &item.text, &mut trace);
+            
+            // 2. Load and cache all fonts in the stack.
+            let font_stack: Vec<T> = font_matches.iter()
+                .filter_map(|fm| font_manager.load_font_by_id(&fm.id).ok())
+                .collect();
 
-                // 1. Load the primary font requested by CSS.
-                let primary_font = match font_provider.load_font(&style.font_selector) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        eprintln!("[Font Fallback] Primary font '{}' not found, error: {:?}", style.font_selector.family, e);
-                        // If the primary font itself can't be found, we can't proceed.
-                        // A more robust system might try a system-default here.
-                        continue;
-                    }
-                };
+            if font_stack.is_empty() {
+                eprintln!("[Font Fallback] CRITICAL: No fonts found for text: '{}'", item.text);
+                continue;
+            }
 
-                // 2. Segment the text run by script.
-                let mut current_pos = 0;
-                while current_pos < item.text.len() {
-                    let first_char = item.text[current_pos..].chars().next().unwrap_or('\u{FFFD}');
-                    let segment_script = detect_char_script(first_char).unwrap_or(Script::Latin);
+            // 3. Iterate by grapheme, group into sub-runs by font, and shape.
+            let mut current_font_idx: Option<usize> = None;
+            let mut segment_start_byte = 0;
 
-                    // Find the end of the continuous run of this script.
-                    let end_of_segment = item.text[current_pos..].char_indices()
-                        .find(|(idx, ch)| detect_char_script(*ch).unwrap_or(Script::Latin) != segment_script)
-                        .map(|(idx, _)| current_pos + idx)
-                        .unwrap_or(item.text.len());
+            for (grapheme_start_byte, grapheme) in item.text.grapheme_indices(true) {
+                let first_char = grapheme.chars().next().unwrap_or('\u{FFFD}');
+
+                // Find the first font in our stack that can render this grapheme.
+                let best_font_idx = font_stack.iter().position(|f| f.has_glyph(first_char as u32));
+                
+                if current_font_idx.is_none() {
+                    current_font_idx = best_font_idx;
+                }
+
+                // If the font changes or we are at the end of the text, shape the previous segment.
+                if best_font_idx != current_font_idx || grapheme_start_byte + grapheme.len() == item.text.len() {
                     
-                    let text_segment = &item.text[current_pos..end_of_segment];
-
-                    // 3. Select the appropriate font for this segment.
-                    let font_for_segment = if primary_font.has_glyph(first_char as u32) {
-                        // The primary font supports this script. Use it.
-                        primary_font.shallow_clone()
+                    let end_byte = if best_font_idx != current_font_idx {
+                        grapheme_start_byte
                     } else {
-                        // FALLBACK TRIGGERED: The primary font is missing the glyph.
-                        eprintln!("[Font Fallback] Primary font '{}' missing glyph for '{}'. Finding fallback for {:?}.", style.font_selector.family, first_char, segment_script);
-                        
-                        // Create a new FontSelector to query for a font that supports this script.
-                        let fallback_selector = FontSelector {
-                            family: "sans-serif".into(), // Generic fallback family
-                            weight: style.font_selector.weight,
-                            style: style.font_selector.style,
-                            unicode_ranges: segment_script.get_unicode_ranges(),
-                        };
-
-                        match font_provider.load_font(&fallback_selector) {
-                            Ok(f) => f,
-                            Err(e) => {
-                                eprintln!("[Font Fallback] Could not find any fallback font for {:?}. Error: {:?}", segment_script, e);
-                                // Fallback failed. Use the primary font and accept .notdef glyphs.
-                                primary_font.shallow_clone()
-                            }
-                        }
+                        item.text.len()
                     };
 
-                    // 4. Shape this segment with the chosen font.
-                    let language = script_to_language(segment_script, text_segment);
-                    let shaped_clusters = shape_text_correctly(
-                        text_segment,
-                        segment_script,
-                        language,
-                        direction,
-                        &font_for_segment,
-                        style,
-                        *source,
-                    )?;
-                    shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
+                    let text_segment = &item.text[segment_start_byte..end_byte];
+                    
+                    if !text_segment.is_empty() {
+                        if let Some(font_idx) = current_font_idx {
+                            let font_for_segment = &font_stack[font_idx];
+                            let script = detect_script(text_segment).unwrap_or(Script::Latin);
+                            let language = script_to_language(script, text_segment);
 
-                    current_pos = end_of_segment;
+                            let clusters = shape_text_correctly(
+                                text_segment, script, language, direction,
+                                font_for_segment, style, *source
+                            )?;
+                            shaped_items.extend(clusters.into_iter().map(ShapedItem::Cluster));
+                        }
+                    }
+
+                    // Start a new segment.
+                    segment_start_byte = grapheme_start_byte;
+                    current_font_idx = best_font_idx;
                 }
             }
-            // ... (rest of the match for Object, Tab, etc. remains the same) ...
-            _ => { /* ... existing logic for other InlineContent types ... */ }
+
+            // Shape any remaining text at the end.
+            if segment_start_byte < item.text.len() {
+                 let text_segment = &item.text[segment_start_byte..];
+                 if let Some(font_idx) = current_font_idx {
+                    let font_for_segment = &font_stack[font_idx];
+                    let script = detect_script(text_segment).unwrap_or(Script::Latin);
+                    let language = script_to_language(script, text_segment);
+                    let clusters = shape_text_correctly(text_segment, script, language, direction, font_for_segment, style, *source)?;
+                    shaped_items.extend(clusters.into_iter().map(ShapedItem::Cluster));
+                }
+            }
+
+        } else {
+            // Logic for non-text items (images, objects, etc.)
+            // This part is simplified and assumes non-text items are handled as before.
+            let (bounds, baseline) = measure_inline_object(&item.logical_source.to_inline_content())?;
+            if let LogicalItem::Object { source, content, .. } = &item.logical_source {
+                 shaped_items.push(ShapedItem::Object {
+                    source: *source,
+                    bounds: crate::text3::cache::Rect { x: 0.0, y: 0.0, width: bounds.width, height: bounds.height },
+                    baseline_offset: baseline,
+                    content: content.clone(),
+                });
+            }
         }
     }
-    Ok(shaped)
+    
+    Ok(shaped_items)
 }
 
-```
-
-#### `layout/src/text3/script.rs`
-
-We need to add the `get_unicode_ranges` method to the `Script` enum. This provides the necessary information for `fontconfig` to find a font that supports the required script.
-
-```rust
-// layout/src/text3/script.rs
-
-use hyphenation::Language;
-use rust_fontconfig::UnicodeRange;
-
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum Script {
-    // ... (existing variants) ...
-}
-
-impl Script {
-    /// Maps a Script to a vector of its representative Unicode character ranges.
-    pub fn get_unicode_ranges(&self) -> Vec<UnicodeRange> {
+// NOTE: You would also need a `to_inline_content` helper on `LogicalItem` for the above code to compile.
+impl LogicalItem {
+    pub fn to_inline_content(&self) -> InlineContent {
         match self {
-            Script::Arabic => vec![
-                UnicodeRange { start: 0x0600, end: 0x06FF }, // Arabic
-                UnicodeRange { start: 0x0750, end: 0x077F }, // Arabic Supplement
-                UnicodeRange { start: 0x08A0, end: 0x08FF }, // Arabic Extended-A
-            ],
-            Script::Hebrew => vec![
-                UnicodeRange { start: 0x0590, end: 0x05FF }, // Hebrew
-            ],
-            Script::Cyrillic => vec![
-                UnicodeRange { start: 0x0400, end: 0x04FF }, // Cyrillic
-                UnicodeRange { start: 0x0500, end: 0x052F }, // Cyrillic Supplement
-            ],
-            // Add other scripts as needed...
-            _ => Vec::new(), // For Latin, etc., we don't need to specify ranges as it's the default.
+            LogicalItem::Text { text, style, .. } => InlineContent::Text(StyledRun {
+                text: text.clone(),
+                style: style.clone(),
+                logical_start_byte: 0,
+            }),
+            LogicalItem::Object { content, .. } => content.clone(),
+            // Add other variants as needed
+            _ => InlineContent::Space(crate::text3::cache::InlineSpace { width: 0.0, is_breaking: false, is_stretchy: false }),
         }
     }
 }
-
-// ... (rest of the file remains the same) ...
 ```
 
-By implementing this logic, you fix the font fallback issue at its architectural root. The layout engine is no longer blind to the content it's shaping; it proactively segments text by script and ensures that a capable font is used for each segment.
-
+This final architecture is powerful. It leverages `fontconfig` for its strengths (finding and ranking fonts) while handling the segmentation logic in Rust, giving you fine-grained control and ensuring that every single character is rendered with an appropriate font. This correctly solves the Arabic font fallback issue and provides a robust foundation for handling any multilingual text.

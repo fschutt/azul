@@ -885,6 +885,7 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
     
     // CSS Lists §3: display: list-item automatically increments "list-item" counter
     if is_list_item {
+        eprintln!("[compute_counters] ✓ Found list-item at node_idx={}, auto-incrementing counter", node_idx);
         let counter_name = "list-item".to_string();
         let stack = counter_stacks.entry(counter_name.clone()).or_default();
         if stack.is_empty() {

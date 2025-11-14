@@ -745,14 +745,14 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         // CSS 2.2 Section 9.4.2: "An inline formatting context is established by a
         // block container box that contains no block-level boxes."
         // Check if this block container has only inline-level children.
-        LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
+        LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
             if has_only_inline_children(styled_dom, node_id) {
                 // This block container should establish an IFC for its inline children
-                eprintln!("  -> BLOCK with only inline children, returning Inline FC");
+                eprintln!("  -> BLOCK/ListItem with only inline children, returning Inline FC");
                 FormattingContext::Inline
             } else {
                 // Normal BFC
-                eprintln!("  -> BLOCK with block-level children, returning Block FC");
+                eprintln!("  -> BLOCK/ListItem with block-level children, returning Block FC");
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,
@@ -772,11 +772,6 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::TableColumnGroup => FormattingContext::TableColumnGroup,
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
-        
-        // ListItem establishes its own Block Formatting Context for its content
-        LayoutDisplay::ListItem => FormattingContext::Block {
-            establishes_new_context: true,
-        },
         
         LayoutDisplay::Initial | LayoutDisplay::Inherit => FormattingContext::Block {
             establishes_new_context: true,

@@ -318,6 +318,7 @@ pub struct UnifiedConstraints {
 
     // Text layout
     pub writing_mode: Option<WritingMode>,
+    pub direction: Option<Direction>, // Base direction from CSS, overrides auto-detection
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
     pub text_justify: JustifyContent,
@@ -352,6 +353,7 @@ impl Default for UnifiedConstraints {
             available_width: 0.0,
             available_height: None,
             writing_mode: None,
+            direction: None, // Will default to LTR if not specified
             text_orientation: TextOrientation::default(),
             text_align: TextAlign::default(),
             text_justify: JustifyContent::default(),
@@ -384,6 +386,7 @@ impl Hash for UnifiedConstraints {
             .map(|h| h.round() as usize)
             .hash(state);
         self.writing_mode.hash(state);
+        self.direction.hash(state); // Hash the direction field
         self.text_orientation.hash(state);
         self.text_align.hash(state);
         self.text_justify.hash(state);
@@ -411,6 +414,7 @@ impl PartialEq for UnifiedConstraints {
                 _ => false,
             }
             && self.writing_mode == other.writing_mode
+            && self.direction == other.direction // Compare direction field
             && self.text_orientation == other.text_orientation
             && self.text_align == other.text_align
             && self.text_justify == other.text_justify
@@ -3358,8 +3362,21 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
             .or_insert_with(|| Arc::new(create_logical_items(content, style_overrides)))
             .clone();
 
+        // Get the first fragment's constraints to extract the CSS direction property.
+        // This is used for BiDi reordering in Stage 2.
+        let default_constraints = UnifiedConstraints::default();
+        let first_constraints = flow_chain
+            .first()
+            .map(|f| &f.constraints)
+            .unwrap_or(&default_constraints);
+
         // Stage 2: Bidi Reordering (LogicalItem -> VisualItem)
-        let base_direction = get_base_direction_from_logical(&logical_items);
+        // Use CSS direction property from constraints instead of auto-detecting from text content.
+        // This fixes issues with mixed-direction text (e.g., "Arabic - Latin") where auto-detection
+        // would treat the entire paragraph as RTL if the first strong character is Arabic.
+        // Per HTML/CSS spec, base direction should come from the 'direction' CSS property,
+        // defaulting to LTR if not specified.
+        let base_direction = first_constraints.direction.unwrap_or(Direction::Ltr);
         let visual_key = VisualItemsKey {
             logical_items_id,
             base_direction,
@@ -3387,14 +3404,10 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
 
         // --- Stage 4: Apply Vertical Text Transformations ---
 
-        // TODO: This orients all text based on the constraints of the *first* fragment.
+        // Note: first_constraints was already extracted above for BiDi reordering (Stage 2).
+        // This orients all text based on the constraints of the *first* fragment.
         // A more advanced system could defer orientation until inside the loop if
         // fragments can have different writing modes.
-        let default_constraints = UnifiedConstraints::default();
-        let first_constraints = flow_chain
-            .first()
-            .map(|f| &f.constraints)
-            .unwrap_or(&default_constraints);
         let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
 
         // --- Stage 5: The Flow Loop ---
@@ -3644,7 +3657,7 @@ pub fn reorder_logical_items(
     let bidi_level = if base_direction == Direction::Rtl {
         Some(Level::rtl())
     } else {
-        None
+        Some(Level::ltr())
     };
     let bidi_info = BidiInfo::new(&bidi_str, bidi_level);
     let para = &bidi_info.paragraphs[0];
@@ -4242,11 +4255,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     let mut current_column = 0;
     println!("Column width calculated: {}", column_width);
 
-    let base_direction = get_base_direction_from_logical(logical_items);
-    // REMOVED: No longer pre-resolving alignment.
-    // let physical_align = resolve_logical_align(fragment_constraints.text_align, base_direction);
+    // Use the CSS direction from constraints instead of auto-detecting from text
+    // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
+    // correct paragraph-level direction for alignment purposes
+    let base_direction = fragment_constraints.direction.unwrap_or(Direction::Ltr);
+    
     println!(
-        "[PFLayout] Base direction: {:?}, Text align: {:?}",
+        "[PFLayout] Base direction: {:?} (from CSS), Text align: {:?}",
         base_direction, fragment_constraints.text_align
     );
 

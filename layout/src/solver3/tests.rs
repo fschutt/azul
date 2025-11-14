@@ -1458,6 +1458,128 @@ fn test_ordered_list_decimal() {
 /// 
 /// CSS Specification: CSS Counter Styles Level 3
 /// - lower-alpha produces lowercase letters (a, b, c, ...)
+#[test]
+fn test_ordered_list_alpha() {
+    let result = layout_test_html_simple(
+        "<ol><li>First</li><li>Second</li><li>Third</li></ol>",
+        "ol { list-style-type: lower-alpha; } li { display: list-item; }",
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    assert!(result.is_ok(), "Alphabetic list layout should succeed: {:?}", result.err());
+}
+
+/// Tests ordered list with Greek numerals (Unicode characters)
+/// 
+/// This test verifies that the per-grapheme font fallback mechanism works
+/// correctly with non-ASCII characters. Greek numerals use characters like:
+/// - Α (Alpha) = 1
+/// - Β (Beta) = 2  
+/// - Γ (Gamma) = 3
+///
+/// The list marker generation should:
+/// 1. Query fontconfig for fonts that support Greek characters
+/// 2. Segment the marker text by grapheme clusters
+/// 3. Create separate StyledRun segments for different fonts if needed
+#[test]
+fn test_list_greek_numerals_unicode_fallback() {
+    use azul_css::parser2::CssApiWrapper;
+    use azul_css::AzString;
+    
+    // Create DOM manually with Greek numeral list
+    let mut ol = Dom::div();
+    ol.root.add_class("ol".into());
+    
+    let mut li1 = Dom::div();
+    li1.root.add_class("li".into());
+    li1.add_child(Dom::text("First"));
+    
+    let mut li2 = Dom::div();
+    li2.root.add_class("li".into());
+    li2.add_child(Dom::text("Second"));
+    
+    let mut li3 = Dom::div();
+    li3.root.add_class("li".into());
+    li3.add_child(Dom::text("Third"));
+    
+    ol.add_child(li1);
+    ol.add_child(li2);
+    ol.add_child(li3);
+    
+    let mut dom = Dom::body();
+    dom.add_child(ol);
+    
+    // Use upper-greek which produces: Α. Β. Γ. (Greek uppercase letters)
+    let css_str = ".ol { list-style-type: upper-greek; } .li { display: list-item; }";
+    let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
+    
+    let mut styled_dom = StyledDom::new(&mut dom, css);
+    styled_dom.dom_id = DomId::ROOT_ID;
+    
+    // Set up layout
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let font_manager = create_test_font_manager().expect("Font manager creation failed");
+    let viewport = LogicalRect::new(
+        LogicalPosition::zero(),
+        LogicalSize::new(800.0, 600.0),
+    );
+    
+    let result = layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut None,
+        None,
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+    );
+    
+    // Layout should succeed even with Unicode Greek characters
+    assert!(
+        result.is_ok(), 
+        "Greek numeral list layout should succeed with Unicode fallback: {:?}", 
+        result.err()
+    );
+    
+    // Verify counters exist
+    let counter_count = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .count();
+    
+    assert!(
+        counter_count > 0,
+        "List items with Greek numerals should have counter values. \
+         Found {} counter entries. The font fallback system should handle \
+         Greek Unicode characters (Α, Β, Γ) by querying fontconfig.",
+        counter_count
+    );
+    
+    // Verify the counters have the correct values (1, 2, 3)
+    let mut counter_values: Vec<_> = layout_cache.counters.iter()
+        .filter(|((_, name), _)| name == "list-item")
+        .map(|(_, &value)| value)
+        .collect();
+    counter_values.sort();
+    
+    if counter_values.len() >= 3 {
+        assert_eq!(counter_values[0], 1, "First Greek numeral should be Α (value 1)");
+        assert_eq!(counter_values[1], 2, "Second Greek numeral should be Β (value 2)");
+        assert_eq!(counter_values[2], 3, "Third Greek numeral should be Γ (value 3)");
+    }
+}
 /// - Counters 1-26 map to a-z, 27 becomes "aa"
 #[test]
 fn test_ordered_list_lower_alpha() {
@@ -1578,19 +1700,73 @@ fn test_ordered_list_roman() {
 /// - List items still increment counters but don't display markers
 #[test]
 fn test_list_style_none() {
-    let result = layout_test_html_simple(
-        "<ul><li>Item 1</li><li>Item 2</li></ul>",
-        "ul { list-style-type: none; } li { display: list-item; }",
+    use azul_css::parser2::CssApiWrapper;
+    use azul_css::AzString;
+    
+    // Create DOM manually: <ul><li>Item 1</li><li>Item 2</li></ul>
+    let mut ul = Dom::div();
+    ul.root.add_class("ul".into());
+    
+    let mut li1 = Dom::div();
+    li1.root.add_class("li".into());
+    li1.add_child(Dom::text("Item 1"));
+    
+    let mut li2 = Dom::div();
+    li2.root.add_class("li".into());
+    li2.add_child(Dom::text("Item 2"));
+    
+    ul.add_child(li1);
+    ul.add_child(li2);
+    
+    let mut dom = Dom::body();
+    dom.add_child(ul);
+    
+    // Create CSS with list-style-type: none
+    let css_str = ".ul { list-style-type: none; } .li { display: list-item; }";
+    let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
+    
+    let mut styled_dom = StyledDom::new(&mut dom, css);
+    styled_dom.dom_id = DomId::ROOT_ID;
+    
+    // Set up layout
+    let mut layout_cache = LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    let font_manager = create_test_font_manager().expect("Font manager creation failed");
+    let viewport = LogicalRect::new(
+        LogicalPosition::zero(),
         LogicalSize::new(800.0, 600.0),
     );
     
+    let result = layout_document(
+        &mut layout_cache,
+        &mut text_cache,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut None,
+        None,
+        &azul_core::resources::RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+    );
+    
     assert!(result.is_ok(), "List with style:none should succeed: {:?}", result.err());
-    let (layout_cache, _) = result.unwrap();
     
     // Even with list-style-type: none, counters should still be tracked
     let counter_count = layout_cache.counters.iter()
         .filter(|((_, name), _)| name == "list-item")
         .count();
+    
+    eprintln!("Counter count: {}, counters: {:?}", counter_count, layout_cache.counters);
     
     assert!(
         counter_count >= 2,

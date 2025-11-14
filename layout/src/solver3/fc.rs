@@ -11,7 +11,7 @@ use azul_core::{
     dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
-    styled_dom::StyledDom,
+    styled_dom::{StyledDom, StyledNodeState},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -698,6 +698,15 @@ fn translate_to_text3_constraints<'a>(
     let vertical_align = StyleVerticalAlign::default();
     let text_orientation = text3::cache::TextOrientation::default();
 
+    // TODO: Once StyleDirection is properly defined in CSS module, read from property cache:
+    // let direction = styled_dom
+    //     .css_property_cache
+    //     .ptr
+    //     .get_direction(node_data, &id, node_state)
+    //     .and_then(|s| s.get_property().copied());
+    // For now, default to LTR which is the HTML/CSS standard and fixes Arabic text BiDi issues
+    let direction = Some(text3::cache::Direction::Ltr);
+
     eprintln!(
         "[translate_to_text3_constraints] dom_id={:?}, available_size={}x{}, setting available_width={}",
         dom_id,
@@ -733,6 +742,7 @@ fn translate_to_text3_constraints<'a>(
             LayoutWritingMode::VerticalRl => text3::cache::WritingMode::VerticalRl,
             LayoutWritingMode::VerticalLr => text3::cache::WritingMode::VerticalLr,
         }),
+        direction, // Use the CSS direction property (currently defaulting to LTR)
         hyphenation: match hyphenation {
             StyleHyphens::None => false,
             StyleHyphens::Auto => true,
@@ -816,28 +826,79 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         children.len()
     );
     
-    // Check if the first child is a list item marker (anonymous box)
-    if let Some(&first_child_idx) = children.first() {
-        if let Some(first_child) = tree.get(first_child_idx) {
-            if first_child.is_anonymous {
-                use crate::solver3::layout_tree::AnonymousBoxType;
-                if let Some(AnonymousBoxType::ListItemMarker) = first_child.anonymous_type {
-                    // Generate marker text and add it to inline content
-                    let marker_text = generate_list_marker_text(tree, ctx.styled_dom, first_child_idx, ctx.counters);
-                    if !marker_text.is_empty() {
-                        eprintln!("[collect_and_measure_inline_content] ✓ Generated list marker: '{}'", marker_text);
-                        content.push(InlineContent::Text(StyledRun {
-                            text: marker_text,
-                            style: get_style_properties_with_context(tree, ctx.styled_dom, ifc_root_index),
-                            logical_start_byte: 0,
-                        }));
-                    }
-                    // Skip this marker node in the following iterations
-                    // (we already handled it)
+    // Check if this IFC root OR its parent is a list-item and needs a marker
+    // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
+    // Case 2: IFC root's parent is list-item (e.g., <li><text>...</text></li>)
+    let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
+    let mut list_item_dom_id: Option<NodeId> = None;
+    
+    // Check IFC root itself
+    if let Some(dom_id) = ifc_root_node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(display_value) = ctx.styled_dom.css_property_cache.ptr.get_display(node_data, &dom_id, &node_state) {
+            if let Some(display) = display_value.get_property() {
+                eprintln!("[collect_and_measure_inline_content] IFC root NodeId({:?}) has display: {:?}", dom_id, display);
+                use azul_css::props::layout::LayoutDisplay;
+                if *display == LayoutDisplay::ListItem {
+                    list_item_dom_id = Some(dom_id);
                 }
             }
         }
     }
+    
+    // Check IFC root's parent
+    if list_item_dom_id.is_none() {
+        if let Some(parent_idx) = ifc_root_node.parent {
+            if let Some(parent_node) = tree.get(parent_idx) {
+                if let Some(parent_dom_id) = parent_node.dom_node_id {
+                    let parent_node_data = &ctx.styled_dom.node_data.as_container()[parent_dom_id];
+                    let parent_node_state = StyledNodeState::default();
+                    
+                    if let Some(display_value) = ctx.styled_dom.css_property_cache.ptr.get_display(parent_node_data, &parent_dom_id, &parent_node_state) {
+                        if let Some(display) = display_value.get_property() {
+                            eprintln!("[collect_and_measure_inline_content] IFC root parent NodeId({:?}) has display: {:?}", parent_dom_id, display);
+                            use azul_css::props::layout::LayoutDisplay;
+                            if *display == LayoutDisplay::ListItem {
+                                list_item_dom_id = Some(parent_dom_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // If we found a list-item, generate markers
+    if let Some(list_dom_id) = list_item_dom_id {
+        eprintln!("[collect_and_measure_inline_content] ✓ Found list-item (NodeId({:?})), generating marker", list_dom_id);
+        
+        // Find the layout node index for the list-item DOM node
+        let list_item_layout_idx = tree.nodes.iter().enumerate()
+            .find(|(_, node)| node.dom_node_id == Some(list_dom_id))
+            .map(|(idx, _)| idx);
+        
+        if let Some(list_idx) = list_item_layout_idx {
+            // Generate marker text segments with proper Unicode font fallback
+            let base_style = get_style_properties_with_context(tree, ctx.styled_dom, list_idx);
+            let marker_segments = generate_list_marker_segments(
+                tree,
+                ctx.styled_dom,
+                list_idx,
+                ctx.counters,
+                &ctx.font_manager.fc_cache,
+                base_style,
+            );
+            
+            for segment in marker_segments {
+                eprintln!("[collect_and_measure_inline_content] ✓ Generated list marker segment: '{}'", segment.text);
+                content.push(InlineContent::Text(segment));
+            }
+        }
+    }
+    
+    drop(ifc_root_node);
 
     // IMPORTANT: We need to traverse the DOM, not just the layout tree!
     // According to CSS spec, a block container with inline-level children establishes
@@ -1235,4 +1296,200 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     } else {
         format!("{} ", marker_text)
     }
+}
+
+/// Generates marker text segments with appropriate font fallback for Unicode coverage.
+///
+/// Uses FcCache.query_for_text() to find fonts that can render all characters in the marker.
+/// Returns multiple StyledRun segments if different fonts are needed for different parts.
+///
+/// This implements the architecture from fixscript.md:
+/// 1. Pre-Query Fonts: Call query_for_text() to get font stack
+/// 2. Load Font Metadata: Get character coverage info from fontconfig
+/// 3. Iterate by Grapheme: Check each grapheme cluster
+/// 4. Group and Shape: Group consecutive graphemes with same font
+/// 5. Combine Results: Return multiple StyledRuns with appropriate font families
+fn generate_list_marker_segments<T: ParsedFontTrait>(
+    tree: &LayoutTree<T>,
+    styled_dom: &StyledDom,
+    marker_index: usize,
+    counters: &BTreeMap<(usize, String), i32>,
+    fc_cache: &rust_fontconfig::FcFontCache,
+    base_style: Arc<StyleProperties>,
+) -> Vec<StyledRun> {
+    use unicode_segmentation::UnicodeSegmentation;
+    use rust_fontconfig::{FcPattern, PatternMatch};
+    
+    // Generate the marker text
+    let marker_text = generate_list_marker_text(tree, styled_dom, marker_index, counters);
+    if marker_text.is_empty() {
+        return Vec::new();
+    }
+    
+    // Step 1: Pre-Query Fonts - get font stack from fontconfig
+    let pattern = FcPattern {
+        name: Some(base_style.font_selector.family.clone()),
+        weight: base_style.font_selector.weight,
+        italic: if base_style.font_selector.style == crate::text3::cache::FontStyle::Italic {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        },
+        oblique: if base_style.font_selector.style == crate::text3::cache::FontStyle::Oblique {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        },
+        ..Default::default()
+    };
+    
+    let mut trace = Vec::new();
+    let font_matches = fc_cache.query_for_text(&pattern, &marker_text, &mut trace);
+    
+    // If no fonts found, return a single segment with the original style
+    if font_matches.is_empty() {
+        eprintln!(
+            "[generate_list_marker_segments] WARNING: No fonts found for marker text '{}', using base style",
+            marker_text
+        );
+        return vec![StyledRun {
+            text: marker_text,
+            style: base_style,
+            logical_start_byte: 0,
+        }];
+    }
+    
+    eprintln!(
+        "[generate_list_marker_segments] Found {} font matches for marker '{}': {:?}",
+        font_matches.len(),
+        marker_text,
+        font_matches.iter().map(|m| fc_cache.get_metadata_by_id(&m.id).and_then(|p| p.name.as_ref())).collect::<Vec<_>>()
+    );
+    
+    // Step 2: Build font metadata list for glyph coverage checking
+    let font_stack: Vec<(usize, Option<String>)> = font_matches
+        .iter()
+        .enumerate()
+        .map(|(idx, fm)| {
+            let name = fc_cache
+                .get_metadata_by_id(&fm.id)
+                .and_then(|p| p.name.clone());
+            (idx, name)
+        })
+        .collect();
+    
+    // Step 3: Iterate by Grapheme Cluster
+    // For each grapheme, find the first font in our stack that can render it
+    let graphemes: Vec<(usize, &str)> = marker_text.grapheme_indices(true).collect();
+    
+    if graphemes.is_empty() {
+        return vec![StyledRun {
+            text: marker_text,
+            style: base_style,
+            logical_start_byte: 0,
+        }];
+    }
+    
+    let mut segments = Vec::new();
+    let mut current_font_idx: Option<usize> = None;
+    let mut segment_start_byte = 0;
+    
+    for (byte_idx, grapheme) in graphemes.iter() {
+        let first_char = grapheme.chars().next().unwrap_or('\u{FFFD}');
+        
+        // Find the first font in our stack that can render this grapheme
+        let best_font_idx = font_matches
+            .iter()
+            .enumerate()
+            .find(|(_, fm)| {
+                fc_cache
+                    .get_metadata_by_id(&fm.id)
+                    .map(|metadata| metadata.contains_char(first_char))
+                    .unwrap_or(false)
+            })
+            .map(|(idx, _)| idx);
+        
+        // Check if we need to start a new segment (font change or first grapheme)
+        let should_segment = current_font_idx.is_none() 
+            || current_font_idx != best_font_idx;
+        
+        if should_segment {
+            // Flush previous segment if exists
+            if current_font_idx.is_some() && segment_start_byte < *byte_idx {
+                let segment_text = &marker_text[segment_start_byte..*byte_idx];
+                
+                // Create a style with the appropriate font family
+                let segment_style = if let Some(font_idx) = current_font_idx {
+                    if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
+                        let mut new_style = (*base_style).clone();
+                        new_style.font_selector.family = font_name.clone();
+                        Arc::new(new_style)
+                    } else {
+                        base_style.clone()
+                    }
+                } else {
+                    base_style.clone()
+                };
+                
+                eprintln!(
+                    "[generate_list_marker_segments] Segment: '{}' with font '{}'",
+                    segment_text,
+                    segment_style.font_selector.family
+                );
+                
+                segments.push(StyledRun {
+                    text: segment_text.to_string(),
+                    style: segment_style,
+                    logical_start_byte: segment_start_byte,
+                });
+            }
+            
+            // Start new segment
+            segment_start_byte = *byte_idx;
+            current_font_idx = best_font_idx;
+        }
+    }
+    
+    // Flush final segment
+    if segment_start_byte < marker_text.len() {
+        let segment_text = &marker_text[segment_start_byte..];
+        
+        let segment_style = if let Some(font_idx) = current_font_idx {
+            if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
+                let mut new_style = (*base_style).clone();
+                new_style.font_selector.family = font_name.clone();
+                Arc::new(new_style)
+            } else {
+                base_style.clone()
+            }
+        } else {
+            base_style.clone()
+        };
+        
+        eprintln!(
+            "[generate_list_marker_segments] Final segment: '{}' with font '{}'",
+            segment_text,
+            segment_style.font_selector.family
+        );
+        
+        segments.push(StyledRun {
+            text: segment_text.to_string(),
+            style: segment_style,
+            logical_start_byte: segment_start_byte,
+        });
+    }
+    
+    // If no segments were created (shouldn't happen), return single segment
+    if segments.is_empty() {
+        eprintln!(
+            "[generate_list_marker_segments] WARNING: No segments created, returning full text"
+        );
+        segments.push(StyledRun {
+            text: marker_text,
+            style: base_style,
+            logical_start_byte: 0,
+        });
+    }
+    
+    segments
 }

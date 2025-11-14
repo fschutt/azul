@@ -17,6 +17,8 @@ pub mod taffy_bridge;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_arabic;
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -63,7 +65,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub font_manager: &'a FontManager<T, Q>,
     pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
-    pub counters: &'a BTreeMap<(usize, String), i32>,
+    pub counters: &'a mut BTreeMap<(usize, String), i32>,
 }
 
 impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
@@ -99,7 +101,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         font_manager,
         selections,
         debug_messages,
-        counters: &counter_values,
+        counters: &mut counter_values,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -124,7 +126,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         font_manager,
         selections,
         debug_messages,
-        counters: &counter_values,
+        counters: &mut counter_values,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

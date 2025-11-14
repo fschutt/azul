@@ -223,9 +223,18 @@ impl ParsedFont {
             })
             .collect();
 
-        // 3b. Apply GSUB substitutions with a default feature set for the script.
+        // 3b. Apply GSUB substitutions with appropriate features for the script.
         if let Some(gsub) = self.gsub_cache.as_ref() {
-            let features = Features::Custom(user_features.clone());
+            // Build feature set: use custom features if specified, otherwise build
+            // appropriate features for the script
+            let features = if user_features.is_empty() {
+                // Use script-specific feature mask for proper shaping
+                Features::Mask(build_feature_mask_for_script(script))
+            } else {
+                // User specified custom features, use those instead
+                Features::Custom(user_features.clone())
+            };
+            
             let dotted_circle_index = self
                 .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
                 .unwrap_or(0);
@@ -378,6 +387,120 @@ impl ParsedFont {
 }
 
 // --- Helper Functions ---
+
+/// Builds a FeatureMask with the appropriate OpenType features for a given script.
+/// This ensures proper text shaping for complex scripts like Arabic, Devanagari, etc.
+///
+/// The function includes:
+/// - Common features for all scripts (ligatures, contextual alternates, etc.)
+/// - Script-specific features (positional forms for Arabic, conjuncts for Indic, etc.)
+///
+/// This is designed to be stable and explicit - we control exactly which features
+/// are enabled rather than relying on allsorts' defaults which may change.
+fn build_feature_mask_for_script(script: Script) -> FeatureMask {
+    use Script::*;
+    
+    // Start with common features that apply to most scripts
+    let mut mask = FeatureMask::default(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
+    
+    // Add script-specific features
+    match script {
+        // Arabic and related scripts - require positional forms
+        Arabic => {
+            mask |= FeatureMask::INIT; // Initial forms (at start of word)
+            mask |= FeatureMask::MEDI; // Medial forms (middle of word)
+            mask |= FeatureMask::FINA; // Final forms (end of word)
+            mask |= FeatureMask::ISOL; // Isolated forms (standalone)
+            // Note: RLIG (required ligatures) already in default for lam-alef ligatures
+        }
+        
+        // Indic scripts - require complex conjunct formation and reordering
+        Devanagari | Bengali | Gujarati | Gurmukhi | Kannada | Malayalam | 
+        Oriya | Tamil | Telugu => {
+            mask |= FeatureMask::NUKT; // Nukta forms
+            mask |= FeatureMask::AKHN; // Akhand ligatures
+            mask |= FeatureMask::RPHF; // Reph form
+            mask |= FeatureMask::RKRF; // Rakar form  
+            mask |= FeatureMask::PREF; // Pre-base forms
+            mask |= FeatureMask::BLWF; // Below-base forms
+            mask |= FeatureMask::ABVF; // Above-base forms
+            mask |= FeatureMask::HALF; // Half forms
+            mask |= FeatureMask::PSTF; // Post-base forms
+            mask |= FeatureMask::VATU; // Vattu variants
+            mask |= FeatureMask::CJCT; // Conjunct forms
+        }
+        
+        // Myanmar (Burmese) - has complex reordering
+        Myanmar => {
+            mask |= FeatureMask::PREF; // Pre-base forms
+            mask |= FeatureMask::BLWF; // Below-base forms
+            mask |= FeatureMask::PSTF; // Post-base forms
+        }
+        
+        // Khmer - has complex reordering and stacking
+        Khmer => {
+            mask |= FeatureMask::PREF; // Pre-base forms
+            mask |= FeatureMask::BLWF; // Below-base forms
+            mask |= FeatureMask::ABVF; // Above-base forms
+            mask |= FeatureMask::PSTF; // Post-base forms
+        }
+        
+        // Thai - has tone marks and vowel reordering
+        Thai => {
+            // Thai mostly uses default features, but may have some special marks
+            // The default mask is sufficient for most Thai fonts
+        }
+        
+        // Hebrew - may have contextual forms but less complex than Arabic
+        Hebrew => {
+            // Hebrew fonts may use contextual alternates already in default
+            // Some fonts have special features but they're rare
+        }
+        
+        // Hangul (Korean) - has complex syllable composition
+        Hangul => {
+            // Note: Hangul jamo features (LJMO, VJMO, TJMO) are not available in allsorts' FeatureMask
+            // Most modern Hangul fonts work correctly with the default features
+            // as syllable composition is usually handled at a lower level
+        }
+        
+        // Ethiopic - has syllabic script with some ligatures
+        Ethiopic => {
+            // Default features are usually sufficient
+            // LIGA and CLIG already in default mask
+        }
+        
+        // Latin, Greek, Cyrillic - standard features are sufficient
+        Latin | Greek | Cyrillic => {
+            // Default mask includes all needed features:
+            // - LIGA: standard ligatures (fi, fl, etc.)
+            // - CLIG: contextual ligatures
+            // - CALT: contextual alternates
+            // - CCMP: mark composition
+        }
+        
+        // Georgian - uses standard features
+        Georgian => {
+            // Default features sufficient
+        }
+        
+        // CJK scripts (Hiragana, Katakana, Mandarin/Hani)
+        Hiragana | Katakana | Mandarin => {
+            // CJK fonts may use vertical alternates, but those are controlled
+            // by writing-mode, not GSUB features in the horizontal direction.
+            // Default features are sufficient.
+        }
+        
+        // Sinhala - Indic-derived but simpler
+        Sinhala => {
+            mask |= FeatureMask::AKHN; // Akhand ligatures
+            mask |= FeatureMask::RPHF; // Reph form
+            mask |= FeatureMask::VATU; // Vattu variants
+        }
+    }
+    
+    mask
+}
 
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
 fn to_opentype_script_tag(script: Script) -> u32 {
