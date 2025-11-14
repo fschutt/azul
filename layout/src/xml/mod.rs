@@ -406,6 +406,14 @@ pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
         }
         roxmltree::Error::UnknownToken(tp) => XmlError::UnknownToken(translate_roxml_textpos(tp)),
         roxmltree::Error::UnexpectedEndOfStream => XmlError::UnexpectedEndOfStream,
+        roxmltree::Error::EntityResolver(tp, s) => {
+            // New in roxmltree 0.21: EntityResolver error variant
+            // For now, treat as a generic entity reference error
+            XmlError::UnknownEntityReference(UnknownEntityReferenceError {
+                entity: s.into(),
+                pos: translate_roxml_textpos(tp),
+            })
+        }
     }
 }
 
