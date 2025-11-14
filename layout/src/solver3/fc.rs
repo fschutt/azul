@@ -897,6 +897,12 @@ struct TableLayoutContext {
     border_spacing: azul_css::props::layout::LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
     caption_index: Option<usize>,
+    /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
+    /// Set of row indices that have visibility:collapse
+    collapsed_rows: std::collections::HashSet<usize>,
+    /// CSS 2.2 Section 17.6: Columns with visibility:collapse (dynamic effects)
+    /// Set of column indices that have visibility:collapse
+    collapsed_columns: std::collections::HashSet<usize>,
 }
 
 impl TableLayoutContext {
@@ -910,6 +916,8 @@ impl TableLayoutContext {
             border_collapse: azul_css::props::layout::StyleBorderCollapse::Separate,
             border_spacing: azul_css::props::layout::LayoutBorderSpacing::default(),
             caption_index: None,
+            collapsed_rows: std::collections::HashSet::new(),
+            collapsed_columns: std::collections::HashSet::new(),
         }
     }
 }
@@ -1219,6 +1227,80 @@ fn get_caption_side_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     StyleCaptionSide::Top // Default per CSS 2.2
 }
 
+/// CSS 2.2 Section 17.6 - Dynamic row and column effects:
+/// "The 'visibility' value 'collapse' removes a row or column from display, but it has a different 
+/// effect than 'visibility: hidden' on other elements. When a row or column is collapsed, the space 
+/// normally occupied by the row or column is removed."
+///
+/// Check if a node has visibility:collapse set.
+/// This is used for table rows and columns to optimize dynamic hiding.
+fn is_visibility_collapsed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> bool {
+    use azul_css::props::style::StyleVisibility;
+    use azul_core::styled_dom::StyledNodeState;
+    
+    if let Some(dom_id) = node.dom_node_id {
+        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = StyledNodeState::default();
+        
+        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_visibility(node_data, &dom_id, &node_state) {
+            if let Some(value) = prop.get_property() {
+                return matches!(value, StyleVisibility::Collapse);
+            }
+        }
+    }
+    
+    false
+}
+
+/// CSS 2.2 Section 17.6.1.1 - Borders and Backgrounds around empty cells: the 'empty-cells' property
+/// "In the separated borders model, the 'empty-cells' property controls the rendering of borders 
+/// and backgrounds around cells that have no visible content. Empty means it has no children, or 
+/// has children that are only collapsed whitespace."
+///
+/// Check if a table cell is empty (has no visible content).
+/// This is used by the rendering pipeline to decide whether to paint borders/backgrounds
+/// when empty-cells: hide is set in separated border model.
+///
+/// A cell is considered empty if:
+/// - It has no children, OR
+/// - It has children but no inline_layout_result (no rendered content)
+///
+/// Note: Full whitespace detection would require checking text content during rendering.
+/// This function provides a basic check suitable for layout phase.
+fn is_cell_empty<T: ParsedFontTrait>(
+    tree: &LayoutTree<T>,
+    cell_index: usize,
+) -> bool {
+    let cell_node = match tree.get(cell_index) {
+        Some(node) => node,
+        None => return true, // Invalid cell is considered empty
+    };
+    
+    // No children = empty
+    if cell_node.children.is_empty() {
+        return true;
+    }
+    
+    // If cell has an inline layout result, check if it's empty
+    if let Some(ref inline_result) = cell_node.inline_layout_result {
+        // Check if inline layout has any rendered content
+        // Empty inline layouts have no items (glyphs/fragments)
+        // Note: This is a heuristic - full detection requires text content analysis
+        return inline_result.items.is_empty();
+    }
+    
+    // Check if all children have no content
+    // A more thorough check would recursively examine all descendants
+    // For now, we use a simple heuristic: if there are children, assume not empty
+    // unless proven otherwise by inline_layout_result
+    
+    // Cell with children but no inline layout = likely has block-level content = not empty
+    false
+}
+
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
@@ -1379,13 +1461,19 @@ fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let table_node = tree.get(table_index).ok_or(LayoutError::InvalidTree)?;
     
     // CSS 2.2 Section 17.4: A table may have one table-caption child.
-    // Traverse children to find caption, rows, and row groups
+    // Traverse children to find caption, columns/colgroups, rows, and row groups
     for &child_idx in &table_node.children {
         if let Some(child) = tree.get(child_idx) {
             // Check if this is a table caption
             if matches!(child.formatting_context, FormattingContext::TableCaption) {
                 ctx.debug_log(&format!("Found table caption at index {}", child_idx));
                 table_ctx.caption_index = Some(child_idx);
+                continue;
+            }
+            
+            // CSS 2.2 Section 17.2: Check for column groups
+            if matches!(child.formatting_context, FormattingContext::TableColumnGroup) {
+                analyze_table_colgroup(tree, child_idx, &mut table_ctx, ctx)?;
                 continue;
             }
             
@@ -1418,16 +1506,57 @@ fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     Ok(table_ctx)
 }
 
+/// Analyze a table column group to identify columns and track collapsed columns
+/// CSS 2.2 Section 17.2: Column groups contain columns
+/// CSS 2.2 Section 17.6: Columns can have visibility:collapse
+fn analyze_table_colgroup<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    tree: &LayoutTree<T>,
+    colgroup_index: usize,
+    table_ctx: &mut TableLayoutContext,
+    ctx: &mut LayoutContext<T, Q>,
+) -> Result<()> {
+    let colgroup_node = tree.get(colgroup_index).ok_or(LayoutError::InvalidTree)?;
+    
+    // Check if the colgroup itself has visibility:collapse
+    if is_visibility_collapsed(ctx, colgroup_node) {
+        ctx.debug_log(&format!("Column group at index {} has visibility:collapse", colgroup_index));
+        // All columns in this group should be collapsed
+        // For now, just mark the group (actual column indices will be determined later)
+    }
+    
+    // Check for individual column elements within the group
+    for &col_idx in &colgroup_node.children {
+        if let Some(col_node) = tree.get(col_idx) {
+            // Note: Individual columns don't have a FormattingContext::TableColumn
+            // They are represented as children of TableColumnGroup
+            // Check visibility:collapse on each column
+            if is_visibility_collapsed(ctx, col_node) {
+                // We need to determine the actual column index this represents
+                // For now, we'll track it during cell analysis
+                ctx.debug_log(&format!("Column at index {} has visibility:collapse", col_idx));
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 /// Analyze a table row to identify cells and update column count
 fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     tree: &LayoutTree<T>,
     row_index: usize,
     table_ctx: &mut TableLayoutContext,
-    _ctx: &mut LayoutContext<T, Q>,
+    ctx: &mut LayoutContext<T, Q>,
 ) -> Result<()> {
     let row_node = tree.get(row_index).ok_or(LayoutError::InvalidTree)?;
     let row_num = table_ctx.num_rows;
     table_ctx.num_rows += 1;
+    
+    // CSS 2.2 Section 17.6: Check if this row has visibility:collapse
+    if is_visibility_collapsed(ctx, row_node) {
+        ctx.debug_log(&format!("Row {} has visibility:collapse", row_num));
+        table_ctx.collapsed_rows.insert(row_num);
+    }
     
     let mut col_index = 0;
     
@@ -1467,20 +1596,37 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Calculate column widths using the fixed table layout algorithm
+/// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is not dependent on cell contents
+/// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded from width calculations
 fn calculate_column_widths_fixed(
     table_ctx: &mut TableLayoutContext,
     available_width: f32,
 ) {
-    // Fixed layout: distribute width equally
+    // Fixed layout: distribute width equally among non-collapsed columns
     // TODO: Respect column width properties and first-row cell widths
     let num_cols = table_ctx.columns.len();
     if num_cols == 0 {
         return;
     }
     
-    let col_width = available_width / num_cols as f32;
-    for col in &mut table_ctx.columns {
-        col.computed_width = Some(col_width);
+    // Count non-collapsed columns
+    let num_visible_cols = num_cols - table_ctx.collapsed_columns.len();
+    if num_visible_cols == 0 {
+        // All columns collapsed - set all to zero width
+        for col in &mut table_ctx.columns {
+            col.computed_width = Some(0.0);
+        }
+        return;
+    }
+    
+    // Distribute width only among visible columns
+    let col_width = available_width / num_visible_cols as f32;
+    for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+        if table_ctx.collapsed_columns.contains(&col_idx) {
+            col.computed_width = Some(0.0);
+        } else {
+            col.computed_width = Some(col_width);
+        }
     }
 }
 
@@ -1599,7 +1745,25 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
     
     // Step 1: Measure all cells to determine column min/max widths
+    // CSS 2.2 Section 17.6: Skip cells in collapsed columns
     for cell_info in &table_ctx.cells {
+        // Skip cells in collapsed columns
+        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+            continue;
+        }
+        
+        // Skip cells that span into collapsed columns
+        let mut spans_collapsed = false;
+        for col_offset in 0..cell_info.colspan {
+            if table_ctx.collapsed_columns.contains(&(cell_info.column + col_offset)) {
+                spans_collapsed = true;
+                break;
+            }
+        }
+        if spans_collapsed {
+            continue;
+        }
+        
         let min_width = measure_cell_min_content_width(
             ctx,
             tree,
@@ -1630,32 +1794,54 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 cell_info.colspan,
                 min_width,
                 max_width,
+                &table_ctx.collapsed_columns,
             );
         }
     }
     
     // Step 2: Calculate final column widths based on available space
-    let total_min_width: f32 = table_ctx.columns.iter().map(|c| c.min_width).sum();
-    let total_max_width: f32 = table_ctx.columns.iter().map(|c| c.max_width).sum();
+    // Exclude collapsed columns from total width calculations
+    let total_min_width: f32 = table_ctx.columns.iter()
+        .enumerate()
+        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
+        .map(|(_, c)| c.min_width)
+        .sum();
+    let total_max_width: f32 = table_ctx.columns.iter()
+        .enumerate()
+        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
+        .map(|(_, c)| c.max_width)
+        .sum();
     let available_width = constraints.available_size.width;
     
     if available_width >= total_max_width {
         // Case 1: Plenty of space - use max widths
-        for col in &mut table_ctx.columns {
-            col.computed_width = Some(col.max_width);
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if table_ctx.collapsed_columns.contains(&col_idx) {
+                col.computed_width = Some(0.0);
+            } else {
+                col.computed_width = Some(col.max_width);
+            }
         }
     } else if available_width >= total_min_width {
         // Case 2: Between min and max - interpolate proportionally
         let scale = (available_width - total_min_width) / (total_max_width - total_min_width);
-        for col in &mut table_ctx.columns {
-            let interpolated = col.min_width + (col.max_width - col.min_width) * scale;
-            col.computed_width = Some(interpolated);
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if table_ctx.collapsed_columns.contains(&col_idx) {
+                col.computed_width = Some(0.0);
+            } else {
+                let interpolated = col.min_width + (col.max_width - col.min_width) * scale;
+                col.computed_width = Some(interpolated);
+            }
         }
     } else {
         // Case 3: Not enough space - scale down from min widths
         let scale = available_width / total_min_width;
-        for col in &mut table_ctx.columns {
-            col.computed_width = Some(col.min_width * scale);
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if table_ctx.collapsed_columns.contains(&col_idx) {
+                col.computed_width = Some(0.0);
+            } else {
+                col.computed_width = Some(col.min_width * scale);
+            }
         }
     }
     
@@ -1669,30 +1855,52 @@ fn distribute_cell_width_across_columns(
     colspan: usize,
     cell_min_width: f32,
     cell_max_width: f32,
+    collapsed_columns: &std::collections::HashSet<usize>,
 ) {
     let end_col = start_col + colspan;
     if end_col > columns.len() {
         return;
     }
     
-    // Calculate current total of spanned columns
-    let current_min_total: f32 = columns[start_col..end_col].iter().map(|c| c.min_width).sum();
-    let current_max_total: f32 = columns[start_col..end_col].iter().map(|c| c.max_width).sum();
+    // Calculate current total of spanned non-collapsed columns
+    let current_min_total: f32 = columns[start_col..end_col].iter()
+        .enumerate()
+        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
+        .map(|(_, c)| c.min_width)
+        .sum();
+    let current_max_total: f32 = columns[start_col..end_col].iter()
+        .enumerate()
+        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
+        .map(|(_, c)| c.max_width)
+        .sum();
+    
+    // Count non-collapsed columns in the span
+    let num_visible_cols = (start_col..end_col)
+        .filter(|idx| !collapsed_columns.contains(idx))
+        .count();
+    
+    if num_visible_cols == 0 {
+        return; // All spanned columns are collapsed
+    }
     
     // Only distribute if the cell needs more space than currently available
     if cell_min_width > current_min_total {
         let extra_min = cell_min_width - current_min_total;
-        let per_col = extra_min / colspan as f32;
-        for col in &mut columns[start_col..end_col] {
-            col.min_width += per_col;
+        let per_col = extra_min / num_visible_cols as f32;
+        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
+            if !collapsed_columns.contains(&(start_col + idx)) {
+                col.min_width += per_col;
+            }
         }
     }
     
     if cell_max_width > current_max_total {
         let extra_max = cell_max_width - current_max_total;
-        let per_col = extra_max / colspan as f32;
-        for col in &mut columns[start_col..end_col] {
-            col.max_width += per_col;
+        let per_col = extra_max / num_visible_cols as f32;
+        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
+            if !collapsed_columns.contains(&(start_col + idx)) {
+                col.max_width += per_col;
+            }
         }
     }
 }
@@ -1759,8 +1967,20 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Initialize row heights
     table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
     
+    // CSS 2.2 Section 17.6: Set collapsed rows to height 0
+    for &row_idx in &table_ctx.collapsed_rows {
+        if row_idx < table_ctx.row_heights.len() {
+            table_ctx.row_heights[row_idx] = 0.0;
+        }
+    }
+    
     // First pass: Calculate heights for cells that don't span multiple rows
     for cell_info in &table_ctx.cells {
+        // Skip cells in collapsed rows
+        if table_ctx.collapsed_rows.contains(&cell_info.row) {
+            continue;
+        }
+        
         // Get the cell's width (sum of column widths if colspan > 1)
         let mut cell_width = 0.0;
         for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
@@ -1790,6 +2010,11 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     // Second pass: Handle cells that span multiple rows (rowspan > 1)
     for cell_info in &table_ctx.cells {
+        // Skip cells that start in collapsed rows
+        if table_ctx.collapsed_rows.contains(&cell_info.row) {
+            continue;
+        }
+        
         if cell_info.rowspan > 1 {
             // Get the cell's width
             let mut cell_width = 0.0;
@@ -1811,21 +2036,41 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 constraints,
             )?;
             
-            // Calculate the current total height of spanned rows
+            // Calculate the current total height of spanned rows (excluding collapsed rows)
             let end_row = cell_info.row + cell_info.rowspan;
             let current_total: f32 = table_ctx.row_heights[cell_info.row..end_row]
                 .iter()
+                .enumerate()
+                .filter(|(idx, _)| !table_ctx.collapsed_rows.contains(&(cell_info.row + idx)))
+                .map(|(_, height)| height)
                 .sum();
             
-            // If the cell needs more height, distribute extra height across spanned rows
+            // If the cell needs more height, distribute extra height across non-collapsed spanned rows
             if cell_height > current_total {
                 let extra_height = cell_height - current_total;
-                let per_row = extra_height / cell_info.rowspan as f32;
                 
-                for row_idx in cell_info.row..end_row {
-                    table_ctx.row_heights[row_idx] += per_row;
+                // Count non-collapsed rows in span
+                let non_collapsed_rows = (cell_info.row..end_row)
+                    .filter(|row_idx| !table_ctx.collapsed_rows.contains(row_idx))
+                    .count();
+                
+                if non_collapsed_rows > 0 {
+                    let per_row = extra_height / non_collapsed_rows as f32;
+                    
+                    for row_idx in cell_info.row..end_row {
+                        if !table_ctx.collapsed_rows.contains(&row_idx) {
+                            table_ctx.row_heights[row_idx] += per_row;
+                        }
+                    }
                 }
             }
+        }
+    }
+    
+    // CSS 2.2 Section 17.6: Final pass - ensure collapsed rows have height 0
+    for &row_idx in &table_ctx.collapsed_rows {
+        if row_idx < table_ctx.row_heights.len() {
+            table_ctx.row_heights[row_idx] = 0.0;
         }
     }
     
