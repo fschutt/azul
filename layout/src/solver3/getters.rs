@@ -44,23 +44,70 @@ macro_rules! get_css_property {
 }
 
 get_css_property!(
-    get_css_width,
-    get_width,
-    LayoutWidth,
-    LayoutWidth::default()  // FIXED: Now returns Auto, which is semantically correct
-);
-get_css_property!(
-    get_css_height,
-    get_height,
-    LayoutHeight,
-    LayoutHeight::default()  // FIXED: Now returns Auto, which is semantically correct
-);
-get_css_property!(
     get_writing_mode,
     get_writing_mode,
     LayoutWritingMode,
     LayoutWritingMode::default()
 );
+
+// Width and Height need special handling for User Agent CSS
+pub fn get_css_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutWidth {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // 1. Check author CSS first
+    if let Some(width) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return width;
+    }
+    
+    // 2. Check User Agent CSS
+    let node_type = styled_dom.node_data.as_container()[node_id].node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::Width) {
+        if let azul_css::props::property::CssProperty::Width(azul_css::css::CssPropertyValue::Exact(w)) = ua_prop {
+            return *w;
+        }
+    }
+    
+    // 3. Fallback to type default
+    LayoutWidth::default()  // Returns Auto, which is semantically correct
+}
+
+pub fn get_css_height(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutHeight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // 1. Check author CSS first
+    if let Some(height) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_height(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return height;
+    }
+    
+    // 2. Check User Agent CSS
+    let node_type = styled_dom.node_data.as_container()[node_id].node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::Height) {
+        if let azul_css::props::property::CssProperty::Height(azul_css::css::CssPropertyValue::Exact(h)) = ua_prop {
+            return *h;
+        }
+    }
+    
+    // 3. Fallback to type default
+    LayoutHeight::default()  // Returns Auto, which is semantically correct
+}
 get_css_property!(
     get_wrap,
     get_flex_wrap,
@@ -518,5 +565,381 @@ pub fn get_list_style_position(
         .ptr
         .get_list_style_position(node_data, &id, node_state)
         .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+// ============================================================================
+// NEW: Taffy Bridge Getters - Box Model Properties with UA CSS Fallback
+// ============================================================================
+
+use azul_css::props::{
+    basic::pixel::PixelValue,
+    layout::{
+        LayoutBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
+        LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
+        LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        LayoutRight, LayoutTop,
+    },
+};
+
+/// Get inset (position) properties with UA CSS fallback
+pub fn get_css_left(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutLeft {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // 1. Check author CSS first
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_left(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    
+    // 2. Check User Agent CSS
+    let node_type = node_data.node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::Left) {
+        if let azul_css::props::property::CssProperty::Left(azul_css::css::CssPropertyValue::Exact(v)) = ua_prop {
+            return *v;
+        }
+    }
+    
+    // 3. Fallback to type default
+    LayoutLeft::default()
+}
+
+pub fn get_css_right(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutRight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_right(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    LayoutRight::default()
+}
+
+pub fn get_css_top(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutTop {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_top(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    LayoutTop::default()
+}
+
+pub fn get_css_bottom(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutBottom {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_bottom(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    LayoutBottom::default()
+}
+
+/// Get min/max size properties
+pub fn get_css_min_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMinWidth {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_min_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_min_height(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMinHeight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_min_height(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_max_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMaxWidth {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_max_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_max_height(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMaxHeight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_max_height(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+/// Get margin properties with UA CSS fallback
+pub fn get_css_margin_left(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMarginLeft {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_margin_left(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    
+    // Check UA CSS
+    let node_type = node_data.node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::MarginLeft) {
+        if let azul_css::props::property::CssProperty::MarginLeft(azul_css::css::CssPropertyValue::Exact(v)) = ua_prop {
+            return *v;
+        }
+    }
+    
+    LayoutMarginLeft::default()
+}
+
+pub fn get_css_margin_right(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMarginRight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_margin_right(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    
+    let node_type = node_data.node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::MarginRight) {
+        if let azul_css::props::property::CssProperty::MarginRight(azul_css::css::CssPropertyValue::Exact(v)) = ua_prop {
+            return *v;
+        }
+    }
+    
+    LayoutMarginRight::default()
+}
+
+pub fn get_css_margin_top(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMarginTop {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_margin_top(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    
+    let node_type = node_data.node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::MarginTop) {
+        if let azul_css::props::property::CssProperty::MarginTop(azul_css::css::CssPropertyValue::Exact(v)) = ua_prop {
+            return *v;
+        }
+    }
+    
+    LayoutMarginTop::default()
+}
+
+pub fn get_css_margin_bottom(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutMarginBottom {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_margin_bottom(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+    {
+        return val;
+    }
+    
+    let node_type = node_data.node_type.clone();
+    if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::MarginBottom) {
+        if let azul_css::props::property::CssProperty::MarginBottom(azul_css::css::CssPropertyValue::Exact(v)) = ua_prop {
+            return *v;
+        }
+    }
+    
+    LayoutMarginBottom::default()
+}
+
+/// Get padding properties (no UA CSS fallback needed, defaults to 0)
+pub fn get_css_padding_left(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutPaddingLeft {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_padding_left(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_padding_right(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutPaddingRight {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_padding_right(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_padding_top(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutPaddingTop {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_padding_top(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+pub fn get_css_padding_bottom(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> LayoutPaddingBottom {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_padding_bottom(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
+
+/// Get border width properties (no UA CSS fallback needed, defaults to 0)
+pub fn get_css_border_left_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> PixelValue {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_left_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default()
+}
+
+pub fn get_css_border_right_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> PixelValue {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_right_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default()
+}
+
+pub fn get_css_border_top_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> PixelValue {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_top_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property_or_default())
+        .map(|v| v.inner)
+        .unwrap_or_default()
+}
+
+pub fn get_css_border_bottom_width(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> PixelValue {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_border_bottom_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property_or_default())
+        .map(|v| v.inner)
         .unwrap_or_default()
 }

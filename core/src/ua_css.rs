@@ -131,6 +131,51 @@ static DISPLAY_NONE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
     LayoutDisplay::None,
 ));
 
+/// display: table
+static DISPLAY_TABLE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::Table,
+));
+
+/// display: table-row
+static DISPLAY_TABLE_ROW: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableRow,
+));
+
+/// display: table-cell
+static DISPLAY_TABLE_CELL: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableCell,
+));
+
+/// display: table-header-group
+static DISPLAY_TABLE_HEADER_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableHeaderGroup,
+));
+
+/// display: table-row-group
+static DISPLAY_TABLE_ROW_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableRowGroup,
+));
+
+/// display: table-footer-group
+static DISPLAY_TABLE_FOOTER_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableFooterGroup,
+));
+
+/// display: table-caption
+static DISPLAY_TABLE_CAPTION: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableCaption,
+));
+
+/// display: table-column-group
+static DISPLAY_TABLE_COLUMN_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableColumnGroup,
+));
+
+/// display: table-column
+static DISPLAY_TABLE_COLUMN: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::TableColumn,
+));
+
 /// margin-top: 0
 static MARGIN_TOP_ZERO: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
     LayoutMarginTop {
@@ -264,6 +309,7 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         // (Html, PT::LineHeight) => Some(&LINE_HEIGHT_1_15),
 
         // Body Element - CRITICAL for preventing layout collapse
+        (Body, PT::Display) => Some(&DISPLAY_BLOCK),
         (Body, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
         (Body, PT::MarginTop) => Some(&MARGIN_TOP_ZERO),
@@ -273,48 +319,67 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
 
         // Block-level Elements
         (Div, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Div, PT::Width) => Some(&WIDTH_100_PERCENT),
         (P, PT::Display) => Some(&DISPLAY_BLOCK),
         (P, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Main, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Main, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Header, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Header, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Footer, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Footer, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Section, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Section, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Article, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Article, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Aside, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Aside, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Nav, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Headings
         (H1, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H1, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
         // (H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         (H2, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H2, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H2, PT::FontSize) => Some(&FONT_SIZE_1_5EM),
         // (H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         (H3, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H3, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H3, PT::FontSize) => Some(&FONT_SIZE_1_17EM),
         // (H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         (H4, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H4, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H4, PT::FontSize) => Some(&FONT_SIZE_1EM),
         // (H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         (H5, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H5, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H5, PT::FontSize) => Some(&FONT_SIZE_0_83EM),
         // (H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         (H6, PT::Display) => Some(&DISPLAY_BLOCK),
+        (H6, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H6, PT::FontSize) => Some(&FONT_SIZE_0_67EM),
         // (H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
 
         // Lists
         (Ul, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Ol, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
         // (Li, PT::Display) => Some(&DISPLAY_LIST_ITEM), // TODO: Need DisplayListItem
         (Dl, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Dl, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Dt, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Dt, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Dd, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Dd, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Inline Elements
         (Span, PT::Display) => Some(&DISPLAY_INLINE),
@@ -337,20 +402,25 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
 
         // Text Content
         (Pre, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Pre, PT::Width) => Some(&WIDTH_100_PERCENT),
         (BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
+        (BlockQuote, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Hr, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Table Elements
-        // (Table, PT::Display) => Some(&DISPLAY_TABLE), // TODO: Need DisplayTable
-        // (THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
-        // (TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
-        // (TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
-        // (Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
-        // (Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
-        // (Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (Table, PT::Display) => Some(&DISPLAY_TABLE),
+        (Table, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
+        (TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
+        (TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
+        (Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
+        (Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
 
         // Form Elements
         (Form, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Form, PT::Width) => Some(&WIDTH_100_PERCENT),
         // (Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK), // TODO: Need DisplayInlineBlock
         // (Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         // (Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
@@ -367,6 +437,70 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         // Special Elements
         (Br, PT::Display) => Some(&DISPLAY_BLOCK),
         (Img, PT::Display) => Some(&DISPLAY_INLINE),
+        
+        // Media Elements
+        (Video, PT::Display) => Some(&DISPLAY_INLINE),
+        (Audio, PT::Display) => Some(&DISPLAY_INLINE),
+        (Canvas, PT::Display) => Some(&DISPLAY_INLINE),
+        (Svg, PT::Display) => Some(&DISPLAY_INLINE),
+        (IFrame(_), PT::Display) => Some(&DISPLAY_INLINE),
+        
+        // Form Input Elements (inline-block behavior approximated as inline)
+        (Input, PT::Display) => Some(&DISPLAY_INLINE),
+        (Button, PT::Display) => Some(&DISPLAY_INLINE),
+        (Select, PT::Display) => Some(&DISPLAY_INLINE),
+        (TextArea, PT::Display) => Some(&DISPLAY_INLINE),
+        (Option, PT::Display) => Some(&DISPLAY_NONE),
+        (OptGroup, PT::Display) => Some(&DISPLAY_NONE),
+        
+        // Other Inline Elements
+        (Abbr, PT::Display) => Some(&DISPLAY_INLINE),
+        (Cite, PT::Display) => Some(&DISPLAY_INLINE),
+        (Del, PT::Display) => Some(&DISPLAY_INLINE),
+        (Ins, PT::Display) => Some(&DISPLAY_INLINE),
+        (Mark, PT::Display) => Some(&DISPLAY_INLINE),
+        (Q, PT::Display) => Some(&DISPLAY_INLINE),
+        (Dfn, PT::Display) => Some(&DISPLAY_INLINE),
+        (Var, PT::Display) => Some(&DISPLAY_INLINE),
+        (Time, PT::Display) => Some(&DISPLAY_INLINE),
+        (Data, PT::Display) => Some(&DISPLAY_INLINE),
+        (Wbr, PT::Display) => Some(&DISPLAY_INLINE),
+        (Bdi, PT::Display) => Some(&DISPLAY_INLINE),
+        (Bdo, PT::Display) => Some(&DISPLAY_INLINE),
+        (Rp, PT::Display) => Some(&DISPLAY_INLINE),
+        (Rt, PT::Display) => Some(&DISPLAY_INLINE),
+        (Rtc, PT::Display) => Some(&DISPLAY_INLINE),
+        (Ruby, PT::Display) => Some(&DISPLAY_INLINE),
+        
+        // Block Container Elements
+        (FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
+        (FieldSet, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Figure, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Figure, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
+        (FigCaption, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Details, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Details, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Summary, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Summary, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Dialog, PT::Width) => Some(&WIDTH_100_PERCENT),
+        
+        // Table Caption
+        (Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
+        (ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
+        (Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
+        
+        // Legacy/Deprecated Elements
+        (Menu, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Menu, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Dir, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Dir, PT::Width) => Some(&WIDTH_100_PERCENT),
+        
+        // Generic Container
+        (Html, PT::Display) => Some(&DISPLAY_BLOCK),
+        (Html, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // No default defined for this combination
         _ => None,

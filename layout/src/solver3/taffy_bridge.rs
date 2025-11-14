@@ -210,12 +210,35 @@ use taffy::{
 use crate::{
     solver3::{
         fc::{translate_taffy_point_back, translate_taffy_size_back},
-        getters::{get_css_height, get_css_width},
-        layout_tree::{LayoutNode, LayoutTree},
+        getters::{
+            get_css_border_bottom_width, get_css_border_left_width, get_css_border_right_width,
+            get_css_border_top_width, get_css_bottom, get_css_height, get_css_left,
+            get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
+            get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
+            get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
+            get_css_padding_top, get_css_right, get_css_top, get_css_width, get_position,
+        },
+        layout_tree::{get_display_type, LayoutNode, LayoutTree},
         sizing, LayoutContext,
     },
     text3::cache::{FontLoaderTrait, ParsedFontTrait},
 };
+
+// Helper function to convert PixelValue to LengthPercentageAuto
+fn pixel_to_lpa(pv: PixelValue) -> taffy::LengthPercentageAuto {
+    pv.to_pixels_no_percent()
+        .map(taffy::LengthPercentageAuto::length)
+        .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentageAuto::percent(p.get())))
+        .unwrap_or_else(taffy::LengthPercentageAuto::auto)
+}
+
+// Helper function to convert PixelValue to LengthPercentage
+fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
+    pv.to_pixels_no_percent()
+        .map(taffy::LengthPercentage::length)
+        .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentage::percent(p.get())))
+        .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
+}
 
 /// The bridge struct that implements Taffy's traits.
 /// It holds mutable references to the solver's data structures, allowing Taffy
@@ -243,101 +266,24 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let mut taffy_style = Style::default();
 
         // Display Mode
-        taffy_style.display = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::Display)
-            .and_then(|p| {
-                if let CssProperty::Display(d) = p {
-                    Some(*d)
-                } else {
-                    None
-                }
-            })
-            .map(layout_display_to_taffy)
-            .unwrap_or_else(|| {
-                // Use the node's default display type if no CSS display property is set
-                layout_display_to_taffy(node_data.get_default_display().into())
-            });
+        taffy_style.display = layout_display_to_taffy(
+            CssPropertyValue::Exact(get_display_type(styled_dom, id))
+        );
 
         // Position
-        taffy_style.position = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::Position)
-            .and_then(|p| {
-                if let CssProperty::Position(pos) = p {
-                    Some(*pos)
-                } else {
-                    None
-                }
-            })
-            .map(layout_position_to_taffy)
-            .unwrap_or(taffy::Position::Relative);
+        taffy_style.position = from_layout_position(get_position(styled_dom, id, node_state));
 
         // Inset (top, left, bottom, right)
         taffy_style.inset = taffy::Rect {
-            left: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Left)
-                .and_then(|p| {
-                    if let CssProperty::Left(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(pixel_value_to_length_percentage_auto)
-                .unwrap_or_else(taffy::LengthPercentageAuto::auto),
-            right: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Right)
-                .and_then(|p| {
-                    if let CssProperty::Right(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(pixel_value_to_length_percentage_auto)
-                .unwrap_or_else(taffy::LengthPercentageAuto::auto),
-            top: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Top)
-                .and_then(|p| {
-                    if let CssProperty::Top(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(pixel_value_to_length_percentage_auto)
-                .unwrap_or_else(taffy::LengthPercentageAuto::auto),
-            bottom: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::Bottom)
-                .and_then(|p| {
-                    if let CssProperty::Bottom(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(pixel_value_to_length_percentage_auto)
-                .unwrap_or_else(taffy::LengthPercentageAuto::auto),
+            left: pixel_to_lpa(get_css_left(styled_dom, id, node_state).inner),
+            right: pixel_to_lpa(get_css_right(styled_dom, id, node_state).inner),
+            top: pixel_to_lpa(get_css_top(styled_dom, id, node_state).inner),
+            bottom: pixel_to_lpa(get_css_bottom(styled_dom, id, node_state).inner),
         };
 
         // Size
-        let mut width = get_css_width(self.ctx.styled_dom, id, node_state);
-        let mut height = get_css_height(self.ctx.styled_dom, id, node_state);
-
-        // Apply default width/height for nodes that have them (Body, IFrame)
-        // This must happen BEFORE the 0px check, so we get the percentage defaults
-        if let (LayoutWidth::Px(px), Some(default_width)) = (&width, node_data.get_default_width())
-        {
-            if px.to_pixels_no_percent() == Some(0.0) {
-                width = default_width;
-            }
-        }
-        if let (LayoutHeight::Px(px), Some(default_height)) =
-            (&height, node_data.get_default_height())
-        {
-            if px.to_pixels_no_percent() == Some(0.0) {
-                height = default_height;
-            }
-        }
+        let width = get_css_width(self.ctx.styled_dom, id, node_state);
+        let height = get_css_height(self.ctx.styled_dom, id, node_state);
 
         taffy_style.size = taffy::Size {
             width: from_layout_width(width),
@@ -346,209 +292,34 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
 
         // Min/Max Size
         taffy_style.min_size = taffy::Size {
-            width: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MinWidth)
-                .and_then(|p| {
-                    if let CssProperty::MinWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(|px| Dimension::length(px.to_pixels(0.0)))
-                .unwrap_or(Dimension::auto()),
-            height: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MinHeight)
-                .and_then(|p| {
-                    if let CssProperty::MinHeight(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(|px| Dimension::length(px.to_pixels(0.0)))
-                .unwrap_or(Dimension::auto()),
+            width: pixel_to_lp(get_css_min_width(styled_dom, id, node_state).inner).into(),
+            height: pixel_to_lp(get_css_min_height(styled_dom, id, node_state).inner).into(),
         };
         taffy_style.max_size = taffy::Size {
-            width: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MaxWidth)
-                .and_then(|p| {
-                    if let CssProperty::MaxWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(|px| Dimension::length(px.to_pixels(0.0)))
-                .unwrap_or(Dimension::auto()),
-            height: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MaxHeight)
-                .and_then(|p| {
-                    if let CssProperty::MaxHeight(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(|px| Dimension::length(px.to_pixels(0.0)))
-                .unwrap_or(Dimension::auto()),
+            width: pixel_to_lp(get_css_max_width(styled_dom, id, node_state).inner).into(),
+            height: pixel_to_lp(get_css_max_height(styled_dom, id, node_state).inner).into(),
         };
 
         // Box Model (margin, padding, border)
         taffy_style.margin = taffy::Rect {
-            left: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MarginLeft)
-                .and_then(|p| {
-                    if let CssProperty::MarginLeft(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lpa)
-                .unwrap_or_else(|| LengthPercentageAuto::AUTO),
-            right: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MarginRight)
-                .and_then(|p| {
-                    if let CssProperty::MarginRight(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lpa)
-                .unwrap_or_else(|| LengthPercentageAuto::AUTO),
-            top: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MarginTop)
-                .and_then(|p| {
-                    if let CssProperty::MarginTop(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lpa)
-                .unwrap_or_else(|| LengthPercentageAuto::AUTO),
-            bottom: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::MarginBottom)
-                .and_then(|p| {
-                    if let CssProperty::MarginBottom(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lpa)
-                .unwrap_or_else(|| LengthPercentageAuto::AUTO),
+            left: pixel_to_lpa(get_css_margin_left(styled_dom, id, node_state).inner),
+            right: pixel_to_lpa(get_css_margin_right(styled_dom, id, node_state).inner),
+            top: pixel_to_lpa(get_css_margin_top(styled_dom, id, node_state).inner),
+            bottom: pixel_to_lpa(get_css_margin_bottom(styled_dom, id, node_state).inner),
         };
 
         taffy_style.padding = taffy::Rect {
-            left: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::PaddingLeft)
-                .and_then(|p| {
-                    if let CssProperty::PaddingLeft(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            right: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::PaddingRight)
-                .and_then(|p| {
-                    if let CssProperty::PaddingRight(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            top: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::PaddingTop)
-                .and_then(|p| {
-                    if let CssProperty::PaddingTop(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            bottom: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::PaddingBottom)
-                .and_then(|p| {
-                    if let CssProperty::PaddingBottom(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
+            left: pixel_to_lp(get_css_padding_left(styled_dom, id, node_state).inner),
+            right: pixel_to_lp(get_css_padding_right(styled_dom, id, node_state).inner),
+            top: pixel_to_lp(get_css_padding_top(styled_dom, id, node_state).inner),
+            bottom: pixel_to_lp(get_css_padding_bottom(styled_dom, id, node_state).inner),
         };
 
         taffy_style.border = taffy::Rect {
-            left: cache
-                .get_property(
-                    node_data,
-                    &id,
-                    node_state,
-                    &CssPropertyType::BorderLeftWidth,
-                )
-                .and_then(|p| {
-                    if let CssProperty::BorderLeftWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            right: cache
-                .get_property(
-                    node_data,
-                    &id,
-                    node_state,
-                    &CssPropertyType::BorderRightWidth,
-                )
-                .and_then(|p| {
-                    if let CssProperty::BorderRightWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            top: cache
-                .get_property(node_data, &id, node_state, &CssPropertyType::BorderTopWidth)
-                .and_then(|p| {
-                    if let CssProperty::BorderTopWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
-            bottom: cache
-                .get_property(
-                    node_data,
-                    &id,
-                    node_state,
-                    &CssPropertyType::BorderBottomWidth,
-                )
-                .and_then(|p| {
-                    if let CssProperty::BorderBottomWidth(v) = p {
-                        Some(v.get_property_or_default().unwrap_or_default().inner)
-                    } else {
-                        None
-                    }
-                })
-                .map(from_pixel_value_lp)
-                .unwrap_or_else(|| LengthPercentage::ZERO),
+            left: pixel_to_lp(get_css_border_left_width(styled_dom, id, node_state)),
+            right: pixel_to_lp(get_css_border_right_width(styled_dom, id, node_state)),
+            top: pixel_to_lp(get_css_border_top_width(styled_dom, id, node_state)),
+            bottom: pixel_to_lp(get_css_border_bottom_width(styled_dom, id, node_state)),
         };
 
         // Grid & gap properties

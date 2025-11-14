@@ -856,10 +856,12 @@ fn needs_table_parent_wrapper(
 }
 
 // Determines the display type of a node based on its tag and CSS properties.
-fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
+pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         let node_data = &styled_dom.node_data.as_container()[node_id];
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+        
+        // 1. Check author CSS first
         if let Some(d) = styled_dom
             .css_property_cache
             .ptr
@@ -869,11 +871,20 @@ fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
             eprintln!("  get_display_type: CSS FOUND display={:?}", d);
             return d;
         }
+        
+        // 2. Check User Agent CSS
+        let node_type = styled_dom.node_data.as_container()[node_id].node_type.clone();
+        if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::Display) {
+            if let azul_css::props::property::CssProperty::Display(azul_css::css::CssPropertyValue::Exact(d)) = ua_prop {
+                eprintln!("  get_display_type: UA CSS FOUND display={:?}", d);
+                return *d;
+            }
+        }
     }
 
-    // Fallback to default HTML display types
-    let default_display = styled_dom.node_data.as_container()[node_id].get_default_display();
-    eprintln!("  get_display_type: Using DEFAULT display={:?}", default_display);
+    // 3. Fallback to type default (should match UA CSS)
+    let default_display = LayoutDisplay::default();
+    eprintln!("  get_display_type: Using TYPE DEFAULT display={:?}", default_display);
     default_display
 }
 
