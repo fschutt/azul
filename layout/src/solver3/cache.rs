@@ -527,8 +527,25 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(); // This should come from the node's style.
         let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
+        // IMPORTANT: For the available_size that we pass to children, we need to use
+        // the containing_block_size if the current node's height is 'auto'.
+        // Otherwise, we would pass 0 as available height to children, which breaks
+        // table layout and other auto-height containers.
+        let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+        let available_size_for_children = if should_use_content_height(&css_height) {
+            // Height is auto - use containing block size as available size
+            let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
+            LogicalSize {
+                width: inner_size.width,
+                height: containing_block_size.height, // Use containing block height!
+            }
+        } else {
+            // Height is explicit - use inner size (after padding/border)
+            node.box_props.inner_size(final_used_size, writing_mode)
+        };
+
         let constraints = LayoutConstraints {
-            available_size: node.box_props.inner_size(final_used_size, writing_mode),
+            available_size: available_size_for_children,
             bfc_state: None,
             writing_mode,
             text_align: match text_align {
@@ -541,8 +558,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         eprintln!(
             "DEBUG calculate_layout_for_subtree: node_index={}, final_used_size={:?}, \
-             constraints.available_size={:?}",
-            node_index, final_used_size, constraints.available_size
+             constraints.available_size={:?}, containing_block_size={:?}",
+            node_index, final_used_size, constraints.available_size, containing_block_size
         );
 
         (
@@ -623,9 +640,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     current_node.scrollbar_info = Some(scrollbar_info); // Store scrollbar info
 
     // The absolute position of this node's content-box for its children.
+    // containing_block_pos is the absolute position of this node's margin-box.
+    // To get to the content-box, we add: border + padding (NOT margin, that's already in containing_block_pos)
     let self_content_box_pos = LogicalPosition::new(
-        containing_block_pos.x + current_node.box_props.padding.left,
-        containing_block_pos.y + current_node.box_props.padding.top,
+        containing_block_pos.x + current_node.box_props.border.left + current_node.box_props.padding.left,
+        containing_block_pos.y + current_node.box_props.border.top + current_node.box_props.padding.top,
     );
 
     // Check if this node is a Flex or Grid container

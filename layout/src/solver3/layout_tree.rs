@@ -729,11 +729,55 @@ fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
 }
 
 fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
-    // STUB: This would read margin, padding, border properties from the styled_dom
-    // and convert them into a BoxProps struct with pixel values.
-    let _ = styled_dom;
-    let _ = dom_id;
-    BoxProps::default()
+    use crate::solver3::getters::*;
+    use azul_css::props::basic::PixelValue;
+    
+    // Get styled node state
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| &n.state)
+        .cloned()
+        .unwrap_or_default();
+    
+    // Helper to extract pixel value from MultiValue<PixelValue>
+    let to_pixels = |mv: crate::solver3::getters::MultiValue<PixelValue>| -> f32 {
+        match mv {
+            crate::solver3::getters::MultiValue::Exact(pv) => {
+                pv.to_pixels_no_percent().unwrap_or(0.0)
+            }
+            _ => 0.0,
+        }
+    };
+    
+    // Read margin, padding, border from styled_dom
+    let margin = crate::solver3::geometry::EdgeSizes {
+        top: to_pixels(get_css_margin_top(styled_dom, dom_id, &node_state)),
+        right: to_pixels(get_css_margin_right(styled_dom, dom_id, &node_state)),
+        bottom: to_pixels(get_css_margin_bottom(styled_dom, dom_id, &node_state)),
+        left: to_pixels(get_css_margin_left(styled_dom, dom_id, &node_state)),
+    };
+    
+    let padding = crate::solver3::geometry::EdgeSizes {
+        top: to_pixels(get_css_padding_top(styled_dom, dom_id, &node_state)),
+        right: to_pixels(get_css_padding_right(styled_dom, dom_id, &node_state)),
+        bottom: to_pixels(get_css_padding_bottom(styled_dom, dom_id, &node_state)),
+        left: to_pixels(get_css_padding_left(styled_dom, dom_id, &node_state)),
+    };
+    
+    let border = crate::solver3::geometry::EdgeSizes {
+        top: to_pixels(get_css_border_top_width(styled_dom, dom_id, &node_state)),
+        right: to_pixels(get_css_border_right_width(styled_dom, dom_id, &node_state)),
+        bottom: to_pixels(get_css_border_bottom_width(styled_dom, dom_id, &node_state)),
+        left: to_pixels(get_css_border_left_width(styled_dom, dom_id, &node_state)),
+    };
+    
+    BoxProps {
+        margin,
+        padding,
+        border,
+    }
 }
 
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:

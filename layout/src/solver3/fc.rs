@@ -302,6 +302,9 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ) -> Result<LayoutOutput> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
+    eprintln!("[layout_formatting_context] node_index={}, fc={:?}, constraints.available_size={:?}", 
+        node_index, node.formatting_context, constraints.available_size);
+
     match node.formatting_context {
         FormattingContext::Block { .. } => {
             layout_bfc(ctx, tree, text_cache, node_index, constraints)
@@ -452,6 +455,9 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // Now this will be a valid, non-zero size.
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
+
+        eprintln!("[layout_bfc]   Child {}: margin=({:.2}, {:.2}, {:.2}, {:.2})", 
+            child_index, child_margin.top, child_margin.right, child_margin.bottom, child_margin.left);
 
         // 1. Advance the pen by the child's starting margin.
         main_pen += child_margin.main_start(writing_mode);
@@ -1310,6 +1316,9 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ) -> Result<LayoutOutput> {
     ctx.debug_log("Laying out table");
     
+    eprintln!("[layout_table_fc] node_index={}, constraints.available_size={:?}, constraints.writing_mode={:?}", 
+        node_index, constraints.available_size, constraints.writing_mode);
+    
     // Multi-pass table layout algorithm:
     // 1. Analyze table structure - identify rows, cells, columns
     // 2. Determine table-layout property (fixed vs auto)
@@ -1344,17 +1353,24 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         calculate_column_widths_auto(&mut table_ctx, tree, text_cache, ctx, constraints)?;
     }
     
+    eprintln!("[layout_table_fc] After column width calculation: num_columns={}, widths={:?}", 
+        table_ctx.columns.len(), 
+        table_ctx.columns.iter().map(|c| c.computed_width).collect::<Vec<_>>());
+    
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
     
-    // Phase 5: Position cells in final grid
-    position_table_cells(&mut table_ctx, tree, ctx, node_index, constraints)?;
+    // Phase 5: Position cells in final grid and collect positions
+    let mut cell_positions = position_table_cells(&mut table_ctx, tree, ctx, node_index, constraints)?;
     
     // Calculate final table size including border-spacing
     let mut table_width: f32 = table_ctx.columns.iter()
         .filter_map(|col| col.computed_width)
         .sum();
     let mut table_height: f32 = table_ctx.row_heights.iter().sum();
+    
+    eprintln!("[layout_table_fc] After calculate_row_heights: table_height={:.2}, row_heights={:?}", 
+        table_height, table_ctx.row_heights);
     
     // Add border-spacing to table size if border-collapse is separate
     use azul_css::props::layout::StyleBorderCollapse;
@@ -1412,24 +1428,21 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             }
         };
         
-        // Store caption position
-        if let Some(caption_node) = tree.get_mut(caption_idx) {
-            caption_node.relative_position = Some(caption_position);
-            ctx.debug_log(&format!("Caption positioned at x={:.2}, y={:.2}, height={:.2}", 
-                                 caption_position.x, caption_position.y, caption_height));
-        }
+        // Add caption position to the positions map
+        cell_positions.insert(caption_idx, caption_position);
+        
+        ctx.debug_log(&format!("Caption positioned at x={:.2}, y={:.2}, height={:.2}", 
+                             caption_position.x, caption_position.y, caption_height));
     }
     
     // Adjust all table cell positions if caption is on top
     if table_y_offset > 0.0 {
         ctx.debug_log(&format!("Adjusting table cells by y offset: {:.2}", table_y_offset));
         
-        // Traverse all cells and adjust their y positions
+        // Adjust cell positions in the map
         for cell_info in &table_ctx.cells {
-            if let Some(cell_node) = tree.get_mut(cell_info.node_index) {
-                if let Some(pos) = cell_node.relative_position.as_mut() {
-                    pos.y += table_y_offset;
-                }
+            if let Some(pos) = cell_positions.get_mut(&cell_info.node_index) {
+                pos.y += table_y_offset;
             }
         }
     }
@@ -1437,13 +1450,16 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Total table height includes caption
     let total_height = table_height + caption_height;
     
-    // Create output with the table's final size (including caption)
+    eprintln!("[layout_table_fc] Final output: width={:.2}, height={:.2}, caption_height={:.2}", 
+        table_width, total_height, caption_height);
+    
+    // Create output with the table's final size and cell positions
     let output = LayoutOutput {
         overflow_size: LogicalSize {
             width: table_width,
             height: total_height,
         },
-        positions: BTreeMap::new(), // Positions are set in position_table_cells
+        positions: cell_positions, // Cell positions calculated in position_table_cells
         baseline: None, // Tables don't have a baseline
     };
     
@@ -1562,6 +1578,9 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     for &cell_idx in &row_node.children {
         if let Some(cell) = tree.get(cell_idx) {
+            eprintln!("[analyze_table_row] Checking child cell_idx={}, fc={:?}, dom_node_id={:?}", 
+                cell_idx, cell.formatting_context, cell.dom_node_id);
+            
             if matches!(cell.formatting_context, FormattingContext::TableCell) {
                 // Get colspan and rowspan (TODO: from CSS properties)
                 let colspan = 1; // TODO: Get from CSS
@@ -1574,6 +1593,9 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     row: row_num,
                     rowspan,
                 };
+                
+                eprintln!("[analyze_table_row] Added cell: node_index={}, dom_node_id={:?}, row={}, col={}", 
+                    cell_idx, cell.dom_node_id, row_num, col_index);
                 
                 table_ctx.cells.push(cell_info);
                 
@@ -1813,7 +1835,28 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .sum();
     let available_width = constraints.available_size.width;
     
-    if available_width >= total_max_width {
+    eprintln!("[calculate_column_widths_auto] total_min_width={:.2}, total_max_width={:.2}, available_width={:.2}", 
+        total_min_width, total_max_width, available_width);
+    
+    // Handle infinity and NaN cases
+    if !total_max_width.is_finite() || !available_width.is_finite() {
+        // If max_width is infinite or unavailable, distribute available width equally
+        let num_non_collapsed = table_ctx.columns.len() - table_ctx.collapsed_columns.len();
+        let width_per_column = if num_non_collapsed > 0 {
+            available_width / num_non_collapsed as f32
+        } else {
+            0.0
+        };
+        
+        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
+            if table_ctx.collapsed_columns.contains(&col_idx) {
+                col.computed_width = Some(0.0);
+            } else {
+                // Use the larger of min_width and equal distribution
+                col.computed_width = Some(col.min_width.max(width_per_column));
+            }
+        }
+    } else if available_width >= total_max_width {
         // Case 1: Plenty of space - use max widths
         for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
             if table_ctx.collapsed_columns.contains(&col_idx) {
@@ -1824,7 +1867,12 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     } else if available_width >= total_min_width {
         // Case 2: Between min and max - interpolate proportionally
-        let scale = (available_width - total_min_width) / (total_max_width - total_min_width);
+        // Avoid division by zero if min == max
+        let scale = if total_max_width > total_min_width {
+            (available_width - total_min_width) / (total_max_width - total_min_width)
+        } else {
+            0.0 // If min == max, just use min width
+        };
         for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
             if table_ctx.collapsed_columns.contains(&col_idx) {
                 col.computed_width = Some(0.0);
@@ -1914,44 +1962,90 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     cell_width: f32,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // Layout the cell with the computed width to get its natural height
-    let cell_constraints = LayoutConstraints {
-        available_size: LogicalSize {
-            width: cell_width,
-            height: f32::INFINITY, // Let height be determined by content
-        },
-        writing_mode: constraints.writing_mode,
-        bfc_state: None,
-        text_align: constraints.text_align,
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
+    
+    // Check if cell has text content directly in DOM (not in LayoutTree)
+    // Text nodes are intentionally not included in LayoutTree per CSS spec,
+    // but we need to measure them for table cell height calculation.
+    let has_text_children = cell_dom_id
+        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
+        .any(|child_id| {
+            let node_data = &ctx.styled_dom.node_data.as_container()[child_id];
+            matches!(node_data.get_node_type(), NodeType::Text(_))
+        });
+    
+    eprintln!("[layout_cell_for_height] cell_index={}, cell_dom_id={:?}, has_text_children={}", 
+        cell_index, cell_dom_id, has_text_children);
+    
+    let content_height = if has_text_children {
+        // Cell contains text - use IFC to measure it
+        // This is the key fix: IFC traverses DOM to find text nodes
+        eprintln!("[layout_cell_for_height] Using IFC to measure text content");
+        
+        let cell_constraints = LayoutConstraints {
+            available_size: LogicalSize {
+                width: cell_width,
+                height: f32::INFINITY,
+            },
+            writing_mode: constraints.writing_mode,
+            bfc_state: None,
+            text_align: constraints.text_align,
+        };
+        
+        let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        
+        eprintln!("[layout_cell_for_height] IFC returned height={:.2}", output.overflow_size.height);
+        
+        output.overflow_size.height
+    } else {
+        // Cell contains block-level children or is empty - use regular layout
+        eprintln!("[layout_cell_for_height] Using regular layout for block children");
+        
+        let cell_constraints = LayoutConstraints {
+            available_size: LogicalSize {
+                width: cell_width,
+                height: f32::INFINITY,
+            },
+            writing_mode: constraints.writing_mode,
+            bfc_state: None,
+            text_align: constraints.text_align,
+        };
+        
+        let mut temp_positions = BTreeMap::new();
+        let mut temp_scrollbar_reflow = false;
+        
+        crate::solver3::cache::calculate_layout_for_subtree(
+            ctx,
+            tree,
+            text_cache,
+            cell_index,
+            LogicalPosition::zero(),
+            cell_constraints.available_size,
+            &mut temp_positions,
+            &mut temp_scrollbar_reflow,
+        )?;
+        
+        let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+        cell_node.used_size.unwrap_or_default().height
     };
     
-    let mut temp_positions = BTreeMap::new();
-    let mut temp_scrollbar_reflow = false;
-    
-    crate::solver3::cache::calculate_layout_for_subtree(
-        ctx,
-        tree,
-        text_cache,
-        cell_index,
-        LogicalPosition::zero(),
-        cell_constraints.available_size,
-        &mut temp_positions,
-        &mut temp_scrollbar_reflow,
-    )?;
-    
-    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
-    let size = cell_node.used_size.unwrap_or_default();
-    
     // Add padding and border to get the total height
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
     let padding = &cell_node.box_props.padding;
     let border = &cell_node.box_props.border;
     let writing_mode = constraints.writing_mode;
     
-    let total_height = size.height
+    let total_height = content_height
         + padding.main_start(writing_mode)
         + padding.main_end(writing_mode)
         + border.main_start(writing_mode)
         + border.main_end(writing_mode);
+    
+    eprintln!("[layout_cell_for_height] cell_index={}, content_height={:.2}, padding/border={:.2}, total_height={:.2}", 
+        cell_index, content_height,
+        padding.main_start(writing_mode) + padding.main_end(writing_mode) + border.main_start(writing_mode) + border.main_end(writing_mode),
+        total_height);
     
     Ok(total_height)
 }
@@ -1964,6 +2058,9 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
+    eprintln!("[calculate_row_heights] num_rows={}, constraints.available_size={:?}", 
+        table_ctx.num_rows, constraints.available_size);
+    
     // Initialize row heights
     table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
     
@@ -1991,6 +2088,9 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             }
         }
         
+        eprintln!("[calculate_row_heights] Cell node_index={}, row={}, col={}, cell_width={:.2}", 
+            cell_info.node_index, cell_info.row, cell_info.column, cell_width);
+        
         // Layout the cell to get its height
         let cell_height = layout_cell_for_height(
             ctx,
@@ -2000,6 +2100,9 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             cell_width,
             constraints,
         )?;
+        
+        eprintln!("[calculate_row_heights] Cell node_index={} calculated height={:.2}", 
+            cell_info.node_index, cell_height);
         
         // For single-row cells, update the row height
         if cell_info.rowspan == 1 {
@@ -2084,8 +2187,10 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     table_index: usize,
     constraints: &LayoutConstraints,
-) -> Result<()> {
+) -> Result<BTreeMap<usize, LogicalPosition>> {
     ctx.debug_log("Positioning table cells in grid");
+    
+    let mut positions = BTreeMap::new();
     
     // Get border spacing values if border-collapse is separate
     use azul_css::props::layout::StyleBorderCollapse;
@@ -2163,16 +2268,16 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // Store position relative to table origin
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);
         
-        // The position will be used by the parent table to position this cell
-        // For now, we just ensure the size is set correctly
-        // The actual positioning in the render tree happens in the cache module
+        // Insert position into map so cache module can position the cell
+        positions.insert(cell_info.node_index, position);
+        
         ctx.debug_log(&format!(
             "Cell at row={}, col={}: pos=({:.2}, {:.2}), size=({:.2}x{:.2})",
             cell_info.row, cell_info.column, x, y, width, height
         ));
     }
     
-    Ok(())
+    Ok(positions)
 }
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children

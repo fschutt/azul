@@ -192,6 +192,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
             // This is necessary because calculate_layout_for_subtree only inserts
             // positions for children, not for the root itself.
             if !calculated_positions.contains_key(&root_idx) {
+                let root_node = &new_tree.nodes[root_idx];
+                eprintln!("[layout_document] Root node {} positioned at cb_pos=({:.2}, {:.2}), margin=({:.2}, {:.2}, {:.2}, {:.2})", 
+                    root_idx, cb_pos.x, cb_pos.y, 
+                    root_node.box_props.margin.top, root_node.box_props.margin.right,
+                    root_node.box_props.margin.bottom, root_node.box_props.margin.left);
                 calculated_positions.insert(root_idx, cb_pos);
             }
         }
@@ -274,9 +279,11 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 .copied()
                 .unwrap_or_default();
             let size = parent_node.used_size.unwrap_or_default();
+            // Position in calculated_positions is the margin-box position
+            // To get content-box, add: border + padding (NOT margin, that's already in pos)
             let content_pos = LogicalPosition::new(
-                pos.x + parent_node.box_props.padding.left,
-                pos.y + parent_node.box_props.padding.top,
+                pos.x + parent_node.box_props.border.left + parent_node.box_props.padding.left,
+                pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
             );
 
             if let Some(dom_id) = parent_node.dom_node_id {
