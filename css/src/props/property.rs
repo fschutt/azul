@@ -68,13 +68,15 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 132] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 134] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
     (CssPropertyType::TextColor, "color"),
     (CssPropertyType::FontSize, "font-size"),
     (CssPropertyType::FontFamily, "font-family"),
+    (CssPropertyType::FontWeight, "font-weight"),
+    (CssPropertyType::FontStyle, "font-style"),
     (CssPropertyType::TextAlign, "text-align"),
     (CssPropertyType::TextJustify, "text-justify"),
     (CssPropertyType::LetterSpacing, "letter-spacing"),
@@ -238,6 +240,8 @@ pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
 pub type StyleBackgroundRepeatVecValue = CssPropertyValue<StyleBackgroundRepeatVec>;
 pub type StyleFontSizeValue = CssPropertyValue<StyleFontSize>;
 pub type StyleFontFamilyVecValue = CssPropertyValue<StyleFontFamilyVec>;
+pub type StyleFontWeightValue = CssPropertyValue<StyleFontWeight>;
+pub type StyleFontStyleValue = CssPropertyValue<StyleFontStyle>;
 pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
 pub type StyleTextAlignValue = CssPropertyValue<StyleTextAlign>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
@@ -458,6 +462,8 @@ pub enum CssProperty {
     TextColor(StyleTextColorValue),
     FontSize(StyleFontSizeValue),
     FontFamily(StyleFontFamilyVecValue),
+    FontWeight(StyleFontWeightValue),
+    FontStyle(StyleFontStyleValue),
     TextAlign(StyleTextAlignValue),
     TextJustify(LayoutTextJustifyValue),
     LetterSpacing(StyleLetterSpacingValue),
@@ -624,6 +630,8 @@ pub enum CssPropertyType {
     TextColor,
     FontSize,
     FontFamily,
+    FontWeight,
+    FontStyle,
     TextAlign,
     TextJustify,
     LetterSpacing,
@@ -801,6 +809,8 @@ impl CssPropertyType {
             CssPropertyType::TextColor => "color",
             CssPropertyType::FontSize => "font-size",
             CssPropertyType::FontFamily => "font-family",
+            CssPropertyType::FontWeight => "font-weight",
+            CssPropertyType::FontStyle => "font-style",
             CssPropertyType::TextAlign => "text-align",
             CssPropertyType::TextJustify => "text-justify",
             CssPropertyType::LetterSpacing => "letter-spacing",
@@ -1056,6 +1066,8 @@ pub enum CssParsingError<'a> {
     // Text/Style properties
     TextColor(StyleTextColorParseError<'a>),
     FontSize(CssStyleFontSizeParseError<'a>),
+    FontWeight(CssFontWeightParseError<'a>),
+    FontStyle(CssFontStyleParseError<'a>),
     TextAlign(StyleTextAlignParseError<'a>),
     TextJustify(TextJustifyParseError<'a>),
     LetterSpacing(StyleLetterSpacingParseError<'a>),
@@ -1193,6 +1205,8 @@ pub enum CssParsingErrorOwned {
     // Text/Style properties
     TextColor(StyleTextColorParseErrorOwned),
     FontSize(CssStyleFontSizeParseErrorOwned),
+    FontWeight(CssFontWeightParseErrorOwned),
+    FontStyle(CssFontStyleParseErrorOwned),
     TextAlign(StyleTextAlignParseErrorOwned),
     TextJustify(TextJustifyParseErrorOwned),
     LetterSpacing(StyleLetterSpacingParseErrorOwned),
@@ -1364,6 +1378,8 @@ impl_display! { CssParsingError<'a>, {
     MixBlendMode(e) => format!("Invalid mix-blend-mode: {}", e),
     TextColor(e) => format!("Invalid text color: {}", e),
     FontSize(e) => format!("Invalid font-size: {}", e),
+    FontWeight(e) => format!("Invalid font-weight: {}", e),
+    FontStyle(e) => format!("Invalid font-style: {}", e),
     TextAlign(e) => format!("Invalid text-align: {}", e),
     TextJustify(e) => format!("Invalid text-justify: {}", e),
     LetterSpacing(e) => format!("Invalid letter-spacing: {}", e),
@@ -1420,6 +1436,8 @@ impl_from!(
     CssStyleFontFamilyParseError<'a>,
     CssParsingError::FontFamily
 );
+impl_from!(CssFontWeightParseError<'a>, CssParsingError::FontWeight);
+impl_from!(CssFontStyleParseError<'a>, CssParsingError::FontStyle);
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrow);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrink);
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::Background);
@@ -1802,6 +1820,8 @@ impl<'a> CssParsingError<'a> {
                 CssParsingErrorOwned::ListStylePosition(e.to_contained())
             }
             CssParsingError::StringSet => CssParsingErrorOwned::StringSet,
+            CssParsingError::FontWeight(e) => CssParsingErrorOwned::FontWeight(e.to_contained()),
+            CssParsingError::FontStyle(e) => CssParsingErrorOwned::FontStyle(e.to_contained()),
         }
     }
 }
@@ -1965,6 +1985,8 @@ impl CssParsingErrorOwned {
                 CssParsingError::ListStylePosition(e.to_shared())
             }
             CssParsingErrorOwned::StringSet => CssParsingError::StringSet,
+            CssParsingErrorOwned::FontWeight(e) => CssParsingError::FontWeight(e.to_shared()),
+            CssParsingErrorOwned::FontStyle(e) => CssParsingError::FontStyle(e.to_shared()),
         }
     }
 }
@@ -1993,8 +2015,10 @@ pub fn parse_css_property<'a>(
             CssPropertyType::SelectionColor => parse_selection_color(value)?.into(),
 
             CssPropertyType::TextColor => parse_style_text_color(value)?.into(),
-            CssPropertyType::FontSize => parse_style_font_size(value)?.into(),
+            CssPropertyType::FontSize => CssProperty::FontSize(parse_style_font_size(value)?.into()),
             CssPropertyType::FontFamily => parse_style_font_family(value)?.into(),
+            CssPropertyType::FontWeight => CssProperty::FontWeight(parse_font_weight(value)?.into()),
+            CssPropertyType::FontStyle => CssProperty::FontStyle(parse_font_style(value)?.into()),
             CssPropertyType::TextAlign => parse_style_text_align(value)?.into(),
             CssPropertyType::TextJustify => parse_layout_text_justify(value)?.into(),
             CssPropertyType::LetterSpacing => parse_style_letter_spacing(value)?.into(),
@@ -3155,6 +3179,8 @@ impl CssProperty {
             CssProperty::BorderSpacing(v) => v.get_css_value_fmt(),
             CssProperty::CaptionSide(v) => v.get_css_value_fmt(),
             CssProperty::EmptyCells(v) => v.get_css_value_fmt(),
+            CssProperty::FontWeight(v) => v.get_css_value_fmt(),
+            CssProperty::FontStyle(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -3451,6 +3477,8 @@ impl CssProperty {
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
+            CssProperty::FontWeight(_) => CssPropertyType::FontWeight,
+            CssProperty::FontStyle(_) => CssPropertyType::FontStyle,
             CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
             CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
@@ -3580,6 +3608,8 @@ impl CssProperty {
             CssProperty::BorderSpacing(_) => CssPropertyType::BorderSpacing,
             CssProperty::CaptionSide(_) => CssPropertyType::CaptionSide,
             CssProperty::EmptyCells(_) => CssPropertyType::EmptyCells,
+            CssProperty::FontWeight(_) => CssPropertyType::FontWeight,
+            CssProperty::FontStyle(_) => CssPropertyType::FontStyle,
         }
     }
 
@@ -3606,6 +3636,12 @@ impl CssProperty {
     }
     pub const fn font_family(input: StyleFontFamilyVec) -> Self {
         CssProperty::FontFamily(CssPropertyValue::Exact(input))
+    }
+    pub const fn font_weight(input: StyleFontWeight) -> Self {
+        CssProperty::FontWeight(CssPropertyValue::Exact(input))
+    }
+    pub const fn font_style(input: StyleFontStyle) -> Self {
+        CssProperty::FontStyle(CssPropertyValue::Exact(input))
     }
     pub const fn text_align(input: StyleTextAlign) -> Self {
         CssProperty::TextAlign(CssPropertyValue::Exact(input))
@@ -4157,6 +4193,18 @@ impl CssProperty {
     pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> {
         match self {
             CssProperty::FontFamily(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_font_weight(&self) -> Option<&StyleFontWeightValue> {
+        match self {
+            CssProperty::FontWeight(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_font_style(&self) -> Option<&StyleFontStyleValue> {
+        match self {
+            CssProperty::FontStyle(f) => Some(f),
             _ => None,
         }
     }
@@ -4938,6 +4986,8 @@ impl CssProperty {
             BorderSpacing(c) => c.is_initial(),
             CaptionSide(c) => c.is_initial(),
             EmptyCells(c) => c.is_initial(),
+            FontWeight(c) => c.is_initial(),
+            FontStyle(c) => c.is_initial(),
         }
     }
 
@@ -5809,6 +5859,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::EmptyCells(p) => format!(
             "CssProperty::EmptyCells({})",
             print_css_property_value(p, tabs, "StyleEmptyCells")
+        ),
+        CssProperty::FontWeight(p) => format!(
+            "CssProperty::FontWeight({})",
+            print_css_property_value(p, tabs, "StyleFontWeight")
+        ),
+        CssProperty::FontStyle(p) => format!(
+            "CssProperty::FontStyle({})",
+            print_css_property_value(p, tabs, "StyleFontStyle")
         ),
     }
 }

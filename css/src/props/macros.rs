@@ -562,6 +562,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::EmptyCells => {
                 CssProperty::EmptyCells(CssPropertyValue::$content_type)
             }
+            CssPropertyType::FontWeight => {
+                CssProperty::FontWeight(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontStyle => {
+                CssProperty::FontStyle(CssPropertyValue::$content_type)
+            }
         }
     }};
 }

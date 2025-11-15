@@ -66,7 +66,7 @@ use azul_css::{
             StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
             StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
             StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
-            StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
+            StyleFontSizeValue, StyleFontWeightValue, StyleFontStyleValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
             StyleLineHeightValue, StyleListStylePositionValue, StyleListStyleTypeValue,
             StyleMixBlendModeValue, StyleOpacityValue,
             StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
@@ -1241,6 +1241,24 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleFontFamilyVecValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::FontFamily)
             .and_then(|p| p.as_font_family())
+    }
+    pub fn get_font_weight<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleFontWeightValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontWeight)
+            .and_then(|p| p.as_font_weight())
+    }
+    pub fn get_font_style<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleFontStyleValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::FontStyle)
+            .and_then(|p| p.as_font_style())
     }
     pub fn get_text_color<'a>(
         &'a self,

@@ -28,7 +28,7 @@ use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 use crate::{
     solver3::{
-        cascade::get_resolved_font_size,
+        cascade::{get_resolved_font_size, get_resolved_font_weight, get_resolved_font_style},
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{get_display_property, get_style_properties, get_writing_mode},
         layout_tree::{LayoutNode, LayoutTree},
@@ -241,6 +241,32 @@ fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
     }
 }
 
+/// Helper: Convert StyleFontStyle to text3::cache::FontStyle
+fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> crate::text3::cache::FontStyle {
+    use azul_css::props::basic::font::StyleFontStyle;
+    match style {
+        StyleFontStyle::Normal => crate::text3::cache::FontStyle::Normal,
+        StyleFontStyle::Italic => crate::text3::cache::FontStyle::Italic,
+        StyleFontStyle::Oblique => crate::text3::cache::FontStyle::Oblique,
+    }
+}
+
+/// Helper: Convert StyleFontWeight to rust_fontconfig::FcWeight
+fn convert_font_weight(weight: azul_css::props::basic::font::StyleFontWeight) -> rust_fontconfig::FcWeight {
+    use azul_css::props::basic::font::StyleFontWeight;
+    match weight {
+        StyleFontWeight::W100 => rust_fontconfig::FcWeight::Thin,
+        StyleFontWeight::W200 => rust_fontconfig::FcWeight::ExtraLight,
+        StyleFontWeight::W300 | StyleFontWeight::Lighter => rust_fontconfig::FcWeight::Light,
+        StyleFontWeight::Normal => rust_fontconfig::FcWeight::Normal,
+        StyleFontWeight::W500 => rust_fontconfig::FcWeight::Medium,
+        StyleFontWeight::W600 => rust_fontconfig::FcWeight::SemiBold,
+        StyleFontWeight::Bold => rust_fontconfig::FcWeight::Bold,
+        StyleFontWeight::W800 => rust_fontconfig::FcWeight::ExtraBold,
+        StyleFontWeight::W900 | StyleFontWeight::Bolder => rust_fontconfig::FcWeight::Black,
+    }
+}
+
 /// Creates StyleProperties for a node, resolving inherited values by walking up the tree.
 ///
 /// This function correctly implements CSS inheritance. Properties like `font-size`
@@ -258,6 +284,8 @@ fn get_style_properties_with_context<T: ParsedFontTrait>(
 
     // Resolve inherited properties by walking the tree
     let font_size = get_resolved_font_size(tree, styled_dom, node_index);
+    let font_weight = get_resolved_font_weight(tree, styled_dom, node_index);
+    let font_style = get_resolved_font_style(tree, styled_dom, node_index);
 
     // Get non-inherited properties directly
     let font_family_name = cache
@@ -281,8 +309,8 @@ fn get_style_properties_with_context<T: ParsedFontTrait>(
     Arc::new(StyleProperties {
         font_selector: crate::text3::cache::FontSelector {
             family: font_family_name,
-            weight: rust_fontconfig::FcWeight::Normal, // STUB
-            style: crate::text3::cache::FontStyle::Normal,   // STUB
+            weight: convert_font_weight(font_weight),
+            style: convert_font_style(font_style),
             unicode_ranges: Vec::new(),
         },
         font_size_px: font_size,
@@ -783,14 +811,16 @@ fn translate_to_text3_constraints<'a>(
     let vertical_align = StyleVerticalAlign::default();
     let text_orientation = text3::cache::TextOrientation::default();
 
-    // TODO: Once StyleDirection is properly defined in CSS module, read from property cache:
-    // let direction = styled_dom
-    //     .css_property_cache
-    //     .ptr
-    //     .get_direction(node_data, &id, node_state)
-    //     .and_then(|s| s.get_property().copied());
-    // For now, default to LTR which is the HTML/CSS standard and fixes Arabic text BiDi issues
-    let direction = Some(text3::cache::Direction::Ltr);
+    // Get the direction property from the CSS cache (defaults to LTR if not set)
+    let direction = styled_dom
+        .css_property_cache
+        .ptr
+        .get_direction(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .map(|d| match d {
+            azul_css::props::style::StyleDirection::Ltr => text3::cache::Direction::Ltr,
+            azul_css::props::style::StyleDirection::Rtl => text3::cache::Direction::Rtl,
+        });
 
     eprintln!(
         "[translate_to_text3_constraints] dom_id={:?}, available_size={}x{}, setting available_width={}",

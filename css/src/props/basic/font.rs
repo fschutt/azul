@@ -68,6 +68,44 @@ impl PrintAsCssValue for StyleFontWeight {
     }
 }
 
+impl crate::format_rust_code::FormatAsRustCode for StyleFontWeight {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        use StyleFontWeight::*;
+        format!("StyleFontWeight::{}", match self {
+            Lighter => "Lighter",
+            W100 => "W100",
+            W200 => "W200",
+            W300 => "W300",
+            Normal => "Normal",
+            W500 => "W500",
+            W600 => "W600",
+            Bold => "Bold",
+            W800 => "W800",
+            W900 => "W900",
+            Bolder => "Bolder",
+        })
+    }
+}
+
+impl StyleFontWeight {
+    /// Convert to fontconfig weight value for font selection
+    pub const fn to_fc_weight(self) -> i32 {
+        match self {
+            StyleFontWeight::Lighter => 50,      // FC_WEIGHT_LIGHT
+            StyleFontWeight::W100 => 0,          // FC_WEIGHT_THIN
+            StyleFontWeight::W200 => 40,         // FC_WEIGHT_EXTRALIGHT
+            StyleFontWeight::W300 => 50,         // FC_WEIGHT_LIGHT
+            StyleFontWeight::Normal => 80,       // FC_WEIGHT_REGULAR / FC_WEIGHT_NORMAL
+            StyleFontWeight::W500 => 100,        // FC_WEIGHT_MEDIUM
+            StyleFontWeight::W600 => 180,        // FC_WEIGHT_SEMIBOLD
+            StyleFontWeight::Bold => 200,        // FC_WEIGHT_BOLD
+            StyleFontWeight::W800 => 205,        // FC_WEIGHT_EXTRABOLD
+            StyleFontWeight::W900 => 210,        // FC_WEIGHT_BLACK / FC_WEIGHT_HEAVY
+            StyleFontWeight::Bolder => 215,      // Slightly heavier than W900
+        }
+    }
+}
+
 // --- Font Style ---
 
 /// Represents the `font-style` property.
@@ -92,6 +130,17 @@ impl PrintAsCssValue for StyleFontStyle {
             StyleFontStyle::Italic => "italic".to_string(),
             StyleFontStyle::Oblique => "oblique".to_string(),
         }
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleFontStyle {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        use StyleFontStyle::*;
+        format!("StyleFontStyle::{}", match self {
+            Normal => "Normal",
+            Italic => "Italic",
+            Oblique => "Oblique",
+        })
     }
 }
 
