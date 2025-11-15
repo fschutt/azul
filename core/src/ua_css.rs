@@ -340,7 +340,7 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         // Body Element - CRITICAL for preventing layout collapse
         (Body, PT::Display) => Some(&DISPLAY_BLOCK),
         (Body, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        // (Body, PT::Height) => Some(&HEIGHT_100_PERCENT), // REMOVED: Causes vertical overflow with margins
         (Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
         (Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
         (Body, PT::MarginLeft) => Some(&MARGIN_LEFT_8PX),
@@ -546,9 +546,9 @@ mod tests {
         assert!(width.is_some());
         assert!(matches!(width, Some(CssProperty::Width(_))));
 
+        // Height is no longer set by default to prevent overflow issues with margins
         let height = get_ua_property(NodeType::Body, CssPropertyType::Height);
-        assert!(height.is_some());
-        assert!(matches!(height, Some(CssProperty::Height(_))));
+        assert!(height.is_none());
 
         let margin_top = get_ua_property(NodeType::Body, CssPropertyType::MarginTop);
         assert!(margin_top.is_some());

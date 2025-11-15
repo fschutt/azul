@@ -43,6 +43,75 @@ use crate::{
     },
 };
 
+/// Resolves a percentage value against an available size, accounting for the CSS box model.
+///
+/// According to CSS 2.1 Section 10.2, percentages are resolved against the containing block's
+/// dimensions. However, when an element has margins, borders, or padding, these must be
+/// subtracted from the containing block size to get the "available" space that the percentage
+/// resolves against.
+///
+/// This is critical for correct layout calculations, especially when elements use percentage
+/// widths/heights combined with margins. Without this adjustment, elements overflow their
+/// containing blocks.
+///
+/// # Arguments
+///
+/// * `containing_block_dimension` - The full dimension of the containing block (width or height)
+/// * `percentage` - The percentage value to resolve (e.g., 100% = 1.0, 50% = 0.5)
+/// * `margins` - The two margins in the relevant axis (left+right for width, top+bottom for height)
+/// * `borders` - The two borders in the relevant axis
+/// * `paddings` - The two paddings in the relevant axis
+///
+/// # Returns
+///
+/// The resolved pixel value, which is:
+/// `percentage * (containing_block_dimension - margins - borders - paddings)`
+///
+/// The result is clamped to a minimum of 0.0 to prevent negative sizes.
+///
+/// # Example
+///
+/// ```text
+/// // Body element: width: 100%, margin: 20px
+/// // Containing block (html): 595px wide
+/// // Expected body width: 595 - 20 - 20 = 555px
+/// 
+/// let body_width = resolve_percentage_with_box_model(
+///     595.0,           // containing block width
+///     1.0,             // 100%
+///     (20.0, 20.0),    // left and right margins
+///     (0.0, 0.0),      // no borders
+///     (0.0, 0.0),      // no paddings
+/// );
+/// assert_eq!(body_width, 555.0);
+/// ```
+///
+/// # CSS Specification
+///
+/// From CSS 2.1 Section 10.3.3 (Block-level, non-replaced elements in normal flow):
+/// > 'margin-left' + 'border-left-width' + 'padding-left' + 'width' + 
+/// > 'padding-right' + 'border-right-width' + 'margin-right' = width of containing block
+///
+/// This function ensures that when `width` is a percentage, it resolves to a value that
+/// satisfies this constraint.
+pub fn resolve_percentage_with_box_model(
+    containing_block_dimension: f32,
+    percentage: f32,
+    margins: (f32, f32),
+    borders: (f32, f32),
+    paddings: (f32, f32),
+) -> f32 {
+    let available = containing_block_dimension 
+        - margins.0 
+        - margins.1
+        - borders.0
+        - borders.1
+        - paddings.0
+        - paddings.1;
+    
+    (percentage * available).max(0.0)
+}
+
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
@@ -630,7 +699,23 @@ pub fn calculate_used_size_for_node(
                 LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
                     // For block-level, non-replaced elements, 'auto' width fills the
                     // containing block (minus margins, borders, padding)
-                    containing_block_size.width
+                    // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left - margin_right - border_left - border_right - padding_left - padding_right
+                    let available_width = containing_block_size.width 
+                        - _box_props.margin.left 
+                        - _box_props.margin.right
+                        - _box_props.border.left
+                        - _box_props.border.right
+                        - _box_props.padding.left
+                        - _box_props.padding.right;
+                    
+                    eprintln!("[calculate_used_size_for_node] Auto width for block: containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), available_width={}", 
+                        containing_block_size.width, 
+                        _box_props.margin.left, _box_props.margin.right,
+                        _box_props.border.left, _box_props.border.right,
+                        _box_props.padding.left, _box_props.padding.right,
+                        available_width);
+                    
+                    available_width.max(0.0)
                 },
                 LayoutDisplay::Inline | LayoutDisplay::InlineBlock => {
                     // For inline-level elements, 'auto' width is the shrink-to-fit width,
@@ -646,7 +731,25 @@ pub fn calculate_used_size_for_node(
             match px.to_pixels_no_percent() {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => p.resolve(containing_block_size.width),
+                    Some(p) => {
+                        let result = resolve_percentage_with_box_model(
+                            containing_block_size.width,
+                            p.get(),
+                            (_box_props.margin.left, _box_props.margin.right),
+                            (_box_props.border.left, _box_props.border.right),
+                            (_box_props.padding.left, _box_props.padding.right),
+                        );
+                        
+                        eprintln!("[calculate_used_size_for_node] Percentage width: {}%, containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), result={}", 
+                            p.get(), 
+                            containing_block_size.width, 
+                            _box_props.margin.left, _box_props.margin.right,
+                            _box_props.border.left, _box_props.border.right,
+                            _box_props.padding.left, _box_props.padding.right,
+                            result);
+                        
+                        result
+                    },
                     None => intrinsic.max_content_width,
                 },
             }
@@ -669,7 +772,25 @@ pub fn calculate_used_size_for_node(
             match px.to_pixels_no_percent() {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => p.resolve(containing_block_size.height),
+                    Some(p) => {
+                        let result = resolve_percentage_with_box_model(
+                            containing_block_size.height,
+                            p.get(),
+                            (_box_props.margin.top, _box_props.margin.bottom),
+                            (_box_props.border.top, _box_props.border.bottom),
+                            (_box_props.padding.top, _box_props.padding.bottom),
+                        );
+                        
+                        eprintln!("[calculate_used_size_for_node] Percentage height: {}%, containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), result={}", 
+                            p.get(), 
+                            containing_block_size.height, 
+                            _box_props.margin.top, _box_props.margin.bottom,
+                            _box_props.border.top, _box_props.border.bottom,
+                            _box_props.padding.top, _box_props.padding.bottom,
+                            result);
+                        
+                        result
+                    },
                     None => intrinsic.max_content_height,
                 },
             }
@@ -736,5 +857,114 @@ fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str
             message: message.into(),
             location: "sizing".into(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_basic() {
+        // 100% of 595px with no margins/borders/paddings should be 595px
+        let result = resolve_percentage_with_box_model(
+            595.0,
+            1.0, // 100%
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        assert_eq!(result, 595.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_with_margins() {
+        // Body element: width: 100%, margin: 20px
+        // Containing block (html): 595px wide
+        // Expected: 595 - 20 - 20 = 555px
+        let result = resolve_percentage_with_box_model(
+            595.0,
+            1.0, // 100%
+            (20.0, 20.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        assert_eq!(result, 555.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_with_all_box_properties() {
+        // Element with margin: 10px, border: 5px, padding: 8px
+        // width: 100% of 500px container
+        // Expected: 500 - 10 - 10 - 5 - 5 - 8 - 8 = 454px
+        let result = resolve_percentage_with_box_model(
+            500.0,
+            1.0, // 100%
+            (10.0, 10.0),
+            (5.0, 5.0),
+            (8.0, 8.0),
+        );
+        assert_eq!(result, 454.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_50_percent() {
+        // 50% of 600px with 20px margins on each side
+        // Available: 600 - 20 - 20 = 560px
+        // 50% of 560 = 280px
+        let result = resolve_percentage_with_box_model(
+            600.0,
+            0.5, // 50%
+            (20.0, 20.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        assert_eq!(result, 280.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_asymmetric() {
+        // Asymmetric margins/borders/paddings
+        // Container: 1000px
+        // Left margin: 100px, Right margin: 50px
+        // Left border: 10px, Right border: 20px
+        // Left padding: 5px, Right padding: 15px
+        // Available: 1000 - 100 - 50 - 10 - 20 - 5 - 15 = 800px
+        // 100% = 800px
+        let result = resolve_percentage_with_box_model(
+            1000.0,
+            1.0,
+            (100.0, 50.0),
+            (10.0, 20.0),
+            (5.0, 15.0),
+        );
+        assert_eq!(result, 800.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_negative_clamping() {
+        // Edge case: margins larger than container
+        // Should clamp to 0, not return negative
+        let result = resolve_percentage_with_box_model(
+            100.0,
+            1.0,
+            (60.0, 60.0), // Total margins = 120px > 100px container
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_resolve_percentage_with_box_model_zero_percent() {
+        // 0% should always give 0, regardless of margins
+        let result = resolve_percentage_with_box_model(
+            1000.0,
+            0.0, // 0%
+            (100.0, 100.0),
+            (10.0, 10.0),
+            (5.0, 5.0),
+        );
+        assert_eq!(result, 0.0);
     }
 }

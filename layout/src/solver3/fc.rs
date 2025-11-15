@@ -1329,6 +1329,48 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Get the table node to read CSS properties
     let table_node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?.clone();
     
+    // Calculate the table's border-box width for column distribution
+    // This accounts for the table's own width property (e.g., width: 100%)
+    let table_border_box_width = if let Some(dom_id) = table_node.dom_node_id {
+        // Use calculate_used_size_for_node to resolve table width (respects width:100%)
+        let intrinsic = table_node.intrinsic_sizes.clone().unwrap_or_default();
+        let containing_block_size = LogicalSize {
+            width: constraints.available_size.width,
+            height: constraints.available_size.height,
+        };
+        
+        let table_size = crate::solver3::sizing::calculate_used_size_for_node(
+            ctx.styled_dom,
+            Some(dom_id),
+            containing_block_size,
+            intrinsic,
+            &table_node.box_props,
+        )?;
+        
+        table_size.width
+    } else {
+        constraints.available_size.width
+    };
+    
+    // Subtract padding and border to get content-box width for column distribution
+    let table_content_box_width = {
+        let padding_width = table_node.box_props.padding.left + table_node.box_props.padding.right;
+        let border_width = table_node.box_props.border.left + table_node.box_props.border.right;
+        (table_border_box_width - padding_width - border_width).max(0.0)
+    };
+    
+    eprintln!("\n========== TABLE LAYOUT DEBUG ==========");
+    eprintln!("[TABLE] Node index: {}", node_index);
+    eprintln!("[TABLE] Available size from parent: {:.2} x {:.2}", 
+        constraints.available_size.width, constraints.available_size.height);
+    eprintln!("[TABLE] Table border-box width: {:.2}", table_border_box_width);
+    eprintln!("[TABLE] Table content-box width: {:.2}", table_content_box_width);
+    eprintln!("[TABLE] Table padding: L={:.2} R={:.2}", 
+        table_node.box_props.padding.left, table_node.box_props.padding.right);
+    eprintln!("[TABLE] Table border: L={:.2} R={:.2}", 
+        table_node.box_props.border.left, table_node.box_props.border.right);
+    eprintln!("=======================================\n");
+    
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
     
@@ -1348,14 +1390,23 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     // Phase 3: Calculate column widths
     if table_ctx.use_fixed_layout {
-        calculate_column_widths_fixed(&mut table_ctx, constraints.available_size.width);
+        // DEBUG: Log available width passed into fixed column calculation
+        eprintln!("[layout_table_fc] FIXED layout: table_content_box_width={:.2}",
+            table_content_box_width);
+        calculate_column_widths_fixed(&mut table_ctx, table_content_box_width);
     } else {
-        calculate_column_widths_auto(&mut table_ctx, tree, text_cache, ctx, constraints)?;
+        // Pass table_content_box_width for column distribution in auto layout
+        calculate_column_widths_auto_with_width(&mut table_ctx, tree, text_cache, ctx, constraints, table_content_box_width)?;
     }
     
-    eprintln!("[layout_table_fc] After column width calculation: num_columns={}, widths={:?}", 
-        table_ctx.columns.len(), 
-        table_ctx.columns.iter().map(|c| c.computed_width).collect::<Vec<_>>());
+    eprintln!("\n[TABLE] After column width calculation:");
+    eprintln!("[TABLE]   Number of columns: {}", table_ctx.columns.len());
+    for (i, col) in table_ctx.columns.iter().enumerate() {
+        eprintln!("[TABLE]   Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0));
+    }
+    let total_col_width: f32 = table_ctx.columns.iter().filter_map(|c| c.computed_width).sum();
+    eprintln!("[TABLE]   Total column width: {:.2}", total_col_width);
+    eprintln!();
     
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
@@ -1450,8 +1501,12 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Total table height includes caption
     let total_height = table_height + caption_height;
     
-    eprintln!("[layout_table_fc] Final output: width={:.2}, height={:.2}, caption_height={:.2}", 
-        table_width, total_height, caption_height);
+    eprintln!("\n[TABLE] Final table dimensions:");
+    eprintln!("[TABLE]   Content width (columns): {:.2}", table_width);
+    eprintln!("[TABLE]   Content height (rows): {:.2}", table_height);
+    eprintln!("[TABLE]   Caption height: {:.2}", caption_height);
+    eprintln!("[TABLE]   Total height: {:.2}", total_height);
+    eprintln!("========== END TABLE DEBUG ==========\n");
     
     // Create output with the table's final size and cell positions
     let output = LayoutOutput {
@@ -1625,6 +1680,9 @@ fn calculate_column_widths_fixed(
     available_width: f32,
 ) {
     // Fixed layout: distribute width equally among non-collapsed columns
+    // DEBUG: log inputs
+    eprintln!("[calculate_column_widths_fixed] num_cols={}, collapsed_columns={:?}, available_width={}",
+        table_ctx.columns.len(), table_ctx.collapsed_columns, available_width);
     // TODO: Respect column width properties and first-row cell widths
     let num_cols = table_ctx.columns.len();
     if num_cols == 0 {
@@ -1660,10 +1718,12 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // Minimum content width: layout with very small available width to force maximum wrapping
+    // For intrinsic sizing in auto table layout, we need to measure content width,
+    // not percentage-based widths. Use table's available width as the containing block.
+    // CSS 2.2 Section 17.5.2.2: "Calculate the minimum content width (MCW) of each cell"
     let min_constraints = LayoutConstraints {
         available_size: LogicalSize {
-            width: 0.0, // Force wrapping
+            width: constraints.available_size.width, // Use table's available width as containing block
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
@@ -1710,10 +1770,11 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // Maximum content width: layout with infinite available width to prevent wrapping
+    // For intrinsic sizing in auto table layout, use the table's available width as containing block.
+    // CSS 2.2 Section 17.5.2.2: "Calculate the maximum content width (MCW) of each cell"
     let max_constraints = LayoutConstraints {
         available_size: LogicalSize {
-            width: f32::INFINITY, // No wrapping
+            width: constraints.available_size.width, // Use table's available width as containing block
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
@@ -1759,6 +1820,18 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     text_cache: &mut text3::cache::LayoutCache<T>,
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
+) -> Result<()> {
+    calculate_column_widths_auto_with_width(table_ctx, tree, text_cache, ctx, constraints, constraints.available_size.width)
+}
+
+/// Calculate column widths using the auto table layout algorithm with explicit table width
+fn calculate_column_widths_auto_with_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    table_ctx: &mut TableLayoutContext,
+    tree: &mut LayoutTree<T>,
+    text_cache: &mut text3::cache::LayoutCache<T>,
+    ctx: &mut LayoutContext<T, Q>,
+    constraints: &LayoutConstraints,
+    table_width: f32,
 ) -> Result<()> {
     // Auto layout: calculate min/max content width for each cell
     let num_cols = table_ctx.columns.len();
@@ -1833,10 +1906,10 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
         .map(|(_, c)| c.max_width)
         .sum();
-    let available_width = constraints.available_size.width;
+    let available_width = table_width; // Use table's content-box width, not constraints
     
-    eprintln!("[calculate_column_widths_auto] total_min_width={:.2}, total_max_width={:.2}, available_width={:.2}", 
-        total_min_width, total_max_width, available_width);
+    eprintln!("[calculate_column_widths_auto] total_min_width={:.2}, total_max_width={:.2}, table_width={:.2}", 
+        total_min_width, total_max_width, table_width);
     
     // Handle infinity and NaN cases
     if !total_max_width.is_finite() || !available_width.is_finite() {
@@ -2237,15 +2310,22 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         // Calculate cell size (sum of spanned columns/rows)
         let mut width = 0.0;
+        println!("[position_table_cells] Cell {}: calculating width from cols {}..{}", 
+            cell_info.node_index, cell_info.column, cell_info.column + cell_info.colspan);
         for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
             if let Some(col) = table_ctx.columns.get(col_idx) {
+                println!("[position_table_cells]   Col {}: computed_width={:?}", col_idx, col.computed_width);
                 if let Some(col_width) = col.computed_width {
                     width += col_width;
                     // Add spacing between spanned columns (but not after the last one)
                     if col_idx < cell_info.column + cell_info.colspan - 1 {
                         width += h_spacing;
                     }
+                } else {
+                    println!("[position_table_cells]   ⚠️  Col {} has NO computed_width!", col_idx);
                 }
+            } else {
+                println!("[position_table_cells]   ⚠️  Col {} not found in table_ctx.columns!", col_idx);
             }
         }
         
@@ -2263,7 +2343,18 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         // Update cell's used size and position
         let writing_mode = constraints.writing_mode;
-        cell_node.used_size = Some(LogicalSize { width, height });
+        // Table layout works in main/cross axes, must convert back to logical width/height
+        
+        println!("[position_table_cells] Cell {}: BEFORE from_main_cross: width={}, height={}, writing_mode={:?}", 
+            cell_info.node_index, width, height, writing_mode);
+        
+        cell_node.used_size = Some(LogicalSize::from_main_cross(height, width, writing_mode));
+        
+        println!("[position_table_cells] Cell {}: AFTER from_main_cross: used_size={:?}", 
+            cell_info.node_index, cell_node.used_size);
+        
+        println!("[position_table_cells] Cell {}: setting used_size to {}x{} (row_heights={:?})", 
+            cell_info.node_index, width, height, table_ctx.row_heights);
         
         // Store position relative to table origin
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);

@@ -535,6 +535,35 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let available_size_for_children = if should_use_content_height(&css_height) {
             // Height is auto - use containing block size as available size
             let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
+            
+            // Debug nodes with margins (likely body)
+            let has_margin = node.box_props.margin.left > 0.0 || node.box_props.margin.right > 0.0 
+                || node.box_props.margin.top > 0.0 || node.box_props.margin.bottom > 0.0;
+            if has_margin {
+                eprintln!("\n========== NODE {} WITH MARGINS SIZING DEBUG ==========", node_index);
+                eprintln!("  containing_block_size: {:?}", containing_block_size);
+                eprintln!("  final_used_size (border-box): {:?}", final_used_size);
+                eprintln!("  margins: left={}, right={}, top={}, bottom={}", 
+                    node.box_props.margin.left,
+                    node.box_props.margin.right,
+                    node.box_props.margin.top,
+                    node.box_props.margin.bottom);
+                eprintln!("  padding: left={}, right={}, top={}, bottom={}", 
+                    node.box_props.padding.left,
+                    node.box_props.padding.right,
+                    node.box_props.padding.top,
+                    node.box_props.padding.bottom);
+                eprintln!("  border: left={}, right={}, top={}, bottom={}", 
+                    node.box_props.border.left,
+                    node.box_props.border.right,
+                    node.box_props.border.top,
+                    node.box_props.border.bottom);
+                eprintln!("  inner_size (content-box): {:?}", inner_size);
+                eprintln!("  available_size_for_children will be: width={}, height={}", 
+                    inner_size.width, containing_block_size.height);
+                eprintln!("======================================================\n");
+            }
+            
             LogicalSize {
                 width: inner_size.width,
                 height: containing_block_size.height, // Use containing block height!
@@ -636,7 +665,22 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // --- Phase 4: Update self and recurse to children ---
     let current_node = tree.get_mut(node_index).unwrap();
-    current_node.used_size = Some(final_used_size);
+    
+    // IMPORTANT: Table cells get their size set by the table layout algorithm (position_table_cells).
+    // We should NOT overwrite it here, as that would reset the height to 0 (from inline content).
+    // Only set used_size if it hasn't been set yet, or if this is not a table cell.
+    let is_table_cell = matches!(current_node.formatting_context, FormattingContext::TableCell);
+    if !is_table_cell || current_node.used_size.is_none() {
+        if is_table_cell {
+            println!("[cache] Cell {}: BEFORE overwrite check: used_size={:?}, final_used_size={:?}", 
+                node_index, current_node.used_size, final_used_size);
+        }
+        current_node.used_size = Some(final_used_size);
+    } else if is_table_cell {
+        println!("[cache] Cell {}: SKIPPED overwrite: keeping used_size={:?}, would have set to {:?}", 
+            node_index, current_node.used_size, final_used_size);
+    }
+    
     current_node.scrollbar_info = Some(scrollbar_info); // Store scrollbar info
 
     // The absolute position of this node's content-box for its children.

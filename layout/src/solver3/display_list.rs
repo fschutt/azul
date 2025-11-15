@@ -951,6 +951,13 @@ where
             .copied()
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
+        
+        // DEBUG: Log for table cells
+        use azul_core::dom::FormattingContext;
+        if matches!(node.formatting_context, FormattingContext::TableCell) {
+            println!("[get_paint_rect] Cell {}: used_size={:?}, size={}x{}", 
+                node_index, node.used_size, size.width, size.height);
+        }
 
         if let Some(parent_idx) = node.parent {
             if let Some(parent_dom_id) = self
@@ -987,8 +994,11 @@ where
         // Tables have a special 6-layer background painting order
         use azul_core::dom::FormattingContext;
         if matches!(node.formatting_context, FormattingContext::Table) {
+            println!("[paint_element_background] ✓ Detected Table at node {}, delegating to paint_table_items()", node_index);
             // Delegate to specialized table painting function
             return self.paint_table_items(builder, node_index);
+        } else {
+            println!("[paint_element_background] Node {} is {:?}, NOT a table", node_index, node.formatting_context);
         }
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
@@ -1011,6 +1021,72 @@ where
                 border_info.styles,
                 style_border_radius,
             );
+            
+            // DEBUG: Draw blue border around body (node_index 1)
+            if node_index == 1 {
+                eprintln!("\n========== BODY DEBUG BORDER ==========");
+                eprintln!("[BODY] Node index: {}", node_index);
+                eprintln!("[BODY] Paint rect: {:.2} x {:.2} @ ({:.2}, {:.2})", 
+                    paint_rect.size.width, paint_rect.size.height,
+                    paint_rect.origin.x, paint_rect.origin.y);
+                eprintln!("[BODY] Used size: {:?}", node.used_size);
+                eprintln!("[BODY] Box props: {:?}", node.box_props);
+                eprintln!("=======================================\n");
+                
+                // Draw a simple blue rectangle outline
+                use azul_css::props::basic::ColorU;
+                let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+                
+                // Draw 4 thin rectangles to form a border
+                let border_width = 2.0;
+                
+                // Top border
+                builder.push_rect(
+                    LogicalRect {
+                        origin: paint_rect.origin,
+                        size: LogicalSize { width: paint_rect.size.width, height: border_width },
+                    },
+                    blue,
+                    BorderRadius::default(),
+                );
+                
+                // Bottom border
+                builder.push_rect(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: paint_rect.origin.x,
+                            y: paint_rect.origin.y + paint_rect.size.height - border_width,
+                        },
+                        size: LogicalSize { width: paint_rect.size.width, height: border_width },
+                    },
+                    blue,
+                    BorderRadius::default(),
+                );
+                
+                // Left border
+                builder.push_rect(
+                    LogicalRect {
+                        origin: paint_rect.origin,
+                        size: LogicalSize { width: border_width, height: paint_rect.size.height },
+                    },
+                    blue,
+                    BorderRadius::default(),
+                );
+                
+                // Right border
+                builder.push_rect(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: paint_rect.origin.x + paint_rect.size.width - border_width,
+                            y: paint_rect.origin.y,
+                        },
+                        size: LogicalSize { width: border_width, height: paint_rect.size.height },
+                    },
+                    blue,
+                    BorderRadius::default(),
+                );
+            }
+            
             simple_border_radius
         } else {
             BorderRadius::default()
@@ -1050,6 +1126,14 @@ where
         let Some(table_paint_rect) = self.get_paint_rect(table_index) else {
             return Ok(());
         };
+
+        eprintln!("\n========== TABLE PAINT DEBUG ==========");
+        eprintln!("[TABLE PAINT] Table node: {}", table_index);
+        eprintln!("[TABLE PAINT] Paint rect: {:.2} x {:.2} @ ({:.2}, {:.2})", 
+            table_paint_rect.size.width, table_paint_rect.size.height,
+            table_paint_rect.origin.x, table_paint_rect.origin.y);
+        eprintln!("[TABLE PAINT] Table used_size: {:?}", table_node.used_size);
+        eprintln!("========================================\n");
 
         // Layer 1: Table background
         if let Some(dom_id) = table_node.dom_node_id {
@@ -1120,14 +1204,99 @@ where
         builder: &mut DisplayListBuilder,
         row_idx: usize,
     ) -> Result<()> {
+        println!("[paint_table_row_and_cells] ✓✓✓ CALLED for row at node {}", row_idx);
+        
         // Layer 5: Paint row background
         self.paint_element_background(builder, row_idx)?;
         
         // Layer 6: Paint cell backgrounds (topmost layer)
         let row_node = self.positioned_tree.tree.get(row_idx);
         if let Some(node) = row_node {
+            use azul_core::dom::FormattingContext;
             for &cell_idx in &node.children {
                 self.paint_element_background(builder, cell_idx)?;
+                
+                // DEBUG: Draw red border around each table cell
+                if let Some(cell_paint_rect) = self.get_paint_rect(cell_idx) {
+                    let cell_node = self.positioned_tree.tree.get(cell_idx);
+                    if let Some(cell) = cell_node {
+                        // Check if this is a <th> element (header cell) or <caption>
+                        use azul_core::dom::NodeType;
+                        let is_header_or_caption = if let Some(dom_id) = cell.dom_node_id {
+                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                            let node_type = node_data.get_node_type();
+                            println!("[DEBUG] Cell {} (dom_id={:?}): type={:?}, rect={}x{} @ ({}, {})", 
+                                cell_idx, dom_id, node_type, 
+                                cell_paint_rect.size.width, cell_paint_rect.size.height,
+                                cell_paint_rect.origin.x, cell_paint_rect.origin.y);
+                            matches!(node_type, NodeType::Th | NodeType::Caption)
+                        } else {
+                            println!("[DEBUG] Cell {} has no dom_id", cell_idx);
+                            false
+                        };
+                        
+                        if is_header_or_caption {
+                            println!("[DEBUG] → Drawing FILLED red rect for header/caption");
+                            // Filled red rect for <th> and <caption>
+                            builder.push_rect(
+                                cell_paint_rect,
+                                ColorU { r: 255, g: 0, b: 0, a: 128 }, // Semi-transparent red
+                                BorderRadius::default()
+                            );
+                        } else {
+                            println!("[DEBUG] → Drawing OUTLINED red rect for td");
+                            // Red outline for <td> cells (draw 4 thin rects for borders)
+                            let border_width = 2.0;
+                            let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+                            
+                            // Top border
+                            builder.push_rect(
+                                LogicalRect::new(
+                                    cell_paint_rect.origin,
+                                    LogicalSize::new(cell_paint_rect.size.width, border_width)
+                                ),
+                                red,
+                                BorderRadius::default()
+                            );
+                            
+                            // Right border
+                            builder.push_rect(
+                                LogicalRect::new(
+                                    LogicalPosition::new(
+                                        cell_paint_rect.origin.x + cell_paint_rect.size.width - border_width,
+                                        cell_paint_rect.origin.y
+                                    ),
+                                    LogicalSize::new(border_width, cell_paint_rect.size.height)
+                                ),
+                                red,
+                                BorderRadius::default()
+                            );
+                            
+                            // Bottom border
+                            builder.push_rect(
+                                LogicalRect::new(
+                                    LogicalPosition::new(
+                                        cell_paint_rect.origin.x,
+                                        cell_paint_rect.origin.y + cell_paint_rect.size.height - border_width
+                                    ),
+                                    LogicalSize::new(cell_paint_rect.size.width, border_width)
+                                ),
+                                red,
+                                BorderRadius::default()
+                            );
+                            
+                            // Left border
+                            builder.push_rect(
+                                LogicalRect::new(
+                                    cell_paint_rect.origin,
+                                    LogicalSize::new(border_width, cell_paint_rect.size.height)
+                                ),
+                                red,
+                                BorderRadius::default()
+                            );
+                        }
+                    }
+                }
             }
         }
         
