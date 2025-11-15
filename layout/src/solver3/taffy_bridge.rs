@@ -217,6 +217,7 @@ use crate::{
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
             get_css_padding_top, get_css_right, get_css_top, get_css_width, get_position,
+            MultiValue,
         },
         layout_tree::{get_display_type, LayoutNode, LayoutTree},
         sizing, LayoutContext,
@@ -224,15 +225,37 @@ use crate::{
     text3::cache::{FontLoaderTrait, ParsedFontTrait},
 };
 
-// Helper function to convert PixelValue to LengthPercentageAuto
-fn pixel_to_lpa(pv: PixelValue) -> taffy::LengthPercentageAuto {
-    pv.to_pixels_no_percent()
-        .map(taffy::LengthPercentageAuto::length)
-        .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentageAuto::percent(p.get())))
-        .unwrap_or_else(taffy::LengthPercentageAuto::auto)
+// Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto
+fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
+    match mv {
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+            taffy::LengthPercentageAuto::auto()
+        }
+        MultiValue::Exact(pv) => {
+            pv.to_pixels_no_percent()
+                .map(taffy::LengthPercentageAuto::length)
+                .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentageAuto::percent(p.get())))
+                .unwrap_or_else(taffy::LengthPercentageAuto::auto)
+        }
+    }
 }
 
-// Helper function to convert PixelValue to LengthPercentage
+// Helper function to convert MultiValue<PixelValue> to LengthPercentage
+fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
+    match mv {
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+            taffy::LengthPercentage::ZERO
+        }
+        MultiValue::Exact(pv) => {
+            pv.to_pixels_no_percent()
+                .map(taffy::LengthPercentage::length)
+                .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentage::percent(p.get())))
+                .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
+        }
+    }
+}
+
+// Helper function to convert plain PixelValue to LengthPercentage
 fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
     pv.to_pixels_no_percent()
         .map(taffy::LengthPercentage::length)
@@ -271,14 +294,14 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         );
 
         // Position
-        taffy_style.position = from_layout_position(get_position(styled_dom, id, node_state));
+        taffy_style.position = from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
 
         // Inset (top, left, bottom, right)
         taffy_style.inset = taffy::Rect {
-            left: pixel_to_lpa(get_css_left(styled_dom, id, node_state).inner),
-            right: pixel_to_lpa(get_css_right(styled_dom, id, node_state).inner),
-            top: pixel_to_lpa(get_css_top(styled_dom, id, node_state).inner),
-            bottom: pixel_to_lpa(get_css_bottom(styled_dom, id, node_state).inner),
+            left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
+            right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
+            top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
+            bottom: multi_value_to_lpa(get_css_bottom(styled_dom, id, node_state)),
         };
 
         // Size
@@ -286,40 +309,40 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let height = get_css_height(self.ctx.styled_dom, id, node_state);
 
         taffy_style.size = taffy::Size {
-            width: from_layout_width(width),
-            height: from_layout_height(height),
+            width: from_layout_width(width.unwrap_or_default()),
+            height: from_layout_height(height.unwrap_or_default()),
         };
 
         // Min/Max Size
         taffy_style.min_size = taffy::Size {
-            width: pixel_to_lp(get_css_min_width(styled_dom, id, node_state).inner).into(),
-            height: pixel_to_lp(get_css_min_height(styled_dom, id, node_state).inner).into(),
+            width: pixel_to_lp(get_css_min_width(styled_dom, id, node_state).unwrap_or_default().inner).into(),
+            height: pixel_to_lp(get_css_min_height(styled_dom, id, node_state).unwrap_or_default().inner).into(),
         };
         taffy_style.max_size = taffy::Size {
-            width: pixel_to_lp(get_css_max_width(styled_dom, id, node_state).inner).into(),
-            height: pixel_to_lp(get_css_max_height(styled_dom, id, node_state).inner).into(),
+            width: pixel_to_lp(get_css_max_width(styled_dom, id, node_state).unwrap_or_default().inner).into(),
+            height: pixel_to_lp(get_css_max_height(styled_dom, id, node_state).unwrap_or_default().inner).into(),
         };
 
         // Box Model (margin, padding, border)
         taffy_style.margin = taffy::Rect {
-            left: pixel_to_lpa(get_css_margin_left(styled_dom, id, node_state).inner),
-            right: pixel_to_lpa(get_css_margin_right(styled_dom, id, node_state).inner),
-            top: pixel_to_lpa(get_css_margin_top(styled_dom, id, node_state).inner),
-            bottom: pixel_to_lpa(get_css_margin_bottom(styled_dom, id, node_state).inner),
+            left: multi_value_to_lpa(get_css_margin_left(styled_dom, id, node_state)),
+            right: multi_value_to_lpa(get_css_margin_right(styled_dom, id, node_state)),
+            top: multi_value_to_lpa(get_css_margin_top(styled_dom, id, node_state)),
+            bottom: multi_value_to_lpa(get_css_margin_bottom(styled_dom, id, node_state)),
         };
 
         taffy_style.padding = taffy::Rect {
-            left: pixel_to_lp(get_css_padding_left(styled_dom, id, node_state).inner),
-            right: pixel_to_lp(get_css_padding_right(styled_dom, id, node_state).inner),
-            top: pixel_to_lp(get_css_padding_top(styled_dom, id, node_state).inner),
-            bottom: pixel_to_lp(get_css_padding_bottom(styled_dom, id, node_state).inner),
+            left: multi_value_to_lp(get_css_padding_left(styled_dom, id, node_state)),
+            right: multi_value_to_lp(get_css_padding_right(styled_dom, id, node_state)),
+            top: multi_value_to_lp(get_css_padding_top(styled_dom, id, node_state)),
+            bottom: multi_value_to_lp(get_css_padding_bottom(styled_dom, id, node_state)),
         };
 
         taffy_style.border = taffy::Rect {
-            left: pixel_to_lp(get_css_border_left_width(styled_dom, id, node_state)),
-            right: pixel_to_lp(get_css_border_right_width(styled_dom, id, node_state)),
-            top: pixel_to_lp(get_css_border_top_width(styled_dom, id, node_state)),
-            bottom: pixel_to_lp(get_css_border_bottom_width(styled_dom, id, node_state)),
+            left: multi_value_to_lp(get_css_border_left_width(styled_dom, id, node_state)),
+            right: multi_value_to_lp(get_css_border_right_width(styled_dom, id, node_state)),
+            top: multi_value_to_lp(get_css_border_top_width(styled_dom, id, node_state)),
+            bottom: multi_value_to_lp(get_css_border_bottom_width(styled_dom, id, node_state)),
         };
 
         // Grid & gap properties

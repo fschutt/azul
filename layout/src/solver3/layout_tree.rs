@@ -903,25 +903,25 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
         // `overflow` other than `visible`
 
         let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.state);
-        if !matches!(overflow_x, LayoutOverflow::Visible | LayoutOverflow::Clip) {
+        if !overflow_x.is_visible_or_clip() {
             return true;
         }
 
         let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.state);
-        if !matches!(overflow_y, LayoutOverflow::Visible | LayoutOverflow::Clip) {
+        if !overflow_y.is_visible_or_clip() {
             return true;
         }
 
         // `position: absolute` or `position: fixed`
         let position = get_position(styled_dom, node_id, &styled_node.state);
 
-        if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
+        if position.is_absolute_or_fixed() {
             return true;
         }
 
         // `float` is not `none`
         let float = get_float(styled_dom, node_id, &styled_node.state);
-        if !matches!(float, LayoutFloat::None) {
+        if !float.is_none() {
             return true;
         }
     }

@@ -1833,8 +1833,7 @@ impl LayoutWindow {
             let overflow_x = get_overflow_x(styled_dom, dom_node_id, &styled_node_state);
             let overflow_y = get_overflow_y(styled_dom, dom_node_id, &styled_node_state);
 
-            let is_scrollable = matches!(overflow_x, LayoutOverflow::Scroll | LayoutOverflow::Auto)
-                || matches!(overflow_y, LayoutOverflow::Scroll | LayoutOverflow::Auto);
+            let is_scrollable = overflow_x.is_scroll() || overflow_y.is_scroll();
 
             if !is_scrollable {
                 continue;

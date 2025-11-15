@@ -1701,14 +1701,8 @@ pub fn render_dom_from_body_node<'a>(
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
-    // Don't actually render the <body></body> node itself
+    // Render all children of <body> - don't render the <body> itself yet
     let mut dom = StyledDom::default();
-
-    if let Some(max_width) = max_width {
-        dom.restyle(CssApiWrapper::from_string(
-            format!("body, html {{ max-width: {max_width}px; }}").into(),
-        ));
-    }
 
     for child_node in body_node.children.as_ref() {
         dom.append_child(render_dom_from_body_node_inner(
@@ -1716,6 +1710,12 @@ pub fn render_dom_from_body_node<'a>(
             component_map,
             &FilteredComponentArguments::default(),
         )?);
+    }
+
+    if let Some(max_width) = max_width {
+        dom.restyle(CssApiWrapper::from_string(
+            format!("body, html {{ max-width: {max_width}px; }}").into(),
+        ));
     }
 
     if let Some(global_css) = global_css.clone() {

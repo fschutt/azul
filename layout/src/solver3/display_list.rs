@@ -855,9 +855,7 @@ where
             let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
             let content_size = get_scroll_content_size(node);
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-        } else if matches!(overflow_x, LayoutOverflow::Auto)
-            || matches!(overflow_y, LayoutOverflow::Auto)
-        {
+        } else if overflow_x.is_auto_overflow() || overflow_y.is_auto_overflow() {
             // overflow: auto - check if content actually overflows
             let content_size = get_scroll_content_size(node);
             let container_size = LogicalSize {
@@ -869,8 +867,8 @@ where
             let overflows_y = content_size.height > container_size.height;
 
             // If overflow: auto and content overflows, treat as scroll frame
-            if (matches!(overflow_x, LayoutOverflow::Auto) && overflows_x)
-                || (matches!(overflow_y, LayoutOverflow::Auto) && overflows_y)
+            if (overflow_x.is_auto_overflow() && overflows_x)
+                || (overflow_y.is_auto_overflow() && overflows_y)
             {
                 let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
                 builder.push_scroll_frame(clip_rect, content_size, scroll_id);
@@ -897,19 +895,15 @@ where
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
         let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        let needs_clip = matches!(overflow_x, LayoutOverflow::Hidden | LayoutOverflow::Clip)
-            || matches!(overflow_y, LayoutOverflow::Hidden | LayoutOverflow::Clip)
+        let needs_clip = overflow_x.is_hidden_or_clip()
+            || overflow_y.is_hidden_or_clip()
             || !border_radius.is_zero();
 
         if needs_clip {
-            if matches!(overflow_x, LayoutOverflow::Scroll)
-                || matches!(overflow_y, LayoutOverflow::Scroll)
-            {
+            if overflow_x.is_scroll_explicit() || overflow_y.is_scroll_explicit() {
                 // Always pop scroll frame for overflow: scroll
                 builder.pop_scroll_frame();
-            } else if matches!(overflow_x, LayoutOverflow::Auto)
-                || matches!(overflow_y, LayoutOverflow::Auto)
-            {
+            } else if overflow_x.is_auto_overflow() || overflow_y.is_auto_overflow() {
                 // For overflow: auto, check if we actually created a scroll frame
                 // by checking if content overflows
                 let content_size = get_scroll_content_size(node);
@@ -933,8 +927,8 @@ where
                 let overflows_x = content_size.width > container_size.width;
                 let overflows_y = content_size.height > container_size.height;
 
-                if (matches!(overflow_x, LayoutOverflow::Auto) && overflows_x)
-                    || (matches!(overflow_y, LayoutOverflow::Auto) && overflows_y)
+                if (overflow_x.is_auto_overflow() && overflows_x)
+                    || (overflow_y.is_auto_overflow() && overflows_y)
                 {
                     builder.pop_scroll_frame();
                 } else {

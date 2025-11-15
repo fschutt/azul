@@ -40,7 +40,7 @@ use crate::{
         geometry::PositionedRectangle,
         getters::{
             get_css_height, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
-            get_wrap, get_writing_mode,
+            get_wrap, get_writing_mode, MultiValue,
         },
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         LayoutContext, LayoutError, LayoutTree, Result,
@@ -52,8 +52,8 @@ use crate::{
 };
 
 /// Convert LayoutOverflow to OverflowBehavior
-fn to_overflow_behavior(overflow: LayoutOverflow) -> fc::OverflowBehavior {
-    match overflow {
+fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
+    match overflow.unwrap_or_default() {
         LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
         LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
         LayoutOverflow::Scroll => fc::OverflowBehavior::Scroll,
@@ -170,7 +170,7 @@ fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool 
     // Must be a single-line flex container
     let wrap = get_wrap(styled_dom, id, &styled_node.state);
 
-    if wrap != LayoutFlexWrap::NoWrap {
+    if wrap.unwrap_or_default() != LayoutFlexWrap::NoWrap {
         return false;
     }
 
@@ -178,7 +178,7 @@ fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool 
     let justify = get_justify_content(styled_dom, id, &styled_node.state);
 
     if !matches!(
-        justify,
+        justify.unwrap_or_default(),
         LayoutJustifyContent::FlexStart | LayoutJustifyContent::Start
     ) {
         return false;
@@ -213,7 +213,7 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
         .get(dom_id)
         .map(|n| n.state.clone())
         .unwrap_or_default();
-    let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state);
+    let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
     let parent_pos = calculated_positions
         .get(&parent_idx)
         .copied()
@@ -524,8 +524,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             .get(dom_id)
             .map(|n| n.state.clone())
             .unwrap_or_default();
-        let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state); // This should come from the node's style.
-        let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state);
+        let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(); // This should come from the node's style.
+        let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
         let constraints = LayoutConstraints {
             available_size: node.box_props.inner_size(final_used_size, writing_mode),
@@ -684,21 +684,27 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Checks if the given CSS height value should use content-based sizing
-fn should_use_content_height(css_height: &azul_css::props::layout::LayoutHeight) -> bool {
+fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::LayoutHeight>) -> bool {
     match css_height {
-        azul_css::props::layout::LayoutHeight::Auto => {
-            // Auto height should use content-based sizing
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+            // Auto/Initial/Inherit height should use content-based sizing
             true
         }
-        azul_css::props::layout::LayoutHeight::Px(px) => {
-            // Check if it's zero or if it has no explicit pixel value (means auto)
-            px == &azul_css::props::basic::pixel::PixelValue::zero()
-                || (px.to_pixels_no_percent().is_none() && px.to_percent().is_none())
-        }
-        azul_css::props::layout::LayoutHeight::MinContent
-        | azul_css::props::layout::LayoutHeight::MaxContent => {
-            // These are content-based, so they should use the content size
-            true
+        MultiValue::Exact(height) => match height {
+            azul_css::props::layout::LayoutHeight::Auto => {
+                // Auto height should use content-based sizing
+                true
+            }
+            azul_css::props::layout::LayoutHeight::Px(px) => {
+                // Check if it's zero or if it has no explicit pixel value (means auto)
+                px == &azul_css::props::basic::pixel::PixelValue::zero()
+                    || (px.to_pixels_no_percent().is_none() && px.to_percent().is_none())
+            }
+            azul_css::props::layout::LayoutHeight::MinContent
+            | azul_css::props::layout::LayoutHeight::MaxContent => {
+                // These are content-based, so they should use the content size
+                true
+            }
         }
     }
 }

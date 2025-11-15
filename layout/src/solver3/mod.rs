@@ -287,7 +287,7 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                     .map(|n| &n.state)
                     .cloned()
                     .unwrap_or_default();
-                let writing_mode = get_writing_mode(styled_dom, dom_id, styled_node_state);
+                let writing_mode = get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }

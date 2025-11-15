@@ -204,6 +204,35 @@ static MARGIN_RIGHT_ZERO: CssProperty = CssProperty::MarginRight(CssPropertyValu
     },
 ));
 
+// Chrome User-Agent Stylesheet: body { margin: 8px; }
+/// margin-top: 8px (Chrome UA default for body)
+static MARGIN_TOP_8PX: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_px(8),
+    },
+));
+
+/// margin-bottom: 8px (Chrome UA default for body)
+static MARGIN_BOTTOM_8PX: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_px(8),
+    },
+));
+
+/// margin-left: 8px (Chrome UA default for body)
+static MARGIN_LEFT_8PX: CssProperty = CssProperty::MarginLeft(CssPropertyValue::Exact(
+    LayoutMarginLeft {
+        inner: PixelValue::const_px(8),
+    },
+));
+
+/// margin-right: 8px (Chrome UA default for body)
+static MARGIN_RIGHT_8PX: CssProperty = CssProperty::MarginRight(CssPropertyValue::Exact(
+    LayoutMarginRight {
+        inner: PixelValue::const_px(8),
+    },
+));
+
 /// font-size: 2em (for H1)
 static FONT_SIZE_2EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
     StyleFontSize {
@@ -312,10 +341,10 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         (Body, PT::Display) => Some(&DISPLAY_BLOCK),
         (Body, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
-        (Body, PT::MarginTop) => Some(&MARGIN_TOP_ZERO),
-        (Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_ZERO),
-        (Body, PT::MarginLeft) => Some(&MARGIN_LEFT_ZERO),
-        (Body, PT::MarginRight) => Some(&MARGIN_RIGHT_ZERO),
+        (Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
+        (Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
+        (Body, PT::MarginLeft) => Some(&MARGIN_LEFT_8PX),
+        (Body, PT::MarginRight) => Some(&MARGIN_RIGHT_8PX),
 
         // Block-level Elements
         (Div, PT::Display) => Some(&DISPLAY_BLOCK),

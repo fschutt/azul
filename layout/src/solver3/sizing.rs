@@ -154,7 +154,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let writing_mode = if let Some(dom_id) = node.dom_node_id {
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
-            get_writing_mode(self.ctx.styled_dom, dom_id, node_state)
+            get_writing_mode(self.ctx.styled_dom, dom_id, node_state).unwrap_or_default()
         } else {
             LayoutWritingMode::default()
         };
@@ -467,7 +467,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
         
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
-        if display == LayoutDisplay::Inline {
+        if display.unwrap_or_default() == LayoutDisplay::Inline {
             // Recursively collect content from inline children
             // This is CRITICAL for proper intrinsic width calculation!
             ctx.debug_log(&format!(
@@ -623,10 +623,10 @@ pub fn calculate_used_size_for_node(
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
-    let resolved_width = match css_width {
+    let resolved_width = match css_width.unwrap_or_default() {
         LayoutWidth::Auto => {
             // 'auto' width resolution depends on the display type.
-            match display {
+            match display.unwrap_or_default() {
                 LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
                     // For block-level, non-replaced elements, 'auto' width fills the
                     // containing block (minus margins, borders, padding)
@@ -657,7 +657,7 @@ pub fn calculate_used_size_for_node(
 
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
     // Percentage values for `height` are resolved against the containing block's height.
-    let resolved_height = match css_height {
+    let resolved_height = match css_height.unwrap_or_default() {
         LayoutHeight::Auto => {
             // For 'auto' height, we initially use the intrinsic content height.
             // For block containers, this will be updated later in the layout process
@@ -685,7 +685,7 @@ pub fn calculate_used_size_for_node(
     let main_size = resolved_height;
 
     // Step 4: Construct the final LogicalSize from the logical dimensions.
-    let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode);
+    let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
     eprintln!(
         "[calculate_used_size_for_node] RESULT: {:?} (resolved_width={}, resolved_height={})",

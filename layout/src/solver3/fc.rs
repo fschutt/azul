@@ -2354,7 +2354,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         // At this point we have a non-text DOM child with a layout node
         let dom_id = child_node.dom_node_id.unwrap();
 
-        if get_display_property(ctx.styled_dom, Some(dom_id)) != LayoutDisplay::Inline {
+        if get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default() != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
             // We must determine its size and baseline before passing it to text3.
 
@@ -2371,7 +2371,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 .get(dom_id)
                 .map(|n| n.state.clone())
                 .unwrap_or_default();
-            let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state);
+            let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(width, f32::INFINITY),
                 writing_mode,
