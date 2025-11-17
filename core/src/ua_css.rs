@@ -105,6 +105,7 @@ use azul_css::{
                 LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
             },
         },
+        style::{StyleTextAlign, StyleVerticalAlign},
         property::{CssProperty, CssPropertyType},
     },
 };
@@ -403,6 +404,16 @@ static PADDING_RIGHT_1PX: CssProperty = CssProperty::PaddingRight(CssPropertyVal
     inner: PixelValue::const_px(1),
 }));
 
+/// text-align: center (for th elements)
+static TEXT_ALIGN_CENTER: CssProperty = CssProperty::TextAlign(CssPropertyValue::Exact(
+    StyleTextAlign::Center,
+));
+
+/// vertical-align: center (maps to CSS vertical-align: middle for table elements)
+static VERTICAL_ALIGN_CENTER: CssProperty = CssProperty::VerticalAlign(CssPropertyValue::Exact(
+    StyleVerticalAlign::Center,
+));
+
 // TODO: Uncomment when TextDecoration is implemented in azul-css
 // const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
 //     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
@@ -575,10 +586,16 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
         (NT::Table, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
+        (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
+        (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
+        (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
+        (NT::Tr, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (NT::Th, PT::TextAlign) => Some(&TEXT_ALIGN_CENTER),
+        (NT::Th, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::Th, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
         (NT::Th, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
         (NT::Th, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),

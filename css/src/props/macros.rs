@@ -289,6 +289,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontSize => CssProperty::FontSize(CssPropertyValue::$content_type),
             CssPropertyType::FontFamily => CssProperty::FontFamily(CssPropertyValue::$content_type),
             CssPropertyType::TextAlign => CssProperty::TextAlign(CssPropertyValue::$content_type),
+            CssPropertyType::VerticalAlign => {
+                CssProperty::VerticalAlign(CssPropertyValue::$content_type)
+            }
             CssPropertyType::LetterSpacing => {
                 CssProperty::LetterSpacing(CssPropertyValue::$content_type)
             }

@@ -257,6 +257,7 @@ macro_rules! match_property_value {
             CssProperty::FontStyle($value) => $expr,
             CssProperty::TextAlign($value) => $expr,
             CssProperty::TextJustify($value) => $expr,
+            CssProperty::VerticalAlign($value) => $expr,
             CssProperty::LetterSpacing($value) => $expr,
             CssProperty::TextIndent($value) => $expr,
             CssProperty::InitialLetter($value) => $expr,

@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 142] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 143] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -79,6 +79,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 142] = [
     (CssPropertyType::FontStyle, "font-style"),
     (CssPropertyType::TextAlign, "text-align"),
     (CssPropertyType::TextJustify, "text-justify"),
+    (CssPropertyType::VerticalAlign, "vertical-align"),
     (CssPropertyType::LetterSpacing, "letter-spacing"),
     (CssPropertyType::LineHeight, "line-height"),
     (CssPropertyType::WordSpacing, "word-spacing"),
@@ -253,6 +254,7 @@ pub type StyleFontWeightValue = CssPropertyValue<StyleFontWeight>;
 pub type StyleFontStyleValue = CssPropertyValue<StyleFontStyle>;
 pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
 pub type StyleTextAlignValue = CssPropertyValue<StyleTextAlign>;
+pub type StyleVerticalAlignValue = CssPropertyValue<StyleVerticalAlign>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
 pub type StyleLetterSpacingValue = CssPropertyValue<StyleLetterSpacing>;
 pub type StyleTextIndentValue = CssPropertyValue<StyleTextIndent>;
@@ -483,6 +485,7 @@ pub enum CssProperty {
     FontStyle(StyleFontStyleValue),
     TextAlign(StyleTextAlignValue),
     TextJustify(LayoutTextJustifyValue),
+    VerticalAlign(StyleVerticalAlignValue),
     LetterSpacing(StyleLetterSpacingValue),
     TextIndent(StyleTextIndentValue),
     InitialLetter(StyleInitialLetterValue),
@@ -659,6 +662,7 @@ pub enum CssPropertyType {
     FontStyle,
     TextAlign,
     TextJustify,
+    VerticalAlign,
     LetterSpacing,
     TextIndent,
     InitialLetter,
@@ -846,6 +850,7 @@ impl CssPropertyType {
             CssPropertyType::FontStyle => "font-style",
             CssPropertyType::TextAlign => "text-align",
             CssPropertyType::TextJustify => "text-justify",
+            CssPropertyType::VerticalAlign => "vertical-align",
             CssPropertyType::LetterSpacing => "letter-spacing",
             CssPropertyType::TextIndent => "text-indent",
             CssPropertyType::InitialLetter => "initial-letter",
@@ -1134,6 +1139,7 @@ pub enum CssParsingError<'a> {
     FontStyle(CssFontStyleParseError<'a>),
     TextAlign(StyleTextAlignParseError<'a>),
     TextJustify(TextJustifyParseError<'a>),
+    VerticalAlign(StyleVerticalAlignParseError<'a>),
     LetterSpacing(StyleLetterSpacingParseError<'a>),
     TextIndent(StyleTextIndentParseError<'a>),
     InitialLetter(StyleInitialLetterParseError<'a>),
@@ -1281,6 +1287,7 @@ pub enum CssParsingErrorOwned {
     FontStyle(CssFontStyleParseErrorOwned),
     TextAlign(StyleTextAlignParseErrorOwned),
     TextJustify(TextJustifyParseErrorOwned),
+    VerticalAlign(StyleVerticalAlignParseErrorOwned),
     LetterSpacing(StyleLetterSpacingParseErrorOwned),
     TextIndent(StyleTextIndentParseErrorOwned),
     InitialLetter(StyleInitialLetterParseErrorOwned),
@@ -1463,6 +1470,7 @@ impl_display! { CssParsingError<'a>, {
     FontStyle(e) => format!("Invalid font-style: {}", e),
     TextAlign(e) => format!("Invalid text-align: {}", e),
     TextJustify(e) => format!("Invalid text-justify: {}", e),
+    VerticalAlign(e) => format!("Invalid vertical-align: {}", e),
     LetterSpacing(e) => format!("Invalid letter-spacing: {}", e),
     TextIndent(e) => format!("Invalid text-indent: {}", e),
     InitialLetter(e) => format!("Invalid initial-letter: {}", e),
@@ -1758,6 +1766,12 @@ impl<'a> From<StyleTextIndentParseError<'a>> for CssParsingError<'a> {
     }
 }
 
+impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
+    fn from(e: StyleVerticalAlignParseError<'a>) -> Self {
+        CssParsingError::VerticalAlign(e)
+    }
+}
+
 impl<'a> CssParsingError<'a> {
     pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
@@ -1892,6 +1906,9 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::FontSize(e) => CssParsingErrorOwned::FontSize(e.to_contained()),
             CssParsingError::TextAlign(e) => CssParsingErrorOwned::TextAlign(e.to_contained()),
             CssParsingError::TextJustify(e) => CssParsingErrorOwned::TextJustify(e.to_owned()),
+            CssParsingError::VerticalAlign(e) => {
+                CssParsingErrorOwned::VerticalAlign(e.to_contained())
+            }
             CssParsingError::LetterSpacing(e) => {
                 CssParsingErrorOwned::LetterSpacing(e.to_contained())
             }
@@ -2144,6 +2161,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::StringSet => CssParsingError::StringSet,
             CssParsingErrorOwned::FontWeight(e) => CssParsingError::FontWeight(e.to_shared()),
             CssParsingErrorOwned::FontStyle(e) => CssParsingError::FontStyle(e.to_shared()),
+            CssParsingErrorOwned::VerticalAlign(e) => CssParsingError::VerticalAlign(e.to_shared()),
         }
     }
 }
@@ -2179,6 +2197,7 @@ pub fn parse_css_property<'a>(
             CssPropertyType::FontStyle => CssProperty::FontStyle(parse_font_style(value)?.into()),
             CssPropertyType::TextAlign => parse_style_text_align(value)?.into(),
             CssPropertyType::TextJustify => parse_layout_text_justify(value)?.into(),
+            CssPropertyType::VerticalAlign => parse_style_vertical_align(value)?.into(),
             CssPropertyType::LetterSpacing => parse_style_letter_spacing(value)?.into(),
             CssPropertyType::TextIndent => parse_style_text_indent(value)?.into(),
             CssPropertyType::InitialLetter => parse_style_initial_letter(value)?.into(),
@@ -3085,6 +3104,7 @@ impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
 impl_from_css_prop!(StyleTextAlign, CssProperty::TextAlign);
 impl_from_css_prop!(LayoutTextJustify, CssProperty::TextJustify);
+impl_from_css_prop!(StyleVerticalAlign, CssProperty::VerticalAlign);
 impl_from_css_prop!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from_css_prop!(StyleTextIndent, CssProperty::TextIndent);
 impl_from_css_prop!(StyleInitialLetter, CssProperty::InitialLetter);
@@ -3362,6 +3382,7 @@ impl CssProperty {
             CssProperty::EmptyCells(v) => v.get_css_value_fmt(),
             CssProperty::FontWeight(v) => v.get_css_value_fmt(),
             CssProperty::FontStyle(v) => v.get_css_value_fmt(),
+            CssProperty::VerticalAlign(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -3667,6 +3688,7 @@ impl CssProperty {
             CssProperty::FontWeight(_) => CssPropertyType::FontWeight,
             CssProperty::FontStyle(_) => CssPropertyType::FontStyle,
             CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
+            CssProperty::VerticalAlign(_) => CssPropertyType::VerticalAlign,
             CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
             CssProperty::TextIndent(_) => CssPropertyType::TextIndent,
             CssProperty::InitialLetter(_) => CssPropertyType::InitialLetter,
@@ -3842,6 +3864,9 @@ impl CssProperty {
     }
     pub const fn text_justify(input: LayoutTextJustify) -> Self {
         CssProperty::TextJustify(CssPropertyValue::Exact(input))
+    }
+    pub const fn vertical_align(input: StyleVerticalAlign) -> Self {
+        CssProperty::VerticalAlign(CssPropertyValue::Exact(input))
     }
     pub const fn letter_spacing(input: StyleLetterSpacing) -> Self {
         CssProperty::LetterSpacing(CssPropertyValue::Exact(input))
@@ -4420,6 +4445,12 @@ impl CssProperty {
     pub const fn as_text_align(&self) -> Option<&StyleTextAlignValue> {
         match self {
             CssProperty::TextAlign(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_vertical_align(&self) -> Option<&StyleVerticalAlignValue> {
+        match self {
+            CssProperty::VerticalAlign(f) => Some(f),
             _ => None,
         }
     }
@@ -5241,6 +5272,7 @@ impl CssProperty {
             EmptyCells(c) => c.is_initial(),
             FontWeight(c) => c.is_initial(),
             FontStyle(c) => c.is_initial(),
+            VerticalAlign(c) => c.is_initial(),
         }
     }
 
@@ -5268,6 +5300,9 @@ impl CssProperty {
     }
     pub const fn const_text_align(input: StyleTextAlign) -> Self {
         CssProperty::TextAlign(StyleTextAlignValue::Exact(input))
+    }
+    pub const fn const_vertical_align(input: StyleVerticalAlign) -> Self {
+        CssProperty::VerticalAlign(StyleVerticalAlignValue::Exact(input))
     }
     pub const fn const_letter_spacing(input: StyleLetterSpacing) -> Self {
         CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input))
@@ -5607,6 +5642,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::TextAlign(p) => format!(
             "CssProperty::TextAlign({})",
             print_css_property_value(p, tabs, "StyleTextAlign")
+        ),
+        CssProperty::VerticalAlign(p) => format!(
+            "CssProperty::VerticalAlign({})",
+            print_css_property_value(p, tabs, "StyleVerticalAlign")
         ),
         CssProperty::LetterSpacing(p) => format!(
             "CssProperty::LetterSpacing({})",

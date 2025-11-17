@@ -1,0 +1,1100 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+@namespace url(http://www.w3.org/1999/xhtml); /* set default namespace to HTML */
+@namespace xul url(http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul);
+
+@font-face {
+  font-family: -moz-bullet-font;
+  src: url("data:font/woff2;base64,d09GMgABAAAAAAScAAsAAAAACfAAAARNAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAhBIRCAqGMIRJATYCJAMsCxgABCAFhF4HaBsuCMgehXEsLOlXaXd7sgbPQ172fjLwdhYFM92mABaiTuRVdO5/mx9I5UJiJom3phLRQw/TSF2M/vo25+pNyWkNws81NrUDAAf0QOdfcf7nmPEyBPZtCbbZEDuosskKZG922ZhBenh05qcSXktf6s3Oy9dAkWsyDzMoM5QTKcwKNjFayUPSREGFhUMrdE8MJsH052qGcYNO3pbEaYIBoDTItIKGAqhDdKHRD0kkKg6QGSCWEfueTNr3P6OvYaIbDH/8ULEAbjQtUt+hT/qmX/SH/twwMLDqN4jxzXjy4PHtltSA6lINqkpRd7N7onVBP20y7YBWyDIHFEBjqKBFMmECfQcTZtD3MmEB/SATVtCPM2ED/TQTdtCfS0/pEsN4ySin3r8q8xHE+0D0XMg8gJi4YrNpNv3qetXuDyeo6OBNZrq5gi7ouC1zcmB2Fd+FewIhcUIfszpF1hzXhrmMCwxaznRyZjig6Y2W7+bBn2DL8fJu/2oHbWc6X80+LUTXcVzv8O3IOy4qKVyFw/DHaMtfzNQEi5gbFT/EDpiofbpkYq2dQui6WcpfxrVBEJ/KxbLA4ZroZoVx+iE+QeTIiI7oKuoUIk/a1ekEOoNFjozm0suYYUelq13/88K1c3PTH9O9Q0d5LZbu7+J2aT7XP23KyQs+34WTU7r8d/k0l6dLl98Dn+/BSUZc7U0mm7FqhSMO9EHV/j5FB4qYX4aXNaKwz/4RRfAWsW8xGW+hvr8PTAf6IP9mRpkDwwv7QFz9HRuOeGWfd8rkyYsWTVy4vpG/pgVNWzBx0aTeIgeq58XFVfZXVduwuOq51a77aT0XLVw4v1PBFjRsQzO+tVeVp3KIwqfKbd6sdjzGvFSuPMquGpMT29lkrhwbE5uz6cGHhIETB06oUk+6tHLJgfnu/3nVnJzYxiXNjQNjYqsu+vCgYKDla5uUOzTNDZg46eCBd3d3gSk9Kz/bFiv8hvOzCT5eqyjBGerT+EiG/JGqwbC+UQ6Bv9bmKGWMj8Yn+fPVRJxKBGqTFXQyM9DhHSlvEHmLVxyYjY/Fdd3hACfLyP3VVZLvVR7B0pxSsGIBqHhwT5sSMOMkRG0BJhpsWMkEO24KwE0pqp3tIYTWCIjJjuBiGNTKTj8JoBLKAn4TmPFnj9oywZwFGx4egp1g3oObeLHdwUO2pFcYTITZCa2c1GQbNg6RCsu9bpikThhAWnLaBi3LM8+5VbMU6rUn30owOC83ULcfBlClb5BBre46BinaWRal85SUvlCbUx1Nbyj2HWCxBTkEgWScQKzsTioJW0IanAYRZqET4mZLSKU2JABII9np01lQ7lOt3srtM1KAeqgQPhYJSMCZJRuAukRZB1CF35gB1MJBr4ilIPZchNyIlDkpRt+3s96cz9K8XKQvCdZfcqWxgtLoXZ2AoKAyVSRRxSRmsYjVOriP089q3z6gdMjE5KI7kzumWzpnAwAAAA==");
+}
+
+/* bidi */
+
+:-moz-has-dir-attr {
+  unicode-bidi: isolate;
+}
+:-moz-dir-attr-rtl {
+  direction: rtl;
+}
+:-moz-dir-attr-ltr {
+  direction: ltr;
+}
+
+:-moz-dir-attr-like-auto:dir(ltr) {
+  direction: ltr;
+}
+:-moz-dir-attr-like-auto:dir(rtl) {
+  direction: rtl;
+}
+
+/* https://html.spec.whatwg.org/#bidi-rendering */
+input[type="tel"]:dir(ltr) {
+  direction: ltr;
+}
+
+/* To ensure http://www.w3.org/TR/REC-html40/struct/dirlang.html#style-bidi:
+ *
+ * "When a block element that does not have a dir attribute is transformed to
+ * the style of an inline element by a style sheet, the resulting presentation
+ * should be equivalent, in terms of bidirectional formatting, to the
+ * formatting obtained by explicitly adding a dir attribute (assigned the
+ * inherited value) to the transformed element."
+ *
+ * and the rules in http://dev.w3.org/html5/spec/rendering.html#rendering
+ */
+
+address,
+article,
+aside,
+blockquote,
+body,
+caption,
+center,
+col,
+colgroup,
+dd,
+dir,
+div,
+dl,
+dt,
+fieldset,
+figcaption,
+figure,
+footer,
+form,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+header,
+hgroup,
+hr,
+html,
+legend,
+li,
+listing,
+main,
+marquee,
+menu,
+nav,
+noframes,
+ol,
+p,
+plaintext,
+pre,
+search,
+section,
+summary,
+table,
+tbody,
+td,
+tfoot,
+th,
+thead,
+tr,
+ul,
+xmp {
+  unicode-bidi: isolate;
+}
+
+bdi,
+output {
+  unicode-bidi: isolate;
+}
+/* We need the "bdo:-moz-has-dir-attr" bit because "bdo" has lower
+   specificity than the ":-moz-has-dir-attr" selector above. */
+bdo,
+bdo:-moz-has-dir-attr {
+  unicode-bidi: isolate-override;
+}
+textarea:-moz-dir-attr-like-auto,
+pre:-moz-dir-attr-like-auto {
+  unicode-bidi: plaintext;
+}
+
+/* blocks */
+
+article,
+aside,
+details,
+div,
+dt,
+figcaption,
+footer,
+form,
+header,
+hgroup,
+html,
+main,
+nav,
+search,
+section,
+summary {
+  display: block;
+}
+
+body {
+  display: block;
+  margin: 8px;
+}
+
+p,
+dl {
+  display: block;
+  margin-block-start: 1em;
+  margin-block-end: 1em;
+}
+
+dd {
+  display: block;
+  margin-inline-start: 40px;
+}
+
+blockquote,
+figure {
+  display: block;
+  margin-block: 1em;
+  margin-inline: 40px;
+}
+
+address {
+  display: block;
+  font-style: italic;
+}
+
+center {
+  display: block;
+  text-align: -moz-center;
+}
+
+h1 {
+  display: block;
+  font-size: 2em;
+  font-weight: bold;
+  margin-block: 0.67em;
+}
+
+h2 {
+  display: block;
+  font-size: 1.5em;
+  font-weight: bold;
+  margin-block: 0.83em;
+}
+
+h3 {
+  display: block;
+  font-size: 1.17em;
+  font-weight: bold;
+  margin-block: 1em;
+}
+
+h4 {
+  display: block;
+  font-size: 1em;
+  font-weight: bold;
+  margin-block: 1.33em;
+}
+
+h5 {
+  display: block;
+  font-size: 0.83em;
+  font-weight: bold;
+  margin-block: 1.67em;
+}
+
+h6 {
+  display: block;
+  font-size: 0.67em;
+  font-weight: bold;
+  margin-block: 2.33em;
+}
+
+/* properties from https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/css/fullscreen.css;l=68-83;drc=4670338ccf46aaf26aee2402b0f722106d55b003  */
+/* stylelint-disable-next-line media-query-no-invalid */
+@media (-moz-in-android-pip-mode) and -moz-pref("layout.css.android-pip.enabled") {
+  video {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+
+    background-color: black !important;
+    z-index: 2147483647 !important;
+  }
+}
+
+listing {
+  display: block;
+  font-family: -moz-fixed;
+  font-size: medium;
+  white-space: pre;
+  margin-block: 1em;
+}
+
+xmp,
+pre,
+plaintext {
+  display: block;
+  font-family: -moz-fixed;
+  white-space: pre;
+  margin-block: 1em;
+}
+
+/* tables */
+
+table {
+  display: table;
+  border-spacing: 2px;
+  border-collapse: separate;
+  /* XXXldb do we want this if we're border-collapse:collapse ? */
+  box-sizing: border-box;
+  text-indent: 0;
+}
+
+/* border collapse rules */
+
+/* Set hidden if we have 'frame' or 'rules' attribute.
+   Set it on all sides when we do so there's more consistency
+   in what authors should expect */
+
+/* Put this first so 'border' and 'frame' rules can override it. */
+table[rules] {
+  border-width: thin;
+  border-style: hidden;
+}
+
+/* 'border' before 'frame' so 'frame' overrides
+    A border with a given value should, of course, pass that value
+    as the border-width in pixels -> attr mapping */
+
+/* :-moz-table-border-nonzero is like [border]:not([border="0"]) except it
+   also checks for other zero-like values according to HTML attribute
+   parsing rules */
+table:-moz-table-border-nonzero {
+  border-width: thin;
+  border-style: outset;
+}
+
+table[frame] {
+  border: thin hidden;
+}
+
+/* specificity must beat table:-moz-table-border-nonzero rule above */
+table[frame="void"] {
+  border-style: hidden;
+}
+table[frame="above"] {
+  border-style: outset hidden hidden hidden;
+}
+table[frame="below"] {
+  border-style: hidden hidden outset hidden;
+}
+table[frame="lhs"] {
+  border-style: hidden hidden hidden outset;
+}
+table[frame="rhs"] {
+  border-style: hidden outset hidden hidden;
+}
+table[frame="hsides"] {
+  border-style: outset hidden;
+}
+table[frame="vsides"] {
+  border-style: hidden outset;
+}
+table[frame="box"],
+table[frame="border"] {
+  border-style: outset;
+}
+
+/* Internal Table Borders */
+
+/* 'border' cell borders first */
+
+table:-moz-table-border-nonzero > * > tr > td,
+table:-moz-table-border-nonzero > * > tr > th,
+table:-moz-table-border-nonzero > * > td,
+table:-moz-table-border-nonzero > * > th,
+table:-moz-table-border-nonzero > td,
+table:-moz-table-border-nonzero > th {
+  border-width: thin;
+  border-style: inset;
+}
+
+/* collapse only if rules are really specified */
+table[rules]:not([rules="none"], [rules=""]) {
+  border-collapse: collapse;
+}
+
+/* only specified rules override 'border' settings
+  (increased specificity to achieve this) */
+table[rules]:not([rules=""]) > tr > td,
+table[rules]:not([rules=""]) > * > tr > td,
+table[rules]:not([rules=""]) > tr > th,
+table[rules]:not([rules=""]) > * > tr > th,
+table[rules]:not([rules=""]) > td,
+table[rules]:not([rules=""]) > th {
+  border-width: thin;
+  border-style: none;
+}
+
+table[rules][rules="none"] > tr > td,
+table[rules][rules="none"] > * > tr > td,
+table[rules][rules="none"] > tr > th,
+table[rules][rules="none"] > * > tr > th,
+table[rules][rules="none"] > td,
+table[rules][rules="none"] > th {
+  border-width: thin;
+  border-style: none;
+}
+
+table[rules][rules="all"] > tr > td,
+table[rules][rules="all"] > * > tr > td,
+table[rules][rules="all"] > tr > th,
+table[rules][rules="all"] > * > tr > th,
+table[rules][rules="all"] > td,
+table[rules][rules="all"] > th {
+  border-width: thin;
+  border-style: solid;
+}
+
+table[rules][rules="rows"] > tr,
+table[rules][rules="rows"] > * > tr {
+  border-block-start-width: thin;
+  border-block-end-width: thin;
+  border-block-start-style: solid;
+  border-block-end-style: solid;
+}
+
+table[rules][rules="cols"] > tr > td,
+table[rules][rules="cols"] > * > tr > td,
+table[rules][rules="cols"] > tr > th,
+table[rules][rules="cols"] > * > tr > th {
+  border-inline-width: thin;
+  border-inline-style: solid;
+}
+
+table[rules][rules="groups"] > colgroup {
+  border-inline-width: thin;
+  border-inline-style: solid;
+}
+table[rules][rules="groups"] > tfoot,
+table[rules][rules="groups"] > thead,
+table[rules][rules="groups"] > tbody {
+  border-block-width: thin;
+  border-block-style: solid;
+}
+
+/* caption inherits from table not table-outer */
+caption {
+  display: table-caption;
+  text-align: center;
+}
+
+table[align="center"] > caption {
+  margin-inline: auto;
+}
+
+table[align="center"] > caption[align="left"]:dir(ltr) {
+  margin-inline-end: 0;
+}
+table[align="center"] > caption[align="left"]:dir(rtl) {
+  margin-inline-start: 0;
+}
+
+table[align="center"] > caption[align="right"]:dir(ltr) {
+  margin-inline-start: 0;
+}
+table[align="center"] > caption[align="right"]:dir(rtl) {
+  margin-inline-end: 0;
+}
+
+tr {
+  display: table-row;
+  vertical-align: inherit;
+}
+
+col {
+  display: table-column;
+}
+
+colgroup {
+  display: table-column-group;
+}
+
+tbody {
+  display: table-row-group;
+  vertical-align: middle;
+}
+
+thead {
+  display: table-header-group;
+  vertical-align: middle;
+}
+
+tfoot {
+  display: table-footer-group;
+  vertical-align: middle;
+}
+
+/* for XHTML tables without tbody */
+table > tr {
+  vertical-align: middle;
+}
+
+td {
+  display: table-cell;
+  vertical-align: inherit;
+  text-align: unset;
+  padding: 1px;
+}
+
+th {
+  display: table-cell;
+  vertical-align: inherit;
+  font-weight: bold;
+  padding: 1px;
+  text-align: -moz-center-or-inherit;
+}
+
+:is(tr, tbody, thead, tfoot, table) > form:-moz-is-html {
+  /* Important: don't show these forms in HTML */
+  display: none !important;
+}
+
+table[bordercolor] > tbody,
+table[bordercolor] > thead,
+table[bordercolor] > tfoot,
+table[bordercolor] > col,
+table[bordercolor] > colgroup,
+table[bordercolor] > tr,
+table[bordercolor] > * > tr,
+table[bordercolor] > tr > td,
+table[bordercolor] > * > tr > td,
+table[bordercolor] > tr > th,
+table[bordercolor] > * > tr > th {
+  border-color: inherit;
+}
+
+/* inlines */
+
+q:before {
+  content: open-quote;
+}
+
+q:after {
+  content: close-quote;
+}
+
+b,
+strong {
+  font-weight: bolder;
+}
+
+i,
+cite,
+em,
+var,
+dfn {
+  font-style: italic;
+}
+
+tt,
+code,
+kbd,
+samp {
+  font-family: -moz-fixed;
+}
+
+u,
+ins {
+  text-decoration: underline;
+}
+
+s,
+strike,
+del {
+  text-decoration: line-through;
+}
+
+big {
+  font-size: larger;
+}
+
+small {
+  font-size: smaller;
+}
+
+sub {
+  vertical-align: sub;
+  font-size: smaller;
+}
+
+sup {
+  vertical-align: super;
+  font-size: smaller;
+}
+
+nobr {
+  white-space: nowrap;
+}
+
+mark {
+  background: Mark;
+  color: MarkText;
+}
+
+/* titles */
+abbr[title],
+acronym[title] {
+  text-decoration: dotted underline;
+}
+
+/* lists */
+
+ul,
+menu,
+dir {
+  display: block;
+  list-style-type: disc;
+  margin-block-start: 1em;
+  margin-block-end: 1em;
+  padding-inline-start: 40px;
+}
+
+ul,
+ol,
+menu {
+  counter-reset: list-item;
+}
+
+ol {
+  display: block;
+  list-style-type: decimal;
+  margin-block-start: 1em;
+  margin-block-end: 1em;
+  padding-inline-start: 40px;
+}
+
+li {
+  display: list-item;
+  text-align: match-parent;
+}
+
+/* nested lists have no top/bottom margins */
+:is(ul, ol, dir, menu, dl) ul,
+:is(ul, ol, dir, menu, dl) ol,
+:is(ul, ol, dir, menu, dl) dir,
+:is(ul, ol, dir, menu, dl) menu,
+:is(ul, ol, dir, menu, dl) dl {
+  margin-block: 0;
+}
+
+/* 2 deep unordered lists use a circle */
+:is(ol, ul, menu, dir) ul,
+:is(ol, ul, menu, dir) menu,
+:is(ol, ul, menu, dir) dir {
+  list-style-type: circle;
+}
+
+/* 3 deep (or more) unordered lists use a square */
+:is(ol, ul, menu, dir) :is(ol, ul, menu, dir) ul,
+:is(ol, ul, menu, dir) :is(ol, ul, menu, dir) menu,
+:is(ol, ul, menu, dir) :is(ol, ul, menu, dir) dir {
+  list-style-type: square;
+}
+
+/* leafs */
+
+/* <hr> noshade and color attributes are handled completely by
+ * HTMLHRElement::MapAttributesIntoRule.
+ * https://html.spec.whatwg.org/#the-hr-element-2
+ */
+hr {
+  color: gray;
+  border-width: 1px;
+  border-style: inset;
+  margin-block: 0.5em;
+  margin-inline: auto;
+  overflow: hidden;
+
+  /* FIXME: This is not really per spec */
+  display: block;
+}
+
+hr[size="1"] {
+  border-style: solid none none none;
+}
+
+/* Note that we only intend for the alt content to show up if the image is
+ * broken. But non-broken images/inputs will have a replaced box, and thus we
+ * won't we don't generate the pseudo-element anyways. This prevents
+ * unnecessary reframing when images become broken / non-broken. */
+input[type="image"]::before,
+img::before {
+  content: -moz-alt-content !important;
+  unicode-bidi: isolate;
+}
+
+img[usemap],
+object[usemap] {
+  color: blue;
+}
+
+frameset {
+  display: block !important;
+  overflow: clip;
+  position: static !important;
+  float: none !important;
+  border: none !important;
+}
+
+frame {
+  border-radius: 0 !important;
+}
+
+iframe {
+  border: 2px inset;
+}
+
+spacer {
+  position: static !important;
+  float: none !important;
+}
+
+iframe:focus-visible,
+body:focus-visible,
+html:focus-visible {
+  /* These elements historically don't show outlines when focused by default.
+   * We could consider changing that if needed. */
+  outline-style: none;
+}
+
+/* hidden elements: https://html.spec.whatwg.org/#hidden-elements
+ *
+ * Exceptions:
+ *
+ *  * area declaration needs to be !important, see below / bug 135040.  That's
+ *    hacky and broken.
+ *
+ *  * [hidden] is implemented as a presentation attribute to avoid a global
+ *    selector in a UA sheet.
+ */
+base,
+basefont,
+datalist,
+head,
+link,
+meta,
+noembed,
+noframes,
+param,
+rp,
+script,
+style,
+template,
+title {
+  display: none;
+}
+
+area {
+  /* Don't give it frames other than its imageframe */
+  display: none !important;
+}
+
+iframe:fullscreen {
+  /* iframes in full-screen mode don't show a border. */
+  border: none !important;
+  padding: unset !important;
+}
+
+/* Details and summary
+ * https://html.spec.whatwg.org/#the-details-and-summary-elements
+ *
+ * Note that these rules need to be duplicated in details.css for the anonymous
+ * summary, which wouldn't match otherwise.
+ */
+details > summary:first-of-type {
+  display: list-item;
+  counter-increment: list-item 0;
+  list-style: disclosure-closed inside;
+}
+details[open] > summary:first-of-type {
+  list-style-type: disclosure-open;
+}
+
+details::details-content {
+  display: block;
+  content-visibility: hidden;
+}
+details[open]::details-content {
+  content-visibility: revert;
+}
+
+/* media elements */
+video {
+  object-fit: contain;
+}
+
+video > img:-moz-native-anonymous {
+  /* Video poster images should render with the video element's "object-fit" &
+     "object-position" properties */
+  object-fit: inherit !important;
+  object-position: inherit !important;
+}
+
+audio:not([controls]) {
+  display: none !important;
+}
+
+audio[controls] {
+  /* This ensures that intrinsic sizing can reliably shrinkwrap our
+      controls (which are also always horizontal) and produce a
+      reasonable intrinsic size from them. */
+  writing-mode: horizontal-tb !important;
+}
+
+*|*::-moz-html-canvas-content {
+  display: block !important;
+  /* we want to be an absolute and fixed container */
+  transform: translate(0) !important;
+}
+
+video > .caption-box:-moz-native-anonymous {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  pointer-events: none;
+}
+
+/**
+ * The pseudo element won't inherit CSS styles from its direct parent, `::cue`
+ * would actually inherit styles from video because it's video's pseudo element.
+ * Therefore, we have to explicitly set some styles which are already defined
+ * in its parent element in vtt.sys.mjs.
+ */
+::cue {
+  color: rgba(255, 255, 255, 1);
+  white-space: pre-line;
+  background-color: rgba(0, 0, 0, 0.8);
+  font: 10px sans-serif;
+  overflow-wrap: break-word;
+  /* TODO : enable unicode-bidi, right now enable it would cause incorrect
+            display direction, maybe related with bug 1558431. */
+}
+
+/* <dialog> element styles */
+
+dialog {
+  position: absolute;
+  display: block;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  margin: auto;
+  border-width: initial;
+  border-style: solid;
+  border-color: initial;
+  border-image: initial;
+  padding: 1em;
+  background-color: Canvas;
+  color: CanvasText;
+  width: -moz-fit-content;
+  height: -moz-fit-content;
+}
+
+dialog:not([open]) {
+  display: none;
+}
+
+dialog:modal {
+  -moz-top-layer: auto !important;
+  position: fixed;
+  overflow: auto;
+  visibility: visible;
+  inset-block-start: 0;
+  inset-block-end: 0;
+  max-width: calc(100% - 6px - 2em);
+  max-height: calc(100% - 6px - 2em);
+}
+
+/* https://html.spec.whatwg.org/#flow-content-3 */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* https://html.spec.whatwg.org/#the-marquee-element-2 */
+marquee {
+  display: inline-block;
+  text-align: initial;
+  overflow: hidden !important;
+
+  /* See https://github.com/whatwg/html/issues/10249 */
+  inline-size: -moz-available;
+  vertical-align: text-bottom;
+  white-space: nowrap;
+}
+
+marquee:is([direction="up"], [direction="down"]) {
+  block-size: 200px;
+  white-space: unset;
+}
+
+/* Ruby */
+
+ruby {
+  display: ruby;
+}
+rb {
+  display: ruby-base;
+  white-space: nowrap;
+}
+rt {
+  display: ruby-text;
+}
+rtc {
+  display: ruby-text-container;
+}
+rtc,
+rt {
+  white-space: nowrap;
+  font-size: 50%;
+  -moz-min-font-size-ratio: 50%;
+  line-height: 1;
+}
+@media not (-moz-platform: windows) {
+  rtc,
+  rt {
+    /* The widely-used Windows font Meiryo doesn't work fine with this
+    * setting, so disable this on Windows. We should re-enable it once
+    * Microsoft fixes this issue. See bug 1164279. */
+    font-variant-east-asian: ruby;
+  }
+}
+rtc,
+rt {
+  text-emphasis: none;
+}
+rtc:lang(zh),
+rt:lang(zh) {
+  ruby-align: center;
+}
+rtc:lang(zh-TW),
+rt:lang(zh-TW) {
+  font-size: 30%; /* bopomofo */
+  -moz-min-font-size-ratio: 30%;
+}
+rtc > rt {
+  font-size: unset;
+}
+ruby,
+rb,
+rt,
+rtc {
+  unicode-bidi: isolate;
+}
+
+/* Shadow DOM v1
+ * https://drafts.csswg.org/css-scoping/#slots-in-shadow-tree */
+slot {
+  display: contents;
+}
+
+/* Hide noscript elements if scripting is enabled */
+@media (scripting) {
+  noscript {
+    display: none !important;
+  }
+}
+
+@media print {
+  input,
+  textarea,
+  select,
+  button,
+  details {
+    -moz-inert: inert;
+  }
+}
+
+/* Popover UA style, https://html.spec.whatwg.org/#flow-content-3 */
+
+[popover]:not(:popover-open):not(dialog[open]) {
+  display: none;
+}
+
+dialog:popover-open {
+  display: block;
+}
+
+[popover] {
+  position: fixed;
+  inset: 0;
+  width: fit-content;
+  height: fit-content;
+  margin: auto;
+  border: solid;
+  padding: 0.25em;
+  overflow: auto;
+  color: CanvasText;
+  background-color: Canvas;
+}
+
+:popover-open {
+  -moz-top-layer: auto;
+}
+
+:popover-open::backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none !important;
+  background-color: transparent;
+}
+
+/* Editor support */
+
+.mozResizer:-moz-native-anonymous {
+  width: 5px;
+  height: 5px;
+  position: absolute;
+  border: 1px black solid;
+  background-color: white;
+  user-select: none;
+  z-index: 2147483646; /* max value -1 for this property */
+
+  /* we can't use :active below */
+  &.active,
+  &:hover {
+    background-color: black;
+  }
+}
+
+.mozGrabber:-moz-native-anonymous {
+  outline: ridge 2px silver;
+  padding: 2px;
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-image: url("resource://gre/res/grabber.gif");
+  background-repeat: no-repeat;
+  background-position: center center;
+  user-select: none;
+  cursor: move;
+}
+
+.mozResizingShadow:-moz-native-anonymous {
+  outline: thin dashed black;
+  user-select: none;
+  opacity: 0.5;
+  position: absolute;
+  z-index: 2147483647; /* max value for this property */
+}
+
+.mozResizingInfo:-moz-native-anonymous {
+  font-family: sans-serif;
+  font-size: x-small;
+  color: black;
+  background-color: #d0d0d0;
+  border: ridge 2px #d0d0d0;
+  padding: 2px;
+  position: absolute;
+  z-index: 2147483647; /* max value for this property */
+}
+
+.mozTableAddColumnBefore:-moz-native-anonymous,
+.mozTableAddColumnAfter:-moz-native-anonymous,
+.mozTableAddRowBefore:-moz-native-anonymous,
+.mozTableAddRowAfter:-moz-native-anonymous,
+.mozTableRemoveColumn:-moz-native-anonymous,
+.mozTableRemoveRow:-moz-native-anonymous {
+  position: absolute;
+  z-index: 2147483647; /* max value for this property */
+  text-decoration: none !important;
+  border: none 0 !important;
+  width: 4px;
+  height: 8px;
+  background-repeat: no-repeat;
+  background-position: center center;
+  user-select: none;
+}
+
+.mozTableAddColumnBefore:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-add-column-before.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-add-column-before-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-add-column-before-active.gif");
+  }
+}
+
+.mozTableAddColumnAfter:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-add-column-after.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-add-column-after-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-add-column-after-active.gif");
+  }
+}
+
+.mozTableAddRowBefore:-moz-native-anonymous,
+.mozTableAddRowAfter:-moz-native-anonymous {
+  width: 8px;
+  height: 4px;
+}
+
+.mozTableAddRowBefore:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-add-row-before.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-add-row-before-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-add-row-before-active.gif");
+  }
+}
+
+.mozTableAddRowAfter:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-add-row-after.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-add-row-after-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-add-row-after-active.gif");
+  }
+}
+
+.mozTableRemoveColumn:-moz-native-anonymous,
+.mozTableRemoveRow:-moz-native-anonymous {
+  width: 8px;
+  height: 8px;
+}
+
+.mozTableRemoveColumn:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-remove-column.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-remove-column-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-remove-column-active.gif");
+  }
+}
+
+.mozTableRemoveRow:-moz-native-anonymous {
+  background-image: url("resource://gre/res/table-remove-row.gif");
+  &:hover {
+    background-image: url("resource://gre/res/table-remove-row-hover.gif");
+  }
+  &:active {
+    background-image: url("resource://gre/res/table-remove-row-active.gif");
+  }
+}

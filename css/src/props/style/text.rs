@@ -372,6 +372,13 @@ pub enum StyleVerticalAlign {
     Center,
     Bottom,
 }
+
+impl_option!(
+    StyleVerticalAlign,
+    OptionStyleVerticalAlign,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl Default for StyleVerticalAlign {
     fn default() -> Self {
         StyleVerticalAlign::Top
@@ -384,6 +391,17 @@ impl PrintAsCssValue for StyleVerticalAlign {
             StyleVerticalAlign::Center => "center",
             StyleVerticalAlign::Bottom => "bottom",
         })
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleVerticalAlign {
+    fn format_as_rust_code(&self, _: usize) -> String {
+        match self {
+            StyleVerticalAlign::Top => "StyleVerticalAlign::Top",
+            StyleVerticalAlign::Center => "StyleVerticalAlign::Center",
+            StyleVerticalAlign::Bottom => "StyleVerticalAlign::Bottom",
+        }
+        .to_string()
     }
 }
 
