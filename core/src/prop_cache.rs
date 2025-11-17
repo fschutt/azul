@@ -29,6 +29,23 @@ extern crate alloc;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
 
+/// Tracks the origin of a CSS property value.
+/// Used to correctly implement the CSS cascade and inheritance rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssPropertyOrigin {
+    /// Property was inherited from parent node (only for inheritable properties)
+    Inherited,
+    /// Property is the node's own value (from UA CSS, CSS file, inline style, or user override)
+    Own,
+}
+
+/// A CSS property with its origin tracking.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CssPropertyWithOrigin {
+    pub property: CssProperty,
+    pub origin: CssPropertyOrigin,
+}
+
 /// Represents a single step in a CSS property dependency chain.
 /// Example: "10% of node 5" or "1.2em of node 3"
 #[derive(Debug, Clone, PartialEq)]
@@ -252,7 +269,9 @@ pub struct CssPropertyCache {
     // This cache contains the final computed values after inheritance resolution.
     // Updated whenever a property changes or the DOM structure changes.
     // Properties are stored in contiguous memory per node for efficient access.
-    pub computed_values: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    // Each property is tagged with its origin (Inherited vs Own) to correctly handle
+    // the CSS cascade when properties are updated.
+    pub computed_values: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
     
     // NEW: Dependency chains for relative values (em, %, rem, etc.)
     // Maps NodeId → PropertyType → DependencyChain
@@ -1282,12 +1301,12 @@ impl CssPropertyCache {
             // This provides efficient access to pre-resolved inherited values
             // without needing to walk up the tree
             if css_property_type.is_inheritable() {
-                if let Some(p) = self
+                if let Some(prop_with_origin) = self
                     .computed_values
                     .get(node_id)
                     .and_then(|map| map.get(css_property_type))
                 {
-                    return Some(p);
+                    return Some(&prop_with_origin.property);
                 }
             }
         }
@@ -3579,6 +3598,80 @@ impl CssPropertyCache {
         }
     }
 
+    /// Applies user-agent (UA) CSS properties to the cascade before inheritance.
+    ///
+    /// UA CSS has the lowest priority in the cascade, so it should only be applied
+    /// if the node doesn't already have the property from inline styles or author CSS.
+    ///
+    /// This is critical for text nodes: UA CSS properties (like font-weight: bold for H1)
+    /// must be in the cascade maps so they can be inherited by child text nodes.
+    ///
+    /// # Arguments
+    /// * `node_data` - Array of node data indexed by NodeId
+    pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
+        use azul_css::props::property::CssPropertyType;
+        
+        // Apply UA CSS to all nodes
+        for (node_index, node) in node_data.iter().enumerate() {
+            let node_id = NodeId::new(node_index);
+            let node_type = &node.node_type;
+            
+            // Get all possible CSS property types and check if UA CSS defines them
+            // We need to check all properties that this node type might have
+            let property_types = [
+                CssPropertyType::Display,
+                CssPropertyType::Width,
+                CssPropertyType::Height,
+                CssPropertyType::FontSize,
+                CssPropertyType::FontWeight,
+                CssPropertyType::FontFamily,
+                CssPropertyType::MarginTop,
+                CssPropertyType::MarginBottom,
+                CssPropertyType::MarginLeft,
+                CssPropertyType::MarginRight,
+                CssPropertyType::PaddingTop,
+                CssPropertyType::PaddingBottom,
+                CssPropertyType::PaddingLeft,
+                CssPropertyType::PaddingRight,
+                // Add more as needed
+            ];
+            
+            for prop_type in &property_types {
+                // Check if UA CSS defines this property for this node type
+                if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type.clone(), *prop_type) {
+                    // Only insert if the property is NOT already set by inline CSS or author CSS
+                    // UA CSS has LOWEST priority
+                    let has_inline = node.inline_css_props.iter().any(|p| {
+                        if let NodeDataInlineCssProperty::Normal(prop) = p {
+                            prop.get_type() == *prop_type
+                        } else {
+                            false
+                        }
+                    });
+                    
+                    let has_css = self.css_normal_props
+                        .get(&node_id)
+                        .map(|map| map.contains_key(prop_type))
+                        .unwrap_or(false);
+                    
+                    let has_cascaded = self.cascaded_normal_props
+                        .get(&node_id)
+                        .map(|map| map.contains_key(prop_type))
+                        .unwrap_or(false);
+                    
+                    // Insert UA CSS only if not already present (lowest priority)
+                    if !has_inline && !has_css && !has_cascaded {
+                        self.cascaded_normal_props
+                            .entry(node_id)
+                            .or_insert_with(|| BTreeMap::new())
+                            .entry(*prop_type)
+                            .or_insert_with(|| ua_prop.clone());
+                    }
+                }
+            }
+        }
+    }
+
     /// Compute inherited values and dependency chains for all nodes in the DOM tree.
     /// 
     /// This implements a dependency-chain-based CSS inheritance system:
@@ -3590,6 +3683,9 @@ impl CssPropertyCache {
     ///
     /// The dependency chains are later resolved during layout when all context is available.
     /// This avoids premature resolution of % values that depend on layout dimensions.
+    ///
+    /// IMPORTANT: Call apply_ua_css() BEFORE this function to ensure UA CSS properties
+    /// are available for inheritance (especially for text nodes).
     ///
     /// # Arguments
     /// * `node_hierarchy` - The DOM tree structure
@@ -3620,9 +3716,13 @@ impl CssPropertyCache {
             
             // Step 1: Inherit inheritable properties from parent
             if let Some(parent_values) = parent_computed {
-                for (prop_type, prop_value) in parent_values.iter() {
+                for (prop_type, prop_with_origin) in parent_values.iter() {
                     if prop_type.is_inheritable() {
-                        node_computed_values.insert(*prop_type, prop_value.clone());
+                        // Mark as inherited from parent
+                        node_computed_values.insert(*prop_type, CssPropertyWithOrigin {
+                            property: prop_with_origin.property.clone(),
+                            origin: CssPropertyOrigin::Inherited,
+                        });
                         
                         // Also inherit the dependency chain if it exists
                         if let Some(parent_chains) = parent_id.and_then(|pid| self.dependency_chains.get(&pid)) {
@@ -3634,67 +3734,88 @@ impl CssPropertyCache {
                 }
             }
             
-            // Helper closure to process a property and resolve dependencies
-            let mut process_property = |prop: &CssProperty| {
-                let prop_type = prop.get_type();
-                
-                // Try to resolve em/% values:
-                // - For font-size: use parent's font-size as reference
-                // - For other properties with em: use current node's font-size as reference
-                // - For other properties with %: defer to layout (needs containing block)
-                let resolved_prop = if prop_type == CssPropertyType::FontSize {
-                    // Font-size em/% refers to PARENT's font-size
-                    if let Some(parent_values) = parent_computed {
-                        if let Some(parent_font_size) = parent_values.get(&CssPropertyType::FontSize) {
-                            Self::resolve_property_dependency(prop, parent_font_size)
-                                .unwrap_or_else(|| prop.clone())
+            // Helper macro to process a property and resolve dependencies
+            // This marks the property as Own (not inherited)
+            macro_rules! process_property {
+                ($prop:expr) => {{
+                    let prop = $prop;
+                    let prop_type = prop.get_type();
+                    
+                    // Try to resolve em/% values:
+                    // - For font-size: use parent's font-size as reference
+                    // - For other properties with em: use current node's font-size as reference
+                    // - For other properties with %: defer to layout (needs containing block)
+                    let resolved_prop = if prop_type == CssPropertyType::FontSize {
+                        // Font-size em/% refers to PARENT's font-size
+                        if let Some(parent_values) = parent_computed {
+                            if let Some(parent_font_size) = parent_values.get(&CssPropertyType::FontSize) {
+                                Self::resolve_property_dependency(prop, &parent_font_size.property)
+                                    .unwrap_or_else(|| prop.clone())
+                            } else {
+                                prop.clone()
+                            }
                         } else {
                             prop.clone()
                         }
                     } else {
-                        prop.clone()
+                        // Other properties with em refer to CURRENT element's font-size
+                        // We need to look up the current element's computed font-size
+                        if let Some(current_font_size) = node_computed_values.get(&CssPropertyType::FontSize) {
+                            Self::resolve_property_dependency(prop, &current_font_size.property)
+                                .unwrap_or_else(|| prop.clone())
+                        } else {
+                            // No font-size computed yet, store as-is
+                            prop.clone()
+                        }
+                    };
+                    
+                    // Mark as Own property (not inherited)
+                    node_computed_values.insert(prop_type, CssPropertyWithOrigin {
+                        property: resolved_prop.clone(),
+                        origin: CssPropertyOrigin::Own,
+                    });
+                    
+                    // Build dependency chain for this property (for tracking invalidations)
+                    if let Some(chain) = self.build_dependency_chain(node_id, parent_id, &resolved_prop) {
+                        node_dependency_chains.insert(prop_type, chain);
                     }
-                } else {
-                    // Other properties with em refer to CURRENT element's font-size
-                    // We need to look up the current element's computed font-size
-                    if let Some(current_font_size) = node_computed_values.get(&CssPropertyType::FontSize) {
-                        Self::resolve_property_dependency(prop, current_font_size)
-                            .unwrap_or_else(|| prop.clone())
-                    } else {
-                        // No font-size computed yet, store as-is
-                        prop.clone()
-                    }
-                };
-                
-                node_computed_values.insert(prop_type, resolved_prop.clone());
-                
-                // Build dependency chain for this property (for tracking invalidations)
-                if let Some(chain) = self.build_dependency_chain(node_id, parent_id, &resolved_prop) {
-                    node_dependency_chains.insert(prop_type, chain);
-                }
-            };
+                }}
+            }
             
-            // Step 2: Skip cascaded properties - they're already processed by restyle()
-            // and may contain unresolved relative values that would create conflicts
+            // Step 2: Apply cascaded properties (UA CSS, properties from previous inheritance iterations)
+            // These are the node's OWN properties, not inherited from parent
+            // Only apply if not already set OR if existing value is inherited (own properties override inherited)
+            if let Some(cascaded_props) = self.cascaded_normal_props.get(&node_id).cloned() {
+                for (prop_type, prop) in cascaded_props.iter() {
+                    let should_apply = match node_computed_values.get(prop_type) {
+                        None => true, // Not set yet
+                        Some(existing) => existing.origin == CssPropertyOrigin::Inherited, // Override inherited
+                    };
+                    
+                    if should_apply {
+                        process_property!(prop);
+                    }
+                }
+            }
             
             // Step 3: Override with CSS properties (from stylesheets)
             if let Some(css_props) = self.css_normal_props.get(&node_id) {
                 for (_, prop) in css_props.iter() {
-                    process_property(prop);
+                    process_property!(prop);
                 }
             }
             
             // Step 4: Override with inline CSS properties (from style attribute)
             for inline_prop in node_data[node_index].inline_css_props.iter() {
                 if let NodeDataInlineCssProperty::Normal(prop) = inline_prop {
-                    process_property(prop);
+                    process_property!(prop);
                 }
             }
             
             // Step 5: Override with user-overridden properties (from callbacks)
             if let Some(user_props) = self.user_overridden_properties.get(&node_id) {
                 for (_, prop) in user_props.iter() {
-                    process_property(prop);
+                    process_property!(prop);
                 }
             }
             
@@ -3817,11 +3938,14 @@ impl CssPropertyCache {
         let prop_type = property.get_type();
         let mut affected_nodes = Vec::new();
         
-        // Step 1: Update the property value
+        // Step 1: Update the property value (mark as Own since it's an override)
         self.computed_values
             .entry(node_id)
             .or_insert_with(BTreeMap::new)
-            .insert(prop_type, property.clone());
+            .insert(prop_type, CssPropertyWithOrigin {
+                property: property.clone(),
+                origin: CssPropertyOrigin::Own,
+            });
         
         // Step 2: Rebuild the dependency chain
         let parent_id = node_hierarchy.get(node_id.index()).and_then(|h| h.parent_id());

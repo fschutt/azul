@@ -96,11 +96,14 @@ use crate::dom::NodeType;
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::{length::PercentageValue, pixel::PixelValue, StyleFontSize},
+        basic::{length::PercentageValue, pixel::PixelValue, StyleFontSize, font::StyleFontWeight},
         layout::{
             display::LayoutDisplay,
             dimensions::{LayoutWidth, LayoutHeight},
-            spacing::{LayoutMarginTop, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight},
+            spacing::{
+                LayoutMarginTop, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
+                LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            },
         },
         property::{CssProperty, CssPropertyType},
     },
@@ -275,19 +278,125 @@ static FONT_SIZE_0_67EM: CssProperty = CssProperty::FontSize(CssPropertyValue::E
     },
 ));
 
-// TODO: Uncomment when StyleFontWeight is implemented in azul-css
-// const FONT_WEIGHT_BOLD: CssProperty = CssProperty::FontWeight(StyleFontWeightValue::Exact(
-//     StyleFontWeight::Bold,
-// ));
+/// margin-top: 1em (for P)
+static MARGIN_TOP_1EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em(1),
+    },
+));
 
-// const FONT_WEIGHT_BOLDER: CssProperty = CssProperty::FontWeight(StyleFontWeightValue::Exact(
-//     StyleFontWeight::Bolder,
-// ));
+/// margin-bottom: 1em (for P)
+static MARGIN_BOTTOM_1EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em(1),
+    },
+));
+
+/// margin-top: 0.67em (for H1)
+static MARGIN_TOP_0_67EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(0, 67),
+    },
+));
+
+/// margin-bottom: 0.67em (for H1)
+static MARGIN_BOTTOM_0_67EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(0, 67),
+    },
+));
+
+/// margin-top: 0.83em (for H2)
+static MARGIN_TOP_0_83EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(0, 83),
+    },
+));
+
+/// margin-bottom: 0.83em (for H2)
+static MARGIN_BOTTOM_0_83EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(0, 83),
+    },
+));
+
+/// margin-top: 1.33em (for H4)
+static MARGIN_TOP_1_33EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(1, 33),
+    },
+));
+
+/// margin-bottom: 1.33em (for H4)
+static MARGIN_BOTTOM_1_33EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(1, 33),
+    },
+));
+
+/// margin-top: 1.67em (for H5)
+static MARGIN_TOP_1_67EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(1, 67),
+    },
+));
+
+/// margin-bottom: 1.67em (for H5)
+static MARGIN_BOTTOM_1_67EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(1, 67),
+    },
+));
+
+/// margin-top: 2.33em (for H6)
+static MARGIN_TOP_2_33EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(2, 33),
+    },
+));
+
+/// margin-bottom: 2.33em (for H6)
+static MARGIN_BOTTOM_2_33EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(2, 33),
+    },
+));
+
+/// font-weight: bold (for headings)
+static FONT_WEIGHT_BOLD: CssProperty = CssProperty::FontWeight(CssPropertyValue::Exact(
+    StyleFontWeight::Bold,
+));
+
+/// font-weight: bolder
+static FONT_WEIGHT_BOLDER: CssProperty = CssProperty::FontWeight(CssPropertyValue::Exact(
+    StyleFontWeight::Bolder,
+));
+
+// Table cell padding - Chrome UA CSS default: 1px
+static PADDING_1PX: CssProperty = CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
+    inner: PixelValue::const_px(1),
+}));
+
+static PADDING_TOP_1PX: CssProperty = CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
+    inner: PixelValue::const_px(1),
+}));
+
+static PADDING_BOTTOM_1PX: CssProperty = CssProperty::PaddingBottom(CssPropertyValue::Exact(LayoutPaddingBottom {
+    inner: PixelValue::const_px(1),
+}));
+
+static PADDING_LEFT_1PX: CssProperty = CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
+    inner: PixelValue::const_px(1),
+}));
+
+static PADDING_RIGHT_1PX: CssProperty = CssProperty::PaddingRight(CssPropertyValue::Exact(LayoutPaddingRight {
+    inner: PixelValue::const_px(1),
+}));
 
 // TODO: Uncomment when TextDecoration is implemented in azul-css
 // const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
 //     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
-// );
+// ));
 
 // TODO: Uncomment when LineHeight is implemented in azul-css
 // const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
@@ -351,6 +460,8 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         (Div, PT::Width) => Some(&WIDTH_100_PERCENT),
         (P, PT::Display) => Some(&DISPLAY_BLOCK),
         (P, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (Main, PT::Display) => Some(&DISPLAY_BLOCK),
         (Main, PT::Width) => Some(&WIDTH_100_PERCENT),
         (Header, PT::Display) => Some(&DISPLAY_BLOCK),
@@ -366,36 +477,48 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         (Nav, PT::Display) => Some(&DISPLAY_BLOCK),
         (Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
 
-        // Headings
+        // Headings - Chrome UA CSS values
         (H1, PT::Display) => Some(&DISPLAY_BLOCK),
         (H1, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
-        // (H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H1, PT::MarginTop) => Some(&MARGIN_TOP_0_67EM),
+        (H1, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_67EM),
 
         (H2, PT::Display) => Some(&DISPLAY_BLOCK),
         (H2, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H2, PT::FontSize) => Some(&FONT_SIZE_1_5EM),
-        // (H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H2, PT::MarginTop) => Some(&MARGIN_TOP_0_83EM),
+        (H2, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_83EM),
 
         (H3, PT::Display) => Some(&DISPLAY_BLOCK),
         (H3, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H3, PT::FontSize) => Some(&FONT_SIZE_1_17EM),
-        // (H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H3, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (H3, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
 
         (H4, PT::Display) => Some(&DISPLAY_BLOCK),
         (H4, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H4, PT::FontSize) => Some(&FONT_SIZE_1EM),
-        // (H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H4, PT::MarginTop) => Some(&MARGIN_TOP_1_33EM),
+        (H4, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_33EM),
 
         (H5, PT::Display) => Some(&DISPLAY_BLOCK),
         (H5, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H5, PT::FontSize) => Some(&FONT_SIZE_0_83EM),
-        // (H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H5, PT::MarginTop) => Some(&MARGIN_TOP_1_67EM),
+        (H5, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_67EM),
 
         (H6, PT::Display) => Some(&DISPLAY_BLOCK),
         (H6, PT::Width) => Some(&WIDTH_100_PERCENT),
         (H6, PT::FontSize) => Some(&FONT_SIZE_0_67EM),
-        // (H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
+        (H6, PT::MarginBottom) => Some(&MARGIN_BOTTOM_2_33EM),
 
         // Lists
         (Ul, PT::Display) => Some(&DISPLAY_BLOCK),
@@ -445,7 +568,15 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         (TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
         (Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
         (Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (Th, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
+        (Th, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
+        (Th, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
+        (Th, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
         (Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (Td, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
+        (Td, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
+        (Td, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
+        (Td, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
 
         // Form Elements
         (Form, PT::Display) => Some(&DISPLAY_BLOCK),

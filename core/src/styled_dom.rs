@@ -624,6 +624,19 @@ impl StyledDom {
             &html_tree.as_ref(),
         );
 
+        // Apply UA CSS properties to all nodes (lowest priority in cascade)
+        // This MUST be done before compute_inherited_values() so that UA CSS
+        // properties can be inherited by child nodes (especially text nodes)
+        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+
+        // Compute inherited values for all nodes (resolves em, %, etc.)
+        // This must be called after restyle() and apply_ua_css() to ensure
+        // CSS properties are available for inheritance
+        css_property_cache.compute_inherited_values(
+            node_hierarchy.as_container().internal,
+            compact_dom.node_data.as_ref().internal,
+        );
+
         tag_ids
             .iter()
             .filter_map(|tag_id_node_id_mapping| {
@@ -835,6 +848,17 @@ impl StyledDom {
             &self.node_hierarchy,
             &self.non_leaf_nodes,
             &self.cascade_info.as_container(),
+        );
+
+        // Apply UA CSS properties before computing inheritance
+        self.css_property_cache.downcast_mut().apply_ua_css(
+            self.node_data.as_container().internal,
+        );
+
+        // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
+        self.css_property_cache.downcast_mut().compute_inherited_values(
+            self.node_hierarchy.as_container().internal,
+            self.node_data.as_container().internal,
         );
 
         // Restyling may change the tag IDs
