@@ -28,7 +28,6 @@ use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 use crate::{
     solver3::{
-        cascade::{get_resolved_font_size, get_resolved_font_weight, get_resolved_font_style},
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{get_display_property, get_style_properties, get_writing_mode},
         layout_tree::{LayoutNode, LayoutTree},
@@ -265,59 +264,6 @@ fn convert_font_weight(weight: azul_css::props::basic::font::StyleFontWeight) ->
         StyleFontWeight::W800 => rust_fontconfig::FcWeight::ExtraBold,
         StyleFontWeight::W900 | StyleFontWeight::Bolder => rust_fontconfig::FcWeight::Black,
     }
-}
-
-/// Creates StyleProperties for a node, resolving inherited values by walking up the tree.
-///
-/// This function correctly implements CSS inheritance. Properties like `font-size`
-/// are resolved by checking ancestors if not explicitly set on the current node.
-fn get_style_properties_with_context<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
-    styled_dom: &StyledDom,
-    node_index: usize,
-) -> Arc<StyleProperties> {
-    let node = tree.get(node_index).unwrap();
-    let dom_id = node.dom_node_id.unwrap();
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
-    let cache = &styled_dom.css_property_cache.ptr;
-
-    // Resolve inherited properties by walking the tree
-    let font_size = get_resolved_font_size(tree, styled_dom, node_index);
-    let font_weight = get_resolved_font_weight(tree, styled_dom, node_index);
-    let font_style = get_resolved_font_style(tree, styled_dom, node_index);
-
-    // Get non-inherited properties directly
-    let font_family_name = cache
-        .get_font_family(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .and_then(|v| v.get(0).map(|f| f.as_string()))
-        .unwrap_or_else(|| "sans-serif".to_string());
-
-    let color = cache
-        .get_text_color(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner)
-        .unwrap_or_default();
-
-    let line_height = cache
-        .get_line_height(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner.normalized() * font_size) // Resolve line-height against computed font-size
-        .unwrap_or(font_size * 1.2);
-
-    Arc::new(StyleProperties {
-        font_selector: crate::text3::cache::FontSelector {
-            family: font_family_name,
-            weight: convert_font_weight(font_weight),
-            style: convert_font_style(font_style),
-            unicode_ranges: Vec::new(),
-        },
-        font_size_px: font_size,
-        color,
-        line_height,
-        ..Default::default()
-    })
 }
 
 /// Main dispatcher for formatting context layout.
@@ -2589,8 +2535,13 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             .map(|(idx, _)| idx);
         
         if let Some(list_idx) = list_item_layout_idx {
+            // Get the DOM ID for this layout node
+            let list_dom_id_for_style = tree.get(list_idx)
+                .and_then(|n| n.dom_node_id)
+                .unwrap_or(list_dom_id);
+            
             // Generate marker text segments with proper Unicode font fallback
-            let base_style = get_style_properties_with_context(tree, ctx.styled_dom, list_idx);
+            let base_style = Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style));
             let marker_segments = generate_list_marker_segments(
                 tree,
                 ctx.styled_dom,
@@ -2650,7 +2601,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             // For text nodes, inherit style from the IFC root (their parent in the layout tree)
             content.push(InlineContent::Text(StyledRun {
                 text: text_content.to_string(),
-                style: get_style_properties_with_context(tree, ctx.styled_dom, ifc_root_index),
+                style: Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id)),
                 logical_start_byte: 0,
             }));
             // Text nodes don't have layout tree nodes, so we don't add them to child_map

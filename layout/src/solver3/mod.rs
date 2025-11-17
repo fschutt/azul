@@ -3,7 +3,6 @@
 //! Next-generation CSS layout engine with proper formatting context separation
 
 pub mod cache;
-pub mod cascade;
 pub mod counters;
 pub mod display_list;
 pub mod fc;
