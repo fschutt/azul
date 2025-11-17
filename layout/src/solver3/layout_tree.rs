@@ -732,6 +732,8 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
     use crate::solver3::getters::*;
     use azul_css::props::basic::PixelValue;
     
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    
     // Get styled node state
     let node_state = styled_dom
         .styled_nodes
@@ -752,11 +754,16 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
     };
     
     // Read margin, padding, border from styled_dom
+    let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
+    let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
+    let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
+    let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
+    
     let margin = crate::solver3::geometry::EdgeSizes {
-        top: to_pixels(get_css_margin_top(styled_dom, dom_id, &node_state)),
-        right: to_pixels(get_css_margin_right(styled_dom, dom_id, &node_state)),
-        bottom: to_pixels(get_css_margin_bottom(styled_dom, dom_id, &node_state)),
-        left: to_pixels(get_css_margin_left(styled_dom, dom_id, &node_state)),
+        top: to_pixels(margin_top_mv),
+        right: to_pixels(margin_right_mv),
+        bottom: to_pixels(margin_bottom_mv),
+        left: to_pixels(margin_left_mv),
     };
     
     let padding = crate::solver3::geometry::EdgeSizes {
@@ -912,24 +919,21 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
             .get_display(node_data, &node_id, node_state)
             .and_then(|v| v.get_property().copied())
         {
-            eprintln!("  get_display_type: CSS FOUND display={:?}", d);
             return d;
         }
         
-        // 2. Check User Agent CSS
-        let node_type = styled_dom.node_data.as_container()[node_id].node_type.clone();
+        // 2. Check User Agent CSS (always returns a value for display)
+        let node_type = &styled_dom.node_data.as_container()[node_id].node_type;
         if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, azul_css::props::property::CssPropertyType::Display) {
             if let azul_css::props::property::CssProperty::Display(azul_css::css::CssPropertyValue::Exact(d)) = ua_prop {
-                eprintln!("  get_display_type: UA CSS FOUND display={:?}", d);
                 return *d;
             }
         }
     }
 
-    // 3. Fallback to type default (should match UA CSS)
-    let default_display = LayoutDisplay::default();
-    eprintln!("  get_display_type: Using TYPE DEFAULT display={:?}", default_display);
-    default_display
+    // 3. Final fallback (should never be reached since UA CSS always provides display)
+    // Inline is the safest default per CSS spec
+    LayoutDisplay::Inline
 }
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.

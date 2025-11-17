@@ -330,8 +330,8 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ) -> Result<LayoutOutput> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
-    eprintln!("[layout_formatting_context] node_index={}, fc={:?}, constraints.available_size={:?}", 
-        node_index, node.formatting_context, constraints.available_size);
+    ctx.debug_info(format!("[layout_formatting_context] node_index={}, fc={:?}, available_size={:?}", 
+        node_index, node.formatting_context, constraints.available_size));
 
     match node.formatting_context {
         FormattingContext::Block { .. } => {
@@ -422,8 +422,6 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    eprintln!("[layout_bfc] CALLED for node_index={}", node_index);
-    
     let node = tree
         .get(node_index)
         .ok_or(LayoutError::InvalidTree)?
@@ -469,8 +467,6 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
 
-    eprintln!("[layout_bfc] Pass 2: Positioning {} children", node.children.len());
-
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
@@ -484,9 +480,6 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
 
-        eprintln!("[layout_bfc]   Child {}: margin=({:.2}, {:.2}, {:.2}, {:.2})", 
-            child_index, child_margin.top, child_margin.right, child_margin.bottom, child_margin.left);
-
         // 1. Advance the pen by the child's starting margin.
         main_pen += child_margin.main_start(writing_mode);
 
@@ -496,9 +489,6 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
-        
-        eprintln!("[layout_bfc]   Child {}: main_pos={:.2}, cross_pos={:.2}, size={:?}", 
-            child_index, child_main_pos, child_cross_pos, child_size);
         
         output.positions.insert(child_index, final_pos);
 
@@ -555,32 +545,29 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    eprintln!("[layout_ifc] CALLED for node_index={}", node_index);
+    ctx.debug_ifc_layout(format!("CALLED for node_index={}", node_index));
 
     let ifc_root_dom_id = tree
         .get(node_index)
         .and_then(|n| n.dom_node_id)
         .ok_or(LayoutError::InvalidTree)?;
 
-    eprintln!("[layout_ifc] ifc_root_dom_id={:?}", ifc_root_dom_id);
+    ctx.debug_ifc_layout(format!("ifc_root_dom_id={:?}", ifc_root_dom_id));
 
     // Phase 1: Collect and measure all inline-level children.
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
 
-    eprintln!(
-        "[layout_ifc] Collected {} inline content items",
-        inline_content.len()
-    );
+    ctx.debug_ifc_layout(format!("Collected {} inline content items", inline_content.len()));
 
     if inline_content.is_empty() {
-        eprintln!("[layout_ifc] WARNING: inline_content is empty, returning default output!");
+        ctx.debug_warning("inline_content is empty, returning default output!");
         return Ok(LayoutOutput::default());
     }
 
     // Phase 2: Translate constraints and define a single layout fragment for text3.
     let text3_constraints =
-        translate_to_text3_constraints(constraints, ctx.styled_dom, ifc_root_dom_id);
+        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
     let fragments = vec![LayoutFragment {
         id: "main".to_string(),
         constraints: text3_constraints,
@@ -593,11 +580,8 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             Err(e) => {
                 // Font errors should not stop layout of other elements.
                 // Log the error and return a zero-sized layout.
-                eprintln!("[layout_ifc] ⚠️  WARNING: Text layout failed: {:?}", e);
-                eprintln!(
-                    "[layout_ifc] ⚠️  Continuing with zero-sized layout for node {}",
-                    node_index
-                );
+                ctx.debug_warning(format!("Text layout failed: {:?}", e));
+                ctx.debug_warning(format!("Continuing with zero-sized layout for node {}", node_index));
 
                 let mut output = LayoutOutput::default();
                 output.overflow_size = LogicalSize::new(0.0, 0.0);
@@ -609,23 +593,23 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let mut output = LayoutOutput::default();
     let node = tree.get_mut(node_index).ok_or(LayoutError::InvalidTree)?;
 
-    eprintln!(
-        "[layout_ifc] text_layout_result has {} fragment_layouts",
+    ctx.debug_ifc_layout(format!(
+        "text_layout_result has {} fragment_layouts",
         text_layout_result.fragment_layouts.len()
-    );
+    ));
 
     if let Some(main_frag) = text_layout_result.fragment_layouts.get("main") {
         let frag_bounds = main_frag.bounds();
-        eprintln!(
-            "[layout_ifc] ✓ Found 'main' fragment with {} items, bounds={}x{}",
+        ctx.debug_ifc_layout(format!(
+            "Found 'main' fragment with {} items, bounds={}x{}",
             main_frag.items.len(),
             frag_bounds.width,
             frag_bounds.height
-        );
-        eprintln!(
-            "[layout_ifc] ✓ Storing inline_layout_result on node {}",
+        ));
+        ctx.debug_ifc_layout(format!(
+            "Storing inline_layout_result on node {}",
             node_index
-        );
+        ));
 
         // Store the detailed result for the display list generator.
         node.inline_layout_result = Some(main_frag.clone());
@@ -653,7 +637,8 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
-fn translate_to_text3_constraints<'a>(
+fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -715,52 +700,52 @@ fn translate_to_text3_constraints<'a>(
     };
 
     // shape-inside: Text flows within the shape boundary
-    eprintln!("[DEBUG] Checking shape-inside for node {:?}", id);
-    eprintln!("[DEBUG] Reference box: {:?} (available_size height was: {})", reference_box, constraints.available_size.height);
+    ctx.debug_info(format!("Checking shape-inside for node {:?}", id));
+    ctx.debug_info(format!("Reference box: {:?} (available_size height was: {})", reference_box, constraints.available_size.height));
     
     let shape_boundaries = styled_dom
         .css_property_cache
         .ptr
         .get_shape_inside(node_data, &id, node_state)
         .and_then(|v| {
-            eprintln!("[DEBUG] Got shape-inside value: {:?}", v);
+            ctx.debug_info(format!("Got shape-inside value: {:?}", v));
             v.get_property()
         })
         .and_then(|shape_inside| {
-            eprintln!("[DEBUG] shape-inside property: {:?}", shape_inside);
+            ctx.debug_info(format!("shape-inside property: {:?}", shape_inside));
             if let azul_css::props::layout::ShapeInside::Shape(css_shape) = shape_inside {
-                eprintln!("[DEBUG] Converting CSS shape to ShapeBoundary: {:?}", css_shape);
+                ctx.debug_info(format!("Converting CSS shape to ShapeBoundary: {:?}", css_shape));
                 let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
-                eprintln!("[DEBUG] Created ShapeBoundary: {:?}", boundary);
+                ctx.debug_info(format!("Created ShapeBoundary: {:?}", boundary));
                 Some(vec![boundary])
             } else {
-                eprintln!("[DEBUG] shape-inside is None");
+                ctx.debug_info("shape-inside is None");
                 None
             }
         })
         .unwrap_or_default();
     
-    eprintln!("[DEBUG] Final shape_boundaries count: {}", shape_boundaries.len());
+    ctx.debug_info(format!("Final shape_boundaries count: {}", shape_boundaries.len()));
 
     // shape-outside: Text wraps around the shape (adds to exclusions)
-    eprintln!("[DEBUG] Checking shape-outside for node {:?}", id);
+    ctx.debug_info(format!("Checking shape-outside for node {:?}", id));
     if let Some(shape_outside_value) = styled_dom
         .css_property_cache
         .ptr
         .get_shape_outside(node_data, &id, node_state)
     {
-        eprintln!("[DEBUG] Got shape-outside value: {:?}", shape_outside_value);
+        ctx.debug_info(format!("Got shape-outside value: {:?}", shape_outside_value));
         if let Some(shape_outside) = shape_outside_value.get_property() {
-            eprintln!("[DEBUG] shape-outside property: {:?}", shape_outside);
+            ctx.debug_info(format!("shape-outside property: {:?}", shape_outside));
             if let azul_css::props::layout::ShapeOutside::Shape(css_shape) = shape_outside {
-                eprintln!("[DEBUG] Converting CSS shape-outside to ShapeBoundary: {:?}", css_shape);
+                ctx.debug_info(format!("Converting CSS shape-outside to ShapeBoundary: {:?}", css_shape));
                 let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
-                eprintln!("[DEBUG] Created ShapeBoundary (exclusion): {:?}", boundary);
+                ctx.debug_info(format!("Created ShapeBoundary (exclusion): {:?}", boundary));
                 shape_exclusions.push(boundary);
             }
         }
     } else {
-        eprintln!("[DEBUG] No shape-outside value found");
+        ctx.debug_info("No shape-outside value found");
     }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
@@ -831,13 +816,13 @@ fn translate_to_text3_constraints<'a>(
             azul_css::props::style::StyleDirection::Rtl => text3::cache::Direction::Rtl,
         });
 
-    eprintln!(
-        "[translate_to_text3_constraints] dom_id={:?}, available_size={}x{}, setting available_width={}",
+    ctx.debug_info(format!(
+        "dom_id={:?}, available_size={}x{}, setting available_width={}",
         dom_id,
         constraints.available_size.width,
         constraints.available_size.height,
         constraints.available_size.width
-    );
+    ));
 
     let text_indent = styled_dom
         .css_property_cache
@@ -1474,8 +1459,8 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ) -> Result<LayoutOutput> {
     ctx.debug_log("Laying out table");
     
-    eprintln!("[layout_table_fc] node_index={}, constraints.available_size={:?}, constraints.writing_mode={:?}", 
-        node_index, constraints.available_size, constraints.writing_mode);
+    ctx.debug_table_layout(format!("node_index={}, available_size={:?}, writing_mode={:?}", 
+        node_index, constraints.available_size, constraints.writing_mode));
     
     // Multi-pass table layout algorithm:
     // 1. Analyze table structure - identify rows, cells, columns
@@ -1517,17 +1502,17 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         (table_border_box_width - padding_width - border_width).max(0.0)
     };
     
-    eprintln!("\n========== TABLE LAYOUT DEBUG ==========");
-    eprintln!("[TABLE] Node index: {}", node_index);
-    eprintln!("[TABLE] Available size from parent: {:.2} x {:.2}", 
-        constraints.available_size.width, constraints.available_size.height);
-    eprintln!("[TABLE] Table border-box width: {:.2}", table_border_box_width);
-    eprintln!("[TABLE] Table content-box width: {:.2}", table_content_box_width);
-    eprintln!("[TABLE] Table padding: L={:.2} R={:.2}", 
-        table_node.box_props.padding.left, table_node.box_props.padding.right);
-    eprintln!("[TABLE] Table border: L={:.2} R={:.2}", 
-        table_node.box_props.border.left, table_node.box_props.border.right);
-    eprintln!("=======================================\n");
+    ctx.debug_table_layout("========== TABLE LAYOUT DEBUG ==========");
+    ctx.debug_table_layout(format!("Node index: {}", node_index));
+    ctx.debug_table_layout(format!("Available size from parent: {:.2} x {:.2}", 
+        constraints.available_size.width, constraints.available_size.height));
+    ctx.debug_table_layout(format!("Table border-box width: {:.2}", table_border_box_width));
+    ctx.debug_table_layout(format!("Table content-box width: {:.2}", table_content_box_width));
+    ctx.debug_table_layout(format!("Table padding: L={:.2} R={:.2}", 
+        table_node.box_props.padding.left, table_node.box_props.padding.right));
+    ctx.debug_table_layout(format!("Table border: L={:.2} R={:.2}", 
+        table_node.box_props.border.left, table_node.box_props.border.right));
+    ctx.debug_table_layout("=======================================");
     
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
@@ -1549,22 +1534,21 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Phase 3: Calculate column widths
     if table_ctx.use_fixed_layout {
         // DEBUG: Log available width passed into fixed column calculation
-        eprintln!("[layout_table_fc] FIXED layout: table_content_box_width={:.2}",
-            table_content_box_width);
-        calculate_column_widths_fixed(&mut table_ctx, table_content_box_width);
+        ctx.debug_table_layout(format!("FIXED layout: table_content_box_width={:.2}",
+            table_content_box_width));
+        calculate_column_widths_fixed(ctx, &mut table_ctx, table_content_box_width);
     } else {
         // Pass table_content_box_width for column distribution in auto layout
         calculate_column_widths_auto_with_width(&mut table_ctx, tree, text_cache, ctx, constraints, table_content_box_width)?;
     }
     
-    eprintln!("\n[TABLE] After column width calculation:");
-    eprintln!("[TABLE]   Number of columns: {}", table_ctx.columns.len());
+    ctx.debug_table_layout("After column width calculation:");
+    ctx.debug_table_layout(format!("  Number of columns: {}", table_ctx.columns.len()));
     for (i, col) in table_ctx.columns.iter().enumerate() {
-        eprintln!("[TABLE]   Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0));
+        ctx.debug_table_layout(format!("  Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0)));
     }
     let total_col_width: f32 = table_ctx.columns.iter().filter_map(|c| c.computed_width).sum();
-    eprintln!("[TABLE]   Total column width: {:.2}", total_col_width);
-    eprintln!();
+    ctx.debug_table_layout(format!("  Total column width: {:.2}", total_col_width));
     
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
@@ -1578,8 +1562,8 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .sum();
     let mut table_height: f32 = table_ctx.row_heights.iter().sum();
     
-    eprintln!("[layout_table_fc] After calculate_row_heights: table_height={:.2}, row_heights={:?}", 
-        table_height, table_ctx.row_heights);
+    ctx.debug_table_layout(format!("After calculate_row_heights: table_height={:.2}, row_heights={:?}", 
+        table_height, table_ctx.row_heights));
     
     // Add border-spacing to table size if border-collapse is separate
     use azul_css::props::layout::StyleBorderCollapse;
@@ -1659,12 +1643,12 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Total table height includes caption
     let total_height = table_height + caption_height;
     
-    eprintln!("\n[TABLE] Final table dimensions:");
-    eprintln!("[TABLE]   Content width (columns): {:.2}", table_width);
-    eprintln!("[TABLE]   Content height (rows): {:.2}", table_height);
-    eprintln!("[TABLE]   Caption height: {:.2}", caption_height);
-    eprintln!("[TABLE]   Total height: {:.2}", total_height);
-    eprintln!("========== END TABLE DEBUG ==========\n");
+    ctx.debug_table_layout("Final table dimensions:");
+    ctx.debug_table_layout(format!("  Content width (columns): {:.2}", table_width));
+    ctx.debug_table_layout(format!("  Content height (rows): {:.2}", table_height));
+    ctx.debug_table_layout(format!("  Caption height: {:.2}", caption_height));
+    ctx.debug_table_layout(format!("  Total height: {:.2}", total_height));
+    ctx.debug_table_layout("========== END TABLE DEBUG ==========");
     
     // Create output with the table's final size and cell positions
     let output = LayoutOutput {
@@ -1791,9 +1775,6 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     for &cell_idx in &row_node.children {
         if let Some(cell) = tree.get(cell_idx) {
-            eprintln!("[analyze_table_row] Checking child cell_idx={}, fc={:?}, dom_node_id={:?}", 
-                cell_idx, cell.formatting_context, cell.dom_node_id);
-            
             if matches!(cell.formatting_context, FormattingContext::TableCell) {
                 // Get colspan and rowspan (TODO: from CSS properties)
                 let colspan = 1; // TODO: Get from CSS
@@ -1806,10 +1787,7 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     row: row_num,
                     rowspan,
                 };
-                
-                eprintln!("[analyze_table_row] Added cell: node_index={}, dom_node_id={:?}, row={}, col={}", 
-                    cell_idx, cell.dom_node_id, row_num, col_index);
-                
+                                
                 table_ctx.cells.push(cell_info);
                 
                 // Update column count
@@ -1833,14 +1811,15 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Calculate column widths using the fixed table layout algorithm
 /// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is not dependent on cell contents
 /// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded from width calculations
-fn calculate_column_widths_fixed(
+fn calculate_column_widths_fixed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
     table_ctx: &mut TableLayoutContext,
     available_width: f32,
 ) {
+    ctx.debug_table_layout(format!("calculate_column_widths_fixed: num_cols={}, available_width={:.2}",
+        table_ctx.columns.len(), available_width));
+    
     // Fixed layout: distribute width equally among non-collapsed columns
-    // DEBUG: log inputs
-    eprintln!("[calculate_column_widths_fixed] num_cols={}, collapsed_columns={:?}, available_width={}",
-        table_ctx.columns.len(), table_ctx.collapsed_columns, available_width);
     // TODO: Respect column width properties and first-row cell widths
     let num_cols = table_ctx.columns.len();
     if num_cols == 0 {
@@ -2066,8 +2045,8 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait, Q: FontLoaderTrai
         .sum();
     let available_width = table_width; // Use table's content-box width, not constraints
     
-    eprintln!("[calculate_column_widths_auto] total_min_width={:.2}, total_max_width={:.2}, table_width={:.2}", 
-        total_min_width, total_max_width, table_width);
+    ctx.debug_table_layout(format!("calculate_column_widths_auto: min={:.2}, max={:.2}, table_width={:.2}", 
+        total_min_width, total_max_width, table_width));
     
     // Handle infinity and NaN cases
     if !total_max_width.is_finite() || !available_width.is_finite() {
@@ -2206,13 +2185,13 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             matches!(node_data.get_node_type(), NodeType::Text(_))
         });
     
-    eprintln!("[layout_cell_for_height] cell_index={}, cell_dom_id={:?}, has_text_children={}", 
-        cell_index, cell_dom_id, has_text_children);
+    ctx.debug_table_layout(format!("layout_cell_for_height: cell_index={}, has_text_children={}", 
+        cell_index, has_text_children));
     
     let content_height = if has_text_children {
         // Cell contains text - use IFC to measure it
         // This is the key fix: IFC traverses DOM to find text nodes
-        eprintln!("[layout_cell_for_height] Using IFC to measure text content");
+        ctx.debug_table_layout("Using IFC to measure text content");
         
         let cell_constraints = LayoutConstraints {
             available_size: LogicalSize {
@@ -2226,12 +2205,12 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
         
-        eprintln!("[layout_cell_for_height] IFC returned height={:.2}", output.overflow_size.height);
+        ctx.debug_table_layout(format!("IFC returned height={:.2}", output.overflow_size.height));
         
         output.overflow_size.height
     } else {
         // Cell contains block-level children or is empty - use regular layout
-        eprintln!("[layout_cell_for_height] Using regular layout for block children");
+        ctx.debug_table_layout("Using regular layout for block children");
         
         let cell_constraints = LayoutConstraints {
             available_size: LogicalSize {
@@ -2273,10 +2252,10 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         + border.main_start(writing_mode)
         + border.main_end(writing_mode);
     
-    eprintln!("[layout_cell_for_height] cell_index={}, content_height={:.2}, padding/border={:.2}, total_height={:.2}", 
+    ctx.debug_table_layout(format!("Cell total height: cell_index={}, content={:.2}, padding/border={:.2}, total={:.2}", 
         cell_index, content_height,
         padding.main_start(writing_mode) + padding.main_end(writing_mode) + border.main_start(writing_mode) + border.main_end(writing_mode),
-        total_height);
+        total_height));
     
     Ok(total_height)
 }
@@ -2289,8 +2268,8 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
-    eprintln!("[calculate_row_heights] num_rows={}, constraints.available_size={:?}", 
-        table_ctx.num_rows, constraints.available_size);
+    ctx.debug_table_layout(format!("calculate_row_heights: num_rows={}, available_size={:?}", 
+        table_ctx.num_rows, constraints.available_size));
     
     // Initialize row heights
     table_ctx.row_heights = vec![0.0; table_ctx.num_rows];
@@ -2319,8 +2298,8 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             }
         }
         
-        eprintln!("[calculate_row_heights] Cell node_index={}, row={}, col={}, cell_width={:.2}", 
-            cell_info.node_index, cell_info.row, cell_info.column, cell_width);
+        ctx.debug_table_layout(format!("Cell layout: node_index={}, row={}, col={}, width={:.2}", 
+            cell_info.node_index, cell_info.row, cell_info.column, cell_width));
         
         // Layout the cell to get its height
         let cell_height = layout_cell_for_height(
@@ -2332,8 +2311,8 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             constraints,
         )?;
         
-        eprintln!("[calculate_row_heights] Cell node_index={} calculated height={:.2}", 
-            cell_info.node_index, cell_height);
+        ctx.debug_table_layout(format!("Cell height calculated: node_index={}, height={:.2}", 
+            cell_info.node_index, cell_height));
         
         // For single-row cells, update the row height
         if cell_info.rowspan == 1 {
@@ -2537,10 +2516,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     tree: &mut LayoutTree<T>,
     ifc_root_index: usize,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
-    eprintln!(
-        "[collect_and_measure_inline_content] CALLED for node_index={}",
-        ifc_root_index
-    );
+    ctx.debug_ifc_layout(format!("collect_and_measure_inline_content: node_index={}", ifc_root_index));
 
     let mut content = Vec::new();
     // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
@@ -2549,7 +2525,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
     // Get the DOM node ID of the IFC root
     let Some(ifc_root_dom_id) = ifc_root_node.dom_node_id else {
-        eprintln!("[collect_and_measure_inline_content] WARNING: IFC root has no DOM ID");
+        ctx.debug_warning("IFC root has no DOM ID");
         return Ok((content, child_map));
     };
 
@@ -2557,11 +2533,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     let children: Vec<_> = ifc_root_node.children.clone();
     drop(ifc_root_node);
 
-    eprintln!(
-        "[collect_and_measure_inline_content] Node {} has {} layout children",
-        ifc_root_index,
-        children.len()
-    );
+    ctx.debug_ifc_layout(format!("Node {} has {} layout children", ifc_root_index, children.len()));
     
     // Check if this IFC root OR its parent is a list-item and needs a marker
     // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
@@ -2576,9 +2548,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         
         if let Some(display_value) = ctx.styled_dom.css_property_cache.ptr.get_display(node_data, &dom_id, &node_state) {
             if let Some(display) = display_value.get_property() {
-                eprintln!("[collect_and_measure_inline_content] IFC root NodeId({:?}) has display: {:?}", dom_id, display);
                 use azul_css::props::layout::LayoutDisplay;
                 if *display == LayoutDisplay::ListItem {
+                    ctx.debug_ifc_layout(format!("IFC root NodeId({:?}) is list-item", dom_id));
                     list_item_dom_id = Some(dom_id);
                 }
             }
@@ -2595,9 +2567,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                     
                     if let Some(display_value) = ctx.styled_dom.css_property_cache.ptr.get_display(parent_node_data, &parent_dom_id, &parent_node_state) {
                         if let Some(display) = display_value.get_property() {
-                            eprintln!("[collect_and_measure_inline_content] IFC root parent NodeId({:?}) has display: {:?}", parent_dom_id, display);
                             use azul_css::props::layout::LayoutDisplay;
                             if *display == LayoutDisplay::ListItem {
+                                ctx.debug_ifc_layout(format!("IFC root parent NodeId({:?}) is list-item", parent_dom_id));
                                 list_item_dom_id = Some(parent_dom_id);
                             }
                         }
@@ -2609,7 +2581,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     
     // If we found a list-item, generate markers
     if let Some(list_dom_id) = list_item_dom_id {
-        eprintln!("[collect_and_measure_inline_content] ✓ Found list-item (NodeId({:?})), generating marker", list_dom_id);
+        ctx.debug_ifc_layout(format!("Found list-item (NodeId({:?})), generating marker", list_dom_id));
         
         // Find the layout node index for the list-item DOM node
         let list_item_layout_idx = tree.nodes.iter().enumerate()
@@ -2628,8 +2600,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 base_style,
             );
             
+            ctx.debug_ifc_layout(format!("Generated {} list marker segments", marker_segments.len()));
             for segment in marker_segments {
-                eprintln!("[collect_and_measure_inline_content] ✓ Generated list marker segment: '{}'", segment.text);
                 content.push(InlineContent::Text(segment));
             }
         }

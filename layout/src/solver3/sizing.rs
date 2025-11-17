@@ -853,10 +853,7 @@ pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option
 
 fn debug_log(debug_messages: &mut Option<Vec<LayoutDebugMessage>>, message: &str) {
     if let Some(messages) = debug_messages {
-        messages.push(LayoutDebugMessage {
-            message: message.into(),
-            location: "sizing".into(),
-        });
+        messages.push(LayoutDebugMessage::info(message));
     }
 }
 

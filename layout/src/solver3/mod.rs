@@ -32,7 +32,7 @@ use azul_core::{
 };
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
-    LayoutDebugMessage,
+    LayoutDebugMessage, LayoutDebugMessageType,
 };
 
 use self::{
@@ -74,7 +74,62 @@ impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
             messages.push(LayoutDebugMessage {
                 message: message.into(),
                 location: "solver3".into(),
+                message_type: Default::default(),
             });
+        }
+    }
+    
+    pub fn debug_info(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::info(message));
+        }
+    }
+    
+    pub fn debug_warning(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::warning(message));
+        }
+    }
+    
+    pub fn debug_error(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::error(message));
+        }
+    }
+    
+    pub fn debug_box_props(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::box_props(message));
+        }
+    }
+    
+    pub fn debug_css_getter(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::css_getter(message));
+        }
+    }
+    
+    pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::bfc_layout(message));
+        }
+    }
+    
+    pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::ifc_layout(message));
+        }
+    }
+    
+    pub fn debug_table_layout(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::table_layout(message));
+        }
+    }
+    
+    pub fn debug_display_type(&mut self, message: impl Into<String>) {
+        if let Some(messages) = self.debug_messages.as_mut() {
+            messages.push(LayoutDebugMessage::display_type(message));
         }
     }
 }

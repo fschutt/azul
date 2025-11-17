@@ -5,12 +5,106 @@ use alloc::{
 
 use crate::props::basic::ColorU;
 
+// Debug message severity/category
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum LayoutDebugMessageType {
+    Info,
+    Warning,
+    Error,
+    // Layout-specific categories for filtering
+    BoxProps,
+    CssGetter,
+    BfcLayout,
+    IfcLayout,
+    TableLayout,
+    DisplayType,
+}
+
+impl Default for LayoutDebugMessageType {
+    fn default() -> Self {
+        Self::Info
+    }
+}
+
 // Define a struct for debug messages
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LayoutDebugMessage {
+    pub message_type: LayoutDebugMessageType,
     pub message: AzString,
     pub location: AzString,
+}
+
+impl LayoutDebugMessage {
+    /// Create a new debug message with automatic caller location tracking
+    #[track_caller]
+    pub fn new(message_type: LayoutDebugMessageType, message: impl Into<String>) -> Self {
+        let location = core::panic::Location::caller();
+        Self {
+            message_type,
+            message: AzString::from_string(message.into()),
+            location: AzString::from_string(format!("{}:{}:{}", 
+                location.file(), 
+                location.line(), 
+                location.column()
+            )),
+        }
+    }
+
+    /// Helper for Info messages
+    #[track_caller]
+    pub fn info(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::Info, message)
+    }
+
+    /// Helper for Warning messages
+    #[track_caller]
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::Warning, message)
+    }
+
+    /// Helper for Error messages
+    #[track_caller]
+    pub fn error(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::Error, message)
+    }
+
+    /// Helper for BoxProps debug messages
+    #[track_caller]
+    pub fn box_props(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::BoxProps, message)
+    }
+
+    /// Helper for CSS Getter debug messages
+    #[track_caller]
+    pub fn css_getter(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::CssGetter, message)
+    }
+
+    /// Helper for BFC Layout debug messages
+    #[track_caller]
+    pub fn bfc_layout(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::BfcLayout, message)
+    }
+
+    /// Helper for IFC Layout debug messages
+    #[track_caller]
+    pub fn ifc_layout(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::IfcLayout, message)
+    }
+
+    /// Helper for Table Layout debug messages
+    #[track_caller]
+    pub fn table_layout(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::TableLayout, message)
+    }
+
+    /// Helper for Display Type debug messages
+    #[track_caller]
+    pub fn display_type(message: impl Into<String>) -> Self {
+        Self::new(LayoutDebugMessageType::DisplayType, message)
+    }
 }
 
 #[repr(C)]

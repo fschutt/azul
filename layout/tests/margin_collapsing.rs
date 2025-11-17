@@ -10,10 +10,8 @@
 //! 4. Empty block's top and bottom margins collapse with each other
 
 use azul_core::{
-    app_resources::AppResources,
     dom::{Dom, NodeType},
     styled_dom::StyledDom,
-    ui_solver::{do_the_layout, LayoutResult},
 };
 use azul_css::{
     css::Css,
@@ -29,7 +27,7 @@ fn layout_dom(dom: &mut Dom) -> LayoutResult {
     let layout_result = do_the_layout(
         &styled_dom,
         &mut app_resources,
-        azul_core::window::LogicalSize::new(800.0, 600.0),
+        azul_core::geom::LogicalSize::new(800.0, 600.0),
         1.0, // hidpi factor
     );
     

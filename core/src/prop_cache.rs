@@ -1484,7 +1484,7 @@ impl CssPropertyCache {
 
         // User-agent stylesheet fallback (lowest precedence)
         // Check if the node type has a default value for this property
-        crate::ua_css::get_ua_property(node_data.node_type.clone(), *css_property_type)
+        crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
     }
 
     pub fn get_background_content<'a>(
@@ -3844,9 +3844,9 @@ impl CssPropertyCache {
             
             for prop_type in &property_types {
                 // Check if UA CSS defines this property for this node type
-                if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type.clone(), *prop_type) {
+                if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
                     // Debug: Show what UA CSS returns
-                    if matches!(node_type, NodeType::Text(_)) {
+                    if let NodeType::Text(_) = node_type {
                         println!("[UA_CSS] get_ua_property returned Some for Text node {}, prop {:?}", node_index, prop_type);
                     }
                     

@@ -150,18 +150,19 @@ macro_rules! get_css_property_pixel {
             let node_data = &styled_dom.node_data.as_container()[node_id];
             
             // 1. Check author CSS first
-            if let Some(val) = styled_dom
+            let author_css = styled_dom
                 .css_property_cache
                 .ptr
-                .$cache_method(node_data, &node_id, node_state)
-                .and_then(|v| v.get_property().copied())
-            {
+                .$cache_method(node_data, &node_id, node_state);
+            
+            if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
                 return MultiValue::Exact(val.inner);
             }
             
             // 2. Check User Agent CSS
-            let node_type = node_data.node_type.clone();
-            if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, $ua_property) {
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+            
+            if let Some(ua_prop) = ua_css {
                 if let Some(inner) = ua_prop.get_pixel_inner() {
                     return MultiValue::Exact(inner);
                 }
@@ -212,18 +213,19 @@ macro_rules! get_css_property {
             let node_data = &styled_dom.node_data.as_container()[node_id];
             
             // 1. Check author CSS first
-            if let Some(val) = styled_dom
+            let author_css = styled_dom
                 .css_property_cache
                 .ptr
-                .$cache_method(node_data, &node_id, node_state)
-                .and_then(|v| v.get_property().copied())
-            {
+                .$cache_method(node_data, &node_id, node_state);
+            
+            if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
                 return MultiValue::Exact(val);
             }
             
             // 2. Check User Agent CSS
-            let node_type = node_data.node_type.clone();
-            if let Some(ua_prop) = azul_core::ua_css::get_ua_property(node_type, $ua_property) {
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+            
+            if let Some(ua_prop) = ua_css {
                 if let Some(val) = extract_property_value::<$return_type>(ua_prop) {
                     return MultiValue::Exact(val);
                 }
