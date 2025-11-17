@@ -772,22 +772,18 @@ mod tests {
         
         // Text nodes should not have Display
         let display = get_ua_property(text_node.clone(), CssPropertyType::Display);
-        println!("Text node Display: {:?}", display);
         assert!(display.is_none(), "Text nodes should not have UA CSS Display property, got: {:?}", display);
         
         // Text nodes should not have Width
         let width = get_ua_property(text_node.clone(), CssPropertyType::Width);
-        println!("Text node Width: {:?}", width);
         assert!(width.is_none(), "Text nodes should not have UA CSS Width property, got: {:?}", width);
         
         // Text nodes should not have FontSize
         let font_size = get_ua_property(text_node.clone(), CssPropertyType::FontSize);
-        println!("Text node FontSize: {:?}", font_size);
         assert!(font_size.is_none(), "Text nodes should not have UA CSS FontSize property, got: {:?}", font_size);
         
         // Text nodes should not have FontWeight
         let font_weight = get_ua_property(text_node.clone(), CssPropertyType::FontWeight);
-        println!("Text node FontWeight: {:?}", font_weight);
         assert!(font_weight.is_none(), "Text nodes should not have UA CSS FontWeight property, got: {:?}", font_weight);
     }
 }

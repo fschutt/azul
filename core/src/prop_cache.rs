@@ -3376,6 +3376,63 @@ impl CssPropertyCache {
     /// - `resolve_property_dependency(font-size: 2em, font-size: 16px)` → `font-size: 32px`
     /// - `resolve_property_dependency(font-size: 150%, font-size: 20px)` → `font-size: 30px`
     /// - `resolve_property_dependency(padding: 2em, font-size: 16px)` → `padding: 32px`
+    
+    /// Resolves CSS cascade keywords (inherit, initial, revert, unset) for a property.
+    ///
+    /// According to CSS Cascade spec (https://css-tricks.com/inherit-initial-unset-revert/):
+    /// - `inherit`: Use the parent's computed value (or initial value if no parent)
+    /// - `initial`: Use the CSS-defined initial value (default for that property type)
+    /// - `revert`: Roll back to the user-agent stylesheet value (if any)
+    /// - `unset`: Behaves as `inherit` for inherited properties, `initial` for non-inherited properties
+    ///
+    /// # Arguments
+    /// * `property` - The property to resolve
+    /// * `property_type` - The type of the property
+    /// * `node_type` - The node type (for UA CSS lookup)
+    /// * `parent_value` - The parent's computed value (for inheritance)
+    /// * `ua_value` - The user-agent stylesheet value (for revert)
+    ///
+    /// # Returns
+    /// * `Some(CssProperty)` - The resolved property
+    /// * `None` - If the keyword doesn't apply or can't be resolved
+    ///
+    /// # TODO
+    /// This function is currently a placeholder. Full implementation requires:
+    /// 1. Generic way to check/extract CssPropertyValue from any CssProperty variant
+    /// 2. Initial values for all property types
+    /// 3. Integration into the cascade resolution pipeline
+    #[allow(dead_code)]
+    fn resolve_cascade_keyword(
+        _property: &CssProperty,
+        property_type: CssPropertyType,
+        _node_type: &crate::dom::NodeType,
+        parent_value: Option<&CssProperty>,
+        ua_value: Option<&'static CssProperty>,
+    ) -> Option<CssProperty> {
+        // For now, we return None which means "no cascade keyword resolution needed"
+        // Full implementation will be added in a follow-up
+        //
+        // The logic should be:
+        // if property.has_inherit_keyword() {
+        //     return parent_value.cloned();
+        // }
+        // if property.has_initial_keyword() {
+        //     return Some(get_initial_value_for_property_type(property_type));
+        // }
+        // if property.has_revert_keyword() {
+        //     return ua_value.cloned();
+        // }
+        // if property.has_unset_keyword() {
+        //     if property_type.is_inheritable() {
+        //         return parent_value.cloned();
+        //     } else {
+        //         return Some(get_initial_value_for_property_type(property_type));
+        //     }
+        // }
+        
+        None
+    }
+    
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,

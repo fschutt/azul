@@ -6169,6 +6169,8 @@ fn print_css_property_value<T: FormatAsRustCode>(
         CssPropertyValue::None => format!("{}Value::None", property_value_type),
         CssPropertyValue::Initial => format!("{}Value::Initial", property_value_type),
         CssPropertyValue::Inherit => format!("{}Value::Inherit", property_value_type),
+        CssPropertyValue::Revert => format!("{}Value::Revert", property_value_type),
+        CssPropertyValue::Unset => format!("{}Value::Unset", property_value_type),
         CssPropertyValue::Exact(t) => format!(
             "{}Value::Exact({})",
             property_value_type,

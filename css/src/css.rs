@@ -165,6 +165,8 @@ pub enum CssPropertyValue<T> {
     None,
     Initial,
     Inherit,
+    Revert,
+    Unset,
     Exact(T),
 }
 
@@ -179,6 +181,8 @@ impl<T: PrintAsCssValue> CssPropertyValue<T> {
             CssPropertyValue::None => format!("none"),
             CssPropertyValue::Initial => format!("initial"),
             CssPropertyValue::Inherit => format!("inherit"),
+            CssPropertyValue::Revert => format!("revert"),
+            CssPropertyValue::Unset => format!("unset"),
             CssPropertyValue::Exact(e) => e.print_as_css_value(),
         }
     }
@@ -192,6 +196,8 @@ impl<T: fmt::Display> fmt::Display for CssPropertyValue<T> {
             None => write!(f, "none"),
             Initial => write!(f, "initial"),
             Inherit => write!(f, "inherit"),
+            Revert => write!(f, "revert"),
+            Unset => write!(f, "unset"),
             Exact(e) => write!(f, "{}", e),
         }
     }
@@ -214,6 +220,8 @@ impl<T> CssPropertyValue<T> {
             CssPropertyValue::None => CssPropertyValue::None,
             CssPropertyValue::Initial => CssPropertyValue::Initial,
             CssPropertyValue::Inherit => CssPropertyValue::Inherit,
+            CssPropertyValue::Revert => CssPropertyValue::Revert,
+            CssPropertyValue::Unset => CssPropertyValue::Unset,
         }
     }
 
@@ -264,6 +272,22 @@ impl<T> CssPropertyValue<T> {
             _ => false,
         }
     }
+
+    #[inline]
+    pub fn is_revert(&self) -> bool {
+        match self {
+            CssPropertyValue::Revert => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_unset(&self) -> bool {
+        match self {
+            CssPropertyValue::Unset => true,
+            _ => false,
+        }
+    }
 }
 
 impl<T: Default> CssPropertyValue<T> {
@@ -272,7 +296,7 @@ impl<T: Default> CssPropertyValue<T> {
         match self {
             CssPropertyValue::Auto | CssPropertyValue::Initial => Some(T::default()),
             CssPropertyValue::Exact(c) => Some(c),
-            CssPropertyValue::None | CssPropertyValue::Inherit => None,
+            CssPropertyValue::None | CssPropertyValue::Inherit | CssPropertyValue::Revert | CssPropertyValue::Unset => None,
         }
     }
 }
