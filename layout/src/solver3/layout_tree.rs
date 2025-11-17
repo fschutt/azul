@@ -225,7 +225,7 @@ pub fn generate_layout_tree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .root
         .into_crate_internal()
         .unwrap_or(NodeId::ZERO);
-    let root_index = builder.process_node(ctx.styled_dom, root_id, None)?;
+    let root_index = builder.process_node(ctx.styled_dom, root_id, None, &mut ctx.debug_messages)?;
     let layout_tree = builder.build(root_index);
 
     ctx.debug_log(&format!(
@@ -265,6 +265,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         dom_id: NodeId,
         parent_idx: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
         eprintln!(
@@ -274,7 +275,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             parent_idx
         );
 
-        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx)?;
+        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
         let display_type = get_display_type(styled_dom, dom_id);
 
         eprintln!(
@@ -293,14 +294,14 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
 
         match display_type {
             LayoutDisplay::Block | LayoutDisplay::InlineBlock | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
-                self.process_block_children(styled_dom, dom_id, node_idx)?
+                self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
-            LayoutDisplay::Table => self.process_table_children(styled_dom, dom_id, node_idx)?,
+            LayoutDisplay::Table => self.process_table_children(styled_dom, dom_id, node_idx, debug_messages)?,
             LayoutDisplay::TableRowGroup => {
-                self.process_table_row_group_children(styled_dom, dom_id, node_idx)?
+                self.process_table_row_group_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
             LayoutDisplay::TableRow => {
-                self.process_table_row_children(styled_dom, dom_id, node_idx)?
+                self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?
             }
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
@@ -310,7 +311,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                     .collect();
 
                 for child_dom_id in children {
-                    self.process_node(styled_dom, child_dom_id, Some(node_idx))?;
+                    self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
                 }
             }
         }
@@ -324,6 +325,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         let children: Vec<NodeId> = parent_dom_id
             .az_children(&styled_dom.node_hierarchy.as_container())
@@ -334,7 +336,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         if !has_block_child {
             // All children are inline, no anonymous boxes needed.
             for child_id in children {
-                self.process_node(styled_dom, child_id, Some(parent_idx))?;
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             }
             return Ok(());
         }
@@ -354,11 +356,11 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                         },
                     );
                     for inline_child_id in inline_run.drain(..) {
-                        self.process_node(styled_dom, inline_child_id, Some(anon_idx))?;
+                        self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
                     }
                 }
                 // Process the block-level child directly
-                self.process_node(styled_dom, child_id, Some(parent_idx))?;
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             } else {
                 inline_run.push(child_id);
             }
@@ -373,7 +375,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                 },
             );
             for inline_child_id in inline_run {
-                self.process_node(styled_dom, inline_child_id, Some(anon_idx))?;
+                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
             }
         }
 
@@ -396,6 +398,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         let parent_display = get_display_type(styled_dom, parent_dom_id);
         let mut row_children = Vec::new();
@@ -429,12 +432,12 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                              anon_row_idx, row_children.len());
                     
                     for cell_id in row_children.drain(..) {
-                        self.process_node(styled_dom, cell_id, Some(anon_row_idx))?;
+                        self.process_node(styled_dom, cell_id, Some(anon_row_idx), debug_messages)?;
                     }
                 }
                 
                 // Process non-cell child (could be row, row-group, caption, etc.)
-                self.process_node(styled_dom, child_id, Some(parent_idx))?;
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             }
         }
         
@@ -450,7 +453,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                      anon_row_idx, row_children.len());
             
             for cell_id in row_children {
-                self.process_node(styled_dom, cell_id, Some(anon_row_idx))?;
+                self.process_node(styled_dom, cell_id, Some(anon_row_idx), debug_messages)?;
             }
         }
         
@@ -470,10 +473,11 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         // CSS 2.2 Section 17.2.1: Row groups need the same anonymous box generation
         // as tables (wrapping consecutive non-row children in anonymous rows)
-        self.process_table_children(styled_dom, parent_dom_id, parent_idx)
+        self.process_table_children(styled_dom, parent_dom_id, parent_idx, debug_messages)
     }
 
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 2:
@@ -488,6 +492,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         parent_dom_id: NodeId,
         parent_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         let parent_display = get_display_type(styled_dom, parent_dom_id);
         
@@ -505,7 +510,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             // an anonymous table-cell box around C"
             if child_display == LayoutDisplay::TableCell {
                 // Normal table cell - process directly
-                self.process_node(styled_dom, child_id, Some(parent_idx))?;
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             } else {
                 // CSS 2.2 Section 17.2.1, Stage 2:
                 // Non-cell child must be wrapped in an anonymous table-cell
@@ -519,14 +524,12 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                 eprintln!("  DEBUG: Created anonymous table-cell at index {} for non-cell child", 
                          anon_cell_idx);
                 
-                self.process_node(styled_dom, child_id, Some(anon_cell_idx))?;
+                self.process_node(styled_dom, child_id, Some(anon_cell_idx), debug_messages)?;
             }
         }
         
         Ok(())
-    }
-
-    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
+    }    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
     /// "In this process, inline-level boxes are wrapped in anonymous boxes as needed 
     /// to satisfy the constraints of the table model."
     ///
@@ -576,13 +579,14 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         styled_dom: &StyledDom,
         dom_id: NodeId,
         parent: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let index = self.nodes.len();
         self.nodes.push(LayoutNode {
             dom_node_id: Some(dom_id),
             parent,
             formatting_context: determine_formatting_context(styled_dom, dom_id),
-            box_props: resolve_box_props(styled_dom, dom_id),
+            box_props: resolve_box_props(styled_dom, dom_id, debug_messages),
             taffy_cache: TaffyCache::new(),
             is_anonymous: false,
             anonymous_type: None,
@@ -728,7 +732,7 @@ fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     hasher.finish()
 }
 
-fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
+fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> BoxProps {
     use crate::solver3::getters::*;
     use azul_css::props::basic::PixelValue;
     
@@ -765,6 +769,16 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId) -> BoxProps {
         bottom: to_pixels(margin_bottom_mv),
         left: to_pixels(margin_left_mv),
     };
+    
+    // Debug for Body nodes
+    if matches!(node_data.node_type, azul_core::dom::NodeType::Body) {
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::box_props(format!(
+                "Body margin resolved: top={:.2}, right={:.2}, bottom={:.2}, left={:.2}",
+                margin.top, margin.right, margin.bottom, margin.left
+            )));
+        }
+    }
     
     let padding = crate::solver3::geometry::EdgeSizes {
         top: to_pixels(get_css_padding_top(styled_dom, dom_id, &node_state)),

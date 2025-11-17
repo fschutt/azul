@@ -19,6 +19,7 @@ pub enum LayoutDebugMessageType {
     IfcLayout,
     TableLayout,
     DisplayType,
+    PositionCalculation,
 }
 
 impl Default for LayoutDebugMessageType {

@@ -232,6 +232,22 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
                 viewport,
             );
 
+            // DEBUG: Log containing block info for this root
+            if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
+                let root_node = &new_tree.nodes[root_idx];
+                let dom_name = root_node.dom_node_id
+                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
+                    .map(|n| format!("{:?}", n.node_type))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                
+                debug_msgs.push(LayoutDebugMessage::new(
+                    LayoutDebugMessageType::PositionCalculation,
+                    format!("[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), CB size=({:.2}x{:.2}), viewport=({:.2}x{:.2})",
+                        root_idx, dom_name, cb_pos.x, cb_pos.y, cb_size.width, cb_size.height,
+                        viewport.size.width, viewport.size.height)
+                ));
+            }
+
             cache::calculate_layout_for_subtree(
                 &mut ctx,
                 &mut new_tree,
@@ -248,10 +264,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
             // positions for children, not for the root itself.
             if !calculated_positions.contains_key(&root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
-                eprintln!("[layout_document] Root node {} positioned at cb_pos=({:.2}, {:.2}), margin=({:.2}, {:.2}, {:.2}, {:.2})", 
-                    root_idx, cb_pos.x, cb_pos.y, 
-                    root_node.box_props.margin.top, root_node.box_props.margin.right,
-                    root_node.box_props.margin.bottom, root_node.box_props.margin.left);
+                
+                // DEBUG: Log root positioning
+                if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
+                    let dom_name = root_node.dom_node_id
+                        .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
+                        .map(|n| format!("{:?}", n.node_type))
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    
+                    debug_msgs.push(LayoutDebugMessage::new(
+                        LayoutDebugMessageType::PositionCalculation,
+                        format!("[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}), margin=({:.2}, {:.2}, {:.2}, {:.2})",
+                            root_idx, dom_name, cb_pos.x, cb_pos.y,
+                            root_node.box_props.margin.top, root_node.box_props.margin.right,
+                            root_node.box_props.margin.bottom, root_node.box_props.margin.left)
+                    ));
+                }
+                
                 calculated_positions.insert(root_idx, cb_pos);
             }
         }
@@ -341,6 +370,12 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
             );
 
+            eprintln!("[get_CB] node {} has parent {}: parent margin-box pos=({:.2}, {:.2}), border=({:.2},{:.2}), padding=({:.2},{:.2}), content_pos=({:.2}, {:.2})",
+                node_idx, parent_idx, pos.x, pos.y,
+                parent_node.box_props.border.left, parent_node.box_props.border.top,
+                parent_node.box_props.padding.left, parent_node.box_props.padding.top,
+                content_pos.x, content_pos.y);
+
             if let Some(dom_id) = parent_node.dom_node_id {
                 let styled_node_state = &styled_dom
                     .styled_nodes
@@ -357,6 +392,8 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
             return (content_pos, size);
         }
     }
+    eprintln!("[get_CB] node {} is ROOT, using viewport origin=({:.2}, {:.2}), size=({:.2}x{:.2})",
+        node_idx, viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height);
     (viewport.origin, viewport.size)
 }
 

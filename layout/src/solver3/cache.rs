@@ -31,7 +31,7 @@ use azul_css::{
         property::{CssProperty, CssPropertyType},
         style::StyleTextAlign,
     },
-    LayoutDebugMessage,
+    LayoutDebugMessage, LayoutDebugMessageType,
 };
 
 use crate::{
@@ -327,13 +327,14 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .into_crate_internal()
         .unwrap_or(NodeId::ZERO);
     let root_idx = reconcile_recursive(
-        ctx,
+        ctx.styled_dom,
         root_dom_id,
         old_tree.map(|t| t.root),
         None,
         old_tree,
         &mut new_tree_builder,
         &mut recon_result,
+        &mut ctx.debug_messages,
     )?;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
@@ -359,18 +360,19 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
-pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
+pub fn reconcile_recursive<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
     new_dom_id: NodeId,
     old_tree_idx: Option<usize>,
     new_parent_idx: Option<usize>,
     old_tree: Option<&LayoutTree<T>>,
     new_tree_builder: &mut LayoutTreeBuilder<T>,
     recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<usize> {
     use azul_core::dom::NodeType;
 
-    let node_data = &ctx.styled_dom.node_data.as_container()[new_dom_id];
+    let node_data = &styled_dom.node_data.as_container()[new_dom_id];
     eprintln!(
         "DEBUG reconcile_recursive: new_dom_id={:?}, node_type={:?}, old_tree_idx={:?}, \
          new_parent_idx={:?}",
@@ -381,7 +383,7 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     );
 
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
-    let new_node_data_hash = hash_styled_node_data(&ctx.styled_dom, new_dom_id);
+    let new_node_data_hash = hash_styled_node_data(styled_dom, new_dom_id);
 
     // A node is dirty if it's new, or if its data/style hash has changed.
 
@@ -389,7 +391,7 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     let new_node_idx = if is_dirty {
         eprintln!("DEBUG reconcile_recursive: Node is DIRTY, creating new node");
-        new_tree_builder.create_node_from_dom(ctx.styled_dom, new_dom_id, new_parent_idx)?
+        new_tree_builder.create_node_from_dom(styled_dom, new_dom_id, new_parent_idx, debug_messages)?
     } else {
         eprintln!("DEBUG reconcile_recursive: Node is CLEAN, cloning from old");
         new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx)
@@ -401,7 +403,7 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     );
 
     // Reconcile children to check for structural changes and build the new tree structure.
-    let hierarchy_container = ctx.styled_dom.node_hierarchy.as_container();
+    let hierarchy_container = styled_dom.node_hierarchy.as_container();
     let new_children_dom_ids: Vec<_> = {
         let mut children = Vec::new();
         if let Some(hierarchy_item) = hierarchy_container.get(new_dom_id) {
@@ -433,10 +435,10 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // CSS Spec: Text nodes don't generate layout boxes. They are inline content
         // that is collected and laid out by their parent's inline formatting context.
         // Skip creating layout nodes for text, but still hash them for dirty tracking.
-        let node_data = &ctx.styled_dom.node_data.as_container()[new_child_dom_id];
+        let node_data = &styled_dom.node_data.as_container()[new_child_dom_id];
         if matches!(node_data.get_node_type(), NodeType::Text(_)) {
             // Hash the text node for subtree tracking purposes
-            let text_hash = hash_styled_node_data(&ctx.styled_dom, new_child_dom_id);
+            let text_hash = hash_styled_node_data(styled_dom, new_child_dom_id);
             new_child_hashes.push(text_hash);
             // Mark as different if it's a new text node
             let old_child_idx = old_children_indices.get(i).copied();
@@ -452,13 +454,14 @@ pub fn reconcile_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let old_child_idx = old_children_indices.get(i).copied();
 
         let reconciled_child_idx = reconcile_recursive(
-            ctx,
+            styled_dom,
             new_child_dom_id,
             old_child_idx,
             Some(new_node_idx),
             old_tree,
             new_tree_builder,
             recon,
+            debug_messages,
         )?;
         let child_node = new_tree_builder.get(reconciled_child_idx).unwrap();
         new_child_hashes.push(child_node.subtree_hash.0);
@@ -691,6 +694,24 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         containing_block_pos.y + current_node.box_props.border.top + current_node.box_props.padding.top,
     );
 
+    // DEBUG: Log content-box calculation
+    if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
+        let dom_name = current_node.dom_node_id
+            .and_then(|id| ctx.styled_dom.node_data.as_container().internal.get(id.index()))
+            .map(|n| format!("{:?}", n.node_type))
+            .unwrap_or_else(|| "Unknown".to_string());
+        
+        debug_msgs.push(LayoutDebugMessage::new(
+            LayoutDebugMessageType::PositionCalculation,
+            format!("[CONTENT BOX {}] {} - margin-box pos=({:.2}, {:.2}) + border=({:.2},{:.2}) + padding=({:.2},{:.2}) = content-box pos=({:.2}, {:.2})",
+                node_index, dom_name, 
+                containing_block_pos.x, containing_block_pos.y,
+                current_node.box_props.border.left, current_node.box_props.border.top,
+                current_node.box_props.padding.left, current_node.box_props.padding.top,
+                self_content_box_pos.x, self_content_box_pos.y)
+        ));
+    }
+
     // Check if this node is a Flex or Grid container
     let is_flex_or_grid = {
         let node = tree.get(node_index).unwrap();
@@ -716,6 +737,25 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             self_content_box_pos.x + child_relative_pos.x,
             self_content_box_pos.y + child_relative_pos.y,
         );
+        
+        // DEBUG: Log child positioning
+        if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
+            let child_dom_name = child_node.dom_node_id
+                .and_then(|id| ctx.styled_dom.node_data.as_container().internal.get(id.index()))
+                .map(|n| format!("{:?}", n.node_type))
+                .unwrap_or_else(|| "Unknown".to_string());
+            
+            debug_msgs.push(LayoutDebugMessage::new(
+                LayoutDebugMessageType::PositionCalculation,
+                format!("[CHILD POS {}] {} - parent content-box=({:.2}, {:.2}) + relative=({:.2}, {:.2}) + margin=({:.2}, {:.2}) = absolute=({:.2}, {:.2})",
+                    child_index, child_dom_name,
+                    self_content_box_pos.x, self_content_box_pos.y,
+                    child_relative_pos.x, child_relative_pos.y,
+                    child_node.box_props.margin.left, child_node.box_props.margin.top,
+                    child_absolute_pos.x, child_absolute_pos.y)
+            ));
+        }
+        
         calculated_positions.insert(child_index, child_absolute_pos);
 
         // For Flex/Grid containers, Taffy has already laid out the children completely

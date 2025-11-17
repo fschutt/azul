@@ -492,7 +492,8 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
-    ctx.debug_log("Generating display list");
+    ctx.debug_info("Starting display list generation");
+    ctx.debug_info(&format!("Collecting stacking contexts from root node {}", tree.root));
 
     let positioned_tree = PositionedTree {
         tree,
@@ -514,10 +515,11 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
     let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
 
     // 2. Traverse the stacking context tree to generate display items in the correct order.
+    generator.ctx.debug_info("Generating display items from stacking context tree");
     generator.generate_for_stacking_context(&mut builder, &stacking_context_tree)?;
 
     let display_list = builder.build();
-    ctx.debug_log(&format!(
+    generator.ctx.debug_info(&format!(
         "Generated display list with {} items",
         display_list.items.len()
     ));
@@ -526,7 +528,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
 
 /// A helper struct that holds all necessary state and context for the generation process.
 struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    ctx: &'a LayoutContext<'b, T, Q>,
+    ctx: &'a mut LayoutContext<'b, T, Q>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
     positioned_tree: &'a PositionedTree<'a, T>,
     scroll_ids: &'a BTreeMap<usize, u64>,
@@ -552,7 +554,7 @@ where
     Q: FontLoaderTrait<T>,
 {
     pub fn new(
-        ctx: &'a LayoutContext<'b, T, Q>,
+        ctx: &'a mut LayoutContext<'b, T, Q>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a, T>,
         scroll_ids: &'a BTreeMap<usize, u64>,
@@ -665,13 +667,23 @@ where
     }
 
     /// Recursively builds the tree of stacking contexts starting from a given layout node.
-    fn collect_stacking_contexts(&self, node_index: usize) -> Result<StackingContext> {
+    fn collect_stacking_contexts(&mut self, node_index: usize) -> Result<StackingContext> {
         let node = self
             .positioned_tree
             .tree
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
         let z_index = get_z_index(self.ctx.styled_dom, node.dom_node_id);
+
+        if let Some(dom_id) = node.dom_node_id {
+            let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            self.ctx.debug_info(&format!(
+                "Collecting stacking context for node {} ({:?}), z-index={}",
+                node_index,
+                node_type.get_node_type(),
+                z_index
+            ));
+        }
 
         let mut child_contexts = Vec::new();
         let mut in_flow_children = Vec::new();
@@ -695,7 +707,7 @@ where
     /// Recursively traverses the stacking context tree, emitting drawing commands to the builder
     /// according to the CSS Painting Algorithm specification.
     fn generate_for_stacking_context(
-        &self,
+        &mut self,
         builder: &mut DisplayListBuilder,
         context: &StackingContext,
     ) -> Result<()> {
@@ -705,6 +717,19 @@ where
             .tree
             .get(context.node_index)
             .ok_or(LayoutError::InvalidTree)?;
+        
+        if let Some(dom_id) = node.dom_node_id {
+            let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            self.ctx.debug_info(&format!(
+                "Painting stacking context for node {} ({:?}), z-index={}, {} child contexts, {} in-flow children",
+                context.node_index,
+                node_type.get_node_type(),
+                context.z_index,
+                context.child_contexts.len(),
+                context.in_flow_children.len()
+            ));
+        }
+        
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
         // Push a stacking context for WebRender
@@ -773,7 +798,7 @@ where
 
     /// Paints the content and non-stacking-context children.
     fn paint_in_flow_descendants(
-        &self,
+        &mut self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
         children_indices: &[usize],
@@ -977,7 +1002,7 @@ where
 
     /// Emits drawing commands for the background and border of a single node.
     fn paint_node_background_and_border(
-        &self,
+        &mut self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
@@ -994,17 +1019,27 @@ where
         // Tables have a special 6-layer background painting order
         use azul_core::dom::FormattingContext;
         if matches!(node.formatting_context, FormattingContext::Table) {
-            println!("[paint_element_background] ✓ Detected Table at node {}, delegating to paint_table_items()", node_index);
+            self.ctx.debug_info(&format!(
+                "Painting table backgrounds/borders for node {} at {:?}",
+                node_index, paint_rect
+            ));
             // Delegate to specialized table painting function
             return self.paint_table_items(builder, node_index);
-        } else {
-            println!("[paint_element_background] Node {} is {:?}, NOT a table", node_index, node.formatting_context);
         }
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+
+            let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            self.ctx.debug_info(&format!(
+                "Painting background/border for node {} ({:?}) at {:?}, bg_color={:?}",
+                node_index,
+                node_type.get_node_type(),
+                paint_rect,
+                bg_color
+            ));
 
             // Get both versions: simple BorderRadius for rect clipping and StyleBorderRadius for
             // border rendering
@@ -1186,7 +1221,7 @@ where
 
     /// Emits drawing commands for the foreground content, including hit-test areas and scrollbars.
     fn paint_node_content(
-        &self,
+        &mut self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> Result<()> {
@@ -1196,25 +1231,9 @@ where
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
 
-        eprintln!(
-            "[paint_node_content] node_index={}, dom_id={:?}",
-            node_index, node.dom_node_id
-        );
-
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
-            eprintln!("[paint_node_content] No paint_rect for node {}", node_index);
             return Ok(());
         };
-
-        eprintln!("[paint_node_content] paint_rect: {:?}", paint_rect);
-        eprintln!(
-            "[paint_node_content] inline_layout_result: {}",
-            if node.inline_layout_result.is_some() {
-                "Some"
-            } else {
-                "None"
-            }
-        );
 
         // Add a hit-test area for this node if it's interactive.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
@@ -1223,19 +1242,25 @@ where
 
         // Paint the node's visible content.
         if let Some(inline_layout) = &node.inline_layout_result {
-            eprintln!(
-                "[paint_node_content] ✓ Node {} has inline_layout, calling paint_inline_content",
-                node_index
-            );
+            if let Some(dom_id) = node.dom_node_id {
+                let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                self.ctx.debug_info(&format!(
+                    "Painting inline content for node {} ({:?}) at {:?}, {} layout items",
+                    node_index,
+                    node_type.get_node_type(),
+                    paint_rect,
+                    inline_layout.items.len()
+                ));
+            }
             self.paint_inline_content(builder, paint_rect, inline_layout)?;
         } else if let Some(dom_id) = node.dom_node_id {
-            eprintln!(
-                "[paint_node_content] Node {} has no inline_layout, checking for image",
-                node_index
-            );
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_data) = node_data.get_node_type() {
+                self.ctx.debug_info(&format!(
+                    "Painting image for node {} at {:?}",
+                    node_index, paint_rect
+                ));
                 let image_key = get_image_key_for_src(&image_data.get_hash(), self.id_namespace);
                 builder.push_image(paint_rect, image_key);
             }
