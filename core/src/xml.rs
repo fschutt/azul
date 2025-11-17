@@ -1695,26 +1695,85 @@ pub fn compile_component(
     )
 }
 
+/// Wraps a rendered component in proper HTML structure if needed.
+/// - If rendered as <html>, returns it unchanged
+/// - If rendered as <body>, wraps in <html>
+/// - Otherwise, wraps in <html><body>
+fn ensure_html_body_structure(styled_dom: StyledDom) -> StyledDom {
+    // Check the root node type
+    let root_node_id = match styled_dom.root.into_crate_internal() {
+        Some(id) => id,
+        None => {
+            // Empty DOM, return default html > body structure
+            return Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty());
+        }
+    };
+    
+    let root_node_data = &styled_dom.node_data.as_ref()[root_node_id.index()];
+    let root_node_type = &root_node_data.node_type;
+    
+    use crate::dom::NodeType;
+    
+    match root_node_type {
+        NodeType::Html => {
+            // Already has proper HTML root, return as-is
+            styled_dom
+        }
+        NodeType::Body => {
+            // Has Body root, wrap in HTML
+            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            html_dom.append_child(styled_dom);
+            html_dom
+        }
+        _ => {
+            // Other elements (div, etc), wrap in HTML > Body
+            let mut body_dom = Dom::body().style(CssApiWrapper::empty());
+            body_dom.append_child(styled_dom);
+            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            html_dom.append_child(body_dom);
+            html_dom
+        }
+    }
+}
+
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
-    // Render all children of <body> - don't render the <body> itself yet
-    let mut dom = StyledDom::default();
-
+    // Render all children of the body node
+    let mut children_doms = Vec::new();
+    
     for child_node in body_node.children.as_ref() {
-        dom.append_child(render_dom_from_body_node_inner(
+        children_doms.push(render_dom_from_body_node_inner(
             child_node,
             component_map,
             &FilteredComponentArguments::default(),
         )?);
     }
 
+    // Combine children into a single DOM, ensuring proper HTML > Body structure
+    let mut dom = if children_doms.is_empty() {
+        // Empty body
+        Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty())
+    } else if children_doms.len() == 1 {
+        // Single child - check if it needs wrapping
+        ensure_html_body_structure(children_doms.into_iter().next().unwrap())
+    } else {
+        // Multiple children - wrap in HTML > Body
+        let mut body_dom = Dom::body().style(CssApiWrapper::empty());
+        for child_dom in children_doms {
+            body_dom.append_child(child_dom);
+        }
+        let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+        html_dom.append_child(body_dom);
+        html_dom
+    };
+
     if let Some(max_width) = max_width {
         dom.restyle(CssApiWrapper::from_string(
-            format!("body, html {{ max-width: {max_width}px; }}").into(),
+            format!("html {{ max-width: {max_width}px; }}").into(),
         ));
     }
 
