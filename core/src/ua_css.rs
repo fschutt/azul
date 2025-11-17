@@ -129,6 +129,11 @@ static DISPLAY_INLINE: CssProperty = CssProperty::Display(CssPropertyValue::Exac
     LayoutDisplay::Inline,
 ));
 
+/// display: inline-block
+static DISPLAY_INLINE_BLOCK: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::InlineBlock,
+));
+
 /// display: none
 static DISPLAY_NONE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
     LayoutDisplay::None,
@@ -177,6 +182,11 @@ static DISPLAY_TABLE_COLUMN_GROUP: CssProperty = CssProperty::Display(CssPropert
 /// display: table-column
 static DISPLAY_TABLE_COLUMN: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
     LayoutDisplay::TableColumn,
+));
+
+/// display: list-item
+static DISPLAY_LIST_ITEM: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
+    LayoutDisplay::ListItem,
 ));
 
 /// margin-top: 0
@@ -398,12 +408,13 @@ static PADDING_RIGHT_1PX: CssProperty = CssProperty::PaddingRight(CssPropertyVal
 //     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
 // ));
 
-// TODO: Uncomment when LineHeight is implemented in azul-css
-// const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
-//     LayoutLineHeight {
-//         inner: PercentageValue::const_new(115), // 1.15 = 115%
-//     },
-// ));
+/*
+const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
+    LayoutLineHeight {
+        inner: PercentageValue::const_new(115), // 1.15 = 115%
+    },
+));
+*/
 
 /// Returns the default user-agent CSS property value for a given node type and property.
 ///
@@ -439,7 +450,7 @@ static PADDING_RIGHT_1PX: CssProperty = CssProperty::PaddingRight(CssPropertyVal
 /// assert!(undefined.is_none());
 /// ```
 pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> Option<&'static CssProperty> {
-    use NodeType::*;
+    use NodeType as NT;
     use CssPropertyType as PT;
 
     match (node_type, property_type) {
@@ -447,220 +458,219 @@ pub fn get_ua_property(node_type: NodeType, property_type: CssPropertyType) -> O
         // (Html, PT::LineHeight) => Some(&LINE_HEIGHT_1_15),
 
         // Body Element - CRITICAL for preventing layout collapse
-        (Body, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Body, PT::Width) => Some(&WIDTH_100_PERCENT),
-        // (Body, PT::Height) => Some(&HEIGHT_100_PERCENT), // REMOVED: Causes vertical overflow with margins
-        (Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
-        (Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
-        (Body, PT::MarginLeft) => Some(&MARGIN_LEFT_8PX),
-        (Body, PT::MarginRight) => Some(&MARGIN_RIGHT_8PX),
+        (NT::Body, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Body, PT::Width) => Some(&WIDTH_100_PERCENT),
+        // (NT::Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        (NT::Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
+        (NT::Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
+        (NT::Body, PT::MarginLeft) => Some(&MARGIN_LEFT_8PX),
+        (NT::Body, PT::MarginRight) => Some(&MARGIN_RIGHT_8PX),
 
         // Block-level Elements
-        (Div, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Div, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (P, PT::Display) => Some(&DISPLAY_BLOCK),
-        (P, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
-        (P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
-        (Main, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Main, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Header, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Header, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Footer, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Footer, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Section, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Section, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Article, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Article, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Aside, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Aside, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Nav, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Div, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::P, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::Main, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Main, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Header, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Header, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Footer, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Footer, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Section, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Section, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Article, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Article, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Aside, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Aside, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Nav, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Headings - Chrome UA CSS values
-        (H1, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H1, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
-        (H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H1, PT::MarginTop) => Some(&MARGIN_TOP_0_67EM),
-        (H1, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_67EM),
+        (NT::H1, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H1, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
+        (NT::H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H1, PT::MarginTop) => Some(&MARGIN_TOP_0_67EM),
+        (NT::H1, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_67EM),
 
-        (H2, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H2, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H2, PT::FontSize) => Some(&FONT_SIZE_1_5EM),
-        (H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H2, PT::MarginTop) => Some(&MARGIN_TOP_0_83EM),
-        (H2, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_83EM),
+        (NT::H2, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H2, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H2, PT::FontSize) => Some(&FONT_SIZE_1_5EM),
+        (NT::H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H2, PT::MarginTop) => Some(&MARGIN_TOP_0_83EM),
+        (NT::H2, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_83EM),
 
-        (H3, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H3, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H3, PT::FontSize) => Some(&FONT_SIZE_1_17EM),
-        (H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H3, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
-        (H3, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::H3, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H3, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H3, PT::FontSize) => Some(&FONT_SIZE_1_17EM),
+        (NT::H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H3, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::H3, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
 
-        (H4, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H4, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H4, PT::FontSize) => Some(&FONT_SIZE_1EM),
-        (H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H4, PT::MarginTop) => Some(&MARGIN_TOP_1_33EM),
-        (H4, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_33EM),
+        (NT::H4, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H4, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H4, PT::FontSize) => Some(&FONT_SIZE_1EM),
+        (NT::H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H4, PT::MarginTop) => Some(&MARGIN_TOP_1_33EM),
+        (NT::H4, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_33EM),
 
-        (H5, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H5, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H5, PT::FontSize) => Some(&FONT_SIZE_0_83EM),
-        (H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H5, PT::MarginTop) => Some(&MARGIN_TOP_1_67EM),
-        (H5, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_67EM),
+        (NT::H5, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H5, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H5, PT::FontSize) => Some(&FONT_SIZE_0_83EM),
+        (NT::H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H5, PT::MarginTop) => Some(&MARGIN_TOP_1_67EM),
+        (NT::H5, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_67EM),
 
-        (H6, PT::Display) => Some(&DISPLAY_BLOCK),
-        (H6, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (H6, PT::FontSize) => Some(&FONT_SIZE_0_67EM),
-        (H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
-        (H6, PT::MarginBottom) => Some(&MARGIN_BOTTOM_2_33EM),
+        (NT::H6, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::H6, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::H6, PT::FontSize) => Some(&FONT_SIZE_0_67EM),
+        (NT::H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
+        (NT::H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
+        (NT::H6, PT::MarginBottom) => Some(&MARGIN_BOTTOM_2_33EM),
 
         // Lists
-        (Ul, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Ol, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
-        // (Li, PT::Display) => Some(&DISPLAY_LIST_ITEM), // TODO: Need DisplayListItem
-        (Dl, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Dl, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Dt, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Dt, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Dd, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Dd, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Ul, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Ol, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
+        (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dl, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Dt, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dt, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Dd, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dd, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Inline Elements
-        (Span, PT::Display) => Some(&DISPLAY_INLINE),
-        (A, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
         // (A, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
-        (Strong, PT::Display) => Some(&DISPLAY_INLINE),
-        // (Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
-        (Em, PT::Display) => Some(&DISPLAY_INLINE),
-        (B, PT::Display) => Some(&DISPLAY_INLINE),
-        // (B, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
-        (I, PT::Display) => Some(&DISPLAY_INLINE),
-        (U, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Strong, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
+        (NT::Em, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::B, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::B, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
+        (NT::I, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::U, PT::Display) => Some(&DISPLAY_INLINE),
         // (U, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
-        (Small, PT::Display) => Some(&DISPLAY_INLINE),
-        (Code, PT::Display) => Some(&DISPLAY_INLINE),
-        (Kbd, PT::Display) => Some(&DISPLAY_INLINE),
-        (Samp, PT::Display) => Some(&DISPLAY_INLINE),
-        (Sub, PT::Display) => Some(&DISPLAY_INLINE),
-        (Sup, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Small, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Code, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Kbd, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Samp, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sub, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sup, PT::Display) => Some(&DISPLAY_INLINE),
 
         // Text Content
-        (Pre, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Pre, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
-        (BlockQuote, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Hr, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Pre, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Pre, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::BlockQuote, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Table Elements
-        (Table, PT::Display) => Some(&DISPLAY_TABLE),
-        (Table, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
-        (TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
-        (TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
-        (Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
-        (Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
-        (Th, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
-        (Th, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
-        (Th, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
-        (Th, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
-        (Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
-        (Td, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
-        (Td, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
-        (Td, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
-        (Td, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
+        (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
+        (NT::Table, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
+        (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
+        (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
+        (NT::Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
+        (NT::Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (NT::Th, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
+        (NT::Th, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
+        (NT::Th, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
+        (NT::Th, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
+        (NT::Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
+        (NT::Td, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
+        (NT::Td, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
+        (NT::Td, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
+        (NT::Td, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
 
         // Form Elements
-        (Form, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Form, PT::Width) => Some(&WIDTH_100_PERCENT),
-        // (Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK), // TODO: Need DisplayInlineBlock
-        // (Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
-        // (Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
-        // (TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
-        (Label, PT::Display) => Some(&DISPLAY_INLINE),
-
+        (NT::Form, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Form, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::Label, PT::Display) => Some(&DISPLAY_INLINE),
         // Hidden Elements
-        (Head, PT::Display) => Some(&DISPLAY_NONE),
-        (Title, PT::Display) => Some(&DISPLAY_NONE),
-        (Script, PT::Display) => Some(&DISPLAY_NONE),
-        (Style, PT::Display) => Some(&DISPLAY_NONE),
-        (Link, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Head, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Title, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Script, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Style, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Link, PT::Display) => Some(&DISPLAY_NONE),
 
         // Special Elements
-        (Br, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Img, PT::Display) => Some(&DISPLAY_INLINE),
-        
+        (NT::Br, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Image(_), PT::Display) => Some(&DISPLAY_INLINE),
+
         // Media Elements
-        (Video, PT::Display) => Some(&DISPLAY_INLINE),
-        (Audio, PT::Display) => Some(&DISPLAY_INLINE),
-        (Canvas, PT::Display) => Some(&DISPLAY_INLINE),
-        (Svg, PT::Display) => Some(&DISPLAY_INLINE),
-        (IFrame(_), PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Video, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Audio, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::IFrame(_), PT::Display) => Some(&DISPLAY_INLINE),
         
         // Form Input Elements (inline-block behavior approximated as inline)
-        (Input, PT::Display) => Some(&DISPLAY_INLINE),
-        (Button, PT::Display) => Some(&DISPLAY_INLINE),
-        (Select, PT::Display) => Some(&DISPLAY_INLINE),
-        (TextArea, PT::Display) => Some(&DISPLAY_INLINE),
-        (Option, PT::Display) => Some(&DISPLAY_NONE),
-        (OptGroup, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::Input, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Button, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Select, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::SelectOption, PT::Display) => Some(&DISPLAY_NONE),
+        (NT::OptGroup, PT::Display) => Some(&DISPLAY_NONE),
         
         // Other Inline Elements
-        (Abbr, PT::Display) => Some(&DISPLAY_INLINE),
-        (Cite, PT::Display) => Some(&DISPLAY_INLINE),
-        (Del, PT::Display) => Some(&DISPLAY_INLINE),
-        (Ins, PT::Display) => Some(&DISPLAY_INLINE),
-        (Mark, PT::Display) => Some(&DISPLAY_INLINE),
-        (Q, PT::Display) => Some(&DISPLAY_INLINE),
-        (Dfn, PT::Display) => Some(&DISPLAY_INLINE),
-        (Var, PT::Display) => Some(&DISPLAY_INLINE),
-        (Time, PT::Display) => Some(&DISPLAY_INLINE),
-        (Data, PT::Display) => Some(&DISPLAY_INLINE),
-        (Wbr, PT::Display) => Some(&DISPLAY_INLINE),
-        (Bdi, PT::Display) => Some(&DISPLAY_INLINE),
-        (Bdo, PT::Display) => Some(&DISPLAY_INLINE),
-        (Rp, PT::Display) => Some(&DISPLAY_INLINE),
-        (Rt, PT::Display) => Some(&DISPLAY_INLINE),
-        (Rtc, PT::Display) => Some(&DISPLAY_INLINE),
-        (Ruby, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Abbr, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Cite, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Del, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Ins, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Mark, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Q, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Dfn, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Var, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Time, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Data, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Wbr, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Bdi, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Bdo, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Rp, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Rt, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Rtc, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Ruby, PT::Display) => Some(&DISPLAY_INLINE),
         
         // Block Container Elements
-        (FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
-        (FieldSet, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Figure, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Figure, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
-        (FigCaption, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Details, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Details, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Summary, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Summary, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Dialog, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::FieldSet, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Figure, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::FigCaption, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Details, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Details, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Summary, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Summary, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dialog, PT::Width) => Some(&WIDTH_100_PERCENT),
         
         // Table Caption
-        (Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
-        (ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
-        (Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
+        (NT::Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
+        (NT::ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
+        (NT::Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
         
         // Legacy/Deprecated Elements
-        (Menu, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Menu, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Dir, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Dir, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Menu, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dir, PT::Width) => Some(&WIDTH_100_PERCENT),
         
         // Generic Container
-        (Html, PT::Display) => Some(&DISPLAY_BLOCK),
-        (Html, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Html, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // No default defined for this combination
         _ => None,
@@ -751,5 +761,33 @@ mod tests {
         
         // Div doesn't have a default font-size
         assert!(get_ua_property(NodeType::Div, CssPropertyType::FontSize).is_none());
+    }
+
+    #[test]
+    fn test_text_nodes_have_no_ua_css() {
+        use azul_css::AzString;
+        
+        // Text nodes should NOT have any UA CSS properties
+        let text_node = NodeType::Text(AzString::from_const_str("Hello"));
+        
+        // Text nodes should not have Display
+        let display = get_ua_property(text_node.clone(), CssPropertyType::Display);
+        println!("Text node Display: {:?}", display);
+        assert!(display.is_none(), "Text nodes should not have UA CSS Display property, got: {:?}", display);
+        
+        // Text nodes should not have Width
+        let width = get_ua_property(text_node.clone(), CssPropertyType::Width);
+        println!("Text node Width: {:?}", width);
+        assert!(width.is_none(), "Text nodes should not have UA CSS Width property, got: {:?}", width);
+        
+        // Text nodes should not have FontSize
+        let font_size = get_ua_property(text_node.clone(), CssPropertyType::FontSize);
+        println!("Text node FontSize: {:?}", font_size);
+        assert!(font_size.is_none(), "Text nodes should not have UA CSS FontSize property, got: {:?}", font_size);
+        
+        // Text nodes should not have FontWeight
+        let font_weight = get_ua_property(text_node.clone(), CssPropertyType::FontWeight);
+        println!("Text node FontWeight: {:?}", font_weight);
+        assert!(font_weight.is_none(), "Text nodes should not have UA CSS FontWeight property, got: {:?}", font_weight);
     }
 }

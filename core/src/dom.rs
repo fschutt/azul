@@ -286,6 +286,8 @@ pub enum NodeType {
     Menu,
     /// Menu item.
     MenuItem,
+    /// Directory list (deprecated).
+    Dir,
 
     // Table elements
     /// Table container.
@@ -392,6 +394,20 @@ pub enum NodeType {
     Big,
     /// Bi-directional override.
     Bdo,
+    /// Bi-directional isolate.
+    Bdi,
+    /// Word break opportunity.
+    Wbr,
+    /// Ruby annotation.
+    Ruby,
+    /// Ruby text.
+    Rt,
+    /// Ruby text container.
+    Rtc,
+    /// Ruby parenthesis.
+    Rp,
+    /// Machine-readable data.
+    Data,
 
     // Embedded content
     /// Canvas for graphics.
@@ -414,6 +430,8 @@ pub enum NodeType {
     Map,
     /// Image map area.
     Area,
+    /// SVG graphics.
+    Svg,
 
     // Metadata elements
     /// Document title.
@@ -440,11 +458,12 @@ pub enum NodeType {
     Placeholder,
 
     // Special content types
-    /// Text content.
+    
+    /// Text content, ::text
     Text(AzString),
-    /// Image element.
+    /// Image element, ::image
     Image(ImageRef),
-    /// IFrame (embedded content).
+    /// IFrame (embedded content)
     IFrame(IFrameNode),
 }
 
@@ -489,6 +508,7 @@ impl NodeType {
             Dd => Dd,
             Menu => Menu,
             MenuItem => MenuItem,
+            Dir => Dir,
             Table => Table,
             Caption => Caption,
             THead => THead,
@@ -539,6 +559,13 @@ impl NodeType {
             Small => Small,
             Big => Big,
             Bdo => Bdo,
+            Bdi => Bdi,
+            Wbr => Wbr,
+            Ruby => Ruby,
+            Rt => Rt,
+            Rtc => Rtc,
+            Rp => Rp,
+            Data => Data,
             Canvas => Canvas,
             Object => Object,
             Param => Param,
@@ -549,6 +576,7 @@ impl NodeType {
             Track => Track,
             Map => Map,
             Area => Area,
+            Svg => Svg,
             Title => Title,
             Meta => Meta,
             Link => Link,
@@ -618,6 +646,7 @@ impl NodeType {
             Self::Dd => NodeTypeTag::Dd,
             Self::Menu => NodeTypeTag::Menu,
             Self::MenuItem => NodeTypeTag::MenuItem,
+            Self::Dir => NodeTypeTag::Dir,
             Self::Table => NodeTypeTag::Table,
             Self::Caption => NodeTypeTag::Caption,
             Self::THead => NodeTypeTag::THead,
@@ -668,6 +697,13 @@ impl NodeType {
             Self::Small => NodeTypeTag::Small,
             Self::Big => NodeTypeTag::Big,
             Self::Bdo => NodeTypeTag::Bdo,
+            Self::Bdi => NodeTypeTag::Bdi,
+            Self::Wbr => NodeTypeTag::Wbr,
+            Self::Ruby => NodeTypeTag::Ruby,
+            Self::Rt => NodeTypeTag::Rt,
+            Self::Rtc => NodeTypeTag::Rtc,
+            Self::Rp => NodeTypeTag::Rp,
+            Self::Data => NodeTypeTag::Data,
             Self::Canvas => NodeTypeTag::Canvas,
             Self::Object => NodeTypeTag::Object,
             Self::Param => NodeTypeTag::Param,
@@ -678,6 +714,7 @@ impl NodeType {
             Self::Track => NodeTypeTag::Track,
             Self::Map => NodeTypeTag::Map,
             Self::Area => NodeTypeTag::Area,
+            Self::Svg => NodeTypeTag::Svg,
             Self::Title => NodeTypeTag::Title,
             Self::Meta => NodeTypeTag::Meta,
             Self::Link => NodeTypeTag::Link,

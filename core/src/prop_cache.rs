@@ -28,6 +28,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
+use crate::dom::NodeType;
 
 /// Tracks the origin of a CSS property value.
 /// Used to correctly implement the CSS cascade and inheritance rules.
@@ -3639,6 +3640,11 @@ impl CssPropertyCache {
             for prop_type in &property_types {
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type.clone(), *prop_type) {
+                    // Debug: Show what UA CSS returns
+                    if matches!(node_type, NodeType::Text(_)) {
+                        println!("[UA_CSS] get_ua_property returned Some for Text node {}, prop {:?}", node_index, prop_type);
+                    }
+                    
                     // Only insert if the property is NOT already set by inline CSS or author CSS
                     // UA CSS has LOWEST priority
                     let has_inline = node.inline_css_props.iter().any(|p| {
@@ -3661,6 +3667,8 @@ impl CssPropertyCache {
                     
                     // Insert UA CSS only if not already present (lowest priority)
                     if !has_inline && !has_css && !has_cascaded {
+                        println!("[UA_CSS] Applying to {:?} node {}: {:?} = {:?}", 
+                            node_type, node_index, prop_type, ua_prop);
                         self.cascaded_normal_props
                             .entry(node_id)
                             .or_insert_with(|| BTreeMap::new())
@@ -3707,6 +3715,9 @@ impl CssPropertyCache {
             let node_id = NodeId::new(node_index);
             let parent_id = hierarchy_item.parent_id();
             
+            let node_type = &node_data[node_index].node_type;
+            println!("[INHERIT] Processing node {} ({:?})", node_index, node_type);
+            
             // Get parent's computed values for inheritance
             let parent_computed = parent_id.and_then(|pid| self.computed_values.get(&pid));
             
@@ -3718,6 +3729,7 @@ impl CssPropertyCache {
             if let Some(parent_values) = parent_computed {
                 for (prop_type, prop_with_origin) in parent_values.iter() {
                     if prop_type.is_inheritable() {
+                        println!("[INHERIT] Node {} inheriting {:?} from parent", node_index, prop_type);
                         // Mark as inherited from parent
                         node_computed_values.insert(*prop_type, CssPropertyWithOrigin {
                             property: prop_with_origin.property.clone(),
@@ -3793,7 +3805,10 @@ impl CssPropertyCache {
                     };
                     
                     if should_apply {
+                        println!("[INHERIT] Node {} applying cascaded {:?}", node_index, prop_type);
                         process_property!(prop);
+                    } else {
+                        println!("[INHERIT] Node {} SKIPPING cascaded {:?} (already set as Own)", node_index, prop_type);
                     }
                 }
             }
@@ -3832,6 +3847,14 @@ impl CssPropertyCache {
             
             if values_changed || chains_changed {
                 changed_nodes.push(node_id);
+            }
+            
+            // Debug: Print final computed values for specific node types
+            if matches!(node_type, NodeType::Body | NodeType::H1) {
+                println!("[INHERIT] Node {} ({:?}) FINAL computed values:", node_index, node_type);
+                for (prop_type, prop_with_origin) in node_computed_values.iter() {
+                    println!("  {:?} = {:?} (origin: {:?})", prop_type, prop_with_origin.property, prop_with_origin.origin);
+                }
             }
             
             // Store the computed values and chains

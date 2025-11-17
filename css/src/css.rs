@@ -387,6 +387,7 @@ pub enum NodeTypeTag {
     Dd,
     Menu,
     MenuItem,
+    Dir,
 
     // Tables
     Table,
@@ -443,6 +444,13 @@ pub enum NodeTypeTag {
     Small,
     Big,
     Bdo,
+    Bdi,
+    Wbr,
+    Ruby,
+    Rt,
+    Rtc,
+    Rp,
+    Data,
 
     // Embedded content
     Canvas,
@@ -455,6 +463,7 @@ pub enum NodeTypeTag {
     Track,
     Map,
     Area,
+    Svg,
 
     // Metadata
     Title,
@@ -571,6 +580,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Dd => write!(f, "dd"),
             NodeTypeTag::Menu => write!(f, "menu"),
             NodeTypeTag::MenuItem => write!(f, "menuitem"),
+            NodeTypeTag::Dir => write!(f, "dir"),
 
             // Table elements
             NodeTypeTag::Table => write!(f, "table"),
@@ -627,6 +637,13 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Small => write!(f, "small"),
             NodeTypeTag::Big => write!(f, "big"),
             NodeTypeTag::Bdo => write!(f, "bdo"),
+            NodeTypeTag::Bdi => write!(f, "bdi"),
+            NodeTypeTag::Wbr => write!(f, "wbr"),
+            NodeTypeTag::Ruby => write!(f, "ruby"),
+            NodeTypeTag::Rt => write!(f, "rt"),
+            NodeTypeTag::Rtc => write!(f, "rtc"),
+            NodeTypeTag::Rp => write!(f, "rp"),
+            NodeTypeTag::Data => write!(f, "data"),
 
             // Embedded content
             NodeTypeTag::Canvas => write!(f, "canvas"),
@@ -639,6 +656,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Track => write!(f, "track"),
             NodeTypeTag::Map => write!(f, "map"),
             NodeTypeTag::Area => write!(f, "area"),
+            NodeTypeTag::Svg => write!(f, "svg"),
 
             // Metadata
             NodeTypeTag::Title => write!(f, "title"),
@@ -1012,6 +1030,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Dd => "NodeTypeTag::Dd",
         NodeTypeTag::Menu => "NodeTypeTag::Menu",
         NodeTypeTag::MenuItem => "NodeTypeTag::MenuItem",
+        NodeTypeTag::Dir => "NodeTypeTag::Dir",
 
         // Table elements
         NodeTypeTag::Table => "NodeTypeTag::Table",
@@ -1068,6 +1087,13 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Small => "NodeTypeTag::Small",
         NodeTypeTag::Big => "NodeTypeTag::Big",
         NodeTypeTag::Bdo => "NodeTypeTag::Bdo",
+        NodeTypeTag::Bdi => "NodeTypeTag::Bdi",
+        NodeTypeTag::Wbr => "NodeTypeTag::Wbr",
+        NodeTypeTag::Ruby => "NodeTypeTag::Ruby",
+        NodeTypeTag::Rt => "NodeTypeTag::Rt",
+        NodeTypeTag::Rtc => "NodeTypeTag::Rtc",
+        NodeTypeTag::Rp => "NodeTypeTag::Rp",
+        NodeTypeTag::Data => "NodeTypeTag::Data",
 
         // Embedded content
         NodeTypeTag::Canvas => "NodeTypeTag::Canvas",
@@ -1080,6 +1106,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Track => "NodeTypeTag::Track",
         NodeTypeTag::Map => "NodeTypeTag::Map",
         NodeTypeTag::Area => "NodeTypeTag::Area",
+        NodeTypeTag::Svg => "NodeTypeTag::Svg",
 
         // Metadata
         NodeTypeTag::Title => "NodeTypeTag::Title",

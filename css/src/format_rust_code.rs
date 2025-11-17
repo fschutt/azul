@@ -556,8 +556,6 @@ impl_enum_fmt!(
     Marker,
     Grid,
     InlineGrid,
-    Initial,
-    Inherit,
     FlowRoot
 );
 

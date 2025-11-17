@@ -1030,9 +1030,6 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::TableCaption => FormattingContext::TableCaption,
         LayoutDisplay::Grid | LayoutDisplay::InlineGrid => FormattingContext::Grid,
         
-        LayoutDisplay::Initial | LayoutDisplay::Inherit => FormattingContext::Block {
-            establishes_new_context: true,
-        },
         // These less common display types default to block behavior
         LayoutDisplay::TableColumn
         | LayoutDisplay::RunIn

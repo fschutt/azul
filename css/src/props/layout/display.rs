@@ -43,10 +43,6 @@ pub enum LayoutDisplay {
     // CSS3 additions
     Grid,
     InlineGrid,
-
-    // Initial/Inherit values
-    Initial,
-    Inherit,
 }
 
 impl LayoutDisplay {
@@ -106,8 +102,6 @@ impl PrintAsCssValue for LayoutDisplay {
             LayoutDisplay::FlowRoot => "flow-root",
             LayoutDisplay::Grid => "grid",
             LayoutDisplay::InlineGrid => "inline-grid",
-            LayoutDisplay::Initial => "initial",
-            LayoutDisplay::Inherit => "inherit",
         })
     }
 }
@@ -204,8 +198,6 @@ pub fn parse_layout_display<'a>(
         "marker" => Ok(LayoutDisplay::Marker),
         "grid" => Ok(LayoutDisplay::Grid),
         "inline-grid" => Ok(LayoutDisplay::InlineGrid),
-        "initial" => Ok(LayoutDisplay::Initial),
-        "inherit" => Ok(LayoutDisplay::Inherit),
         "flow-root" => Ok(LayoutDisplay::FlowRoot),
         _ => Err(LayoutDisplayParseError::InvalidValue(input)),
     }
