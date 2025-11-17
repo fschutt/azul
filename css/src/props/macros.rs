@@ -289,6 +289,27 @@ macro_rules! css_property_from_type {
             CssPropertyType::LetterSpacing => {
                 CssProperty::LetterSpacing(CssPropertyValue::$content_type)
             }
+            CssPropertyType::TextIndent => {
+                CssProperty::TextIndent(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::InitialLetter => {
+                CssProperty::InitialLetter(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::LineClamp => {
+                CssProperty::LineClamp(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::HangingPunctuation => {
+                CssProperty::HangingPunctuation(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextCombineUpright => {
+                CssProperty::TextCombineUpright(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ExclusionMargin => {
+                CssProperty::ExclusionMargin(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::HyphenationLanguage => {
+                CssProperty::HyphenationLanguage(CssPropertyValue::$content_type)
+            }
             CssPropertyType::LineHeight => CssProperty::LineHeight(CssPropertyValue::$content_type),
             CssPropertyType::WordSpacing => {
                 CssProperty::WordSpacing(CssPropertyValue::$content_type)

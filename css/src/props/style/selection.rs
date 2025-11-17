@@ -81,3 +81,45 @@ impl crate::format_rust_code::FormatAsRustCode for SelectionColor {
 pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorParseError> {
     parse_css_color(input).map(|inner| SelectionColor { inner })
 }
+
+// --- -azul-selection-radius ---
+
+use crate::props::basic::pixel::{
+    parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct SelectionRadius {
+    pub inner: PixelValue,
+}
+
+impl Default for SelectionRadius {
+    fn default() -> Self {
+        Self {
+            inner: PixelValue::zero(),
+        }
+    }
+}
+
+impl PrintAsCssValue for SelectionRadius {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for SelectionRadius {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "SelectionRadius {{ inner: {} }}",
+            self.inner.format_as_rust_code(_tabs)
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_selection_radius(
+    input: &str,
+) -> Result<SelectionRadius, CssPixelValueParseError> {
+    parse_pixel_value(input).map(|inner| SelectionRadius { inner })
+}

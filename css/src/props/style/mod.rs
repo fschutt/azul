@@ -1,5 +1,6 @@
 //! Style properties (visual effects, backgrounds, borders, etc.)
 
+pub mod azul_exclusion;
 pub mod background;
 pub mod border;
 pub mod border_radius;
@@ -14,6 +15,6 @@ pub mod text;
 pub mod transform;
 
 pub use self::{
-    background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*, filter::*,
-    lists::*, scrollbar::*, selection::*, text::*, transform::*,
+    azul_exclusion::*, background::*, border::*, border_radius::*, box_shadow::*, content::*,
+    effects::*, filter::*, lists::*, scrollbar::*, selection::*, text::*, transform::*,
 };

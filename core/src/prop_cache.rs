@@ -56,7 +56,7 @@ use azul_css::{
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
             LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
             LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
-            SelectionBackgroundColorValue, SelectionColorValue, ShapeImageThresholdValue,
+            SelectionBackgroundColorValue, SelectionColorValue, SelectionRadiusValue, ShapeImageThresholdValue,
             ShapeMarginValue, ShapeOutsideValue, ShapeInsideValue, ClipPathValue, StringSetValue, StyleBackfaceVisibilityValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
@@ -70,8 +70,9 @@ use azul_css::{
             StyleLineHeightValue, StyleListStylePositionValue, StyleListStyleTypeValue,
             StyleMixBlendModeValue, StyleOpacityValue,
             StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
-            StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue,
-            StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
+            StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleInitialLetterValue, StyleLineClampValue, StyleHangingPunctuationValue, StyleTextCombineUprightValue,
+            StyleExclusionMarginValue, StyleHyphenationLanguageValue, StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue,
             LayoutTableLayoutValue, StyleBorderCollapseValue, LayoutBorderSpacingValue,
             StyleCaptionSideValue, StyleEmptyCellsValue,
@@ -1269,6 +1270,76 @@ impl CssPropertyCache {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::TextColor)
             .and_then(|p| p.as_text_color())
     }
+    // Method for getting text-indent property
+    pub fn get_text_indent<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextIndentValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextIndent)
+            .and_then(|p| p.as_text_indent())
+    }
+    // Method for getting initial-letter property
+    pub fn get_initial_letter<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleInitialLetterValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetter)
+            .and_then(|p| p.as_initial_letter())
+    }
+    // Method for getting line-clamp property
+    pub fn get_line_clamp<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleLineClampValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::LineClamp)
+            .and_then(|p| p.as_line_clamp())
+    }
+    // Method for getting hanging-punctuation property
+    pub fn get_hanging_punctuation<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleHangingPunctuationValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::HangingPunctuation)
+            .and_then(|p| p.as_hanging_punctuation())
+    }
+    // Method for getting text-combine-upright property
+    pub fn get_text_combine_upright<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleTextCombineUprightValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextCombineUpright)
+            .and_then(|p| p.as_text_combine_upright())
+    }
+    // Method for getting -azul-exclusion-margin property
+    pub fn get_exclusion_margin<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleExclusionMarginValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::ExclusionMargin)
+            .and_then(|p| p.as_exclusion_margin())
+    }
+    // Method for getting -azul-hyphenation-language property
+    pub fn get_hyphenation_language<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleHyphenationLanguageValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::HyphenationLanguage)
+            .and_then(|p| p.as_hyphenation_language())
+    }
     // Method for getting caret-color property
     pub fn get_caret_color<'a>(
         &'a self,
@@ -1326,6 +1397,22 @@ impl CssPropertyCache {
             &CssPropertyType::SelectionColor,
         )
         .and_then(|p| p.as_selection_color())
+    }
+
+    // Method for getting -azul-selection-radius property
+    pub fn get_selection_radius<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a SelectionRadiusValue> {
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::SelectionRadius,
+        )
+        .and_then(|p| p.as_selection_radius())
     }
 
     // Method for getting text-justify property

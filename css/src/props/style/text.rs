@@ -3,15 +3,18 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
-use crate::props::{
-    basic::{
-        error::{InvalidValueErr, InvalidValueErrOwned},
-        length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
-        pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-        ColorU, Duration,
+use crate::{
+    format_rust_code::FormatAsRustCode,
+    props::{
+        basic::{
+            error::{InvalidValueErr, InvalidValueErrOwned},
+            length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
+            pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+            ColorU, Duration,
+        },
+        formatter::PrintAsCssValue,
+        macros::PixelValueTaker,
     },
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
 };
 
 // -- StyleTextColor (color property) --
@@ -543,6 +546,508 @@ pub fn parse_style_letter_spacing(
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleLetterSpacing { inner })
         .map_err(|e| StyleLetterSpacingParseError::PixelValue(e))
+}
+
+// -- StyleTextIndent (text-indent property) --
+
+/// Represents a `text-indent` attribute (indentation of first line in a block).
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTextIndent {
+    pub inner: PixelValue,
+}
+
+impl fmt::Debug for StyleTextIndent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
+impl_pixel_value!(StyleTextIndent);
+
+impl PrintAsCssValue for StyleTextIndent {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for StyleTextIndent {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */ }}", self.inner)
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextIndentParseError<'a> {
+    PixelValue(CssPixelValueParseError<'a>),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextIndentParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextIndentParseError<'a>, {
+    PixelValue(e) => format!("Invalid text-indent value: {}", e),
+}}
+#[cfg(feature = "parser")]
+impl_from!(
+    CssPixelValueParseError<'a>,
+    StyleTextIndentParseError::PixelValue
+);
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleTextIndentParseErrorOwned {
+    PixelValue(CssPixelValueParseErrorOwned),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextIndentParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextIndentParseErrorOwned {
+        match self {
+            Self::PixelValue(e) => StyleTextIndentParseErrorOwned::PixelValue(e.to_contained()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextIndentParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextIndentParseError<'a> {
+        match self {
+            Self::PixelValue(e) => StyleTextIndentParseError::PixelValue(e.to_shared()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_indent(
+    input: &str,
+) -> Result<StyleTextIndent, StyleTextIndentParseError> {
+    crate::props::basic::pixel::parse_pixel_value(input)
+        .map(|inner| StyleTextIndent { inner })
+        .map_err(|e| StyleTextIndentParseError::PixelValue(e))
+}
+
+/// initial-letter property for drop caps
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleInitialLetter {
+    pub size: usize,
+    pub sink: Option<usize>,
+}
+
+impl FormatAsRustCode for StyleInitialLetter {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PrintAsCssValue for StyleInitialLetter {
+    fn print_as_css_value(&self) -> String {
+        if let Some(sink) = self.sink {
+            format!("{} {}", self.size, sink)
+        } else {
+            format!("{}", self.size)
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleInitialLetterParseError<'a> {
+    InvalidFormat(&'a str),
+    InvalidSize(&'a str),
+    InvalidSink(&'a str),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleInitialLetterParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleInitialLetterParseError<'a>, {
+    InvalidFormat(e) => format!("Invalid initial-letter format: {}", e),
+    InvalidSize(e) => format!("Invalid initial-letter size: {}", e),
+    InvalidSink(e) => format!("Invalid initial-letter sink: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleInitialLetterParseErrorOwned {
+    InvalidFormat(String),
+    InvalidSize(String),
+    InvalidSink(String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleInitialLetterParseError<'a> {
+    pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
+        match self {
+            Self::InvalidFormat(s) => StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string()),
+            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string()),
+            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleInitialLetterParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleInitialLetterParseError<'a> {
+        match self {
+            Self::InvalidFormat(s) => StyleInitialLetterParseError::InvalidFormat(s.as_str()),
+            Self::InvalidSize(s) => StyleInitialLetterParseError::InvalidSize(s.as_str()),
+            Self::InvalidSink(s) => StyleInitialLetterParseError::InvalidSink(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl From<StyleInitialLetterParseError<'_>> for StyleInitialLetterParseErrorOwned {
+    fn from(e: StyleInitialLetterParseError) -> Self {
+        match e {
+            StyleInitialLetterParseError::InvalidFormat(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string())
+            }
+            StyleInitialLetterParseError::InvalidSize(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string())
+            }
+            StyleInitialLetterParseError::InvalidSink(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_display! { StyleInitialLetterParseErrorOwned, {
+    InvalidFormat(e) => format!("Invalid initial-letter format: {}", e),
+    InvalidSize(e) => format!("Invalid initial-letter size: {}", e),
+    InvalidSink(e) => format!("Invalid initial-letter sink: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_initial_letter<'a>(
+    input: &'a str,
+) -> Result<StyleInitialLetter, StyleInitialLetterParseError<'a>> {
+    let input = input.trim();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    if parts.is_empty() {
+        return Err(StyleInitialLetterParseError::InvalidFormat(input));
+    }
+
+    // Parse size (required)
+    let size = parts[0]
+        .parse::<usize>()
+        .map_err(|_| StyleInitialLetterParseError::InvalidSize(parts[0]))?;
+
+    if size == 0 {
+        return Err(StyleInitialLetterParseError::InvalidSize(parts[0]));
+    }
+
+    // Parse sink (optional)
+    let sink = if parts.len() > 1 {
+        Some(
+            parts[1]
+                .parse::<usize>()
+                .map_err(|_| StyleInitialLetterParseError::InvalidSink(parts[1]))?,
+        )
+    } else {
+        None
+    };
+
+    Ok(StyleInitialLetter { size, sink })
+}
+
+/// line-clamp property for limiting visible lines
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleLineClamp {
+    pub max_lines: usize,
+}
+
+impl FormatAsRustCode for StyleLineClamp {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PrintAsCssValue for StyleLineClamp {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.max_lines)
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleLineClampParseError<'a> {
+    InvalidValue(&'a str),
+    ZeroValue,
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleLineClampParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleLineClampParseError<'a>, {
+    InvalidValue(e) => format!("Invalid line-clamp value: {}", e),
+    ZeroValue => format!("line-clamp cannot be zero"),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleLineClampParseErrorOwned {
+    InvalidValue(String),
+    ZeroValue,
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleLineClampParseError<'a> {
+    pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue(s.to_string()),
+            Self::ZeroValue => StyleLineClampParseErrorOwned::ZeroValue,
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleLineClampParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleLineClampParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleLineClampParseError::InvalidValue(s.as_str()),
+            Self::ZeroValue => StyleLineClampParseError::ZeroValue,
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl From<StyleLineClampParseError<'_>> for StyleLineClampParseErrorOwned {
+    fn from(e: StyleLineClampParseError) -> Self {
+        e.to_contained()
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_display! { StyleLineClampParseErrorOwned, {
+    InvalidValue(e) => format!("Invalid line-clamp value: {}", e),
+    ZeroValue => format!("line-clamp cannot be zero"),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_line_clamp<'a>(
+    input: &'a str,
+) -> Result<StyleLineClamp, StyleLineClampParseError<'a>> {
+    let input = input.trim();
+    
+    let max_lines = input
+        .parse::<usize>()
+        .map_err(|_| StyleLineClampParseError::InvalidValue(input))?;
+
+    if max_lines == 0 {
+        return Err(StyleLineClampParseError::ZeroValue);
+    }
+
+    Ok(StyleLineClamp { max_lines })
+}
+
+/// hanging-punctuation property for hanging punctuation marks
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleHangingPunctuation {
+    pub enabled: bool,
+}
+
+impl Default for StyleHangingPunctuation {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+impl FormatAsRustCode for StyleHangingPunctuation {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PrintAsCssValue for StyleHangingPunctuation {
+    fn print_as_css_value(&self) -> String {
+        if self.enabled {
+            "first allow-end last force-end".to_string()
+        } else {
+            "none".to_string()
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleHangingPunctuationParseError<'a> {
+    InvalidValue(&'a str),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleHangingPunctuationParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleHangingPunctuationParseError<'a>, {
+    InvalidValue(e) => format!("Invalid hanging-punctuation value: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleHangingPunctuationParseErrorOwned {
+    InvalidValue(String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleHangingPunctuationParseError<'a> {
+    pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleHangingPunctuationParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleHangingPunctuationParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleHangingPunctuationParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl From<StyleHangingPunctuationParseError<'_>> for StyleHangingPunctuationParseErrorOwned {
+    fn from(e: StyleHangingPunctuationParseError) -> Self {
+        e.to_contained()
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_display! { StyleHangingPunctuationParseErrorOwned, {
+    InvalidValue(e) => format!("Invalid hanging-punctuation value: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_hanging_punctuation<'a>(
+    input: &'a str,
+) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'a>> {
+    let input = input.trim().to_lowercase();
+    
+    // For simplicity: "none" = disabled, anything else = enabled
+    // Full spec supports: first, last, force-end, allow-end
+    let enabled = input != "none";
+    
+    Ok(StyleHangingPunctuation { enabled })
+}
+
+/// text-combine-upright property for combining horizontal text in vertical layout
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleTextCombineUpright {
+    None,
+    All,
+    Digits(u8),
+}
+
+impl Default for StyleTextCombineUpright {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl FormatAsRustCode for StyleTextCombineUpright {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PrintAsCssValue for StyleTextCombineUpright {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::None => "none".to_string(),
+            Self::All => "all".to_string(),
+            Self::Digits(n) => format!("digits {}", n),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+#[derive(Clone, PartialEq)]
+pub enum StyleTextCombineUprightParseError<'a> {
+    InvalidValue(&'a str),
+    InvalidDigits(&'a str),
+}
+#[cfg(feature = "parser")]
+impl_debug_as_display!(StyleTextCombineUprightParseError<'a>);
+#[cfg(feature = "parser")]
+impl_display! { StyleTextCombineUprightParseError<'a>, {
+    InvalidValue(e) => format!("Invalid text-combine-upright value: {}", e),
+    InvalidDigits(e) => format!("Invalid text-combine-upright digits: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleTextCombineUprightParseErrorOwned {
+    InvalidValue(String),
+    InvalidDigits(String),
+}
+
+#[cfg(feature = "parser")]
+impl<'a> StyleTextCombineUprightParseError<'a> {
+    pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidDigits(s) => StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl StyleTextCombineUprightParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTextCombineUprightParseError<'a> {
+        match self {
+            Self::InvalidValue(s) => StyleTextCombineUprightParseError::InvalidValue(s.as_str()),
+            Self::InvalidDigits(s) => StyleTextCombineUprightParseError::InvalidDigits(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl From<StyleTextCombineUprightParseError<'_>> for StyleTextCombineUprightParseErrorOwned {
+    fn from(e: StyleTextCombineUprightParseError) -> Self {
+        e.to_contained()
+    }
+}
+
+#[cfg(feature = "parser")]
+impl_display! { StyleTextCombineUprightParseErrorOwned, {
+    InvalidValue(e) => format!("Invalid text-combine-upright value: {}", e),
+    InvalidDigits(e) => format!("Invalid text-combine-upright digits: {}", e),
+}}
+
+#[cfg(feature = "parser")]
+pub fn parse_style_text_combine_upright<'a>(
+    input: &'a str,
+) -> Result<StyleTextCombineUpright, StyleTextCombineUprightParseError<'a>> {
+    let trimmed = input.trim();
+    
+    if trimmed.eq_ignore_ascii_case("none") {
+        Ok(StyleTextCombineUpright::None)
+    } else if trimmed.eq_ignore_ascii_case("all") {
+        Ok(StyleTextCombineUpright::All)
+    } else if trimmed.starts_with("digits") {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() == 2 {
+            let n = parts[1]
+                .parse::<u8>()
+                .map_err(|_| StyleTextCombineUprightParseError::InvalidDigits(input))?;
+            if n >= 2 && n <= 4 {
+                Ok(StyleTextCombineUpright::Digits(n))
+            } else {
+                Err(StyleTextCombineUprightParseError::InvalidDigits(input))
+            }
+        } else {
+            // Default to "digits 2"
+            Ok(StyleTextCombineUpright::Digits(2))
+        }
+    } else {
+        Err(StyleTextCombineUprightParseError::InvalidValue(input))
+    }
 }
 
 #[cfg(feature = "parser")]

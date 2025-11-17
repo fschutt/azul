@@ -38,9 +38,9 @@ use crate::{
             overflow::*, position::*, shape::*, spacing::*, table::*, text::*, wrapping::*,
         },
         style::{
-            background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
+            azul_exclusion::*, background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
             filter::*, lists::*, scrollbar::*, text::*, transform::*, SelectionBackgroundColor,
-            SelectionColor,
+            SelectionColor, SelectionRadius,
         },
     },
 };
@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 134] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 141] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -88,6 +88,13 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 134] = [
     (CssPropertyType::Direction, "direction"),
     (CssPropertyType::UserSelect, "user-select"),
     (CssPropertyType::TextDecoration, "text-decoration"),
+    (CssPropertyType::TextIndent, "text-indent"),
+    (CssPropertyType::InitialLetter, "initial-letter"),
+    (CssPropertyType::LineClamp, "line-clamp"),
+    (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
+    (CssPropertyType::TextCombineUpright, "text-combine-upright"),
+    (CssPropertyType::ExclusionMargin, "-azul-exclusion-margin"),
+    (CssPropertyType::HyphenationLanguage, "-azul-hyphenation-language"),
     (CssPropertyType::Cursor, "cursor"),
     (CssPropertyType::Width, "width"),
     (CssPropertyType::Height, "height"),
@@ -179,6 +186,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 134] = [
         "-azul-selection-background-color",
     ),
     (CssPropertyType::SelectionColor, "-azul-selection-color"),
+    (CssPropertyType::SelectionRadius, "-azul-selection-radius"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
     (CssPropertyType::Opacity, "opacity"),
@@ -234,6 +242,7 @@ pub type CaretColorValue = CssPropertyValue<CaretColor>;
 pub type CaretAnimationDurationValue = CssPropertyValue<CaretAnimationDuration>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
+pub type SelectionRadiusValue = CssPropertyValue<SelectionRadius>;
 pub type StyleBackgroundContentVecValue = CssPropertyValue<StyleBackgroundContentVec>;
 pub type StyleBackgroundPositionVecValue = CssPropertyValue<StyleBackgroundPositionVec>;
 pub type StyleBackgroundSizeVecValue = CssPropertyValue<StyleBackgroundSizeVec>;
@@ -246,6 +255,13 @@ pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
 pub type StyleTextAlignValue = CssPropertyValue<StyleTextAlign>;
 pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
 pub type StyleLetterSpacingValue = CssPropertyValue<StyleLetterSpacing>;
+pub type StyleTextIndentValue = CssPropertyValue<StyleTextIndent>;
+pub type StyleInitialLetterValue = CssPropertyValue<StyleInitialLetter>;
+pub type StyleLineClampValue = CssPropertyValue<StyleLineClamp>;
+pub type StyleHangingPunctuationValue = CssPropertyValue<StyleHangingPunctuation>;
+pub type StyleTextCombineUprightValue = CssPropertyValue<StyleTextCombineUpright>;
+pub type StyleExclusionMarginValue = CssPropertyValue<StyleExclusionMargin>;
+pub type StyleHyphenationLanguageValue = CssPropertyValue<StyleHyphenationLanguage>;
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
 pub type StyleTabWidthValue = CssPropertyValue<StyleTabWidth>;
 pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
@@ -459,6 +475,7 @@ pub enum CssProperty {
     CaretAnimationDuration(CaretAnimationDurationValue),
     SelectionBackgroundColor(SelectionBackgroundColorValue),
     SelectionColor(SelectionColorValue),
+    SelectionRadius(SelectionRadiusValue),
     TextColor(StyleTextColorValue),
     FontSize(StyleFontSizeValue),
     FontFamily(StyleFontFamilyVecValue),
@@ -467,6 +484,13 @@ pub enum CssProperty {
     TextAlign(StyleTextAlignValue),
     TextJustify(LayoutTextJustifyValue),
     LetterSpacing(StyleLetterSpacingValue),
+    TextIndent(StyleTextIndentValue),
+    InitialLetter(StyleInitialLetterValue),
+    LineClamp(StyleLineClampValue),
+    HangingPunctuation(StyleHangingPunctuationValue),
+    TextCombineUpright(StyleTextCombineUprightValue),
+    ExclusionMargin(StyleExclusionMarginValue),
+    HyphenationLanguage(StyleHyphenationLanguageValue),
     LineHeight(StyleLineHeightValue),
     WordSpacing(StyleWordSpacingValue),
     TabWidth(StyleTabWidthValue),
@@ -627,6 +651,7 @@ pub enum CssPropertyType {
     CaretAnimationDuration,
     SelectionBackgroundColor,
     SelectionColor,
+    SelectionRadius,
     TextColor,
     FontSize,
     FontFamily,
@@ -635,6 +660,13 @@ pub enum CssPropertyType {
     TextAlign,
     TextJustify,
     LetterSpacing,
+    TextIndent,
+    InitialLetter,
+    LineClamp,
+    HangingPunctuation,
+    TextCombineUpright,
+    ExclusionMargin,
+    HyphenationLanguage,
     LineHeight,
     WordSpacing,
     TabWidth,
@@ -806,6 +838,7 @@ impl CssPropertyType {
             CssPropertyType::CaretAnimationDuration => "caret-animation-duration",
             CssPropertyType::SelectionBackgroundColor => "-azul-selection-background-color",
             CssPropertyType::SelectionColor => "-azul-selection-color",
+            CssPropertyType::SelectionRadius => "-azul-selection-radius",
             CssPropertyType::TextColor => "color",
             CssPropertyType::FontSize => "font-size",
             CssPropertyType::FontFamily => "font-family",
@@ -814,6 +847,13 @@ impl CssPropertyType {
             CssPropertyType::TextAlign => "text-align",
             CssPropertyType::TextJustify => "text-justify",
             CssPropertyType::LetterSpacing => "letter-spacing",
+            CssPropertyType::TextIndent => "text-indent",
+            CssPropertyType::InitialLetter => "initial-letter",
+            CssPropertyType::LineClamp => "line-clamp",
+            CssPropertyType::HangingPunctuation => "hanging-punctuation",
+            CssPropertyType::TextCombineUpright => "text-combine-upright",
+            CssPropertyType::ExclusionMargin => "-azul-exclusion-margin",
+            CssPropertyType::HyphenationLanguage => "-azul-hyphenation-language",
             CssPropertyType::LineHeight => "line-height",
             CssPropertyType::WordSpacing => "word-spacing",
             CssPropertyType::TabWidth => "tab-width",
@@ -1071,6 +1111,13 @@ pub enum CssParsingError<'a> {
     TextAlign(StyleTextAlignParseError<'a>),
     TextJustify(TextJustifyParseError<'a>),
     LetterSpacing(StyleLetterSpacingParseError<'a>),
+    TextIndent(StyleTextIndentParseError<'a>),
+    InitialLetter(StyleInitialLetterParseError<'a>),
+    LineClamp(StyleLineClampParseError<'a>),
+    HangingPunctuation(StyleHangingPunctuationParseError<'a>),
+    TextCombineUpright(StyleTextCombineUprightParseError<'a>),
+    ExclusionMargin(StyleExclusionMarginParseError),
+    HyphenationLanguage(StyleHyphenationLanguageParseError),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseError<'a>),
     TabWidth(StyleTabWidthParseError<'a>),
@@ -1084,6 +1131,7 @@ pub enum CssParsingError<'a> {
     CaretAnimationDuration(DurationParseError<'a>),
     SelectionBackgroundColor(CssColorParseError<'a>),
     SelectionColor(CssColorParseError<'a>),
+    SelectionRadius(CssPixelValueParseError<'a>),
 
     // Layout basic properties
     LayoutDisplay(LayoutDisplayParseError<'a>),
@@ -1210,6 +1258,13 @@ pub enum CssParsingErrorOwned {
     TextAlign(StyleTextAlignParseErrorOwned),
     TextJustify(TextJustifyParseErrorOwned),
     LetterSpacing(StyleLetterSpacingParseErrorOwned),
+    TextIndent(StyleTextIndentParseErrorOwned),
+    InitialLetter(StyleInitialLetterParseErrorOwned),
+    LineClamp(StyleLineClampParseErrorOwned),
+    HangingPunctuation(StyleHangingPunctuationParseErrorOwned),
+    TextCombineUpright(StyleTextCombineUprightParseErrorOwned),
+    ExclusionMargin(StyleExclusionMarginParseErrorOwned),
+    HyphenationLanguage(StyleHyphenationLanguageParseErrorOwned),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseErrorOwned),
     TabWidth(StyleTabWidthParseErrorOwned),
@@ -1223,6 +1278,7 @@ pub enum CssParsingErrorOwned {
     CaretAnimationDuration(DurationParseErrorOwned),
     SelectionBackgroundColor(CssColorParseErrorOwned),
     SelectionColor(CssColorParseErrorOwned),
+    SelectionRadius(CssPixelValueParseErrorOwned),
 
     // Layout basic properties
     LayoutDisplay(LayoutDisplayParseErrorOwned),
@@ -1318,6 +1374,7 @@ impl_display! { CssParsingError<'a>, {
     CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
     SelectionBackgroundColor(e) => format!("Invalid -azul-selection-background-color: {}", e),
     SelectionColor(e) => format!("Invalid -azul-selection-color: {}", e),
+    SelectionRadius(e) => format!("Invalid -azul-selection-radius: {}", e),
     Border(e) => format!("Invalid border property: {}", e),
     BorderRadius(e) => format!("Invalid border-radius: {}", e),
     Padding(e) => format!("Invalid padding property: {}", e),
@@ -1383,6 +1440,13 @@ impl_display! { CssParsingError<'a>, {
     TextAlign(e) => format!("Invalid text-align: {}", e),
     TextJustify(e) => format!("Invalid text-justify: {}", e),
     LetterSpacing(e) => format!("Invalid letter-spacing: {}", e),
+    TextIndent(e) => format!("Invalid text-indent: {}", e),
+    InitialLetter(e) => format!("Invalid initial-letter: {}", e),
+    LineClamp(e) => format!("Invalid line-clamp: {}", e),
+    HangingPunctuation(e) => format!("Invalid hanging-punctuation: {}", e),
+    TextCombineUpright(e) => format!("Invalid text-combine-upright: {}", e),
+    ExclusionMargin(e) => format!("Invalid -azul-exclusion-margin: {}", e),
+    HyphenationLanguage(e) => format!("Invalid -azul-hyphenation-language: {}", e),
     LineHeight(e) => format!("Invalid line-height: {}", e),
     WordSpacing(e) => format!("Invalid word-spacing: {}", e),
     TabWidth(e) => format!("Invalid tab-width: {}", e),
@@ -1438,6 +1502,35 @@ impl_from!(
 );
 impl_from!(CssFontWeightParseError<'a>, CssParsingError::FontWeight);
 impl_from!(CssFontStyleParseError<'a>, CssParsingError::FontStyle);
+impl_from!(
+    StyleInitialLetterParseError<'a>,
+    CssParsingError::InitialLetter
+);
+impl_from!(StyleLineClampParseError<'a>, CssParsingError::LineClamp);
+impl_from!(
+    StyleHangingPunctuationParseError<'a>,
+    CssParsingError::HangingPunctuation
+);
+impl_from!(
+    StyleTextCombineUprightParseError<'a>,
+    CssParsingError::TextCombineUpright
+);
+
+// Manual From implementation for StyleExclusionMarginParseError (no lifetime)
+#[cfg(feature = "parser")]
+impl<'a> From<StyleExclusionMarginParseError> for CssParsingError<'a> {
+    fn from(e: StyleExclusionMarginParseError) -> Self {
+        CssParsingError::ExclusionMargin(e)
+    }
+}
+
+// Manual From implementation for StyleHyphenationLanguageParseError (no lifetime)
+#[cfg(feature = "parser")]
+impl<'a> From<StyleHyphenationLanguageParseError> for CssParsingError<'a> {
+    fn from(e: StyleHyphenationLanguageParseError) -> Self {
+        CssParsingError::HyphenationLanguage(e)
+    }
+}
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrow);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrink);
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::Background);
@@ -1635,6 +1728,12 @@ impl<'a> From<StyleLineHeightParseError> for CssParsingError<'a> {
     }
 }
 
+impl<'a> From<StyleTextIndentParseError<'a>> for CssParsingError<'a> {
+    fn from(e: StyleTextIndentParseError<'a>) -> Self {
+        CssParsingError::TextIndent(e)
+    }
+}
+
 impl<'a> CssParsingError<'a> {
     pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
@@ -1647,6 +1746,9 @@ impl<'a> CssParsingError<'a> {
             }
             CssParsingError::SelectionColor(e) => {
                 CssParsingErrorOwned::SelectionColor(e.to_contained())
+            }
+            CssParsingError::SelectionRadius(e) => {
+                CssParsingErrorOwned::SelectionRadius(e.to_contained())
             }
             CssParsingError::Border(e) => CssParsingErrorOwned::Border(e.to_contained()),
             CssParsingError::BorderRadius(e) => {
@@ -1769,6 +1871,27 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LetterSpacing(e) => {
                 CssParsingErrorOwned::LetterSpacing(e.to_contained())
             }
+            CssParsingError::TextIndent(e) => {
+                CssParsingErrorOwned::TextIndent(e.to_contained())
+            }
+            CssParsingError::InitialLetter(e) => {
+                CssParsingErrorOwned::InitialLetter(e.to_contained())
+            }
+            CssParsingError::LineClamp(e) => {
+                CssParsingErrorOwned::LineClamp(e.to_contained())
+            }
+            CssParsingError::HangingPunctuation(e) => {
+                CssParsingErrorOwned::HangingPunctuation(e.to_contained())
+            }
+            CssParsingError::TextCombineUpright(e) => {
+                CssParsingErrorOwned::TextCombineUpright(e.to_contained())
+            }
+            CssParsingError::ExclusionMargin(e) => {
+                CssParsingErrorOwned::ExclusionMargin(e.to_contained())
+            }
+            CssParsingError::HyphenationLanguage(e) => {
+                CssParsingErrorOwned::HyphenationLanguage(e.to_contained())
+            }
             CssParsingError::LineHeight(e) => CssParsingErrorOwned::LineHeight(e.clone()),
             CssParsingError::WordSpacing(e) => CssParsingErrorOwned::WordSpacing(e.to_contained()),
             CssParsingError::TabWidth(e) => CssParsingErrorOwned::TabWidth(e.to_contained()),
@@ -1838,6 +1961,9 @@ impl CssParsingErrorOwned {
             }
             CssParsingErrorOwned::SelectionColor(e) => {
                 CssParsingError::SelectionColor(e.to_shared())
+            }
+            CssParsingErrorOwned::SelectionRadius(e) => {
+                CssParsingError::SelectionRadius(e.to_shared())
             }
             CssParsingErrorOwned::Border(e) => CssParsingError::Border(e.to_shared()),
             CssParsingErrorOwned::BorderRadius(e) => CssParsingError::BorderRadius(e.to_shared()),
@@ -1938,6 +2064,13 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::TextAlign(e) => CssParsingError::TextAlign(e.to_shared()),
             CssParsingErrorOwned::TextJustify(e) => CssParsingError::TextJustify(e.to_borrowed()),
             CssParsingErrorOwned::LetterSpacing(e) => CssParsingError::LetterSpacing(e.to_shared()),
+            CssParsingErrorOwned::TextIndent(e) => CssParsingError::TextIndent(e.to_shared()),
+            CssParsingErrorOwned::InitialLetter(e) => CssParsingError::InitialLetter(e.to_shared()),
+            CssParsingErrorOwned::LineClamp(e) => CssParsingError::LineClamp(e.to_shared()),
+            CssParsingErrorOwned::HangingPunctuation(e) => CssParsingError::HangingPunctuation(e.to_shared()),
+            CssParsingErrorOwned::TextCombineUpright(e) => CssParsingError::TextCombineUpright(e.to_shared()),
+            CssParsingErrorOwned::ExclusionMargin(e) => CssParsingError::ExclusionMargin(e.to_shared()),
+            CssParsingErrorOwned::HyphenationLanguage(e) => CssParsingError::HyphenationLanguage(e.to_shared()),
             CssParsingErrorOwned::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
             CssParsingErrorOwned::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
             CssParsingErrorOwned::TabWidth(e) => CssParsingError::TabWidth(e.to_shared()),
@@ -1996,7 +2129,7 @@ pub fn parse_css_property<'a>(
     key: CssPropertyType,
     value: &'a str,
 ) -> Result<CssProperty, CssParsingError<'a>> {
-    use crate::props::style::{parse_selection_background_color, parse_selection_color};
+    use crate::props::style::{parse_selection_background_color, parse_selection_color, parse_selection_radius};
 
     let value = value.trim();
     Ok(match value {
@@ -2013,6 +2146,7 @@ pub fn parse_css_property<'a>(
                 parse_selection_background_color(value)?.into()
             }
             CssPropertyType::SelectionColor => parse_selection_color(value)?.into(),
+            CssPropertyType::SelectionRadius => parse_selection_radius(value)?.into(),
 
             CssPropertyType::TextColor => parse_style_text_color(value)?.into(),
             CssPropertyType::FontSize => CssProperty::FontSize(parse_style_font_size(value)?.into()),
@@ -2022,6 +2156,13 @@ pub fn parse_css_property<'a>(
             CssPropertyType::TextAlign => parse_style_text_align(value)?.into(),
             CssPropertyType::TextJustify => parse_layout_text_justify(value)?.into(),
             CssPropertyType::LetterSpacing => parse_style_letter_spacing(value)?.into(),
+            CssPropertyType::TextIndent => parse_style_text_indent(value)?.into(),
+            CssPropertyType::InitialLetter => parse_style_initial_letter(value)?.into(),
+            CssPropertyType::LineClamp => parse_style_line_clamp(value)?.into(),
+            CssPropertyType::HangingPunctuation => parse_style_hanging_punctuation(value)?.into(),
+            CssPropertyType::TextCombineUpright => parse_style_text_combine_upright(value)?.into(),
+            CssPropertyType::ExclusionMargin => parse_style_exclusion_margin(value)?.into(),
+            CssPropertyType::HyphenationLanguage => parse_style_hyphenation_language(value)?.into(),
             CssPropertyType::LineHeight => parse_style_line_height(value)?.into(),
             CssPropertyType::WordSpacing => parse_style_word_spacing(value)?.into(),
             CssPropertyType::TabWidth => parse_style_tab_width(value)?.into(),
@@ -2920,6 +3061,13 @@ impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
 impl_from_css_prop!(StyleTextAlign, CssProperty::TextAlign);
 impl_from_css_prop!(LayoutTextJustify, CssProperty::TextJustify);
 impl_from_css_prop!(StyleLetterSpacing, CssProperty::LetterSpacing);
+impl_from_css_prop!(StyleTextIndent, CssProperty::TextIndent);
+impl_from_css_prop!(StyleInitialLetter, CssProperty::InitialLetter);
+impl_from_css_prop!(StyleLineClamp, CssProperty::LineClamp);
+impl_from_css_prop!(StyleHangingPunctuation, CssProperty::HangingPunctuation);
+impl_from_css_prop!(StyleTextCombineUpright, CssProperty::TextCombineUpright);
+impl_from_css_prop!(StyleExclusionMargin, CssProperty::ExclusionMargin);
+impl_from_css_prop!(StyleHyphenationLanguage, CssProperty::HyphenationLanguage);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
 impl_from_css_prop!(StyleWordSpacing, CssProperty::WordSpacing);
 impl_from_css_prop!(StyleTabWidth, CssProperty::TabWidth);
@@ -3045,6 +3193,7 @@ impl CssProperty {
             CssProperty::CaretAnimationDuration(v) => v.get_css_value_fmt(),
             CssProperty::SelectionBackgroundColor(v) => v.get_css_value_fmt(),
             CssProperty::SelectionColor(v) => v.get_css_value_fmt(),
+            CssProperty::SelectionRadius(v) => v.get_css_value_fmt(),
             CssProperty::TextJustify(v) => v.get_css_value_fmt(),
             CssProperty::LayoutTextJustify(v) => format!("{:?}", v),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
@@ -3052,6 +3201,13 @@ impl CssProperty {
             CssProperty::FontFamily(v) => v.get_css_value_fmt(),
             CssProperty::TextAlign(v) => v.get_css_value_fmt(),
             CssProperty::LetterSpacing(v) => v.get_css_value_fmt(),
+            CssProperty::TextIndent(v) => v.get_css_value_fmt(),
+            CssProperty::InitialLetter(v) => v.get_css_value_fmt(),
+            CssProperty::LineClamp(v) => v.get_css_value_fmt(),
+            CssProperty::HangingPunctuation(v) => v.get_css_value_fmt(),
+            CssProperty::TextCombineUpright(v) => v.get_css_value_fmt(),
+            CssProperty::ExclusionMargin(v) => v.get_css_value_fmt(),
+            CssProperty::HyphenationLanguage(v) => v.get_css_value_fmt(),
             CssProperty::LineHeight(v) => v.get_css_value_fmt(),
             CssProperty::WordSpacing(v) => v.get_css_value_fmt(),
             CssProperty::TabWidth(v) => v.get_css_value_fmt(),
@@ -3220,6 +3376,11 @@ impl CssProperty {
                 let ls_start = ls_start.get_property().copied().unwrap_or_default();
                 let ls_end = ls_end.get_property().copied().unwrap_or_default();
                 CssProperty::letter_spacing(ls_start.interpolate(&ls_end, t))
+            }
+            (CssProperty::TextIndent(ti_start), CssProperty::TextIndent(ti_end)) => {
+                let ti_start = ti_start.get_property().copied().unwrap_or_default();
+                let ti_end = ti_end.get_property().copied().unwrap_or_default();
+                CssProperty::text_indent(ti_start.interpolate(&ti_end, t))
             }
             (CssProperty::LineHeight(lh_start), CssProperty::LineHeight(lh_end)) => {
                 let lh_start = lh_start.get_property().copied().unwrap_or_default();
@@ -3470,6 +3631,7 @@ impl CssProperty {
             CssProperty::CaretAnimationDuration(_) => CssPropertyType::CaretAnimationDuration,
             CssProperty::SelectionBackgroundColor(_) => CssPropertyType::SelectionBackgroundColor,
             CssProperty::SelectionColor(_) => CssPropertyType::SelectionColor,
+            CssProperty::SelectionRadius(_) => CssPropertyType::SelectionRadius,
 
             CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
             CssProperty::LayoutTextJustify(_) => CssPropertyType::TextAlign, /* oder ggf. ein */
@@ -3481,6 +3643,13 @@ impl CssProperty {
             CssProperty::FontStyle(_) => CssPropertyType::FontStyle,
             CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
             CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
+            CssProperty::TextIndent(_) => CssPropertyType::TextIndent,
+            CssProperty::InitialLetter(_) => CssPropertyType::InitialLetter,
+            CssProperty::LineClamp(_) => CssPropertyType::LineClamp,
+            CssProperty::HangingPunctuation(_) => CssPropertyType::HangingPunctuation,
+            CssProperty::TextCombineUpright(_) => CssPropertyType::TextCombineUpright,
+            CssProperty::ExclusionMargin(_) => CssPropertyType::ExclusionMargin,
+            CssProperty::HyphenationLanguage(_) => CssPropertyType::HyphenationLanguage,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
             CssProperty::WordSpacing(_) => CssPropertyType::WordSpacing,
             CssProperty::TabWidth(_) => CssPropertyType::TabWidth,
@@ -3651,6 +3820,9 @@ impl CssProperty {
     }
     pub const fn letter_spacing(input: StyleLetterSpacing) -> Self {
         CssProperty::LetterSpacing(CssPropertyValue::Exact(input))
+    }
+    pub const fn text_indent(input: StyleTextIndent) -> Self {
+        CssProperty::TextIndent(CssPropertyValue::Exact(input))
     }
     pub const fn line_height(input: StyleLineHeight) -> Self {
         CssProperty::LineHeight(CssPropertyValue::Exact(input))
@@ -4123,6 +4295,12 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_selection_radius(&self) -> Option<&SelectionRadiusValue> {
+        match self {
+            CssProperty::SelectionRadius(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_background_position(&self) -> Option<&StyleBackgroundPositionVecValue> {
         match self {
             CssProperty::BackgroundPosition(f) => Some(f),
@@ -4223,6 +4401,48 @@ impl CssProperty {
     pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> {
         match self {
             CssProperty::LineHeight(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_indent(&self) -> Option<&StyleTextIndentValue> {
+        match self {
+            CssProperty::TextIndent(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_initial_letter(&self) -> Option<&StyleInitialLetterValue> {
+        match self {
+            CssProperty::InitialLetter(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_line_clamp(&self) -> Option<&StyleLineClampValue> {
+        match self {
+            CssProperty::LineClamp(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_hanging_punctuation(&self) -> Option<&StyleHangingPunctuationValue> {
+        match self {
+            CssProperty::HangingPunctuation(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_text_combine_upright(&self) -> Option<&StyleTextCombineUprightValue> {
+        match self {
+            CssProperty::TextCombineUpright(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_exclusion_margin(&self) -> Option<&StyleExclusionMarginValue> {
+        match self {
+            CssProperty::ExclusionMargin(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_hyphenation_language(&self) -> Option<&StyleHyphenationLanguageValue> {
+        match self {
+            CssProperty::HyphenationLanguage(f) => Some(f),
             _ => None,
         }
     }
@@ -4859,6 +5079,13 @@ impl CssProperty {
             FontFamily(c) => c.is_initial(),
             TextAlign(c) => c.is_initial(),
             LetterSpacing(c) => c.is_initial(),
+            TextIndent(c) => c.is_initial(),
+            InitialLetter(c) => c.is_initial(),
+            LineClamp(c) => c.is_initial(),
+            HangingPunctuation(c) => c.is_initial(),
+            TextCombineUpright(c) => c.is_initial(),
+            ExclusionMargin(c) => c.is_initial(),
+            HyphenationLanguage(c) => c.is_initial(),
             LineHeight(c) => c.is_initial(),
             WordSpacing(c) => c.is_initial(),
             TabWidth(c) => c.is_initial(),
@@ -5018,6 +5245,9 @@ impl CssProperty {
     }
     pub const fn const_letter_spacing(input: StyleLetterSpacing) -> Self {
         CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input))
+    }
+    pub const fn const_text_indent(input: StyleTextIndent) -> Self {
+        CssProperty::TextIndent(StyleTextIndentValue::Exact(input))
     }
     pub const fn const_line_height(input: StyleLineHeight) -> Self {
         CssProperty::LineHeight(StyleLineHeightValue::Exact(input))
@@ -5324,6 +5554,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::SelectionColor({})",
             print_css_property_value(p, tabs, "SelectionColor")
         ),
+        CssProperty::SelectionRadius(p) => format!(
+            "CssProperty::SelectionRadius({})",
+            print_css_property_value(p, tabs, "SelectionRadius")
+        ),
         CssProperty::TextJustify(p) => format!(
             "CssProperty::TextJustify({})",
             print_css_property_value(p, tabs, "LayoutTextJustify")
@@ -5351,6 +5585,34 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::LetterSpacing(p) => format!(
             "CssProperty::LetterSpacing({})",
             print_css_property_value(p, tabs, "StyleLetterSpacing")
+        ),
+        CssProperty::TextIndent(p) => format!(
+            "CssProperty::TextIndent({})",
+            print_css_property_value(p, tabs, "StyleTextIndent")
+        ),
+        CssProperty::InitialLetter(p) => format!(
+            "CssProperty::InitialLetter({})",
+            print_css_property_value(p, tabs, "StyleInitialLetter")
+        ),
+        CssProperty::LineClamp(p) => format!(
+            "CssProperty::LineClamp({})",
+            print_css_property_value(p, tabs, "StyleLineClamp")
+        ),
+        CssProperty::HangingPunctuation(p) => format!(
+            "CssProperty::HangingPunctuation({})",
+            print_css_property_value(p, tabs, "StyleHangingPunctuation")
+        ),
+        CssProperty::TextCombineUpright(p) => format!(
+            "CssProperty::TextCombineUpright({})",
+            print_css_property_value(p, tabs, "StyleTextCombineUpright")
+        ),
+        CssProperty::ExclusionMargin(p) => format!(
+            "CssProperty::ExclusionMargin({})",
+            print_css_property_value(p, tabs, "StyleExclusionMargin")
+        ),
+        CssProperty::HyphenationLanguage(p) => format!(
+            "CssProperty::HyphenationLanguage({})",
+            print_css_property_value(p, tabs, "StyleHyphenationLanguage")
         ),
         CssProperty::LineHeight(p) => format!(
             "CssProperty::LineHeight({})",

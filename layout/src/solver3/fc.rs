@@ -786,7 +786,16 @@ fn translate_to_text3_constraints<'a>(
         .and_then(|s| s.get_property().copied())
         .unwrap_or_default();
 
-    let line_height = styled_dom
+    // Get font-size for resolving line-height
+    let font_size = styled_dom
+        .css_property_cache
+        .ptr
+        .get_font_size(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|fs| fs.inner.to_pixels(16.0)) // Resolve to pixels (default 16px)
+        .unwrap_or(16.0);
+
+    let line_height_value = styled_dom
         .css_property_cache
         .ptr
         .get_line_height(node_data, &id, node_state)
@@ -830,17 +839,136 @@ fn translate_to_text3_constraints<'a>(
         constraints.available_size.width
     );
 
+    let text_indent = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_indent(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|ti| ti.inner.to_pixels(constraints.available_size.width))
+        .unwrap_or(0.0);
+
+    // Get column-count for multi-column layout (default: 1 = no columns)
+    let columns = styled_dom
+        .css_property_cache
+        .ptr
+        .get_column_count(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|cc| match cc {
+            azul_css::props::layout::ColumnCount::Integer(n) => *n,
+            azul_css::props::layout::ColumnCount::Auto => 1,
+        })
+        .unwrap_or(1);
+
+    // Get column-gap for multi-column layout (default: normal = 1em ≈ 16px)
+    let column_gap = styled_dom
+        .css_property_cache
+        .ptr
+        .get_column_gap(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|cg| cg.inner.to_pixels(16.0))
+        .unwrap_or(16.0);
+
+    // Map white-space CSS property to TextWrap
+    let text_wrap = styled_dom
+        .css_property_cache
+        .ptr
+        .get_white_space(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|ws| match ws {
+            azul_css::props::style::StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
+            azul_css::props::style::StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
+            azul_css::props::style::StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
+        })
+        .unwrap_or(text3::cache::TextWrap::Wrap);
+
+    // Get initial-letter for drop caps
+    let initial_letter = styled_dom
+        .css_property_cache
+        .ptr
+        .get_initial_letter(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|il| {
+            use std::num::NonZeroUsize;
+            text3::cache::InitialLetter {
+                size: il.size as f32,
+                sink: il.sink.unwrap_or(il.size) as u32,
+                count: NonZeroUsize::new(1).unwrap(),
+            }
+        });
+
+    // Get line-clamp for limiting visible lines
+    let line_clamp = styled_dom
+        .css_property_cache
+        .ptr
+        .get_line_clamp(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .and_then(|lc| std::num::NonZeroUsize::new(lc.max_lines));
+
+    // Get hanging-punctuation for hanging punctuation marks
+    let hanging_punctuation = styled_dom
+        .css_property_cache
+        .ptr
+        .get_hanging_punctuation(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|hp| hp.enabled)
+        .unwrap_or(false);
+
+    // Get text-combine-upright for vertical text combination
+    let text_combine_upright = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_combine_upright(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|tcu| match tcu {
+            azul_css::props::style::StyleTextCombineUpright::None => text3::cache::TextCombineUpright::None,
+            azul_css::props::style::StyleTextCombineUpright::All => text3::cache::TextCombineUpright::All,
+            azul_css::props::style::StyleTextCombineUpright::Digits(n) => text3::cache::TextCombineUpright::Digits(*n),
+        });
+
+    // Get exclusion-margin for shape exclusions
+    let exclusion_margin = styled_dom
+        .css_property_cache
+        .ptr
+        .get_exclusion_margin(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|em| em.inner.get() as f32)
+        .unwrap_or(0.0);
+
+    // Get hyphenation-language for language-specific hyphenation
+    let hyphenation_language = styled_dom
+        .css_property_cache
+        .ptr
+        .get_hyphenation_language(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .and_then(|hl| {
+            use hyphenation::{Language, Load};
+            // Parse BCP 47 language code to hyphenation::Language
+            match hl.inner.as_str() {
+                "en-US" | "en" => Some(Language::EnglishUS),
+                "de-DE" | "de" => Some(Language::German1996),
+                "fr-FR" | "fr" => Some(Language::French),
+                "es-ES" | "es" => Some(Language::Spanish),
+                "it-IT" | "it" => Some(Language::Italian),
+                "pt-PT" | "pt" => Some(Language::Portuguese),
+                "nl-NL" | "nl" => Some(Language::Dutch),
+                "pl-PL" | "pl" => Some(Language::Polish),
+                "ru-RU" | "ru" => Some(Language::Russian),
+                "zh-CN" | "zh" => Some(Language::Chinese),
+                _ => None, // Unsupported language
+            }
+        });
+
     UnifiedConstraints {
-        exclusion_margin: 0.0,                   // TODO: support -azul-exclusion-margin
-        hyphenation_language: None,              // TODO: support -azul-hyphenation-language
-        text_indent: 0.0,                        // TODO: support text-indent
-        initial_letter: None,                    // TODO: support initial-letter
-        line_clamp: None,                        // TODO: support line-clamp proprty
-        columns: 1,                              // TODO: support multi-column layout
-        column_gap: 0.0,                         // TODO: support column-gap
-        hanging_punctuation: false,              // TODO: support hanging-punctuation
-        text_wrap: text3::cache::TextWrap::Wrap, // TODO: map from CSS property
-        text_combine_upright: None,              // TODO: text-combine-upright
+        exclusion_margin,
+        hyphenation_language,
+        text_indent,
+        initial_letter,
+        line_clamp,
+        columns,
+        column_gap,
+        hanging_punctuation,
+        text_wrap,
+        text_combine_upright,
         segment_alignment: SegmentAlignment::Total,
         overflow: match overflow_behaviour {
             LayoutOverflow::Visible => text3::cache::OverflowBehavior::Visible,
@@ -878,7 +1006,7 @@ fn translate_to_text3_constraints<'a>(
             LayoutTextJustify::InterCharacter => text3::cache::JustifyContent::InterCharacter,
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
         },
-        line_height: 16.0, // TODO: properly handle line_height CssPropertyValue
+        line_height: line_height_value.inner.normalized() * font_size, // Resolve line-height relative to font-size
         vertical_align: match vertical_align {
             StyleVerticalAlign::Top => text3::cache::VerticalAlign::Top,
             StyleVerticalAlign::Center => text3::cache::VerticalAlign::Middle,
