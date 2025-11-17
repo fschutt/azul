@@ -2439,6 +2439,67 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         println!("[position_table_cells] Cell {}: setting used_size to {}x{} (row_heights={:?})", 
             cell_info.node_index, width, height, table_ctx.row_heights);
         
+        // Apply vertical-align to cell content if it has inline layout
+        if let Some(ref inline_result) = cell_node.inline_layout_result {
+            use azul_css::props::style::StyleVerticalAlign;
+            use azul_core::styled_dom::StyledNodeState;
+            
+            // Get vertical-align property from styled_dom
+            let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
+                let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+                let node_state = StyledNodeState::default();
+                
+                ctx.styled_dom
+                    .css_property_cache
+                    .ptr
+                    .get_vertical_align(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property().copied())
+                    .unwrap_or(StyleVerticalAlign::Top)
+            } else {
+                StyleVerticalAlign::Top
+            };
+            
+            // Calculate content height from inline layout bounds
+            let content_bounds = inline_result.bounds();
+            let content_height = content_bounds.height;
+            
+            // Calculate vertical offset based on alignment
+            let align_factor = match vertical_align {
+                StyleVerticalAlign::Top => 0.0,
+                StyleVerticalAlign::Center => 0.5,
+                StyleVerticalAlign::Bottom => 1.0,
+            };
+            let y_offset = (height - content_height) * align_factor;
+            
+            println!("[position_table_cells] Cell {}: vertical-align={:?}, cell_height={}, content_height={}, y_offset={}", 
+                cell_info.node_index, vertical_align, height, content_height, y_offset);
+            
+            // Create new layout with adjusted positions
+            if y_offset.abs() > 0.01 { // Only adjust if offset is significant
+                use crate::text3::cache::{UnifiedLayout, PositionedItem};
+                use std::sync::Arc;
+                
+                let adjusted_items: Vec<PositionedItem<T>> = inline_result.items.iter().map(|item| {
+                    PositionedItem {
+                        item: item.item.clone(),
+                        position: crate::text3::cache::Point {
+                            x: item.position.x,
+                            y: item.position.y + y_offset,
+                        },
+                        line_index: item.line_index,
+                    }
+                }).collect();
+                
+                let adjusted_layout = UnifiedLayout {
+                    items: adjusted_items,
+                    overflow: inline_result.overflow.clone(),
+                    used_fonts: inline_result.used_fonts.clone(),
+                };
+                
+                cell_node.inline_layout_result = Some(Arc::new(adjusted_layout));
+            }
+        }
+        
         // Store position relative to table origin
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);
         

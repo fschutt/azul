@@ -214,6 +214,7 @@ use azul_css::{
             StyleMixBlendModeValue, StyleOpacityValue,
             StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
             StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleVerticalAlignValue,
             StyleInitialLetterValue, StyleLineClampValue, StyleHangingPunctuationValue, StyleTextCombineUprightValue,
             StyleExclusionMarginValue, StyleHyphenationLanguageValue, StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue,
@@ -2440,6 +2441,15 @@ impl CssPropertyCache {
             &CssPropertyType::TextDecoration,
         )
         .and_then(|p| p.as_text_decoration())
+    }
+    pub fn get_vertical_align<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleVerticalAlignValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::VerticalAlign)
+            .and_then(|p| p.as_vertical_align())
     }
     pub fn get_line_height<'a>(
         &'a self,
