@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 141] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 142] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -985,11 +985,35 @@ impl CssPropertyType {
     }
 
     /// Returns whether this property will be inherited during cascading
+    /// Returns whether this CSS property is inherited by default according to CSS specifications.
+    /// 
+    /// Reference: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Inheritance
     pub fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::*;
         match self {
-            TextColor | FontFamily | FontSize | LineHeight | TextAlign | TextJustify | Widows
-            | Orphans => true,
+            // Font properties
+            FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
+            
+            // Text properties
+            TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabWidth |
+            HangingPunctuation | TextCombineUpright | HyphenationLanguage |
+            
+            // List properties
+            ListStyleType | ListStylePosition |
+            
+            // Table properties
+            BorderCollapse | BorderSpacing | CaptionSide | EmptyCells |
+            
+            // Other inherited properties
+            Visibility | Cursor | Widows | Orphans |
+            
+            // Writing mode
+            WritingMode |
+            
+            // User interaction
+            UserSelect
+            => true,
+            
             _ => false,
         }
     }
@@ -3055,6 +3079,7 @@ impl_from_css_prop!(
     CssProperty::SelectionBackgroundColor
 );
 impl_from_css_prop!(SelectionColor, CssProperty::SelectionColor);
+impl_from_css_prop!(SelectionRadius, CssProperty::SelectionRadius);
 impl_from_css_prop!(StyleTextColor, CssProperty::TextColor);
 impl_from_css_prop!(StyleFontSize, CssProperty::FontSize);
 impl_from_css_prop!(StyleFontFamilyVec, CssProperty::FontFamily);
@@ -5072,6 +5097,7 @@ impl CssProperty {
             CaretAnimationDuration(c) => c.is_initial(),
             SelectionBackgroundColor(c) => c.is_initial(),
             SelectionColor(c) => c.is_initial(),
+            SelectionRadius(c) => c.is_initial(),
             TextJustify(c) => c.is_initial(),
             LayoutTextJustify(_) => false,
             TextColor(c) => c.is_initial(),

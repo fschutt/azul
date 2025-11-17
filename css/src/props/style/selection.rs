@@ -84,8 +84,11 @@ pub fn parse_selection_color(input: &str) -> Result<SelectionColor, CssColorPars
 
 // --- -azul-selection-radius ---
 
-use crate::props::basic::pixel::{
-    parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+use crate::props::basic::{
+    pixel::{
+        parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+    },
+    SizeMetric,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -110,9 +113,11 @@ impl PrintAsCssValue for SelectionRadius {
 
 impl crate::format_rust_code::FormatAsRustCode for SelectionRadius {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
+        // Use the Display implementation of PixelValue to get a string like "5px" or "1em"
         format!(
-            "SelectionRadius {{ inner: {} }}",
-            self.inner.format_as_rust_code(_tabs)
+            "SelectionRadius {{ inner: PixelValue::from_metric(SizeMetric::{:?}, {}) }}",
+            self.inner.metric,
+            self.inner.number.get()
         )
     }
 }

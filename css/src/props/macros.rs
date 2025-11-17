@@ -281,6 +281,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::SelectionColor => {
                 CssProperty::SelectionColor(CssPropertyValue::$content_type)
             }
+            CssPropertyType::SelectionRadius => {
+                CssProperty::SelectionRadius(CssPropertyValue::$content_type)
+            }
 
             CssPropertyType::TextColor => CssProperty::TextColor(CssPropertyValue::$content_type),
             CssPropertyType::FontSize => CssProperty::FontSize(CssPropertyValue::$content_type),
