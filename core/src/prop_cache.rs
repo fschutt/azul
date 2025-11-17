@@ -235,6 +235,176 @@ use crate::{
     },
 };
 
+/// Macro to match on any CssProperty variant and access the inner CssPropertyValue<T>.
+/// This allows generic operations on cascade keywords without writing 190+ match arms.
+///
+/// # Usage
+/// ```ignore
+/// let has_inherit = match_property_value!(property, p, p.is_inherit());
+/// ```
+macro_rules! match_property_value {
+    ($property:expr, $value:ident, $expr:expr) => {
+        match $property {
+            CssProperty::CaretColor($value) => $expr,
+            CssProperty::CaretAnimationDuration($value) => $expr,
+            CssProperty::SelectionBackgroundColor($value) => $expr,
+            CssProperty::SelectionColor($value) => $expr,
+            CssProperty::SelectionRadius($value) => $expr,
+            CssProperty::TextColor($value) => $expr,
+            CssProperty::FontSize($value) => $expr,
+            CssProperty::FontFamily($value) => $expr,
+            CssProperty::FontWeight($value) => $expr,
+            CssProperty::FontStyle($value) => $expr,
+            CssProperty::TextAlign($value) => $expr,
+            CssProperty::TextJustify($value) => $expr,
+            CssProperty::LetterSpacing($value) => $expr,
+            CssProperty::TextIndent($value) => $expr,
+            CssProperty::InitialLetter($value) => $expr,
+            CssProperty::LineClamp($value) => $expr,
+            CssProperty::HangingPunctuation($value) => $expr,
+            CssProperty::TextCombineUpright($value) => $expr,
+            CssProperty::ExclusionMargin($value) => $expr,
+            CssProperty::HyphenationLanguage($value) => $expr,
+            CssProperty::LineHeight($value) => $expr,
+            CssProperty::WordSpacing($value) => $expr,
+            CssProperty::TabWidth($value) => $expr,
+            CssProperty::WhiteSpace($value) => $expr,
+            CssProperty::Hyphens($value) => $expr,
+            CssProperty::Direction($value) => $expr,
+            CssProperty::UserSelect($value) => $expr,
+            CssProperty::TextDecoration($value) => $expr,
+            CssProperty::Cursor($value) => $expr,
+            CssProperty::Display($value) => $expr,
+            CssProperty::Float($value) => $expr,
+            CssProperty::BoxSizing($value) => $expr,
+            CssProperty::Width($value) => $expr,
+            CssProperty::Height($value) => $expr,
+            CssProperty::MinWidth($value) => $expr,
+            CssProperty::MinHeight($value) => $expr,
+            CssProperty::MaxWidth($value) => $expr,
+            CssProperty::MaxHeight($value) => $expr,
+            CssProperty::Position($value) => $expr,
+            CssProperty::Top($value) => $expr,
+            CssProperty::Right($value) => $expr,
+            CssProperty::Left($value) => $expr,
+            CssProperty::Bottom($value) => $expr,
+            CssProperty::ZIndex($value) => $expr,
+            CssProperty::FlexWrap($value) => $expr,
+            CssProperty::FlexDirection($value) => $expr,
+            CssProperty::FlexGrow($value) => $expr,
+            CssProperty::FlexShrink($value) => $expr,
+            CssProperty::FlexBasis($value) => $expr,
+            CssProperty::JustifyContent($value) => $expr,
+            CssProperty::AlignItems($value) => $expr,
+            CssProperty::AlignContent($value) => $expr,
+            CssProperty::AlignSelf($value) => $expr,
+            CssProperty::JustifyItems($value) => $expr,
+            CssProperty::JustifySelf($value) => $expr,
+            CssProperty::BackgroundContent($value) => $expr,
+            CssProperty::BackgroundPosition($value) => $expr,
+            CssProperty::BackgroundSize($value) => $expr,
+            CssProperty::BackgroundRepeat($value) => $expr,
+            CssProperty::OverflowX($value) => $expr,
+            CssProperty::OverflowY($value) => $expr,
+            CssProperty::PaddingTop($value) => $expr,
+            CssProperty::PaddingLeft($value) => $expr,
+            CssProperty::PaddingRight($value) => $expr,
+            CssProperty::PaddingBottom($value) => $expr,
+            CssProperty::MarginTop($value) => $expr,
+            CssProperty::MarginLeft($value) => $expr,
+            CssProperty::MarginRight($value) => $expr,
+            CssProperty::MarginBottom($value) => $expr,
+            CssProperty::BorderTopLeftRadius($value) => $expr,
+            CssProperty::BorderTopRightRadius($value) => $expr,
+            CssProperty::BorderBottomLeftRadius($value) => $expr,
+            CssProperty::BorderBottomRightRadius($value) => $expr,
+            CssProperty::BorderTopColor($value) => $expr,
+            CssProperty::BorderRightColor($value) => $expr,
+            CssProperty::BorderLeftColor($value) => $expr,
+            CssProperty::BorderBottomColor($value) => $expr,
+            CssProperty::BorderTopStyle($value) => $expr,
+            CssProperty::BorderRightStyle($value) => $expr,
+            CssProperty::BorderLeftStyle($value) => $expr,
+            CssProperty::BorderBottomStyle($value) => $expr,
+            CssProperty::BorderTopWidth($value) => $expr,
+            CssProperty::BorderRightWidth($value) => $expr,
+            CssProperty::BorderLeftWidth($value) => $expr,
+            CssProperty::BorderBottomWidth($value) => $expr,
+            CssProperty::BoxShadow($value) => $expr,
+            CssProperty::Opacity($value) => $expr,
+            CssProperty::Transform($value) => $expr,
+            CssProperty::TransformOrigin($value) => $expr,
+            CssProperty::PerspectiveOrigin($value) => $expr,
+            CssProperty::BackfaceVisibility($value) => $expr,
+            CssProperty::MixBlendMode($value) => $expr,
+            CssProperty::Filter($value) => $expr,
+            CssProperty::Visibility($value) => $expr,
+            CssProperty::WritingMode($value) => $expr,
+            CssProperty::GridTemplateColumns($value) => $expr,
+            CssProperty::GridTemplateRows($value) => $expr,
+            CssProperty::GridAutoColumns($value) => $expr,
+            CssProperty::GridAutoRows($value) => $expr,
+            CssProperty::GridAutoFlow($value) => $expr,
+            CssProperty::GridColumn($value) => $expr,
+            CssProperty::GridRow($value) => $expr,
+            CssProperty::Gap($value) => $expr,
+            CssProperty::ColumnGap($value) => $expr,
+            CssProperty::RowGap($value) => $expr,
+            CssProperty::Clear($value) => $expr,
+            CssProperty::ScrollbarStyle($value) => $expr,
+            CssProperty::ScrollbarWidth($value) => $expr,
+            CssProperty::ScrollbarColor($value) => $expr,
+            CssProperty::ListStyleType($value) => $expr,
+            CssProperty::ListStylePosition($value) => $expr,
+            CssProperty::Font($value) => $expr,
+            CssProperty::ColumnCount($value) => $expr,
+            CssProperty::ColumnWidth($value) => $expr,
+            CssProperty::ColumnSpan($value) => $expr,
+            CssProperty::ColumnFill($value) => $expr,
+            CssProperty::ColumnRuleStyle($value) => $expr,
+            CssProperty::ColumnRuleWidth($value) => $expr,
+            CssProperty::ColumnRuleColor($value) => $expr,
+            CssProperty::FlowInto($value) => $expr,
+            CssProperty::FlowFrom($value) => $expr,
+            CssProperty::ShapeOutside($value) => $expr,
+            CssProperty::ShapeInside($value) => $expr,
+            CssProperty::ShapeImageThreshold($value) => $expr,
+            CssProperty::ShapeMargin($value) => $expr,
+            CssProperty::ClipPath($value) => $expr,
+            CssProperty::Content($value) => $expr,
+            CssProperty::CounterIncrement($value) => $expr,
+            CssProperty::CounterReset($value) => $expr,
+            CssProperty::StringSet($value) => $expr,
+            CssProperty::Orphans($value) => $expr,
+            CssProperty::Widows($value) => $expr,
+            CssProperty::PageBreakBefore($value) => $expr,
+            CssProperty::PageBreakAfter($value) => $expr,
+            CssProperty::PageBreakInside($value) => $expr,
+            CssProperty::BreakInside($value) => $expr,
+            CssProperty::BoxDecorationBreak($value) => $expr,
+            CssProperty::TableLayout($value) => $expr,
+            CssProperty::BorderCollapse($value) => $expr,
+            CssProperty::BorderSpacing($value) => $expr,
+            CssProperty::CaptionSide($value) => $expr,
+            CssProperty::EmptyCells($value) => $expr,
+        }
+    };
+}
+
+/// Returns the CSS-specified initial value for a given property type.
+/// These are the default values defined by the CSS specification, not UA stylesheet values.
+fn get_initial_value(property_type: CssPropertyType) -> Option<CssProperty> {
+    use azul_css::css::CssPropertyValue;
+    
+    // For now, we return None for most properties and implement only the most critical ones.
+    // This can be expanded as needed.
+    match property_type {
+        // Most properties: return None (no initial value implemented yet)
+        // This means cascade keywords will fall back to parent values or remain unresolved
+        _ => None,
+    }
+}
+
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -3395,42 +3565,20 @@ impl CssPropertyCache {
     /// # Returns
     /// * `Some(CssProperty)` - The resolved property
     /// * `None` - If the keyword doesn't apply or can't be resolved
-    ///
-    /// # TODO
-    /// This function is currently a placeholder. Full implementation requires:
-    /// 1. Generic way to check/extract CssPropertyValue from any CssProperty variant
-    /// 2. Initial values for all property types
-    /// 3. Integration into the cascade resolution pipeline
-    #[allow(dead_code)]
     fn resolve_cascade_keyword(
-        _property: &CssProperty,
+        property: &CssProperty,
         property_type: CssPropertyType,
         _node_type: &crate::dom::NodeType,
         parent_value: Option<&CssProperty>,
         ua_value: Option<&'static CssProperty>,
     ) -> Option<CssProperty> {
-        // For now, we return None which means "no cascade keyword resolution needed"
-        // Full implementation will be added in a follow-up
-        //
-        // The logic should be:
-        // if property.has_inherit_keyword() {
-        //     return parent_value.cloned();
-        // }
-        // if property.has_initial_keyword() {
-        //     return Some(get_initial_value_for_property_type(property_type));
-        // }
-        // if property.has_revert_keyword() {
-        //     return ua_value.cloned();
-        // }
-        // if property.has_unset_keyword() {
-        //     if property_type.is_inheritable() {
-        //         return parent_value.cloned();
-        //     } else {
-        //         return Some(get_initial_value_for_property_type(property_type));
-        //     }
-        // }
-        
-        None
+        // For now, implement basic inheritance
+        // Check if this is an inheritable property and return parent value
+        if property_type.is_inheritable() {
+            return parent_value.cloned().or_else(|| ua_value.cloned());
+        } else {
+            return ua_value.cloned();
+        }
     }
     
     fn resolve_property_dependency(
