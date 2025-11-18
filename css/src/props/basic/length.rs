@@ -175,6 +175,7 @@ pub enum SizeMetric {
     Px,
     Pt,
     Em,
+    Rem,
     In,
     Cm,
     Mm,
@@ -193,7 +194,8 @@ impl fmt::Display for SizeMetric {
         match self {
             Px => write!(f, "px"),
             Pt => write!(f, "pt"),
-            Em => write!(f, "pt"),
+            Em => write!(f, "em"),
+            Rem => write!(f, "rem"),
             In => write!(f, "in"),
             Cm => write!(f, "cm"),
             Mm => write!(f, "mm"),

@@ -17,9 +17,61 @@ use azul_css::props::{
 };
 
 use crate::{
-    solver3::{display_list::BorderRadius, layout_tree::LayoutNode, scrollbar::ScrollbarInfo},
+    solver3::{display_list::{BorderRadius, PhysicalSizeImport}, layout_tree::LayoutNode, scrollbar::ScrollbarInfo},
     text3::cache::{ParsedFontTrait, StyleProperties},
 };
+
+// ============================================================================
+// Font-size resolution helper functions
+// ============================================================================
+
+/// Helper function to get element's computed font-size
+pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state: &StyledNodeState) -> f32 {
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let cache = &styled_dom.css_property_cache.ptr;
+    
+    // Try to get from dependency chain first (proper resolution)
+    if let Some(node_chains) = cache.dependency_chains.get(&dom_id) {
+        if let Some(chain) = node_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
+            if let Some(cached) = chain.cached_pixels {
+                return cached;
+            }
+        }
+    }
+    
+    // Fallback: get from property cache
+    cache
+        .get_font_size(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| {
+            // Fallback using default browser font-size
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            v.inner.to_pixels(DEFAULT_FONT_SIZE)
+        })
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+}
+
+/// Helper function to get parent's computed font-size
+pub fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state: &StyledNodeState) -> f32 {
+    styled_dom.node_hierarchy.as_container()
+        .get(dom_id)
+        .and_then(|node| {
+            if node.parent == 0 {
+                None
+            } else {
+                Some(NodeId::new(node.parent))
+            }
+        })
+        .map(|parent_id| get_element_font_size(styled_dom, parent_id, node_state))
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+}
+
+/// Helper function to get root element's font-size
+pub fn get_root_font_size(styled_dom: &StyledDom, node_state: &StyledNodeState) -> f32 {
+    // Root is always NodeId(0) in Azul
+    get_element_font_size(styled_dom, NodeId::new(0), node_state)
+}
+
 
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
 /// This preserves CSS cascade semantics better than Option<T>.
@@ -508,14 +560,46 @@ pub fn get_style_border_radius(
 }
 
 /// Get border radius for all four corners (resolved to pixels)
+///
+/// # Arguments
+/// * `element_size` - The element's own size (width × height) for % resolution.
+///                    According to CSS spec, border-radius % uses element's own dimensions.
 pub fn get_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
+    element_size: PhysicalSizeImport,
 ) -> BorderRadius {
-    // TODO: Use the correct percentage resolve value based on container size
-    let percent_resolve = 0.0;
+    use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
+    
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // Get font sizes for em/rem resolution
+    let element_font_size = get_element_font_size(styled_dom, node_id, node_state);
+    let parent_font_size = styled_dom.node_hierarchy.as_container()
+        .get(node_id)
+        .and_then(|node| {
+            if node.parent == 0 && node_id.index() != 0 {
+                Some(NodeId::new(node.parent))
+            } else if node_id.index() == 0 {
+                None
+            } else {
+                Some(NodeId::new(node.parent))
+            }
+        })
+        .map(|p| get_element_font_size(styled_dom, p, node_state))
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+    let root_font_size = get_root_font_size(styled_dom, node_state);
+    
+    // Create resolution context
+    let context = ResolutionContext {
+        element_font_size,
+        parent_font_size,
+        root_font_size,
+        containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-radius
+        element_size: Some(PhysicalSize::new(element_size.width, element_size.height)),
+        dpi_scale: 1.0, // TODO: Get actual DPI scale
+    };
 
     let top_left = styled_dom
         .css_property_cache
@@ -546,10 +630,10 @@ pub fn get_border_radius(
         .unwrap_or_default();
 
     BorderRadius {
-        top_left: top_left.inner.to_pixels(percent_resolve),
-        top_right: top_right.inner.to_pixels(percent_resolve),
-        bottom_right: bottom_right.inner.to_pixels(percent_resolve),
-        bottom_left: bottom_left.inner.to_pixels(percent_resolve),
+        top_left: top_left.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
+        top_right: top_right.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
+        bottom_right: bottom_right.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
+        bottom_left: bottom_left.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
     }
 }
 
@@ -802,6 +886,8 @@ pub fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> M
 }
 
 pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
+    use azul_css::props::basic::{PropertyContext, ResolutionContext, PhysicalSize};
+    
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
     let cache = &styled_dom.css_property_cache.ptr;
@@ -812,11 +898,41 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .and_then(|v| v.get(0).map(|f| f.as_string()))
         .unwrap_or_else(|| "sans-serif".to_string());
 
+    // Get parent's font-size for proper em resolution in font-size property
+    let parent_font_size = styled_dom
+        .node_hierarchy
+        .as_container()
+        .get(dom_id)
+        .and_then(|node| {
+            let parent_id = NodeId::new(node.parent);
+            // Recursively get parent's font-size
+            cache
+                .get_font_size(&styled_dom.node_data.as_container()[parent_id], &parent_id, 
+                    &styled_dom.styled_nodes.as_container()[parent_id].state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| {
+                    // If parent also has em/rem, we'd need to recurse, but for now use fallback
+                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                    v.inner.to_pixels(DEFAULT_FONT_SIZE)
+                })
+        })
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+    
+    // Create resolution context for font-size (em refers to parent)
+    let font_size_context = ResolutionContext {
+        element_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, // Not used for font-size property
+        parent_font_size,
+        root_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, // TODO: get actual root font-size
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        element_size: None,
+        dpi_scale: 1.0,
+    };
+
     let font_size = cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner.to_pixels(16.0))
-        .unwrap_or(16.0);
+        .map(|v| v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize))
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
 
     let color = cache
         .get_text_color(node_data, &dom_id, node_state)

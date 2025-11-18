@@ -115,6 +115,13 @@ pub struct StyleBorderStyles {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderBoxRect(pub LogicalRect);
 
+/// Simple struct for passing element dimensions to border-radius calculation
+#[derive(Debug, Clone, Copy)]
+pub struct PhysicalSizeImport {
+    pub width: f32,
+    pub height: f32,
+}
+
 impl BorderBoxRect {
     /// Convert border-box to content-box by subtracting padding and border.
     /// Content-box is where inline layout and text actually render.
@@ -892,7 +899,13 @@ where
 
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+        
+        let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+        let element_size = PhysicalSizeImport {
+            width: paint_rect.size.width,
+            height: paint_rect.size.height,
+        };
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
 
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
@@ -957,7 +970,23 @@ where
         let styled_node_state = self.get_styled_node_state(dom_id);
         let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+        
+        let paint_rect = self
+            .get_paint_rect(
+                self.positioned_tree
+                    .tree
+                    .nodes
+                    .iter()
+                    .position(|n| n.dom_node_id == Some(dom_id))
+                    .unwrap_or(0),
+            )
+            .unwrap_or_default();
+        
+        let element_size = PhysicalSizeImport {
+            width: paint_rect.size.width,
+            height: paint_rect.size.height,
+        };
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
 
         let needs_clip = overflow_x.is_hidden_or_clip()
             || overflow_y.is_hidden_or_clip()
@@ -1082,8 +1111,12 @@ where
 
             // Get both versions: simple BorderRadius for rect clipping and StyleBorderRadius for
             // border rendering
+            let element_size = PhysicalSizeImport {
+                width: paint_rect.size.width,
+                height: paint_rect.size.height,
+            };
             let simple_border_radius =
-                get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+                get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
@@ -1148,7 +1181,11 @@ where
         if let Some(dom_id) = table_node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let element_size = PhysicalSizeImport {
+                width: table_paint_rect.size.width,
+                height: table_paint_rect.size.height,
+            };
+            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
             
             builder.push_rect(table_paint_rect, bg_color, border_radius);
         }
@@ -1246,7 +1283,11 @@ where
             if let Some(dom_id) = node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-                let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
+                let element_size = PhysicalSizeImport {
+                    width: paint_rect.size.width,
+                    height: paint_rect.size.height,
+                };
+                let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
                 
                 // Only paint if background color has alpha > 0 (optimization)
                 if bg_color.a > 0 {

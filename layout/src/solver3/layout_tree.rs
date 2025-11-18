@@ -744,9 +744,82 @@ fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     hasher.finish()
 }
 
+/// Helper function to get element's computed font-size
+fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    use crate::solver3::getters::*;
+    
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| &n.state)
+        .cloned()
+        .unwrap_or_default();
+    
+    let cache = &styled_dom.css_property_cache.ptr;
+    
+    // Try to get from dependency chain first (proper resolution)
+    if let Some(node_chains) = cache.dependency_chains.get(&dom_id) {
+        if let Some(chain) = node_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
+            if let Some(cached) = chain.cached_pixels {
+                return cached;
+            }
+        }
+    }
+    
+    // Fallback: get from property cache
+    cache
+        .get_font_size(node_data, &dom_id, &node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| {
+            // Fallback using hardcoded 16px base
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            v.inner.to_pixels(DEFAULT_FONT_SIZE)
+        })
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+}
+
+/// Helper function to get parent's computed font-size
+fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    styled_dom.node_hierarchy.as_container()
+        .get(dom_id)
+        .and_then(|node| Some(NodeId::new(node.parent)))
+        .map(|parent_id| get_element_font_size(styled_dom, parent_id))
+        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+}
+
+/// Helper function to get root element's font-size
+fn get_root_font_size(styled_dom: &StyledDom) -> f32 {
+    // Root is always NodeId(0) in Azul
+    get_element_font_size(styled_dom, NodeId::new(0))
+}
+
+/// Create a ResolutionContext for a given node
+fn create_resolution_context(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    containing_block_size: Option<azul_css::props::basic::PhysicalSize>,
+) -> azul_css::props::basic::ResolutionContext {
+    use azul_css::props::basic::{ResolutionContext, PhysicalSize};
+    
+    let element_font_size = get_element_font_size(styled_dom, dom_id);
+    let parent_font_size = get_parent_font_size(styled_dom, dom_id);
+    let root_font_size = get_root_font_size(styled_dom);
+    
+    ResolutionContext {
+        element_font_size,
+        parent_font_size,
+        root_font_size,
+        containing_block_size: containing_block_size.unwrap_or(PhysicalSize::new(0.0, 0.0)),
+        element_size: None, // Not yet laid out
+        dpi_scale: 1.0,
+    }
+}
+
 fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> BoxProps {
     use crate::solver3::getters::*;
-    use azul_css::props::basic::PixelValue;
+    use azul_css::props::basic::{PixelValue, PropertyContext};
     
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     
@@ -759,12 +832,15 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId, debug_messages: &mu
         .cloned()
         .unwrap_or_default();
     
-    // Helper to extract pixel value from MultiValue<PixelValue>
-    let to_pixels = |mv: crate::solver3::getters::MultiValue<PixelValue>| -> f32 {
+    // Create resolution context for this element
+    // Note: containing_block_size is None here because we don't have it yet
+    // This is fine - margins/padding use containing block width, but we'll handle that later
+    let context = create_resolution_context(styled_dom, dom_id, None);
+    
+    // Helper to extract and resolve pixel value from MultiValue<PixelValue>
+    let resolve_value = |mv: MultiValue<PixelValue>, prop_context: PropertyContext| -> f32 {
         match mv {
-            crate::solver3::getters::MultiValue::Exact(pv) => {
-                pv.to_pixels_no_percent().unwrap_or(0.0)
-            }
+            MultiValue::Exact(pv) => pv.resolve_with_context(&context, prop_context),
             _ => 0.0,
         }
     };
@@ -776,10 +852,10 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId, debug_messages: &mu
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
     
     let margin = crate::solver3::geometry::EdgeSizes {
-        top: to_pixels(margin_top_mv),
-        right: to_pixels(margin_right_mv),
-        bottom: to_pixels(margin_bottom_mv),
-        left: to_pixels(margin_left_mv),
+        top: resolve_value(margin_top_mv, PropertyContext::Margin),
+        right: resolve_value(margin_right_mv, PropertyContext::Margin),
+        bottom: resolve_value(margin_bottom_mv, PropertyContext::Margin),
+        left: resolve_value(margin_left_mv, PropertyContext::Margin),
     };
     
     // Debug for Body nodes
@@ -793,17 +869,17 @@ fn resolve_box_props(styled_dom: &StyledDom, dom_id: NodeId, debug_messages: &mu
     }
     
     let padding = crate::solver3::geometry::EdgeSizes {
-        top: to_pixels(get_css_padding_top(styled_dom, dom_id, &node_state)),
-        right: to_pixels(get_css_padding_right(styled_dom, dom_id, &node_state)),
-        bottom: to_pixels(get_css_padding_bottom(styled_dom, dom_id, &node_state)),
-        left: to_pixels(get_css_padding_left(styled_dom, dom_id, &node_state)),
+        top: resolve_value(get_css_padding_top(styled_dom, dom_id, &node_state), PropertyContext::Padding),
+        right: resolve_value(get_css_padding_right(styled_dom, dom_id, &node_state), PropertyContext::Padding),
+        bottom: resolve_value(get_css_padding_bottom(styled_dom, dom_id, &node_state), PropertyContext::Padding),
+        left: resolve_value(get_css_padding_left(styled_dom, dom_id, &node_state), PropertyContext::Padding),
     };
     
     let border = crate::solver3::geometry::EdgeSizes {
-        top: to_pixels(get_css_border_top_width(styled_dom, dom_id, &node_state)),
-        right: to_pixels(get_css_border_right_width(styled_dom, dom_id, &node_state)),
-        bottom: to_pixels(get_css_border_bottom_width(styled_dom, dom_id, &node_state)),
-        left: to_pixels(get_css_border_left_width(styled_dom, dom_id, &node_state)),
+        top: resolve_value(get_css_border_top_width(styled_dom, dom_id, &node_state), PropertyContext::Other),
+        right: resolve_value(get_css_border_right_width(styled_dom, dom_id, &node_state), PropertyContext::Other),
+        bottom: resolve_value(get_css_border_bottom_width(styled_dom, dom_id, &node_state), PropertyContext::Other),
+        left: resolve_value(get_css_border_left_width(styled_dom, dom_id, &node_state), PropertyContext::Other),
     };
     
     BoxProps {

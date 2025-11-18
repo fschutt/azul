@@ -885,20 +885,22 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         constraints.available_size.height
     } else {
         // Try to get explicit CSS height
-        // For percentage resolution, use the width as reference (since height is infinite)
-        let css_height = styled_dom
+        // NOTE: If height is infinite, we can't properly resolve % heights
+        // This is a limitation - shape-inside with % heights requires finite containing block
+        styled_dom
             .css_property_cache
             .ptr
             .get_height(node_data, &id, node_state)
             .and_then(|v| v.get_property())
             .and_then(|h| match h {
                 azul_css::props::layout::dimensions::LayoutHeight::Px(v) => {
-                    Some(v.to_pixels(constraints.available_size.width))
+                    // Use to_pixels_no_percent since we can't resolve % with infinite height
+                    // em/rem will be resolved correctly
+                    v.to_pixels_no_percent()
                 },
                 _ => None,
             })
-            .unwrap_or(constraints.available_size.width); // Fallback: use width as height (square)
-        css_height
+            .unwrap_or(constraints.available_size.width) // Fallback: use width as height (square)
     };
     
     let reference_box = crate::text3::cache::Rect {
@@ -981,13 +983,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         .unwrap_or_default();
 
     // Get font-size for resolving line-height
-    let font_size = styled_dom
-        .css_property_cache
-        .ptr
-        .get_font_size(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|fs| fs.inner.to_pixels(16.0)) // Resolve to pixels (default 16px)
-        .unwrap_or(16.0);
+    // Use helper function which checks dependency chain first
+    use crate::solver3::getters::get_element_font_size;
+    let font_size = get_element_font_size(styled_dom, id, node_state);
 
     let line_height_value = styled_dom
         .css_property_cache
@@ -1033,12 +1031,26 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         constraints.available_size.width
     ));
 
+    // Get text-indent
     let text_indent = styled_dom
         .css_property_cache
         .ptr
         .get_text_indent(node_data, &id, node_state)
         .and_then(|s| s.get_property())
-        .map(|ti| ti.inner.to_pixels(constraints.available_size.width))
+        .map(|ti| {
+            use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
+            use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
+            
+            let context = ResolutionContext {
+                element_font_size: get_element_font_size(styled_dom, id, node_state),
+                parent_font_size: get_parent_font_size(styled_dom, id, node_state),
+                root_font_size: get_root_font_size(styled_dom, node_state),
+                containing_block_size: PhysicalSize::new(constraints.available_size.width, 0.0),
+                element_size: None,
+                dpi_scale: 1.0,
+            };
+            ti.inner.resolve_with_context(&context, PropertyContext::Other)
+        })
         .unwrap_or(0.0);
 
     // Get column-count for multi-column layout (default: 1 = no columns)
@@ -1053,14 +1065,30 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         })
         .unwrap_or(1);
 
-    // Get column-gap for multi-column layout (default: normal = 1em ≈ 16px)
+    // Get column-gap for multi-column layout (default: normal = 1em)
     let column_gap = styled_dom
         .css_property_cache
         .ptr
         .get_column_gap(node_data, &id, node_state)
         .and_then(|s| s.get_property())
-        .map(|cg| cg.inner.to_pixels(16.0))
-        .unwrap_or(16.0);
+        .map(|cg| {
+            use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
+            use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
+            
+            let context = ResolutionContext {
+                element_font_size: get_element_font_size(styled_dom, id, node_state),
+                parent_font_size: get_parent_font_size(styled_dom, id, node_state),
+                root_font_size: get_root_font_size(styled_dom, node_state),
+                containing_block_size: PhysicalSize::new(0.0, 0.0),
+                element_size: None,
+                dpi_scale: 1.0,
+            };
+            cg.inner.resolve_with_context(&context, PropertyContext::Other)
+        })
+        .unwrap_or_else(|| {
+            // Default: 1em
+            get_element_font_size(styled_dom, id, node_state)
+        });
 
     // Map white-space CSS property to TextWrap
     let text_wrap = styled_dom
@@ -1398,6 +1426,8 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::style::BorderStyle;
     use azul_css::props::basic::ColorU;
+    use azul_css::props::basic::pixel::{ResolutionContext, PropertyContext, PhysicalSize};
+    use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
     
     let default_border = BorderInfo::new(
         0.0,
@@ -1410,12 +1440,26 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
         let node_state = StyledNodeState::default();
         
+        // Create resolution context for border-width (em/rem support, no % support)
+        let element_font_size = get_element_font_size(ctx.styled_dom, dom_id, &node_state);
+        let parent_font_size = get_parent_font_size(ctx.styled_dom, dom_id, &node_state);
+        let root_font_size = get_root_font_size(ctx.styled_dom, &node_state);
+        
+        let resolution_context = ResolutionContext {
+            element_font_size,
+            parent_font_size,
+            root_font_size,
+            containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-width
+            element_size: None, // Not used for border-width
+            dpi_scale: 1.0,
+        };
+        
         // Top border
         let top = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_top_style(node_data, &dom_id, &node_state) {
             if let Some(style_val) = style.get_property() {
                 let width = ctx.styled_dom.css_property_cache.ptr.get_border_top_width(node_data, &dom_id, &node_state)
                     .and_then(|w| w.get_property())
-                    .map(|w| w.inner.to_pixels(1.0))
+                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                     .unwrap_or(0.0);
                 let color = ctx.styled_dom.css_property_cache.ptr.get_border_top_color(node_data, &dom_id, &node_state)
                     .and_then(|c| c.get_property())
@@ -1434,7 +1478,7 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if let Some(style_val) = style.get_property() {
                 let width = ctx.styled_dom.css_property_cache.ptr.get_border_right_width(node_data, &dom_id, &node_state)
                     .and_then(|w| w.get_property())
-                    .map(|w| w.inner.to_pixels(1.0))
+                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                     .unwrap_or(0.0);
                 let color = ctx.styled_dom.css_property_cache.ptr.get_border_right_color(node_data, &dom_id, &node_state)
                     .and_then(|c| c.get_property())
@@ -1453,7 +1497,7 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if let Some(style_val) = style.get_property() {
                 let width = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_width(node_data, &dom_id, &node_state)
                     .and_then(|w| w.get_property())
-                    .map(|w| w.inner.to_pixels(1.0))
+                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                     .unwrap_or(0.0);
                 let color = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_color(node_data, &dom_id, &node_state)
                     .and_then(|c| c.get_property())
@@ -1472,7 +1516,7 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if let Some(style_val) = style.get_property() {
                 let width = ctx.styled_dom.css_property_cache.ptr.get_border_left_width(node_data, &dom_id, &node_state)
                     .and_then(|w| w.get_property())
-                    .map(|w| w.inner.to_pixels(1.0))
+                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                     .unwrap_or(0.0);
                 let color = ctx.styled_dom.css_property_cache.ptr.get_border_left_color(node_data, &dom_id, &node_state)
                     .and_then(|c| c.get_property())
@@ -1777,8 +1821,24 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Add border-spacing to table size if border-collapse is separate
     use azul_css::props::layout::StyleBorderCollapse;
     if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        let h_spacing = table_ctx.border_spacing.horizontal.to_pixels(1.0); // TODO: Use proper DPI
-        let v_spacing = table_ctx.border_spacing.vertical.to_pixels(1.0);
+        use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
+        use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
+        
+        let styled_dom = ctx.styled_dom;
+        let table_id = tree.nodes[node_index].dom_node_id.unwrap();
+        let table_state = &styled_dom.styled_nodes.as_container()[table_id].state;
+        
+        let spacing_context = ResolutionContext {
+            element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+            parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+            root_font_size: get_root_font_size(styled_dom, table_state),
+            containing_block_size: PhysicalSize::new(0.0, 0.0),
+            element_size: None,
+            dpi_scale: 1.0, // TODO: Get actual DPI scale from ctx
+        };
+        
+        let h_spacing = table_ctx.border_spacing.horizontal.resolve_with_context(&spacing_context, PropertyContext::Other);
+        let v_spacing = table_ctx.border_spacing.vertical.resolve_with_context(&spacing_context, PropertyContext::Other);
         
         // Add spacing: left + (n-1 between columns) + right = n+1 spacings
         let num_cols = table_ctx.columns.len();
@@ -2659,9 +2719,24 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Get border spacing values if border-collapse is separate
     use azul_css::props::layout::StyleBorderCollapse;
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        // Convert PixelValue to f32
-        let h = table_ctx.border_spacing.horizontal.to_pixels(1.0); // TODO: Use proper DPI
-        let v = table_ctx.border_spacing.vertical.to_pixels(1.0);
+        use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
+        use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
+        
+        let styled_dom = ctx.styled_dom;
+        let table_id = tree.nodes[table_index].dom_node_id.unwrap();
+        let table_state = &styled_dom.styled_nodes.as_container()[table_id].state;
+        
+        let spacing_context = ResolutionContext {
+            element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+            parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+            root_font_size: get_root_font_size(styled_dom, table_state),
+            containing_block_size: PhysicalSize::new(0.0, 0.0),
+            element_size: None,
+            dpi_scale: 1.0, // TODO: Get actual DPI scale from ctx
+        };
+        
+        let h = table_ctx.border_spacing.horizontal.resolve_with_context(&spacing_context, PropertyContext::Other);
+        let v = table_ctx.border_spacing.vertical.resolve_with_context(&spacing_context, PropertyContext::Other);
         (h, v)
     } else {
         (0.0, 0.0)

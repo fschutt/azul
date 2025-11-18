@@ -10,7 +10,10 @@ use crate::{
     props::{
         basic::{
             color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
-            pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+            pixel::{
+                CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+                THIN_BORDER_THICKNESS, MEDIUM_BORDER_THICKNESS, THICK_BORDER_THICKNESS,
+            },
         },
         macros::PixelValueTaker,
     },
@@ -200,7 +203,7 @@ define_border_side_property!(StyleBorderLeftColor, ColorU);
 
 // Border Width (border-*-width)
 // The default width is 'medium', which corresponds to 3px.
-const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue::const_px(3);
+// Import from pixel.rs for consistency.
 define_border_side_property!(LayoutBorderTopWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 define_border_side_property!(LayoutBorderRightWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 define_border_side_property!(LayoutBorderBottomWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
@@ -453,9 +456,9 @@ pub fn parse_border_side<'a>(
         // Try to parse as a width.
         if width.is_none() {
             if let Ok(w) = match part {
-                "thin" => Ok(PixelValue::px(1.0)),
-                "medium" => Ok(PixelValue::px(3.0)),
-                "thick" => Ok(PixelValue::px(5.0)),
+                "thin" => Ok(THIN_BORDER_THICKNESS),
+                "medium" => Ok(MEDIUM_BORDER_THICKNESS),
+                "thick" => Ok(THICK_BORDER_THICKNESS),
                 _ => parse_pixel_value(part),
             } {
                 width = Some(w);
@@ -496,25 +499,52 @@ pub fn parse_border_side<'a>(
 pub fn parse_border_top_width<'a>(
     input: &'a str,
 ) -> Result<LayoutBorderTopWidth, CssPixelValueParseError<'a>> {
-    parse_pixel_value(input).map(|inner| LayoutBorderTopWidth { inner })
+    let inner = match input.trim() {
+        "thin" => THIN_BORDER_THICKNESS,
+        "medium" => MEDIUM_BORDER_THICKNESS,
+        "thick" => THICK_BORDER_THICKNESS,
+        _ => parse_pixel_value(input)?,
+    };
+    Ok(LayoutBorderTopWidth { inner })
 }
+
 #[cfg(feature = "parser")]
 pub fn parse_border_right_width<'a>(
     input: &'a str,
 ) -> Result<LayoutBorderRightWidth, CssPixelValueParseError<'a>> {
-    parse_pixel_value(input).map(|inner| LayoutBorderRightWidth { inner })
+    let inner = match input.trim() {
+        "thin" => THIN_BORDER_THICKNESS,
+        "medium" => MEDIUM_BORDER_THICKNESS,
+        "thick" => THICK_BORDER_THICKNESS,
+        _ => parse_pixel_value(input)?,
+    };
+    Ok(LayoutBorderRightWidth { inner })
 }
+
 #[cfg(feature = "parser")]
 pub fn parse_border_bottom_width<'a>(
     input: &'a str,
 ) -> Result<LayoutBorderBottomWidth, CssPixelValueParseError<'a>> {
-    parse_pixel_value(input).map(|inner| LayoutBorderBottomWidth { inner })
+    let inner = match input.trim() {
+        "thin" => THIN_BORDER_THICKNESS,
+        "medium" => MEDIUM_BORDER_THICKNESS,
+        "thick" => THICK_BORDER_THICKNESS,
+        _ => parse_pixel_value(input)?,
+    };
+    Ok(LayoutBorderBottomWidth { inner })
 }
+
 #[cfg(feature = "parser")]
 pub fn parse_border_left_width<'a>(
     input: &'a str,
 ) -> Result<LayoutBorderLeftWidth, CssPixelValueParseError<'a>> {
-    parse_pixel_value(input).map(|inner| LayoutBorderLeftWidth { inner })
+    let inner = match input.trim() {
+        "thin" => THIN_BORDER_THICKNESS,
+        "medium" => MEDIUM_BORDER_THICKNESS,
+        "thick" => THICK_BORDER_THICKNESS,
+        _ => parse_pixel_value(input)?,
+    };
+    Ok(LayoutBorderLeftWidth { inner })
 }
 
 #[cfg(feature = "parser")]

@@ -244,10 +244,10 @@ mod tests {
     #[test]
     fn test_parse_exclusion_margin() {
         let margin = parse_style_exclusion_margin("10.5").unwrap();
-        assert_eq!(margin.inner.get(), 10);
+        assert_eq!(margin.inner.get(), 10.5);
 
         let margin = parse_style_exclusion_margin("0").unwrap();
-        assert_eq!(margin.inner.get(), 0);
+        assert_eq!(margin.inner.get(), 0.0);
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_exclusion_margin_default() {
         let margin = StyleExclusionMargin::default();
-        assert_eq!(margin.inner.get(), 0);
+        assert_eq!(margin.inner.get(), 0.0);
         assert!(margin.is_initial());
     }
 

@@ -6,8 +6,28 @@ use crate::props::{
     formatter::FormatAsCssValue,
 };
 
-/// Currently hard-coded: Height of one em in pixels
-pub const EM_HEIGHT: f32 = 16.0;
+/// Default/fallback font size in pixels, used when no font-size is specified.
+/// 
+/// This is the same as the CSS "medium" keyword and matches browser defaults:
+/// - CSS 2.1 §15.7: "medium" is the user's preferred font size
+/// - All major browsers default to 16px
+/// - W3C HTML5: The default font-size of the root element is 16px
+/// 
+/// This constant is used in two scenarios:
+/// 1. As fallback when no explicit font-size is found in the cascade
+/// 2. In legacy `to_pixels()` for em/rem conversion when no context available
+/// 
+/// **Research:**
+/// - Chrome/Firefox/Safari: 16px default
+/// - CSS font-size keywords: medium = 16px (derived from 13.33px * 1.2)
+/// - Can be overridden by user preferences (browser settings)
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
+
+/// **INTERNAL ONLY** - Alias for backward compatibility.
+/// Use `DEFAULT_FONT_SIZE` instead in new code.
+#[doc(hidden)]
+pub(crate) const EM_HEIGHT: f32 = DEFAULT_FONT_SIZE;
+
 /// Conversion factor from points to pixels (1pt = 1/72 inch, 1in = 96px, therefore 1pt = 96/72 px)
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
@@ -83,6 +103,186 @@ impl fmt::Display for NormalizedPercentage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}%", self.0 * 100.0)
     }
+}
+
+/// Logical size in CSS logical coordinate system
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct LogicalSize {
+    /// Inline-axis size (width in horizontal writing mode)
+    pub inline_size: f32,
+    /// Block-axis size (height in horizontal writing mode)
+    pub block_size: f32,
+}
+
+impl LogicalSize {
+    #[inline]
+    pub const fn new(inline_size: f32, block_size: f32) -> Self {
+        Self { inline_size, block_size }
+    }
+    
+    /// Convert to physical size (width, height) in horizontal writing mode
+    #[inline]
+    pub const fn to_physical(self) -> PhysicalSize {
+        PhysicalSize {
+            width: self.inline_size,
+            height: self.block_size,
+        }
+    }
+}
+
+/// Physical size (always width x height, regardless of writing mode)
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PhysicalSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PhysicalSize {
+    #[inline]
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
+    
+    /// Convert to logical size in horizontal writing mode
+    #[inline]
+    pub const fn to_logical(self) -> LogicalSize {
+        LogicalSize {
+            inline_size: self.width,
+            block_size: self.height,
+        }
+    }
+}
+
+/// Context information needed to properly resolve CSS units (em, rem, %) to pixels.
+///
+/// This struct contains all the contextual information that `PixelValue::resolve()`
+/// needs to correctly convert relative units according to the CSS specification:
+///
+/// - **em** units: For most properties, em refers to the element's own computed font-size.
+///   For the font-size property itself, em refers to the parent's computed font-size.
+///
+/// - **rem** units: Always refer to the root element's computed font-size.
+///
+/// - **%** units: Percentage resolution depends on the property:
+///   - Width/height: relative to containing block dimensions
+///   - Margin/padding: relative to containing block width (even top/bottom!)
+///   - Border-radius: relative to element's own border box dimensions
+///   - Font-size: relative to parent's font-size
+///
+/// # Example
+/// ```rust
+/// let context = ResolutionContext {
+///     element_font_size: 32.0,      // H1 has font-size: 2em = 32px
+///     parent_font_size: 16.0,       // Body has font-size: 16px
+///     root_font_size: 16.0,         // Root has default 16px
+///     containing_block_size: PhysicalSize::new(800.0, 600.0),
+///     element_size: None,           // Not yet laid out
+///     dpi_scale: 1.0,
+/// };
+///
+/// // H1 margin: 0.67em → 0.67 * 32px = 21.44px
+/// let margin = PixelValue::em(0.67);
+/// let resolved = margin.resolve_with_context(&context, PropertyContext::Margin);
+/// assert_eq!(resolved, 21.44);
+/// ```
+#[derive(Debug, Copy, Clone)]
+pub struct ResolutionContext {
+    /// The computed font-size of the current element (for em in non-font properties)
+    pub element_font_size: f32,
+    
+    /// The computed font-size of the parent element (for em in font-size property)
+    pub parent_font_size: f32,
+    
+    /// The computed font-size of the root element (for rem units)
+    pub root_font_size: f32,
+    
+    /// The containing block dimensions (for % in width/height/margins/padding)
+    pub containing_block_size: PhysicalSize,
+    
+    /// The element's own border box size (for % in border-radius, transforms)
+    /// May be None during first layout pass before size is determined
+    pub element_size: Option<PhysicalSize>,
+    
+    /// DPI scaling factor (typically 1.0, but higher on HiDPI displays)
+    pub dpi_scale: f32,
+}
+
+impl Default for ResolutionContext {
+    fn default() -> Self {
+        Self {
+            element_font_size: 16.0,
+            parent_font_size: 16.0,
+            root_font_size: 16.0,
+            containing_block_size: PhysicalSize::new(0.0, 0.0),
+            element_size: None,
+            dpi_scale: 1.0,
+        }
+    }
+}
+
+impl ResolutionContext {
+    /// Create a minimal context for testing or default resolution
+    #[inline]
+    pub const fn default_const() -> Self {
+        Self {
+            element_font_size: 16.0,
+            parent_font_size: 16.0,
+            root_font_size: 16.0,
+            containing_block_size: PhysicalSize { width: 0.0, height: 0.0 },
+            element_size: None,
+            dpi_scale: 1.0,
+        }
+    }
+    
+    /// Create a context with only font-size information (for font-relative units)
+    #[inline]
+    pub const fn for_fonts(element_font_size: f32, parent_font_size: f32, root_font_size: f32) -> Self {
+        Self {
+            element_font_size,
+            parent_font_size,
+            root_font_size,
+            containing_block_size: PhysicalSize { width: 0.0, height: 0.0 },
+            element_size: None,
+            dpi_scale: 1.0,
+        }
+    }
+    
+    /// Create a context with containing block information (for percentage units)
+    #[inline]
+    pub const fn with_containing_block(mut self, containing_block_size: PhysicalSize) -> Self {
+        self.containing_block_size = containing_block_size;
+        self
+    }
+    
+    /// Create a context with element size information (for border-radius, transforms)
+    #[inline]
+    pub const fn with_element_size(mut self, element_size: PhysicalSize) -> Self {
+        self.element_size = Some(element_size);
+        self
+    }
+}
+
+/// Specifies which property context we're resolving for, to determine correct reference values
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PropertyContext {
+    /// Resolving for the font-size property itself (em refers to parent)
+    FontSize,
+    /// Resolving for margin properties (% refers to containing block width)
+    Margin,
+    /// Resolving for padding properties (% refers to containing block width)
+    Padding,
+    /// Resolving for width or horizontal properties (% refers to containing block width)
+    Width,
+    /// Resolving for height or vertical properties (% refers to containing block height)
+    Height,
+    /// Resolving for border-width properties (only absolute lengths + em/rem, no % support)
+    BorderWidth,
+    /// Resolving for border-radius (% refers to element's own dimensions)
+    BorderRadius,
+    /// Resolving for transforms (% refers to element's own dimensions)
+    Transform,
+    /// Resolving for other properties (em refers to element font-size)
+    Other,
 }
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -260,6 +460,11 @@ impl PixelValue {
     }
 
     #[inline]
+    pub fn rem(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Rem, value)
+    }
+
+    #[inline]
     pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             metric,
@@ -275,8 +480,8 @@ impl PixelValue {
                 number: self.number.interpolate(&other.number, t),
             }
         } else {
-            // TODO: how to interpolate between different metrics
-            // (interpolate between % and em? - currently impossible)
+            // Interpolate between different metrics by converting to px
+            // Note: This uses hardcoded 16px for em/rem - acceptable for animation fallback
             let self_px_interp = self.to_pixels(0.0);
             let other_px_interp = other.to_pixels(0.0);
             Self::from_metric(
@@ -286,14 +491,27 @@ impl PixelValue {
         }
     }
 
-    /// Returns the value of the SizeMetric in pixels
+    /// Internal fallback method for converting to pixels with hardcoded defaults.
+    /// 
+    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` instead.
+    /// 
+    /// This method exists only for:
+    /// 1. Legacy compatibility (prop_cache.rs calc_* methods)
+    /// 2. Rare fallback cases where no context is available
+    /// 3. Animation interpolation between different metrics
+    ///
+    /// Issues:
+    /// - Uses hardcoded 16px for em/rem (ignores actual font-size)
+    /// - Requires manual percent_resolve parameter (error-prone)
+    #[doc(hidden)]
     #[inline]
     pub fn to_pixels_no_percent(&self) -> Option<f32> {
-        // to_pixels always assumes 96 DPI
+        // Assumes 96 DPI
         match self.metric {
             SizeMetric::Px => Some(self.number.get()),
             SizeMetric::Pt => Some(self.number.get() * PT_TO_PX),
             SizeMetric::Em => Some(self.number.get() * EM_HEIGHT),
+            SizeMetric::Rem => Some(self.number.get() * EM_HEIGHT),
             SizeMetric::In => Some(self.number.get() * 96.0),
             SizeMetric::Cm => Some(self.number.get() * 96.0 / 2.54),
             SizeMetric::Mm => Some(self.number.get() * 96.0 / 25.4),
@@ -322,10 +540,23 @@ impl PixelValue {
         }
     }
 
-    /// Returns the value of the SizeMetric in pixels
+    /// Internal fallback method for converting to pixels with manual % resolution.
+    /// 
+    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` instead.
+    /// 
+    /// This method exists only for:
+    /// 1. Legacy compatibility (prop_cache.rs calc_* methods)  
+    /// 2. Rare fallback cases where no context is available
+    /// 3. Animation interpolation between different metrics
+    ///
+    /// Issues:
+    /// - Uses hardcoded 16px for em/rem (ignores actual font-size)
+    /// - Requires manual percent_resolve parameter (error-prone)
+    /// - No property-specific % resolution (margins, padding, etc.)
+    #[doc(hidden)]
     #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
-        // to_pixels always assumes 96 DPI
+        // Assumes 96 DPI
         match self.metric {
             SizeMetric::Percent => {
                 NormalizedPercentage::from_unnormalized(self.number.get()).resolve(percent_resolve)
@@ -333,22 +564,126 @@ impl PixelValue {
             _ => self.to_pixels_no_percent().unwrap_or(0.0),
         }
     }
+    
+    /// Resolve this value to pixels using proper CSS context.
+    ///
+    /// This is the **NEW, CORRECT** way to resolve CSS units. It properly handles:
+    /// - em units: Uses element's own font-size (or parent's for font-size property)
+    /// - rem units: Uses root element's font-size
+    /// - % units: Uses property-appropriate reference (containing block width/height, element size, etc.)
+    /// - Absolute units: px, pt, in, cm, mm (already correct)
+    ///
+    /// # Arguments
+    /// * `context` - Resolution context with font sizes and dimensions
+    /// * `property_context` - Which property we're resolving for (affects % and em resolution)
+    ///
+    /// # Example
+    /// ```rust
+    /// // H1 with font-size: 2em (32px), margin: 0.67em
+    /// let context = ResolutionContext {
+    ///     element_font_size: 32.0,
+    ///     parent_font_size: 16.0,
+    ///     root_font_size: 16.0,
+    ///     ..Default::default()
+    /// };
+    ///
+    /// let margin = PixelValue::em(0.67);
+    /// // Margin em uses element's own font-size: 0.67 * 32 = 21.44px
+    /// assert_eq!(margin.resolve_with_context(&context, PropertyContext::Margin), 21.44);
+    ///
+    /// let font_size = PixelValue::em(2.0);
+    /// // Font-size em uses parent's font-size: 2.0 * 16 = 32px
+    /// assert_eq!(font_size.resolve_with_context(&context, PropertyContext::FontSize), 32.0);
+    /// ```
+    #[inline]
+    pub fn resolve_with_context(&self, context: &ResolutionContext, property_context: PropertyContext) -> f32 {
+        match self.metric {
+            // Absolute units - already correct
+            SizeMetric::Px => self.number.get(),
+            SizeMetric::Pt => self.number.get() * PT_TO_PX,
+            SizeMetric::In => self.number.get() * 96.0,
+            SizeMetric::Cm => self.number.get() * 96.0 / 2.54,
+            SizeMetric::Mm => self.number.get() * 96.0 / 25.4,
+            
+            // Em units - CRITICAL: different resolution for font-size vs other properties
+            SizeMetric::Em => {
+                let reference_font_size = if property_context == PropertyContext::FontSize {
+                    // Em on font-size refers to parent's font-size (CSS 2.1 §15.7)
+                    context.parent_font_size
+                } else {
+                    // Em on other properties refers to element's own font-size (CSS 2.1 §10.5)
+                    context.element_font_size
+                };
+                self.number.get() * reference_font_size
+            }
+            
+            // Rem units - ALWAYS refer to root font-size (CSS Values 3)
+            SizeMetric::Rem => {
+                self.number.get() * context.root_font_size
+            }
+            
+            // Percent units - reference depends on property type
+            SizeMetric::Percent => {
+                let reference = match property_context {
+                    // Font-size %: refers to parent's font-size (CSS 2.1 §15.7)
+                    PropertyContext::FontSize => context.parent_font_size,
+                    
+                    // Width and horizontal properties: containing block width (CSS 2.1 §10.3)
+                    PropertyContext::Width => context.containing_block_size.width,
+                    
+                    // Height and vertical properties: containing block height (CSS 2.1 §10.5)
+                    PropertyContext::Height => context.containing_block_size.height,
+                    
+                    // Margins: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.3)
+                    // Padding: ALWAYS containing block WIDTH, even for top/bottom! (CSS 2.1 §8.4)
+                    PropertyContext::Margin | PropertyContext::Padding => context.containing_block_size.width,
+                    
+                    // Border-width: % is NOT valid per CSS spec (CSS Backgrounds 3 §4.1)
+                    // Return 0.0 if someone tries to use % on border-width
+                    PropertyContext::BorderWidth => 0.0,
+                    
+                    // Border-radius: element's own dimensions (CSS Backgrounds 3 §5.1)
+                    // Note: More complex - horizontal % uses width, vertical % uses height
+                    // For now, use width as default
+                    PropertyContext::BorderRadius => {
+                        context.element_size.map(|s| s.width).unwrap_or(0.0)
+                    }
+                    
+                    // Transforms: element's own dimensions (CSS Transforms §20.1)
+                    PropertyContext::Transform => {
+                        context.element_size.map(|s| s.width).unwrap_or(0.0)
+                    }
+                    
+                    // Other properties: default to containing block width
+                    PropertyContext::Other => context.containing_block_size.width,
+                };
+                
+                NormalizedPercentage::from_unnormalized(self.number.get()).resolve(reference)
+            }
+        }
+    }
 }
 
-// border-width: thin = 0.5px
-const THIN_BORDER_THICKNESS: PixelValue = PixelValue {
+// border-width: thin / medium / thick keyword values
+// These are the canonical CSS definitions and should be used consistently
+// across parsing and resolution.
+
+/// border-width: thin = 1px (per CSS spec)
+pub const THIN_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue { number: 500 },
+    number: FloatValue { number: 1000 },
 };
-// border-width: medium = 1.5px (default)
-const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
+
+/// border-width: medium = 3px (per CSS spec, default)
+pub const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue { number: 1500 },
+    number: FloatValue { number: 3000 },
 };
-// border-width: thick = 2.5px (default)
-const THICK_BORDER_THICKNESS: PixelValue = PixelValue {
+
+/// border-width: thick = 5px (per CSS spec)
+pub const THICK_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
-    number: FloatValue { number: 2500 },
+    number: FloatValue { number: 5000 },
 };
 
 /// Same as PixelValue, but doesn't allow a "%" sign
@@ -383,6 +718,10 @@ impl ::core::fmt::Debug for PixelValueNoPercent {
 }
 
 impl PixelValueNoPercent {
+    /// Convert to pixels using fallback method (hardcoded 16px for em/rem).
+    /// 
+    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` on the inner value instead.
+    #[doc(hidden)]
     pub fn to_pixels(&self) -> f32 {
         self.inner.to_pixels(0.0)
     }
@@ -501,6 +840,7 @@ pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValue
         input,
         &[
             ("px", SizeMetric::Px),
+            ("rem", SizeMetric::Rem),  // Must be before "em" to match correctly
             ("em", SizeMetric::Em),
             ("pt", SizeMetric::Pt),
             ("in", SizeMetric::In),
@@ -519,6 +859,7 @@ pub fn parse_pixel_value_no_percent<'a>(
             input,
             &[
                 ("px", SizeMetric::Px),
+                ("rem", SizeMetric::Rem),  // Must be before "em" to match correctly
                 ("em", SizeMetric::Em),
                 ("pt", SizeMetric::Pt),
                 ("in", SizeMetric::In),
@@ -560,12 +901,65 @@ mod tests {
     fn test_parse_pixel_value() {
         assert_eq!(parse_pixel_value("10px").unwrap(), PixelValue::px(10.0));
         assert_eq!(parse_pixel_value("1.5em").unwrap(), PixelValue::em(1.5));
+        assert_eq!(parse_pixel_value("2rem").unwrap(), PixelValue::rem(2.0));
         assert_eq!(parse_pixel_value("-20pt").unwrap(), PixelValue::pt(-20.0));
         assert_eq!(parse_pixel_value("50%").unwrap(), PixelValue::percent(50.0));
         assert_eq!(parse_pixel_value("1in").unwrap(), PixelValue::inch(1.0));
         assert_eq!(parse_pixel_value("2.54cm").unwrap(), PixelValue::cm(2.54));
         assert_eq!(parse_pixel_value("10mm").unwrap(), PixelValue::mm(10.0));
         assert_eq!(parse_pixel_value("  0  ").unwrap(), PixelValue::px(0.0));
+    }
+    
+    #[test]
+    fn test_resolve_with_context_em() {
+        // Element has font-size: 32px, margin: 0.67em
+        let context = ResolutionContext {
+            element_font_size: 32.0,
+            parent_font_size: 16.0,
+            ..Default::default()
+        };
+        
+        // Margin em uses element's own font-size
+        let margin = PixelValue::em(0.67);
+        assert!((margin.resolve_with_context(&context, PropertyContext::Margin) - 21.44).abs() < 0.01);
+        
+        // Font-size em uses parent's font-size
+        let font_size = PixelValue::em(2.0);
+        assert_eq!(font_size.resolve_with_context(&context, PropertyContext::FontSize), 32.0);
+    }
+    
+    #[test]
+    fn test_resolve_with_context_rem() {
+        // Root has font-size: 18px
+        let context = ResolutionContext {
+            element_font_size: 32.0,
+            parent_font_size: 16.0,
+            root_font_size: 18.0,
+            ..Default::default()
+        };
+        
+        // Rem always uses root font-size, regardless of property
+        let margin = PixelValue::rem(2.0);
+        assert_eq!(margin.resolve_with_context(&context, PropertyContext::Margin), 36.0);
+        
+        let font_size = PixelValue::rem(1.5);
+        assert_eq!(font_size.resolve_with_context(&context, PropertyContext::FontSize), 27.0);
+    }
+    
+    #[test]
+    fn test_resolve_with_context_percent_margin() {
+        // Margin % uses containing block WIDTH (even for top/bottom!)
+        let context = ResolutionContext {
+            element_font_size: 16.0,
+            parent_font_size: 16.0,
+            root_font_size: 16.0,
+            containing_block_size: PhysicalSize::new(800.0, 600.0),
+            element_size: None,
+            dpi_scale: 1.0,
+        };
+        
+        let margin = PixelValue::percent(10.0); // 10%
+        assert_eq!(margin.resolve_with_context(&context, PropertyContext::Margin), 80.0); // 10% of 800
     }
 
     #[test]

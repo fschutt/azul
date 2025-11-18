@@ -286,14 +286,10 @@ mod tests {
             parse_layout_display("list-item").unwrap(),
             LayoutDisplay::ListItem
         );
-        assert_eq!(
-            parse_layout_display("inherit").unwrap(),
-            LayoutDisplay::Inherit
-        );
-        assert_eq!(
-            parse_layout_display("initial").unwrap(),
-            LayoutDisplay::Initial
-        );
+        // Note: 'inherit' and 'initial' are handled by the CSS cascade system,
+        // not as enum variants
+        assert!(parse_layout_display("inherit").is_err());
+        assert!(parse_layout_display("initial").is_err());
 
         // Table values
         assert_eq!(parse_layout_display("table").unwrap(), LayoutDisplay::Table);

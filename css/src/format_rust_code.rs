@@ -280,6 +280,10 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
             "PixelValue::const_em_fractional({}, {})",
             pre_comma, post_comma
         ),
+        SizeMetric::Rem => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::Rem, {}, {})",
+            pre_comma, post_comma
+        ),
         SizeMetric::Percent => format!(
             "PixelValue::const_from_metric_fractional(SizeMetric::Percent, {}, {})",
             pre_comma, post_comma

@@ -56,49 +56,6 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
         .unwrap_or_default()
 }
 
-/// Correctly reads the `top`, `right`, `bottom`, `left` properties from the `StyledDom`.
-fn get_css_offsets(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PositionOffsets {
-    let Some(id) = dom_id else {
-        return PositionOffsets::default();
-    };
-    let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    let mut offsets = PositionOffsets::default();
-
-    // We can't resolve percentages here without a reference; return raw optional values
-    // as pixels when possible (absolute lengths). For percentages, leave as None.
-    if let Some(top) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_top(node_data, &id, node_state)
-    {
-        offsets.top = top.get_property().map(|v| v.inner.to_pixels(0.0));
-    }
-    if let Some(right) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_right(node_data, &id, node_state)
-    {
-        offsets.right = right.get_property().map(|v| v.inner.to_pixels(0.0));
-    }
-    if let Some(bottom) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_bottom(node_data, &id, node_state)
-    {
-        offsets.bottom = bottom.get_property().map(|v| v.inner.to_pixels(0.0));
-    }
-    if let Some(left) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_left(node_data, &id, node_state)
-    {
-        offsets.left = left.get_property().map(|v| v.inner.to_pixels(0.0));
-    }
-
-    offsets
-}
-
 /// Correctly looks up the `position` property from the styled DOM.
 fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -111,41 +68,71 @@ fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosit
         .unwrap_or(LayoutPosition::Static)
 }
 
-/// **FIXED:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
-/// including percentages relative to the containing block's size.
-fn resolve_css_offsets(
+/// **NEW API:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
+/// including percentages relative to the containing block's size, and em/rem units.
+/// Uses the modern resolve_with_context() API.
+fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
     cb_size: LogicalSize,
 ) -> PositionOffsets {
+    use azul_css::props::basic::pixel::{ResolutionContext, PropertyContext, PhysicalSize};
+    use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
+    
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    
+    // Create resolution context with font sizes and containing block size
+    let element_font_size = get_element_font_size(styled_dom, id, node_state);
+    let parent_font_size = get_parent_font_size(styled_dom, id, node_state);
+    let root_font_size = get_root_font_size(styled_dom, node_state);
+    
+    let containing_block_size = PhysicalSize::new(cb_size.width, cb_size.height);
+    
+    let resolution_context = ResolutionContext {
+        element_font_size,
+        parent_font_size,
+        root_font_size,
+        containing_block_size,
+        element_size: None, // Not needed for position offsets
+        dpi_scale: 1.0,
+    };
+    
     let mut offsets = PositionOffsets::default();
 
-    // Use calc_* helpers to resolve percentages relative to the containing block size.
-    offsets.top =
-        styled_dom
-            .css_property_cache
-            .ptr
-            .calc_top(node_data, &id, node_state, cb_size.height);
-    offsets.bottom =
-        styled_dom
-            .css_property_cache
-            .ptr
-            .calc_bottom(node_data, &id, node_state, cb_size.height);
-    offsets.left =
-        styled_dom
-            .css_property_cache
-            .ptr
-            .calc_left(node_data, &id, node_state, cb_size.width);
-    offsets.right =
-        styled_dom
-            .css_property_cache
-            .ptr
-            .calc_right(node_data, &id, node_state, cb_size.width);
+    // Resolve offsets with proper context
+    // top/bottom use Height context (% refers to containing block height)
+    offsets.top = styled_dom
+        .css_property_cache
+        .ptr
+        .get_top(node_data, &id, node_state)
+        .and_then(|t| t.get_property())
+        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Height));
+        
+    offsets.bottom = styled_dom
+        .css_property_cache
+        .ptr
+        .get_bottom(node_data, &id, node_state)
+        .and_then(|b| b.get_property())
+        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Height));
+    
+    // left/right use Width context (% refers to containing block width)
+    offsets.left = styled_dom
+        .css_property_cache
+        .ptr
+        .get_left(node_data, &id, node_state)
+        .and_then(|l| l.get_property())
+        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Width));
+        
+    offsets.right = styled_dom
+        .css_property_cache
+        .ptr
+        .get_right(node_data, &id, node_state)
+        .and_then(|r| r.get_property())
+        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Width));
 
     offsets
 }
@@ -184,7 +171,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             // Resolve offsets using the now-known containing block size.
             let offsets =
-                resolve_css_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
+                resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
 
             let static_pos = calculated_positions
                 .get(&node_index)
@@ -261,7 +248,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             // Resolve offsets using the calculated containing block size.
             let offsets =
-                resolve_css_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
+                resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
 
             // Get a mutable reference to the position and apply the offsets.
             if let Some(current_pos) = calculated_positions.get_mut(&node_index) {

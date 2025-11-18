@@ -3645,6 +3645,7 @@ impl CssPropertyCache {
             SizeMetric::Cm => reference_pixel_value.number.get() * 37.7952755906,
             SizeMetric::Mm => reference_pixel_value.number.get() * 3.7795275591,
             SizeMetric::Em => return None, // Reference can't be relative
+            SizeMetric::Rem => return None, // Reference can't be relative
             SizeMetric::Percent => return None, // Reference can't be relative
         };
         
@@ -3656,6 +3657,7 @@ impl CssPropertyCache {
             SizeMetric::Cm => target_pixel_value.number.get() * 37.7952755906,
             SizeMetric::Mm => target_pixel_value.number.get() * 3.7795275591,
             SizeMetric::Em => target_pixel_value.number.get() * reference_px,
+            SizeMetric::Rem => target_pixel_value.number.get() * reference_px, // Use reference as root font-size
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
         };
         
@@ -3801,6 +3803,10 @@ impl CssPropertyCache {
             }
             SizeMetric::Em => {
                 Some(CssDependencyChain::em(prop_type, source_node, number))
+            }
+            SizeMetric::Rem => {
+                // Rem refers to root font-size
+                Some(CssDependencyChain::rem(prop_type, number))
             }
             SizeMetric::Percent => {
                 Some(CssDependencyChain::percent(prop_type, source_node, number / 100.0))

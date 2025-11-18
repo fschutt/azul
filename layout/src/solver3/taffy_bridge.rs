@@ -49,6 +49,15 @@ pub fn grid_auto_columns_to_taffy(
 }
 
 fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
+    // Helper to resolve PixelValue to absolute pixels (handles em, rem, but not %)
+    // Grid track sizing in Taffy doesn't support % - only absolute values
+    let px_to_float = |pv: PixelValue| -> f32 {
+        // For em/rem, we'd need proper context here
+        // For now, using to_pixels_no_percent() which handles absolute units
+        // TODO: Add proper context for em/rem resolution
+        pv.to_pixels_no_percent().unwrap_or(0.0)
+    };
+    
     match track {
         GridTrackSizing::MinContent => minmax(
             taffy::MinTrackSizingFunction::min_content(),
@@ -61,10 +70,15 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
         GridTrackSizing::MinMax(min, max) => {
             minmax(translate_track(min).min, translate_track(max).max)
         }
-        GridTrackSizing::Fixed(px) => minmax(
-            taffy::MinTrackSizingFunction::length(px.to_pixels(0.0)),
-            taffy::MaxTrackSizingFunction::length(px.to_pixels(0.0)),
-        ),
+        GridTrackSizing::Fixed(px) => {
+            // Fixed tracks: resolve em/rem to pixels
+            // Note: % is not supported in grid track sizing (CSS Grid spec)
+            let pixels = px_to_float(*px);
+            minmax(
+                taffy::MinTrackSizingFunction::length(pixels),
+                taffy::MaxTrackSizingFunction::length(pixels),
+            )
+        }
         GridTrackSizing::Fr(_fr) => {
             // TODO: taffy 0.9.1 doesn't seem to have a direct fr() method for
             // Min/MaxTrackSizingFunction For now, using auto() as a workaround. This
@@ -78,10 +92,14 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             taffy::MinTrackSizingFunction::min_content(),
             taffy::MaxTrackSizingFunction::max_content(),
         ),
-        GridTrackSizing::FitContent(px) => minmax(
-            taffy::MinTrackSizingFunction::length(px.to_pixels(0.0)),
-            taffy::MaxTrackSizingFunction::max_content(),
-        ),
+        GridTrackSizing::FitContent(px) => {
+            // fit-content: resolve em/rem to pixels
+            let pixels = px_to_float(*px);
+            minmax(
+                taffy::MinTrackSizingFunction::length(pixels),
+                taffy::MaxTrackSizingFunction::max_content(),
+            )
+        }
     }
 }
 
@@ -173,18 +191,6 @@ pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy:
         LayoutJustifyContent::SpaceAround => taffy::JustifyContent::SpaceAround,
         LayoutJustifyContent::SpaceEvenly => taffy::JustifyContent::SpaceEvenly,
     }
-}
-
-pub fn pixel_value_to_length(
-    val: azul_css::props::basic::pixel::PixelValue,
-) -> taffy::LengthPercentage {
-    taffy::LengthPercentage::from_length(val.to_pixels(0.0))
-}
-
-pub fn pixel_value_to_length_percentage_auto(
-    val: azul_css::props::basic::pixel::PixelValue,
-) -> taffy::LengthPercentageAuto {
-    taffy::LengthPercentageAuto::length(val.to_pixels(0.0))
 }
 
 // TODO: gap, grid, visibility, z_index, flex_basis, etc. analog ergänzen
@@ -357,9 +363,11 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             })
             .map(|v| {
                 let val = v.get_property_or_default().unwrap_or_default().inner;
+                // Gap can use %, em, rem - convert properly
+                let gap_lp = pixel_to_lp(val);
                 Size {
-                    width: LengthPercentage::length(val.to_pixels(0.0)),
-                    height: LengthPercentage::length(val.to_pixels(0.0)),
+                    width: gap_lp,
+                    height: gap_lp,
                 }
             })
             .unwrap_or_else(Size::zero);
