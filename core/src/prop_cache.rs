@@ -1175,7 +1175,29 @@ impl CssPropertyCache {
         append_css_property_vec!(css_active_props);
         append_css_property_vec!(css_focus_props);
         append_css_property_vec!(computed_values);
-        append_css_property_vec!(dependency_chains);
+        
+        // Special handling for dependency_chains: need to adjust source_node IDs
+        {
+            let mut s = BTreeMap::new();
+            core::mem::swap(&mut s, &mut other.dependency_chains);
+            for (node_id, mut chains_map) in s.into_iter() {
+                // Adjust the source_node IDs in each chain's steps
+                for (_prop_type, chain) in chains_map.iter_mut() {
+                    for step in chain.steps.iter_mut() {
+                        match step {
+                            CssDependencyChainStep::Em { source_node, .. } => {
+                                *source_node = NodeId::new(source_node.index() + self.node_count);
+                            }
+                            CssDependencyChainStep::Percent { source_node, .. } => {
+                                *source_node = NodeId::new(source_node.index() + self.node_count);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                self.dependency_chains.insert(node_id + self.node_count, chains_map);
+            }
+        }
 
         self.node_count += other.node_count;
     }
@@ -3963,10 +3985,15 @@ impl CssPropertyCache {
                             origin: CssPropertyOrigin::Inherited,
                         });
                         
-                        // Also inherit the dependency chain if it exists
-                        if let Some(parent_chains) = parent_id.and_then(|pid| self.dependency_chains.get(&pid)) {
-                            if let Some(chain) = parent_chains.get(prop_type) {
-                                node_dependency_chains.insert(*prop_type, chain.clone());
+                        // DON'T inherit the dependency chain for font-size!
+                        // Font-size should be inherited as a COMPUTED VALUE (pixels), not as a relative value (em).
+                        // If we inherit the chain, we'll resolve "2em" twice (2em * parent = 32px, then 32px * parent = 64px).
+                        // Only inherit chains for properties that truly inherit their relative values.
+                        if *prop_type != CssPropertyType::FontSize {
+                            if let Some(parent_chains) = parent_id.and_then(|pid| self.dependency_chains.get(&pid)) {
+                                if let Some(chain) = parent_chains.get(prop_type) {
+                                    node_dependency_chains.insert(*prop_type, chain.clone());
+                                }
                             }
                         }
                     }

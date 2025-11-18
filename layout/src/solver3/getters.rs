@@ -963,7 +963,8 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .as_container()
         .get(dom_id)
         .and_then(|node| {
-            let parent_id = NodeId::new(node.parent);
+            use azul_core::id::NodeId as CoreNodeId;
+            let parent_id = CoreNodeId::from_usize(node.parent)?;
             // Recursively get parent's font-size
             cache
                 .get_font_size(&styled_dom.node_data.as_container()[parent_id], &parent_id, 
@@ -1005,7 +1006,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| v.inner.normalized() * font_size)
         .unwrap_or(font_size * 1.2);
 
-    StyleProperties {
+    let properties = StyleProperties {
         font_selector: crate::text3::cache::FontSelector {
             family: font_family_name,
             weight: rust_fontconfig::FcWeight::Normal, // STUB for now
@@ -1016,7 +1017,9 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         color,
         line_height,
         ..Default::default()
-    }
+    };
+    
+    properties
 }
 
 pub fn get_list_style_type(
