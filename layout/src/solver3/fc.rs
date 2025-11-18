@@ -1490,17 +1490,11 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     ctx.debug_table_layout("After column width calculation:");
     ctx.debug_table_layout(format!("  Number of columns: {}", table_ctx.columns.len()));
-    eprintln!("========== COLUMN WIDTH DEBUG ==========");
-    eprintln!("Number of columns: {}", table_ctx.columns.len());
     for (i, col) in table_ctx.columns.iter().enumerate() {
         ctx.debug_table_layout(format!("  Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0)));
-        eprintln!("  Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0));
     }
     let total_col_width: f32 = table_ctx.columns.iter().filter_map(|c| c.computed_width).sum();
     ctx.debug_table_layout(format!("  Total column width: {:.2}", total_col_width));
-    eprintln!("  Total column width: {:.2}", total_col_width);
-    eprintln!("  Table content-box width: {:.2}", table_content_box_width);
-    eprintln!("=======================================");
     
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
