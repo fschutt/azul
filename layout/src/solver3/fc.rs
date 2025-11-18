@@ -2134,6 +2134,23 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx.debug_table_layout(format!("layout_cell_for_height: cell_index={}, has_text_children={}", 
         cell_index, has_text_children));
     
+    // Get padding and border to calculate content width
+    let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
+    let padding = &cell_node.box_props.padding;
+    let border = &cell_node.box_props.border;
+    let writing_mode = constraints.writing_mode;
+    
+    // cell_width is the border-box width (includes padding/border from column width calculation)
+    // but layout functions need content-box width
+    let content_width = cell_width
+        - padding.cross_start(writing_mode)
+        - padding.cross_end(writing_mode)
+        - border.cross_start(writing_mode)
+        - border.cross_end(writing_mode);
+    
+    ctx.debug_table_layout(format!("Cell width: border_box={:.2}, content_box={:.2}", 
+        cell_width, content_width));
+    
     let content_height = if has_text_children {
         // Cell contains text - use IFC to measure it
         // This is the key fix: IFC traverses DOM to find text nodes
@@ -2141,7 +2158,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         let cell_constraints = LayoutConstraints {
             available_size: LogicalSize {
-                width: cell_width,
+                width: content_width,  // Use content width, not border-box width
                 height: f32::INFINITY,
             },
             writing_mode: constraints.writing_mode,
@@ -2160,7 +2177,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         let cell_constraints = LayoutConstraints {
             available_size: LogicalSize {
-                width: cell_width,
+                width: content_width,  // Use content width, not border-box width
                 height: f32::INFINITY,
             },
             writing_mode: constraints.writing_mode,
