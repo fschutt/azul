@@ -110,6 +110,45 @@ pub struct StyleBorderStyles {
     pub left: Option<CssPropertyValue<StyleBorderLeftStyle>>,
 }
 
+/// A rectangle in border-box coordinates (includes padding and border).
+/// This is what layout calculates and stores in `used_size` and absolute positions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BorderBoxRect(pub LogicalRect);
+
+impl BorderBoxRect {
+    /// Convert border-box to content-box by subtracting padding and border.
+    /// Content-box is where inline layout and text actually render.
+    pub fn to_content_box(self, padding: &crate::solver3::geometry::EdgeSizes, border: &crate::solver3::geometry::EdgeSizes) -> ContentBoxRect {
+        ContentBoxRect(LogicalRect {
+            origin: LogicalPosition {
+                x: self.0.origin.x + padding.left + border.left,
+                y: self.0.origin.y + padding.top + border.top,
+            },
+            size: LogicalSize {
+                width: self.0.size.width - padding.left - padding.right - border.left - border.right,
+                height: self.0.size.height - padding.top - padding.bottom - border.top - border.bottom,
+            },
+        })
+    }
+
+    /// Get the inner LogicalRect
+    pub fn rect(&self) -> LogicalRect {
+        self.0
+    }
+}
+
+/// A rectangle in content-box coordinates (excludes padding and border).
+/// This is where text and inline content is positioned by the inline formatter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ContentBoxRect(pub LogicalRect);
+
+impl ContentBoxRect {
+    /// Get the inner LogicalRect
+    pub fn rect(&self) -> LogicalRect {
+        self.0
+    }
+}
+
 /// The final, renderer-agnostic output of the layout engine.
 ///
 /// This is a flat list of drawing and state-management commands, already sorted
@@ -1252,7 +1291,13 @@ where
                     inline_layout.items.len()
                 ));
             }
-            self.paint_inline_content(builder, paint_rect, inline_layout)?;
+            
+            // paint_rect is the border-box, but inline layout positions are relative to content-box.
+            // Use type-safe conversion to make this clear and avoid manual calculations.
+            let border_box = BorderBoxRect(paint_rect);
+            let content_box = border_box.to_content_box(&node.box_props.padding, &node.box_props.border);
+            
+            self.paint_inline_content(builder, content_box.rect(), inline_layout)?;
         } else if let Some(dom_id) = node.dom_node_id {
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];

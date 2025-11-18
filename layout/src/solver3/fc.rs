@@ -2480,16 +2480,26 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let content_bounds = inline_result.bounds();
             let content_height = content_bounds.height;
             
-            // Calculate vertical offset based on alignment
+            // Get padding and border to calculate content-box height
+            // height is border-box, but vertical alignment should be within content-box
+            let padding = &cell_node.box_props.padding;
+            let border = &cell_node.box_props.border;
+            let content_box_height = height 
+                - padding.main_start(writing_mode) 
+                - padding.main_end(writing_mode)
+                - border.main_start(writing_mode)
+                - border.main_end(writing_mode);
+            
+            // Calculate vertical offset based on alignment within content-box
             let align_factor = match vertical_align {
                 StyleVerticalAlign::Top => 0.0,
                 StyleVerticalAlign::Center => 0.5,
                 StyleVerticalAlign::Bottom => 1.0,
             };
-            let y_offset = (height - content_height) * align_factor;
+            let y_offset = (content_box_height - content_height) * align_factor;
             
-            println!("[position_table_cells] Cell {}: vertical-align={:?}, cell_height={}, content_height={}, y_offset={}", 
-                cell_info.node_index, vertical_align, height, content_height, y_offset);
+            println!("[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, content_box_height={}, content_height={}, y_offset={}", 
+                cell_info.node_index, vertical_align, height, content_box_height, content_height, y_offset);
             
             // Create new layout with adjusted positions
             if y_offset.abs() > 0.01 { // Only adjust if offset is significant
