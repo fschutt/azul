@@ -179,7 +179,7 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
             if let Some(cached_id) = c.get(font_selector) {
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(cached_id) {
-                    return Ok(font.shallow_clone()); // Use shallow_clone instead of Arc::clone
+                    return Ok(font.shallow_clone());
                 }
             }
         }
@@ -250,7 +250,16 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
                     .get_font_bytes(&fc_match.id)
                     .ok_or_else(|| LayoutError::FontNotFound(font_selector.clone()))?;
 
-                let font_index = 0; // Default
+                // Get the font index from fontconfig
+                let font_index = self
+                    .fc_cache
+                    .get_font_by_id(&fc_match.id)
+                    .and_then(|source| match source {
+                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
+                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+                    })
+                    .unwrap_or(0);
+
                 let parsed = self.font_loader.load_font(&font_bytes, font_index)?;
 
                 fonts.insert(fc_match.id.clone(), parsed);

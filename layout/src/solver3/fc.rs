@@ -266,7 +266,7 @@ fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
 }
 
 /// Helper: Convert StyleFontStyle to text3::cache::FontStyle
-fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> crate::text3::cache::FontStyle {
+pub(crate) fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> crate::text3::cache::FontStyle {
     use azul_css::props::basic::font::StyleFontStyle;
     match style {
         StyleFontStyle::Normal => crate::text3::cache::FontStyle::Normal,
@@ -276,7 +276,7 @@ fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> cr
 }
 
 /// Helper: Convert StyleFontWeight to rust_fontconfig::FcWeight
-fn convert_font_weight(weight: azul_css::props::basic::font::StyleFontWeight) -> rust_fontconfig::FcWeight {
+pub(crate) fn convert_font_weight(weight: azul_css::props::basic::font::StyleFontWeight) -> rust_fontconfig::FcWeight {
     use azul_css::props::basic::font::StyleFontWeight;
     match weight {
         StyleFontWeight::W100 => rust_fontconfig::FcWeight::Thin,

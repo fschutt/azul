@@ -657,7 +657,7 @@ pub fn get_border_radius(
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-radius
         element_size: Some(PhysicalSize::new(element_size.width, element_size.height)),
-        dpi_scale: 1.0, // TODO: Get actual DPI scale
+        dpi_scale: 1.0, // TODO: Pass DPI from FullWindowState through layout_document()
     };
 
     let top_left = styled_dom
@@ -697,8 +697,11 @@ pub fn get_border_radius(
 }
 
 /// Get z-index for stacking context ordering
+/// 
+/// NOTE: z-index CSS property exists but is not yet hooked up to the CSS cache API.
+/// This would require adding get_z_index() to CssPropertyCache.
 pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
-    // TODO: Implement actual z-index retrieval
+    // TODO: Add get_z_index() method to CSS cache, then query it here
     let _ = (styled_dom, node_id);
     0
 }
@@ -860,7 +863,7 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
 
     SelectionStyle {
         bg_color,
-        radius: 0.0, // TODO: Could add a custom -azul-selection-radius property
+        radius: 0.0, // TODO: Add custom -azul-selection-radius CSS property
     }
 }
 
@@ -914,12 +917,11 @@ pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) 
     // Check if there's inline content that might overflow
     let has_inline_content = node.inline_layout_result.is_some();
 
-    // For now, we assume standard scrollbar dimensions
     // TODO: Calculate actual overflow by comparing:
     //   - Content size (from inline_layout_result or child positions)
     //   - Container size (from used_size)
     //   - Then check if content exceeds container bounds
-    // This requires access to the full layout tree and positioned children
+    // This requires adding overflow detection in the layout pass itself
 
     ScrollbarInfo {
         needs_vertical: false,
@@ -955,7 +957,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .get_font_family(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .and_then(|v| v.get(0).map(|f| f.as_string()))
-        .unwrap_or_else(|| "sans-serif".to_string());
+        .unwrap_or_else(|| "serif".to_string());
 
     // Get parent's font-size for proper em resolution in font-size property
     let parent_font_size = styled_dom
@@ -978,14 +980,16 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
     
+    let root_font_size = get_root_font_size(styled_dom, node_state);
+    
     // Create resolution context for font-size (em refers to parent)
     let font_size_context = ResolutionContext {
         element_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, // Not used for font-size property
         parent_font_size,
-        root_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, // TODO: get actual root font-size
+        root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0,
+        dpi_scale: 1.0, // TODO: Pass DPI from FullWindowState through layout_document()
     };
 
     let font_size = cache
@@ -1006,11 +1010,27 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| v.inner.normalized() * font_size)
         .unwrap_or(font_size * 1.2);
 
+    // Query font-weight from CSS cache
+    let font_weight = cache
+        .get_font_weight(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or(azul_css::props::basic::font::StyleFontWeight::Normal);
+
+    // Query font-style from CSS cache
+    let font_style = cache
+        .get_font_style(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
+
+    // Convert StyleFontWeight/StyleFontStyle to fontconfig types
+    let fc_weight = super::fc::convert_font_weight(font_weight);
+    let fc_style = super::fc::convert_font_style(font_style);
+
     let properties = StyleProperties {
         font_selector: crate::text3::cache::FontSelector {
             family: font_family_name,
-            weight: rust_fontconfig::FcWeight::Normal, // STUB for now
-            style: crate::text3::cache::FontStyle::Normal, // STUB for now
+            weight: fc_weight,
+            style: fc_style,
             unicode_ranges: Vec::new(),
         },
         font_size_px: font_size,
