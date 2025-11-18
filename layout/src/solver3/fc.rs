@@ -485,23 +485,17 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Track if we have any actual content (non-empty blocks)
     let mut has_content = false;
 
-    if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-        println!("[MARGIN_COLLAPSE] layout_bfc: Processing {} children", node.children.len());
-    }
+
 
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
-        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-            println!("[MARGIN_COLLAPSE] Processing child {:?}, index={}", child_dom_id, child_index);
-        }
+
 
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-                println!("[MARGIN_COLLAPSE] Child {:?} is absolute/fixed, skipping", child_dom_id);
-            }
+
             continue;
         }
 
@@ -581,10 +575,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // Not first child: handle sibling collapse
             
             // Resolve accumulated top margin if not yet done
-            if !top_margin_resolved {
-                main_pen += accumulated_top_margin;
-                top_margin_resolved = true;
-            }
+
             
             // Sibling margin collapse
             if child_has_top_blocker {
@@ -603,11 +594,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         
-        // DEBUG: Print Y-position for margin collapsing analysis
-        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-            println!("[MARGIN_COLLAPSE] Node {:?} positioned at Y={:.2}px (margin_top={:.2}, margin_bottom={:.2}, empty={})", 
-                     child_dom_id, child_main_pos, child_margin_top, child_margin_bottom, is_empty);
-        }
+
         
         output.positions.insert(child_index, final_pos);
 
@@ -679,17 +666,11 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 );
             }
             main_pen += top;
-            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-                println!("[MARGIN_COLLAPSE] Root node {:?}: applying escaped_top_margin={:.2}px directly (adjusted {} children)", 
-                         node.dom_node_id, top, output.positions.len());
-            }
+
         }
         if let Some(bottom) = escaped_bottom_margin {
             main_pen += bottom;
-            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-                println!("[MARGIN_COLLAPSE] Root node {:?}: applying escaped_bottom_margin={:.2}px directly", 
-                         node.dom_node_id, bottom);
-            }
+
         }
         // For root nodes, don't propagate margins further
         escaped_top_margin = None;
@@ -707,10 +688,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         node_mut.escaped_top_margin = escaped_top_margin;
         node_mut.escaped_bottom_margin = escaped_bottom_margin;
         
-        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-            println!("[MARGIN_COLLAPSE] Node {:?} escaped margins: top={:?}, bottom={:?}", 
-                     node.dom_node_id, escaped_top_margin, escaped_bottom_margin);
-        }
+
     }
 
     if let Some(node_mut) = tree.get_mut(node_index) {
