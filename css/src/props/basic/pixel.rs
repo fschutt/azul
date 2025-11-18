@@ -23,11 +23,6 @@ use crate::props::{
 /// - Can be overridden by user preferences (browser settings)
 pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 
-/// **INTERNAL ONLY** - Alias for backward compatibility.
-/// Use `DEFAULT_FONT_SIZE` instead in new code.
-#[doc(hidden)]
-pub(crate) const EM_HEIGHT: f32 = DEFAULT_FONT_SIZE;
-
 /// Conversion factor from points to pixels (1pt = 1/72 inch, 1in = 96px, therefore 1pt = 96/72 px)
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
@@ -481,41 +476,13 @@ impl PixelValue {
             }
         } else {
             // Interpolate between different metrics by converting to px
-            // Note: This uses hardcoded 16px for em/rem - acceptable for animation fallback
-            let self_px_interp = self.to_pixels(0.0);
-            let other_px_interp = other.to_pixels(0.0);
+            // Note: Uses DEFAULT_FONT_SIZE for em/rem - acceptable for animation fallback
+            let self_px_interp = self.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
+            let other_px_interp = other.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
             Self::from_metric(
                 SizeMetric::Px,
                 self_px_interp + (other_px_interp - self_px_interp) * t,
             )
-        }
-    }
-
-    /// Internal fallback method for converting to pixels with hardcoded defaults.
-    /// 
-    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` instead.
-    /// 
-    /// This method exists only for:
-    /// 1. Legacy compatibility (prop_cache.rs calc_* methods)
-    /// 2. Rare fallback cases where no context is available
-    /// 3. Animation interpolation between different metrics
-    ///
-    /// Issues:
-    /// - Uses hardcoded 16px for em/rem (ignores actual font-size)
-    /// - Requires manual percent_resolve parameter (error-prone)
-    #[doc(hidden)]
-    #[inline]
-    pub fn to_pixels_no_percent(&self) -> Option<f32> {
-        // Assumes 96 DPI
-        match self.metric {
-            SizeMetric::Px => Some(self.number.get()),
-            SizeMetric::Pt => Some(self.number.get() * PT_TO_PX),
-            SizeMetric::Em => Some(self.number.get() * EM_HEIGHT),
-            SizeMetric::Rem => Some(self.number.get() * EM_HEIGHT),
-            SizeMetric::In => Some(self.number.get() * 96.0),
-            SizeMetric::Cm => Some(self.number.get() * 96.0 / 2.54),
-            SizeMetric::Mm => Some(self.number.get() * 96.0 / 25.4),
-            SizeMetric::Percent => None,
         }
     }
 
@@ -542,32 +509,29 @@ impl PixelValue {
 
     /// Internal fallback method for converting to pixels with manual % resolution.
     /// 
-    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` instead.
+    /// Used internally by prop_cache.rs resolve_property_dependency().
     /// 
-    /// This method exists only for:
-    /// 1. Legacy compatibility (prop_cache.rs calc_* methods)  
-    /// 2. Rare fallback cases where no context is available
-    /// 3. Animation interpolation between different metrics
-    ///
-    /// Issues:
-    /// - Uses hardcoded 16px for em/rem (ignores actual font-size)
-    /// - Requires manual percent_resolve parameter (error-prone)
-    /// - No property-specific % resolution (margins, padding, etc.)
+    /// **DO NOT USE directly!** Use `resolve_with_context()` instead for new code.
     #[doc(hidden)]
     #[inline]
-    pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
-        // Assumes 96 DPI
+    pub fn to_pixels_internal(&self, percent_resolve: f32, em_resolve: f32) -> f32 {
         match self.metric {
+            SizeMetric::Px => self.number.get(),
+            SizeMetric::Pt => self.number.get() * PT_TO_PX,
+            SizeMetric::In => self.number.get() * 96.0,
+            SizeMetric::Cm => self.number.get() * 96.0 / 2.54,
+            SizeMetric::Mm => self.number.get() * 96.0 / 25.4,
+            SizeMetric::Em => self.number.get() * em_resolve,
+            SizeMetric::Rem => self.number.get() * em_resolve,
             SizeMetric::Percent => {
                 NormalizedPercentage::from_unnormalized(self.number.get()).resolve(percent_resolve)
             }
-            _ => self.to_pixels_no_percent().unwrap_or(0.0),
         }
     }
     
     /// Resolve this value to pixels using proper CSS context.
     ///
-    /// This is the **NEW, CORRECT** way to resolve CSS units. It properly handles:
+    /// This is the **CORRECT** way to resolve CSS units. It properly handles:
     /// - em units: Uses element's own font-size (or parent's for font-size property)
     /// - rem units: Uses root element's font-size
     /// - % units: Uses property-appropriate reference (containing block width/height, element size, etc.)
@@ -718,12 +682,15 @@ impl ::core::fmt::Debug for PixelValueNoPercent {
 }
 
 impl PixelValueNoPercent {
-    /// Convert to pixels using fallback method (hardcoded 16px for em/rem).
+    /// Internal conversion to pixels (no percent support).
     /// 
-    /// **DO NOT USE IN NEW CODE!** Use `resolve_with_context()` on the inner value instead.
+    /// Used internally by prop_cache.rs.
+    /// 
+    /// **DO NOT USE directly!** Use `resolve_with_context()` on inner value instead.
     #[doc(hidden)]
-    pub fn to_pixels(&self) -> f32 {
-        self.inner.to_pixels(0.0)
+    #[inline]
+    pub fn to_pixels_internal(&self, em_resolve: f32) -> f32 {
+        self.inner.to_pixels_internal(0.0, em_resolve)
     }
 
     #[inline]

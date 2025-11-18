@@ -1605,8 +1605,8 @@ impl_option!(
 );
 
 pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    use crate::ui_solver::DEFAULT_FONT_SIZE_PX;
-    Au::from_px(font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+    Au::from_px(font_size.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
 }
 
 pub type FontInstanceFlags = u32;

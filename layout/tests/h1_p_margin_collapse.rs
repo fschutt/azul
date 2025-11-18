@@ -91,11 +91,11 @@ fn test_comparison_old_vs_new_behavior() {
     let h1_font_size = 32.0;
     let margin_factor = 0.67;
     
-    // Old (broken) behavior: hardcoded EM_HEIGHT = 16.0
+    // Old (broken) behavior: hardcoded DEFAULT_FONT_SIZE = 16.0
     #[allow(deprecated)]
     let old_margin = {
-        use azul_css::props::basic::EM_HEIGHT;
-        margin_factor * EM_HEIGHT  // 10.72px
+        use azul_css::props::basic::DEFAULT_FONT_SIZE;
+        margin_factor * DEFAULT_FONT_SIZE  // 10.72px
     };
     
     // New (correct) behavior: uses element's actual font-size

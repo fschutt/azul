@@ -775,7 +775,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .map(|v| {
             // Fallback using hardcoded 16px base
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-            v.inner.to_pixels(DEFAULT_FONT_SIZE)
+            v.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
         })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
 }

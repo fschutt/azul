@@ -728,7 +728,18 @@ pub fn calculate_used_size_for_node(
         },
         LayoutWidth::Px(px) => {
             // Resolve percentage or absolute pixel value
-            match px.to_pixels_no_percent() {
+            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+            let pixels_opt = match px.metric {
+                SizeMetric::Px => Some(px.number.get()),
+                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                SizeMetric::In => Some(px.number.get() * 96.0),
+                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Percent => None,
+            };
+            
+            match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
                     Some(p) => {
@@ -769,7 +780,18 @@ pub fn calculate_used_size_for_node(
         },
         LayoutHeight::Px(px) => {
             // Resolve percentage or absolute pixel value
-            match px.to_pixels_no_percent() {
+            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+            let pixels_opt = match px.metric {
+                SizeMetric::Px => Some(px.number.get()),
+                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                SizeMetric::In => Some(px.number.get() * 96.0),
+                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Percent => None,
+            };
+            
+            match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
                     Some(p) => {

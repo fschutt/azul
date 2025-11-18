@@ -13,7 +13,7 @@ use crate::{
     solver3::display_list::{DisplayList, DisplayListItem},
     text3::cache::{FontHash, ParsedFontTrait},
 };
-use azul_css::props::basic::ColorU;
+use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
 
 /// Result of converting a display list to PDF operations.
 #[derive(Debug, Clone)]
@@ -171,7 +171,7 @@ fn convert_display_list_item(
             let width = widths
                 .top
                 .and_then(|w| w.get_property().cloned())
-                .map(|w| w.inner.to_pixels(0.0))
+                .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
                 .unwrap_or(0.0);
 
             let color = colors

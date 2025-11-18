@@ -799,9 +799,13 @@ fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::La
                 true
             }
             azul_css::props::layout::LayoutHeight::Px(px) => {
-                // Check if it's zero or if it has no explicit pixel value (means auto)
+                // Check if it's zero or if it has explicit value
+                // If it's a percentage or em, it's not auto
                 px == &azul_css::props::basic::pixel::PixelValue::zero()
-                    || (px.to_pixels_no_percent().is_none() && px.to_percent().is_none())
+                    || (px.metric != azul_css::props::basic::SizeMetric::Px 
+                        && px.metric != azul_css::props::basic::SizeMetric::Percent
+                        && px.metric != azul_css::props::basic::SizeMetric::Em
+                        && px.metric != azul_css::props::basic::SizeMetric::Rem)
             }
             azul_css::props::layout::LayoutHeight::MinContent
             | azul_css::props::layout::LayoutHeight::MaxContent => {

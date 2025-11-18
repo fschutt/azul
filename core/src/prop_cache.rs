@@ -3285,7 +3285,7 @@ impl CssPropertyCache {
     ) -> f32 {
         self.get_width(node_data, node_id, styled_node_state)
             .and_then(|w| match w.get_property()? {
-                LayoutWidth::Px(px) => Some(px.to_pixels(reference_width)),
+                LayoutWidth::Px(px) => Some(px.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)),
                 _ => Some(0.0), // min-content/max-content not resolved here
             })
             .unwrap_or(0.0)
@@ -3299,7 +3299,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_min_width(node_data, node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3311,7 +3311,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_max_width(node_data, node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|w| Some(w.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     // Height calculation methods
@@ -3324,7 +3324,7 @@ impl CssPropertyCache {
     ) -> f32 {
         self.get_height(node_data, node_id, styled_node_state)
             .and_then(|h| match h.get_property()? {
-                LayoutHeight::Px(px) => Some(px.to_pixels(reference_height)),
+                LayoutHeight::Px(px) => Some(px.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)),
                 _ => Some(0.0), // min-content/max-content not resolved here
             })
             .unwrap_or(0.0)
@@ -3338,7 +3338,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_min_height(node_data, node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3350,7 +3350,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_max_height(node_data, node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|h| Some(h.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     // Position calculation methods
@@ -3362,7 +3362,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_left(node_data, node_id, styled_node_state)
-            .and_then(|l| Some(l.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|l| Some(l.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     pub fn calc_right(
@@ -3373,7 +3373,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_right(node_data, node_id, styled_node_state)
-            .and_then(|r| Some(r.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|r| Some(r.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     pub fn calc_top(
@@ -3384,7 +3384,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_top(node_data, node_id, styled_node_state)
-            .and_then(|t| Some(t.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|t| Some(t.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     pub fn calc_bottom(
@@ -3395,7 +3395,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_bottom(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
     }
 
     // Border calculation methods
@@ -3407,7 +3407,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_border_left_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3419,7 +3419,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_border_right_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3431,7 +3431,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_border_top_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3443,7 +3443,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_border_bottom_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3456,7 +3456,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_padding_left(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3468,7 +3468,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_padding_right(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3480,7 +3480,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_padding_top(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3492,7 +3492,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_padding_bottom(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3505,7 +3505,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_margin_left(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3517,7 +3517,7 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_margin_right(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_width)))
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3529,7 +3529,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_margin_top(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 
@@ -3541,7 +3541,7 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_margin_bottom(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels(reference_height)))
+            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
             .unwrap_or(0.0)
     }
 

@@ -894,9 +894,17 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             .and_then(|v| v.get_property())
             .and_then(|h| match h {
                 azul_css::props::layout::dimensions::LayoutHeight::Px(v) => {
-                    // Use to_pixels_no_percent since we can't resolve % with infinite height
-                    // em/rem will be resolved correctly
-                    v.to_pixels_no_percent()
+                    // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
+                    // since we can't resolve relative units without proper context
+                    use azul_css::props::basic::{SizeMetric, pixel::PT_TO_PX};
+                    match v.metric {
+                        SizeMetric::Px => Some(v.number.get()),
+                        SizeMetric::Pt => Some(v.number.get() * PT_TO_PX),
+                        SizeMetric::In => Some(v.number.get() * 96.0),
+                        SizeMetric::Cm => Some(v.number.get() * 96.0 / 2.54),
+                        SizeMetric::Mm => Some(v.number.get() * 96.0 / 25.4),
+                        _ => None, // Ignore %, em, rem
+                    }
                 },
                 _ => None,
             })

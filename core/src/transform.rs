@@ -396,29 +396,39 @@ impl ComputedTransform3D {
                     m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44,
                 )
             }
-            Translate(trans2d) => Self::new_translation(
-                trans2d.x.to_pixels(percent_resolve_x),
-                trans2d.y.to_pixels(percent_resolve_y),
-                0.0,
-            ),
-            Translate3D(trans3d) => Self::new_translation(
-                trans3d.x.to_pixels(percent_resolve_x),
-                trans3d.y.to_pixels(percent_resolve_y),
-                trans3d.z.to_pixels(percent_resolve_x), // ???
-            ),
+            Translate(trans2d) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_translation(
+                    trans2d.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    trans2d.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                    0.0,
+                )
+            }
+            Translate3D(trans3d) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_translation(
+                    trans3d.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    trans3d.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                    trans3d.z.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE), // ???
+                )
+            }
             TranslateX(trans_x) => {
-                Self::new_translation(trans_x.to_pixels(percent_resolve_x), 0.0, 0.0)
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_translation(trans_x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE), 0.0, 0.0)
             }
             TranslateY(trans_y) => {
-                Self::new_translation(0.0, trans_y.to_pixels(percent_resolve_y), 0.0)
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_translation(0.0, trans_y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE), 0.0)
             }
             TranslateZ(trans_z) => {
-                Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve_x))
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_translation(0.0, 0.0, trans_z.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE))
             } // ???
             Rotate3D(rot3d) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                 let rotation_origin = (
-                    transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y),
+                    transform_origin.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    transform_origin.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -430,9 +440,10 @@ impl ComputedTransform3D {
                 )
             }
             RotateX(angle_x) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                 let rotation_origin = (
-                    transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y),
+                    transform_origin.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    transform_origin.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -444,9 +455,10 @@ impl ComputedTransform3D {
                 )
             }
             RotateY(angle_y) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                 let rotation_origin = (
-                    transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y),
+                    transform_origin.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    transform_origin.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -458,9 +470,10 @@ impl ComputedTransform3D {
                 )
             }
             Rotate(angle_z) | RotateZ(angle_z) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
                 let rotation_origin = (
-                    transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y),
+                    transform_origin.x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    transform_origin.y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -479,7 +492,10 @@ impl ComputedTransform3D {
             Skew(skew2d) => Self::new_skew(skew2d.x.to_degrees(), skew2d.y.to_degrees()),
             SkewX(skew_x) => Self::new_skew(skew_x.to_degrees(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
-            Perspective(px) => Self::new_perspective(px.to_pixels(percent_resolve_x)),
+            Perspective(px) => {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                Self::new_perspective(px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE))
+            }
         }
     }
 

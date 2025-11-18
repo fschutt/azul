@@ -20,6 +20,7 @@ use azul_core::{
 use azul_css::{
     css::{Css, Stylesheet},
     parser2::CssApiWrapper,
+    props::basic::pixel::DEFAULT_FONT_SIZE,
     system::SystemStyle,
     AzString,
 };
@@ -495,7 +496,7 @@ impl SystemStyleMenuExt for SystemStyle {
         let corner_radius = self
             .metrics
             .corner_radius
-            .map(|px| px.to_pixels(1.0))
+            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE))
             .unwrap_or(4.0);
         let padding = 8.0; // Fixed padding value
 

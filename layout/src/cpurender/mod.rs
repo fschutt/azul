@@ -116,11 +116,12 @@ fn render_display_list(
             } => {
                 // Simplified: Use top border as representative for CPU rendering
                 use azul_css::css::CssPropertyValue;
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
 
                 let width = widths
                     .top
                     .and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels(0.0))
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
                     .unwrap_or(0.0);
 
                 let color = colors
@@ -136,10 +137,10 @@ fn render_display_list(
 
                 // Convert StyleBorderRadius to BorderRadius for rendering
                 let simple_radius = BorderRadius {
-                    top_left: border_radius.top_left.to_pixels(bounds.size.width),
-                    top_right: border_radius.top_right.to_pixels(bounds.size.width),
-                    bottom_left: border_radius.bottom_left.to_pixels(bounds.size.width),
-                    bottom_right: border_radius.bottom_right.to_pixels(bounds.size.width),
+                    top_left: border_radius.top_left.to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                    top_right: border_radius.top_right.to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                    bottom_left: border_radius.bottom_left.to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
+                    bottom_right: border_radius.bottom_right.to_pixels_internal(bounds.size.width, DEFAULT_FONT_SIZE),
                 };
 
                 let transform = transform_stack.last().unwrap();

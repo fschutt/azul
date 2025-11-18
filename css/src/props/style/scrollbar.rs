@@ -674,7 +674,10 @@ pub fn resolve_scrollbar_style(
 
         // The -webkit-scrollbar `display: none;` is often implemented by setting width to 0.
         let width_pixels = match info.width {
-            LayoutWidth::Px(px) => px.to_pixels(0.0),
+            LayoutWidth::Px(px) => {
+                use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
+                px.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
+            }
             _ => 8.0, // Default for min-content/max-content
         };
         if width_pixels <= 0.0 {

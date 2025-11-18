@@ -39,16 +39,75 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
         }
     }
     
-    // Fallback: get from property cache
+    // Fallback: get from property cache and resolve manually
+    let parent_font_size = styled_dom.node_hierarchy.as_container()
+        .get(dom_id)
+        .and_then(|node| {
+            if node.parent == 0 {
+                None
+            } else {
+                Some(NodeId::new(node.parent))
+            }
+        })
+        .and_then(|parent_id| {
+            // Check parent's dependency chain first (avoids recursion)
+            if let Some(parent_chains) = cache.dependency_chains.get(&parent_id) {
+                if let Some(chain) = parent_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
+                    if let Some(cached) = chain.cached_pixels {
+                        return Some(cached);
+                    }
+                }
+            }
+            None
+        })
+        .unwrap_or_else(|| {
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            DEFAULT_FONT_SIZE
+        });
+    
+    // Get root font-size (avoid recursion by checking cache first)
+    let root_font_size = {
+        let root_id = NodeId::new(0);
+        if let Some(root_chains) = cache.dependency_chains.get(&root_id) {
+            if let Some(chain) = root_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
+                if let Some(cached) = chain.cached_pixels {
+                    cached
+                } else {
+                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                    DEFAULT_FONT_SIZE
+                }
+            } else {
+                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+                DEFAULT_FONT_SIZE
+            }
+        } else {
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            DEFAULT_FONT_SIZE
+        }
+    };
+    
+    // Resolve font-size with proper context
     cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .map(|v| {
-            // Fallback using default browser font-size
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-            v.inner.to_pixels(DEFAULT_FONT_SIZE)
+            use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PropertyContext, ResolutionContext, PhysicalSize};
+            
+            let context = ResolutionContext {
+                element_font_size: DEFAULT_FONT_SIZE, // Not used for FontSize property
+                parent_font_size,
+                root_font_size,
+                containing_block_size: PhysicalSize::new(0.0, 0.0),
+                element_size: None,
+                dpi_scale: 1.0,
+            };
+            
+            v.inner.resolve_with_context(&context, PropertyContext::FontSize)
         })
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+        .unwrap_or_else(|| {
+            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+            DEFAULT_FONT_SIZE
+        })
 }
 
 /// Helper function to get parent's computed font-size
@@ -913,7 +972,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
                 .map(|v| {
                     // If parent also has em/rem, we'd need to recurse, but for now use fallback
                     use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-                    v.inner.to_pixels(DEFAULT_FONT_SIZE)
+                    v.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
                 })
         })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);

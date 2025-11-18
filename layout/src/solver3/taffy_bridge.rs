@@ -2,6 +2,7 @@ use azul_core::dom::FormattingContext;
 use azul_css::{
     css::CssPropertyValue,
     props::{
+        basic::{PixelValue, SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}},
         layout::grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
         property::{
             LayoutAlignItemsValue, LayoutDisplayValue, LayoutFlexDirectionValue,
@@ -12,6 +13,21 @@ use azul_css::{
     },
 };
 use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
+
+/// Convert PixelValue to pixels, only for absolute units (no %, and em/rem use fallback)
+/// Used where proper resolution context is not available (grid tracks, etc.)
+fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
+    match pv.metric {
+        SizeMetric::Px => Some(pv.number.get()),
+        SizeMetric::Pt => Some(pv.number.get() * PT_TO_PX),
+        SizeMetric::In => Some(pv.number.get() * 96.0),
+        SizeMetric::Cm => Some(pv.number.get() * 96.0 / 2.54),
+        SizeMetric::Mm => Some(pv.number.get() * 96.0 / 25.4),
+        // For em/rem, use DEFAULT_FONT_SIZE as fallback (not ideal but needed without context)
+        SizeMetric::Em | SizeMetric::Rem => Some(pv.number.get() * DEFAULT_FONT_SIZE),
+        SizeMetric::Percent => None, // Cannot resolve without containing block
+    }
+}
 
 pub fn grid_template_rows_to_taffy(
     val: LayoutGridTemplateRowsValue,
@@ -52,10 +68,19 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     // Helper to resolve PixelValue to absolute pixels (handles em, rem, but not %)
     // Grid track sizing in Taffy doesn't support % - only absolute values
     let px_to_float = |pv: PixelValue| -> f32 {
-        // For em/rem, we'd need proper context here
-        // For now, using to_pixels_no_percent() which handles absolute units
+        // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
         // TODO: Add proper context for em/rem resolution
-        pv.to_pixels_no_percent().unwrap_or(0.0)
+        use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+        match pv.metric {
+            SizeMetric::Px => pv.number.get(),
+            SizeMetric::Pt => pv.number.get() * PT_TO_PX,
+            SizeMetric::In => pv.number.get() * 96.0,
+            SizeMetric::Cm => pv.number.get() * 96.0 / 2.54,
+            SizeMetric::Mm => pv.number.get() * 96.0 / 25.4,
+            // For em/rem, use DEFAULT_FONT_SIZE as fallback
+            SizeMetric::Em | SizeMetric::Rem => pv.number.get() * DEFAULT_FONT_SIZE,
+            SizeMetric::Percent => 0.0, // Not supported in grid tracks
+        }
     };
     
     match track {
@@ -200,7 +225,6 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{dom::NodeId, styled_dom::StyledDom};
 use azul_css::props::{
-    basic::pixel::PixelValue,
     layout::{
         LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap,
         LayoutGridAutoFlow, LayoutHeight, LayoutJustifyContent, LayoutPosition, LayoutWidth,
@@ -238,7 +262,7 @@ fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto
             taffy::LengthPercentageAuto::auto()
         }
         MultiValue::Exact(pv) => {
-            pv.to_pixels_no_percent()
+            pixel_value_to_pixels_fallback(&pv)
                 .map(taffy::LengthPercentageAuto::length)
                 .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentageAuto::percent(p.get())))
                 .unwrap_or_else(taffy::LengthPercentageAuto::auto)
@@ -253,7 +277,7 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
             taffy::LengthPercentage::ZERO
         }
         MultiValue::Exact(pv) => {
-            pv.to_pixels_no_percent()
+            pixel_value_to_pixels_fallback(&pv)
                 .map(taffy::LengthPercentage::length)
                 .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentage::percent(p.get())))
                 .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
@@ -263,7 +287,7 @@ fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
 
 // Helper function to convert plain PixelValue to LengthPercentage
 fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
-    pv.to_pixels_no_percent()
+    pixel_value_to_pixels_fallback(&pv)
         .map(taffy::LengthPercentage::length)
         .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentage::percent(p.get())))
         .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
@@ -776,7 +800,7 @@ fn from_layout_width(val: LayoutWidth) -> Dimension {
         LayoutWidth::Auto => Dimension::auto(),  // NEW: Handle Auto variant
         LayoutWidth::Px(px) => {
             // Try to extract pixel or percent value
-            match px.to_pixels_no_percent() {
+            match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
                     Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
@@ -793,7 +817,7 @@ fn from_layout_height(val: LayoutHeight) -> Dimension {
         LayoutHeight::Auto => Dimension::auto(),  // NEW: Handle Auto variant
         LayoutHeight::Px(px) => {
             // Try to extract pixel or percent value
-            match px.to_pixels_no_percent() {
+            match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
                     Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
@@ -806,7 +830,7 @@ fn from_layout_height(val: LayoutHeight) -> Dimension {
 }
 
 fn from_pixel_value_lp(val: PixelValue) -> LengthPercentage {
-    match val.to_pixels_no_percent() {
+    match pixel_value_to_pixels_fallback(&val) {
         Some(px) => LengthPercentage::length(px),
         None => match val.to_percent() {
             Some(p) => LengthPercentage::percent(p.get()), // p is already normalized (0.0-1.0)
@@ -817,7 +841,7 @@ fn from_pixel_value_lp(val: PixelValue) -> LengthPercentage {
 }
 
 fn from_pixel_value_lpa(val: PixelValue) -> LengthPercentageAuto {
-    match val.to_pixels_no_percent() {
+    match pixel_value_to_pixels_fallback(&val) {
         Some(px) => LengthPercentageAuto::length(px),
         None => match val.to_percent() {
             Some(p) => LengthPercentageAuto::percent(p.get()), // p is already normalized (0.0-1.0)

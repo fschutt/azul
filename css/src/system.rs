@@ -261,7 +261,10 @@ impl SystemStyle {
         let corner_radius = self
             .metrics
             .corner_radius
-            .map(|px| format!("{}px", px.to_pixels(1.0)))
+            .map(|px| {
+                use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
+                format!("{}px", px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE))
+            })
             .unwrap_or_else(|| "4px".to_string());
 
         // Titlebar container
