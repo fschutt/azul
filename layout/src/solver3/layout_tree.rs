@@ -108,6 +108,14 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     pub baseline: Option<f32>,
     /// Optional layouted text that this layout node carries
     pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>,
+    /// Escaped top margin (CSS 2.1 margin collapsing)
+    /// If this BFC's first child's top margin "escaped" the BFC, this contains
+    /// the collapsed margin that should be applied by the parent.
+    pub escaped_top_margin: Option<f32>,
+    /// Escaped bottom margin (CSS 2.1 margin collapsing)  
+    /// If this BFC's last child's bottom margin "escaped" the BFC, this contains
+    /// the collapsed margin that should be applied by the parent.
+    pub escaped_bottom_margin: Option<f32>,
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     pub scrollbar_info: Option<ScrollbarInfo>,
@@ -567,6 +575,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             relative_position: None,
             baseline: None,
             inline_layout_result: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
             scrollbar_info: None,
         });
         
@@ -599,6 +609,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             relative_position: None,
             baseline: None,
             inline_layout_result: None,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
             scrollbar_info: None,
         });
         if let Some(p) = parent {

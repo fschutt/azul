@@ -47,6 +47,31 @@ use crate::{
     },
 };
 
+/// Result of BFC layout with margin escape information
+#[derive(Debug, Clone)]
+struct BfcLayoutResult {
+    /// Standard layout output (positions, overflow size, baseline)
+    output: LayoutOutput,
+    
+    /// Top margin that escaped the BFC (for parent-child collapse)
+    /// If Some, this margin should be used by parent instead of positioning this BFC
+    escaped_top_margin: Option<f32>,
+    
+    /// Bottom margin that escaped the BFC (for parent-child collapse)
+    /// If Some, this margin should collapse with next sibling
+    escaped_bottom_margin: Option<f32>,
+}
+
+impl BfcLayoutResult {
+    fn from_output(output: LayoutOutput) -> Self {
+        Self {
+            output,
+            escaped_top_margin: None,
+            escaped_bottom_margin: None,
+        }
+    }
+}
+
 /// The CSS `overflow` property behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverflowBehavior {
@@ -112,7 +137,7 @@ pub struct MarginCollapseContext {
 }
 
 /// The result of laying out a formatting context.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LayoutOutput {
     /// The final positions of child nodes, relative to the container's content-box origin.
     pub positions: BTreeMap<usize, LogicalPosition>,
@@ -281,7 +306,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     match node.formatting_context {
         FormattingContext::Block { .. } => {
-            layout_bfc(ctx, tree, text_cache, node_index, constraints)
+            layout_bfc(ctx, tree, text_cache, node_index, constraints).map(|r| r.output)
         }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints),
@@ -326,7 +351,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             Ok(output)
         }
-        _ => layout_bfc(ctx, tree, text_cache, node_index, constraints),
+        _ => layout_bfc(ctx, tree, text_cache, node_index, constraints).map(|r| r.output),
     }
 }
 
@@ -346,8 +371,6 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 
 /// Lays out a Block Formatting Context (BFC).
 ///
-/// Lays out a Block Formatting Context (BFC).
-///
 /// This is the corrected, architecturally-sound implementation. It solves the
 /// "chicken-and-egg" problem by performing its own two-pass layout:
 ///
@@ -359,6 +382,34 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
 ///    valid size, it can apply the standard block-flow logic: stacking them vertically and
 ///    advancing a "pen" by each child's outer height.
 ///
+/// # Margin Collapsing Architecture
+///
+/// CSS 2.1 Section 8.3.1 compliant margin collapsing:
+///
+/// ```text
+/// layout_bfc()
+///   ├─ Check parent border/padding blockers
+///   ├─ For each child:
+///   │   ├─ Check child border/padding blockers
+///   │   ├─ is_first_child?
+///   │   │   └─ Check parent-child top collapse
+///   │   ├─ Sibling collapse?
+///   │   │   └─ advance_pen_with_margin_collapse()
+///   │   │       └─ collapse_margins(prev_bottom, curr_top)
+///   │   ├─ Position child
+///   │   ├─ is_empty_block()?
+///   │   │   └─ Collapse own top+bottom margins (collapse through)
+///   │   └─ Save bottom margin for next sibling
+///   └─ Check parent-child bottom collapse
+/// ```
+///
+/// **Collapsing Rules:**
+/// - Sibling margins: Adjacent vertical margins collapse to max (or sum if mixed signs)
+/// - Parent-child: First child's top margin can escape parent (if no border/padding)
+/// - Parent-child: Last child's bottom margin can escape parent (if no border/padding/height)
+/// - Empty blocks: Top+bottom margins collapse with each other, then with siblings
+/// - Blockers: Border, padding, inline content, or new BFC prevents collapsing
+///
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
@@ -367,7 +418,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
-) -> Result<LayoutOutput> {
+) -> Result<BfcLayoutResult> {
     let node = tree
         .get(node_index)
         .ok_or(LayoutError::InvalidTree)?
@@ -408,44 +459,241 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         )?;
     }
 
-    // --- Pass 2: Positioning ---
-    // Now that all children have a valid `used_size`, we can position them.
+    // --- Pass 2: Positioning with Complete Margin Collapsing ---
+    
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
+    
+    // Margin collapsing state
+    let mut last_margin_bottom = 0.0f32;
+    let mut is_first_child = true;
+    let mut first_child_index: Option<usize> = None;
+    let mut last_child_index: Option<usize> = None;
+    
+    // Parent's own margins (for escape calculation)
+    let parent_margin_top = node.box_props.margin.main_start(writing_mode);
+    let parent_margin_bottom = node.box_props.margin.main_end(writing_mode);
+    
+    // Check if parent (this BFC root) has border/padding that prevents parent-child collapse
+    let parent_has_top_blocker = has_margin_collapse_blocker(&node.box_props, writing_mode, true);
+    let parent_has_bottom_blocker = has_margin_collapse_blocker(&node.box_props, writing_mode, false);
+    
+    // Track accumulated top margin for first-child escape
+    let mut accumulated_top_margin = 0.0f32;
+    let mut top_margin_resolved = false;
+    
+    // Track if we have any actual content (non-empty blocks)
+    let mut has_content = false;
+
+    if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+        println!("[MARGIN_COLLAPSE] layout_bfc: Processing {} children", node.children.len());
+    }
 
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
+        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+            println!("[MARGIN_COLLAPSE] Processing child {:?}, index={}", child_dom_id, child_index);
+        }
+
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+                println!("[MARGIN_COLLAPSE] Child {:?} is absolute/fixed, skipping", child_dom_id);
+            }
             continue;
         }
 
-        // Now this will be a valid, non-zero size.
+        // Track first and last in-flow children for parent-child collapse
+        if first_child_index.is_none() {
+            first_child_index = Some(child_index);
+        }
+        last_child_index = Some(child_index);
+
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
+        
+        // Use escaped margins if the child has them (nested margin propagation - Phase 4)
+        let child_margin_top = child_node.escaped_top_margin
+            .unwrap_or_else(|| child_margin.main_start(writing_mode));
+        let child_margin_bottom = child_node.escaped_bottom_margin
+            .unwrap_or_else(|| child_margin.main_end(writing_mode));
+        
+        // Check if this child has border/padding that prevents margin collapsing
+        let child_has_top_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, true);
+        let child_has_bottom_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, false);
+        
+        // PHASE 1: Empty Block Detection & Self-Collapse
+        let is_empty = is_empty_block(child_node);
+        
+        // Handle empty blocks FIRST (they collapse through and don't participate in layout)
+        if is_empty && !child_has_top_blocker && !child_has_bottom_blocker {
+            // Empty block: collapse its own top and bottom margins FIRST
+            let self_collapsed = collapse_margins(child_margin_top, child_margin_bottom);
+            
+            // Then collapse with previous margin (sibling or parent)
+            if is_first_child {
+                is_first_child = false;
+                // Empty first child: its collapsed margin can escape with parent's
+                if !parent_has_top_blocker {
+                    accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
+                } else {
+                    // Parent has blocker: add margins
+                    if accumulated_top_margin == 0.0 {
+                        accumulated_top_margin = parent_margin_top;
+                    }
+                    main_pen += accumulated_top_margin + self_collapsed;
+                    top_margin_resolved = true;
+                    accumulated_top_margin = 0.0;
+                }
+                last_margin_bottom = self_collapsed;
+            } else {
+                // Empty sibling: collapse with previous sibling's bottom margin
+                last_margin_bottom = collapse_margins(last_margin_bottom, self_collapsed);
+            }
+            
+            // Skip positioning and pen advance (empty has no visual presence)
+            continue;
+        }
+        
+        // From here on: non-empty blocks only
+        
+        // PHASE 2: Parent-Child Top Margin Escape (First Child)
+        if is_first_child {
+            is_first_child = false;
+            
+            if !parent_has_top_blocker && !child_has_top_blocker {
+                // First child's top margin can escape parent
+                // Accumulate it with parent's margin (will be returned to parent's parent)
+                accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
+                // Position child at pen (no margin applied - it escaped!)
+            } else {
+                // Can't escape: resolve parent's margin and apply child's
+                if accumulated_top_margin == 0.0 {
+                    accumulated_top_margin = parent_margin_top;
+                }
+                main_pen += accumulated_top_margin;
+                top_margin_resolved = true;
+                main_pen += child_margin_top;
+            }
+        } else {
+            // Not first child: handle sibling collapse
+            
+            // Resolve accumulated top margin if not yet done
+            if !top_margin_resolved {
+                main_pen += accumulated_top_margin;
+                top_margin_resolved = true;
+            }
+            
+            // Sibling margin collapse
+            if child_has_top_blocker {
+                // Child has blocker: add both margins (no collapse)
+                main_pen += last_margin_bottom + child_margin_top;
+            } else {
+                // Normal sibling collapse
+                advance_pen_with_margin_collapse(&mut main_pen, last_margin_bottom, child_margin_top);
+            }
+        }
 
-        // 1. Advance the pen by the child's starting margin.
-        main_pen += child_margin.main_start(writing_mode);
-
-        // 2. Determine the child's position relative to the parent's content-box.
+        // Position child (non-empty blocks only reach here)
         let child_cross_pos = child_margin.cross_start(writing_mode);
         let child_main_pos = main_pen;
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         
+        // DEBUG: Print Y-position for margin collapsing analysis
+        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+            println!("[MARGIN_COLLAPSE] Node {:?} positioned at Y={:.2}px (margin_top={:.2}, margin_bottom={:.2}, empty={})", 
+                     child_dom_id, child_main_pos, child_margin_top, child_margin_bottom, is_empty);
+        }
+        
         output.positions.insert(child_index, final_pos);
 
-        // 3. Advance the pen past the child's content size and its ending margin.
+        // Advance the pen past the child's content size
         main_pen += child_size.main(writing_mode);
-        main_pen += child_margin.main_end(writing_mode);
+        has_content = true;
+        
+        // Save child's bottom margin for next sibling
+        last_margin_bottom = child_margin_bottom;
 
-        // 4. Track the maximum cross-axis size to determine the BFC's overflow size.
+        // Track the maximum cross-axis size to determine the BFC's overflow size.
         let child_cross_extent =
             child_cross_pos + child_size.cross(writing_mode) + child_margin.cross_end(writing_mode);
         max_cross_size = max_cross_size.max(child_cross_extent);
+    }
+    
+    // PHASE 3: Parent-Child Bottom Margin Escape
+    let mut escaped_top_margin = None;
+    let mut escaped_bottom_margin = None;
+    
+    // Handle top margin escape
+    if !top_margin_resolved && accumulated_top_margin > 0.0 {
+        // No content was positioned, all margins accumulated
+        // This can happen with only empty children
+        escaped_top_margin = Some(accumulated_top_margin);
+    } else if !top_margin_resolved {
+        // First child's margin escaped
+        escaped_top_margin = Some(accumulated_top_margin);
+    }
+    
+    // Handle bottom margin escape
+    if let Some(last_idx) = last_child_index {
+        let last_child = tree.get(last_idx).ok_or(LayoutError::InvalidTree)?;
+        let last_has_bottom_blocker = has_margin_collapse_blocker(&last_child.box_props, writing_mode, false);
+        
+        if !parent_has_bottom_blocker && !last_has_bottom_blocker && has_content {
+            // Last child's bottom margin can escape
+            let collapsed_bottom = collapse_margins(parent_margin_bottom, last_margin_bottom);
+            escaped_bottom_margin = Some(collapsed_bottom);
+            // Don't add last_margin_bottom to pen (it escaped)
+        } else {
+            // Can't escape: add to pen
+            main_pen += last_margin_bottom;
+            // Also add parent's bottom margin if we have content
+            if has_content {
+                main_pen += parent_margin_bottom;
+            }
+        }
+    } else {
+        // No children: just use parent's margins
+        if !top_margin_resolved {
+            main_pen += parent_margin_top;
+        }
+        main_pen += parent_margin_bottom;
+    }
+
+    // CRITICAL: If this is a root node (no parent), apply escaped margins directly
+    // instead of propagating them upward (since there's no parent to receive them)
+    let is_root_node = node.parent.is_none();
+    if is_root_node {
+        if let Some(top) = escaped_top_margin {
+            // Adjust all child positions downward by the escaped top margin
+            for (_, pos) in output.positions.iter_mut() {
+                let current_main = pos.main(writing_mode);
+                *pos = LogicalPosition::from_main_cross(
+                    current_main + top,
+                    pos.cross(writing_mode),
+                    writing_mode
+                );
+            }
+            main_pen += top;
+            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+                println!("[MARGIN_COLLAPSE] Root node {:?}: applying escaped_top_margin={:.2}px directly (adjusted {} children)", 
+                         node.dom_node_id, top, output.positions.len());
+            }
+        }
+        if let Some(bottom) = escaped_bottom_margin {
+            main_pen += bottom;
+            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+                println!("[MARGIN_COLLAPSE] Root node {:?}: applying escaped_bottom_margin={:.2}px directly", 
+                         node.dom_node_id, bottom);
+            }
+        }
+        // For root nodes, don't propagate margins further
+        escaped_top_margin = None;
+        escaped_bottom_margin = None;
     }
 
     // The final overflow size is determined by the final pen position and the max cross size.
@@ -454,11 +702,26 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Baseline calculation would happen here in a full implementation.
     output.baseline = None;
 
+    // Store escaped margins in the LayoutNode for use by parent
+    if let Some(node_mut) = tree.get_mut(node_index) {
+        node_mut.escaped_top_margin = escaped_top_margin;
+        node_mut.escaped_bottom_margin = escaped_bottom_margin;
+        
+        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+            println!("[MARGIN_COLLAPSE] Node {:?} escaped margins: top={:?}, bottom={:?}", 
+                     node.dom_node_id, escaped_top_margin, escaped_bottom_margin);
+        }
+    }
+
     if let Some(node_mut) = tree.get_mut(node_index) {
         node_mut.baseline = output.baseline;
     }
 
-    Ok(output)
+    Ok(BfcLayoutResult {
+        output,
+        escaped_top_margin,
+        escaped_bottom_margin,
+    })
 }
 
 /// Lays out an Inline Formatting Context (IFC) by delegating to the `text3` engine.
@@ -3000,7 +3263,20 @@ pub fn check_scrollbar_necessity(
 /// - If both margins are positive, the result is the larger of the two.
 /// - If both margins are negative, the result is the more negative of the two.
 /// - If the margins have mixed signs, they are effectively summed.
-fn collapse_margins(a: f32, b: f32) -> f32 {
+///
+/// # Examples
+///
+/// ```ignore
+/// // Positive margins: larger wins
+/// assert_eq!(collapse_margins(20.0, 10.0), 20.0);
+/// 
+/// // Negative margins: more negative wins
+/// assert_eq!(collapse_margins(-20.0, -10.0), -20.0);
+/// 
+/// // Mixed signs: sum
+/// assert_eq!(collapse_margins(20.0, -10.0), 10.0);
+/// ```
+pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
     if a.is_sign_positive() && b.is_sign_positive() {
         a.max(b)
     } else if a.is_sign_negative() && b.is_sign_negative() {
@@ -3008,6 +3284,143 @@ fn collapse_margins(a: f32, b: f32) -> f32 {
     } else {
         a + b
     }
+}
+
+/// Helper function to advance the pen position with margin collapsing.
+///
+/// This implements CSS 2.1 margin collapsing for adjacent block-level boxes in a BFC.
+/// 
+/// # Arguments
+/// * `pen` - Current main-axis position (will be modified)
+/// * `last_margin_bottom` - The bottom margin of the previous in-flow element
+/// * `current_margin_top` - The top margin of the current element
+/// 
+/// # Returns
+/// The new `last_margin_bottom` value (the bottom margin of the current element)
+///
+/// # CSS Spec Compliance
+/// Per CSS 2.1 Section 8.3.1 "Collapsing margins":
+/// - Adjacent vertical margins of block boxes collapse
+/// - The resulting margin width is the maximum of the adjoining margins (if both positive)
+/// - Or the sum of the most positive and most negative (if signs differ)
+///
+/// # Example Flow
+/// ```ignore
+/// // Element 1: margin-bottom = 20px
+/// // Element 2: margin-top = 30px, margin-bottom = 15px
+/// 
+/// let mut pen = 0.0;
+/// let mut last_margin = 0.0;
+/// 
+/// // After element 1:
+/// pen += element1_height;
+/// last_margin = 20.0;
+/// 
+/// // Before element 2:
+/// let collapsed = collapse_margins(20.0, 30.0); // = 30.0 (larger wins)
+/// pen += collapsed; // Advance by 30px, not 50px
+/// // Position element 2 at pen
+/// pen += element2_height;
+/// last_margin = 15.0; // Save for next element
+/// ```
+fn advance_pen_with_margin_collapse(
+    pen: &mut f32,
+    last_margin_bottom: f32,
+    current_margin_top: f32,
+) -> f32 {
+    // Collapse the previous element's bottom margin with current element's top margin
+    let collapsed_margin = collapse_margins(last_margin_bottom, current_margin_top);
+    
+    // Advance pen by the collapsed margin
+    *pen += collapsed_margin;
+    
+    // Return collapsed_margin so caller knows how much space was actually added
+    collapsed_margin
+}
+
+/// Checks if an element's border or padding prevents margin collapsing.
+///
+/// Per CSS 2.1 Section 8.3.1:
+/// - Border between margins prevents collapsing
+/// - Padding between margins prevents collapsing
+///
+/// # Arguments
+/// * `box_props` - The box properties containing border and padding
+/// * `writing_mode` - The writing mode to determine main axis
+/// * `check_start` - If true, check main-start (top); if false, check main-end (bottom)
+///
+/// # Returns
+/// `true` if border or padding exists and prevents collapsing, `false` otherwise
+fn has_margin_collapse_blocker(
+    box_props: &crate::solver3::geometry::BoxProps,
+    writing_mode: LayoutWritingMode,
+    check_start: bool, // true = check top/start, false = check bottom/end
+) -> bool {
+    if check_start {
+        // Check if there's border-top or padding-top
+        let border_start = box_props.border.main_start(writing_mode);
+        let padding_start = box_props.padding.main_start(writing_mode);
+        border_start > 0.0 || padding_start > 0.0
+    } else {
+        // Check if there's border-bottom or padding-bottom
+        let border_end = box_props.border.main_end(writing_mode);
+        let padding_end = box_props.padding.main_end(writing_mode);
+        border_end > 0.0 || padding_end > 0.0
+    }
+}
+
+/// Checks if an element is empty (has no content).
+///
+/// Per CSS 2.1 Section 8.3.1:
+/// If a block element has no border, padding, inline content, height, or min-height,
+/// then its top and bottom margins collapse with each other.
+///
+/// # Arguments
+/// * `node` - The layout node to check
+/// 
+/// # Returns
+/// `true` if the element is empty and its margins can collapse internally
+fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::LayoutNode<T>) -> bool {
+    // Per CSS 2.1 spec: An empty block is one with:
+    // - No in-flow children
+    // - No inline content (text)
+    // - No border or padding (checked elsewhere via has_margin_collapse_blocker)
+    // - No explicit height (height: auto or height: 0)
+    // - No min-height that would force a height
+    
+    // Check if node has children
+    if !node.children.is_empty() {
+        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+            println!("[is_empty_block] Node {:?} has {} children → NOT EMPTY", 
+                     node.dom_node_id, node.children.len());
+        }
+        return false;
+    }
+    
+    // Check if node has inline content (text)
+    if node.inline_layout_result.is_some() {
+        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+            println!("[is_empty_block] Node {:?} has inline content → NOT EMPTY", 
+                     node.dom_node_id);
+        }
+        return false;
+    }
+    
+    // DON'T check used_size.height here! 
+    // During the sizing pass, empty blocks may get a default height (e.g., line-height).
+    // We need to check if there's an EXPLICIT height that forces the block to have size.
+    // Since we don't have access to CSS properties here, and the box_props don't include
+    // explicit height info, we use a heuristic: if used_size exists and is exactly 0,
+    // it's explicitly empty. Otherwise, we can't determine it from used_size alone.
+    // 
+    // The proper solution would be to check the CSS property directly, but that requires
+    // StyledDom access. For now, we assume empty blocks have NO content, so they're empty.
+    
+    // Empty block: no children, no inline content
+    if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+        println!("[is_empty_block] Node {:?} IS EMPTY ✓", node.dom_node_id);
+    }
+    true
 }
 
 /// Generates marker text for a list item marker.

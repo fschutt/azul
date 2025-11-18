@@ -161,6 +161,187 @@ mod collapse_margins_unit_tests {
     }
 }
 
+#[cfg(test)]
+mod parent_child_margin_collapse_tests {
+    /// Tests for CSS 2.1 Section 8.3.1: Parent-child margin collapsing
+    /// 
+    /// Key rules:
+    /// 1. Parent's top margin collapses with first child's top margin
+    ///    UNLESS parent has border-top, padding-top, or establishes new BFC
+    /// 
+    /// 2. Parent's bottom margin collapses with last child's bottom margin
+    ///    UNLESS parent has border-bottom, padding-bottom, height, min-height, or establishes new BFC
+    /// 
+    /// Example:
+    /// ```html
+    /// <div style="margin-top: 20px;">         <!-- Parent -->
+    ///   <p style="margin-top: 30px;">...</p>  <!-- First child -->
+    /// </div>
+    /// ```
+    /// Expected: Margins collapse to 30px (larger wins), NOT 50px (sum)
+    /// The 30px margin "escapes" the parent's box
+    
+    #[test]
+    fn test_parent_child_top_margin_should_collapse() {
+        // Parent margin-top: 20px, First child margin-top: 30px
+        // Expected: 30px (larger wins), child's margin "escapes" parent
+        // TODO: Implement parent-child top margin collapsing
+        // This currently is NOT implemented - margins don't collapse
+    }
+    
+    #[test]
+    fn test_parent_child_top_margin_blocked_by_border() {
+        // Parent has border-top: 1px solid black
+        // Expected: Margins do NOT collapse, child stays inside parent
+        // Border acts as a "blocker" preventing margin from escaping
+    }
+    
+    #[test]
+    fn test_parent_child_top_margin_blocked_by_padding() {
+        // Parent has padding-top: 10px
+        // Expected: Margins do NOT collapse, child stays inside parent
+        // Padding acts as a "blocker" preventing margin from escaping
+    }
+    
+    #[test]
+    fn test_parent_child_bottom_margin_should_collapse() {
+        // Parent margin-bottom: 20px, Last child margin-bottom: 30px
+        // Expected: 30px (larger wins), child's margin "escapes" parent
+        // TODO: Implement parent-child bottom margin collapsing
+    }
+    
+    #[test]
+    fn test_parent_child_bottom_margin_blocked_by_border() {
+        // Parent has border-bottom: 1px solid black
+        // Expected: Margins do NOT collapse
+    }
+    
+    #[test]
+    fn test_parent_child_bottom_margin_blocked_by_padding() {
+        // Parent has padding-bottom: 10px
+        // Expected: Margins do NOT collapse
+    }
+    
+    #[test]
+    fn test_parent_with_explicit_height_no_collapse() {
+        // Parent has height: 100px
+        // Expected: Bottom margins do NOT collapse
+        // Explicit height prevents bottom margin collapsing
+    }
+}
+
+#[cfg(test)]
+mod empty_block_margin_collapse_tests {
+    /// Tests for CSS 2.1 Section 8.3.1: Empty block margin collapsing
+    /// 
+    /// Key rule:
+    /// If a block element has no border, padding, inline content, height, or min-height,
+    /// then its top and bottom margins collapse with each other.
+    /// 
+    /// Example:
+    /// ```html
+    /// <p style="margin-bottom: 20px;">First</p>
+    /// <div style="margin-top: 10px; margin-bottom: 30px;"></div>  <!-- Empty! -->
+    /// <p style="margin-top: 15px;">Second</p>
+    /// ```
+    /// 
+    /// Collapsing process:
+    /// 1. Empty div's top (10px) and bottom (30px) collapse → 30px
+    /// 2. Previous p bottom (20px) + empty div (30px) collapse → 30px
+    /// 3. Empty div (30px) + next p top (15px) collapse → 30px
+    /// Final gap: 30px (not 20+10+30+15=75px!)
+    
+    #[test]
+    fn test_empty_block_margins_collapse_with_each_other() {
+        // Empty div: margin-top 10px, margin-bottom 30px
+        // Expected: These collapse to 30px (larger wins)
+        // TODO: Implement empty block margin collapsing
+    }
+    
+    #[test]
+    fn test_empty_block_collapses_through_to_siblings() {
+        // Three blocks: P1 (margin-bottom: 20px) → Empty Div (10px/30px) → P2 (margin-top: 15px)
+        // Expected: All margins collapse to 30px (the largest)
+        // This is the most complex case!
+    }
+    
+    #[test]
+    fn test_empty_block_with_border_does_not_collapse_internally() {
+        // Empty div with border: 1px solid black
+        // Expected: Top and bottom margins do NOT collapse with each other
+        // But they can still collapse with siblings
+    }
+    
+    #[test]
+    fn test_empty_block_with_padding_does_not_collapse_internally() {
+        // Empty div with padding: 5px
+        // Expected: Top and bottom margins do NOT collapse with each other
+    }
+    
+    #[test]
+    fn test_empty_block_with_height_does_not_collapse_internally() {
+        // Empty div with height: 50px
+        // Expected: Top and bottom margins do NOT collapse with each other
+    }
+    
+    #[test]
+    fn test_multiple_empty_blocks_in_sequence() {
+        // P1 → Empty Div1 → Empty Div2 → Empty Div3 → P2
+        // All empty divs have different margins
+        // Expected: All margins collapse to the largest one
+    }
+}
+
+#[cfg(test)]
+mod margin_collapse_blocker_tests {
+    /// Tests for conditions that prevent margin collapsing
+    /// 
+    /// CSS 2.1 Section 8.3.1 lists several conditions that prevent margins from collapsing:
+    /// - Border between margins (border-top, border-bottom)
+    /// - Padding between margins (padding-top, padding-bottom)
+    /// - Line boxes (inline content) between margins
+    /// - Clearance (clear property)
+    /// - Establishing a new BFC (overflow, float, position:absolute, display:inline-block, etc.)
+    
+    #[test]
+    fn test_border_prevents_collapse() {
+        // Element with border-top and border-bottom
+        // Expected: Margins on both sides do NOT collapse
+        // TODO: Check if border is present before collapsing
+    }
+    
+    #[test]
+    fn test_padding_prevents_collapse() {
+        // Element with padding-top and padding-bottom
+        // Expected: Margins on both sides do NOT collapse
+        // TODO: Check if padding is present before collapsing
+    }
+    
+    #[test]
+    fn test_inline_content_prevents_parent_child_collapse() {
+        // Parent with text content before first child
+        // Expected: Parent and child margins do NOT collapse
+    }
+    
+    #[test]
+    fn test_overflow_hidden_establishes_bfc() {
+        // Element with overflow: hidden
+        // Expected: Creates new BFC, margins don't escape
+    }
+    
+    #[test]
+    fn test_float_establishes_bfc() {
+        // Element with float: left/right
+        // Expected: Creates new BFC, margins don't collapse with siblings
+    }
+    
+    #[test]
+    fn test_absolute_position_prevents_collapse() {
+        // Element with position: absolute
+        // Expected: Removed from normal flow, doesn't participate in margin collapsing
+    }
+}
+
 // Integration tests commented out until layout system can be properly initialized
 
 /*
