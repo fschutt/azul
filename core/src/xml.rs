@@ -1435,6 +1435,11 @@ pub fn str_to_dom<'a>(
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        println!("[CSS_PARSE] Found <head> node with {} children", head_node.children.as_ref().len());
+        for (i, child) in head_node.children.as_ref().iter().enumerate() {
+            println!("[CSS_PARSE]   Child {}: node_type={}", i, child.node_type);
+        }
+        
         // parse all dynamic XML components from the head node
         for node in head_node.children.as_ref() {
             match DynamicXmlComponent::new(node) {
@@ -1454,11 +1459,20 @@ pub fn str_to_dom<'a>(
 
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            println!("[CSS_PARSE] Found <style> node");
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                println!("[CSS_PARSE] Parsing CSS ({} bytes): {}", text.len(), &text[..text.len().min(100)]);
                 let parsed_css = CssApiWrapper::from_string(text.clone().into());
+                println!("[CSS_PARSE] Parsed {} stylesheets", parsed_css.css.stylesheets.as_ref().len());
                 global_style = Some(parsed_css);
+            } else {
+                println!("[CSS_PARSE] <style> node has no text content");
             }
+        } else {
+            println!("[CSS_PARSE] No <style> node found in <head>");
         }
+    } else {
+        println!("[CSS_PARSE] No <head> node found in HTML");
     }
 
     render_dom_from_body_node(&body_node, global_style, component_map, max_width)
@@ -1695,80 +1709,67 @@ pub fn compile_component(
     )
 }
 
-/// Wraps a rendered component in proper HTML structure if needed.
-/// - If rendered as <html>, returns it unchanged
-/// - If rendered as <body>, wraps in <html>
-/// - Otherwise, wraps in <html><body>
-fn ensure_html_body_structure(styled_dom: StyledDom) -> StyledDom {
-    // Check the root node type
-    let root_node_id = match styled_dom.root.into_crate_internal() {
-        Some(id) => id,
-        None => {
-            // Empty DOM, return default html > body structure
-            return Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty());
-        }
-    };
-    
-    let root_node_data = &styled_dom.node_data.as_ref()[root_node_id.index()];
-    let root_node_type = &root_node_data.node_type;
-    
-    use crate::dom::NodeType;
-    
-    match root_node_type {
-        NodeType::Html => {
-            // Already has proper HTML root, return as-is
-            styled_dom
-        }
-        NodeType::Body => {
-            // Has Body root, wrap in HTML
-            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
-            html_dom.append_child(styled_dom);
-            html_dom
-        }
-        _ => {
-            // Other elements (div, etc), wrap in HTML > Body
-            let mut body_dom = Dom::body().style(CssApiWrapper::empty());
-            body_dom.append_child(styled_dom);
-            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
-            html_dom.append_child(body_dom);
-            html_dom
-        }
-    }
-}
-
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
-    // Render all children of the body node
-    let mut children_doms = Vec::new();
+    println!("[render_dom_from_body_node] body_node attributes: {:?}", body_node.attributes);
     
-    for child_node in body_node.children.as_ref() {
-        children_doms.push(render_dom_from_body_node_inner(
-            child_node,
-            component_map,
-            &FilteredComponentArguments::default(),
-        )?);
-    }
-
-    // Combine children into a single DOM, ensuring proper HTML > Body structure
-    let mut dom = if children_doms.is_empty() {
-        // Empty body
-        Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty())
-    } else if children_doms.len() == 1 {
-        // Single child - check if it needs wrapping
-        ensure_html_body_structure(children_doms.into_iter().next().unwrap())
-    } else {
-        // Multiple children - wrap in HTML > Body
-        let mut body_dom = Dom::body().style(CssApiWrapper::empty());
-        for child_dom in children_doms {
-            body_dom.append_child(child_dom);
+    // Render the body node itself (which will render its children)
+    let mut body_styled = render_dom_from_body_node_inner(
+        body_node,
+        component_map,
+        &FilteredComponentArguments::default(),
+    )?;
+    
+    // Check if the rendered result is already wrapped in HTML
+    let root_node_id = match body_styled.root.into_crate_internal() {
+        Some(id) => id,
+        None => {
+            // Empty DOM, create default HTML > Body structure
+            let mut html_dom = Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty());
+            
+            if let Some(max_width) = max_width {
+                html_dom.restyle(CssApiWrapper::from_string(
+                    format!("html {{ max-width: {max_width}px; }}").into(),
+                ));
+            }
+            
+            if let Some(global_css) = global_css.clone() {
+                html_dom.restyle(global_css);
+            }
+            
+            return Ok(html_dom);
         }
-        let mut html_dom = Dom::html().style(CssApiWrapper::empty());
-        html_dom.append_child(body_dom);
-        html_dom
+    };
+    
+    let root_node_data = &body_styled.node_data.as_ref()[root_node_id.index()];
+    let root_node_type = &root_node_data.node_type;
+    
+    use crate::dom::NodeType;
+    
+    // Wrap in HTML if needed
+    let mut dom = match root_node_type {
+        NodeType::Html => {
+            // Already has proper HTML root, return as-is
+            body_styled
+        }
+        NodeType::Body => {
+            // Has Body root, wrap in HTML
+            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            html_dom.append_child(body_styled);
+            html_dom
+        }
+        _ => {
+            // Other elements (div, etc), wrap in HTML > Body
+            let mut body_dom = Dom::body().style(CssApiWrapper::empty());
+            body_dom.append_child(body_styled);
+            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            html_dom.append_child(body_dom);
+            html_dom
+        }
     };
 
     if let Some(max_width) = max_width {
@@ -1855,6 +1856,8 @@ pub fn set_attributes(
         None => return,
     };
     let node_data = &mut dom.node_data.as_container_mut()[dom_root];
+    
+    println!("[SET_ATTRIBUTES] Element: {:?}", node_data.node_type);
 
     if let Some(ids) = xml_attributes.get_key("id") {
         for id in ids.split_whitespace() {
@@ -1898,6 +1901,7 @@ pub fn set_attributes(
     }
 
     if let Some(style) = xml_attributes.get_key("style") {
+        println!("[INLINE_STYLE] Found style attribute: {:?}", style);
         let css_key_map = azul_css::props::property::get_css_key_map();
         let mut attributes = Vec::new();
         for s in style.as_str().split(";") {
@@ -1910,6 +1914,7 @@ pub fn set_attributes(
                 Some(s) => s,
                 None => continue,
             };
+            println!("[INLINE_STYLE] Parsing: {}:{}", key.trim(), value.trim());
             azul_css::parser2::parse_css_declaration(
                 key.trim(),
                 value.trim(),
@@ -1919,6 +1924,8 @@ pub fn set_attributes(
                 &mut attributes,
             );
         }
+
+        println!("[INLINE_STYLE] Parsed {} declarations", attributes.len());
 
         let props = attributes
             .into_iter()
@@ -1931,7 +1938,10 @@ pub fn set_attributes(
             })
             .collect::<Vec<_>>();
 
+        println!("[INLINE_STYLE] Setting {} inline CSS props", props.len());
         node_data.set_inline_css_props(props.into());
+    } else {
+        println!("[INLINE_STYLE] No style attribute found");
     }
 }
 
