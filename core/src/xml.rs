@@ -1301,12 +1301,21 @@ pub fn validate_and_filter_component_args(
             );
         } else {
             // key was not expected for this component
-            let keys = valid_args.args.iter().map(|s| s.0.clone()).collect();
-            return Err(ComponentError::UselessFunctionArgument(
-                xml_attribute_name.clone(),
-                xml_attribute_value.clone(),
-                keys,
-            ));
+            // WARNING: Lenient mode - ignore unknown attributes instead of erroring
+            // This allows HTML with unsupported attributes (like <img src="...">) to render
+            #[cfg(feature = "std")]
+            eprintln!(
+                "Warning: Useless component argument \"{}\": \"{}\" for component with args: {:?}",
+                xml_attribute_name,
+                xml_attribute_value,
+                valid_args.args.iter().map(|s| &s.0).collect::<Vec<_>>()
+            );
+            
+            // Still insert the value so it's available, but don't validate the type
+            map.values.insert(
+                xml_attribute_name.as_str().to_string(),
+                xml_attribute_value.as_str().to_string(),
+            );
         }
     }
 

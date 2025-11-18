@@ -245,3 +245,57 @@ fn test_prepare_string_2() {
     let output = prepare_string(input1);
     assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
 }
+
+#[test]
+fn test_self_closing_tags() {
+    // Test that self-closing tags like <header/> are parsed correctly
+    let xml = r#"
+        <html>
+            <body>
+                <header/>
+                <div>Content</div>
+                <footer/>
+            </body>
+        </html>
+    "#;
+    
+    let result = parse_xml_string(xml).unwrap();
+    assert_eq!(result.len(), 1);
+    
+    let html = &result[0];
+    assert_eq!(html.node_type.as_str(), "html");
+    assert_eq!(html.children.as_ref().len(), 1);
+    
+    let body = &html.children.as_ref()[0];
+    assert_eq!(body.node_type.as_str(), "body");
+    assert_eq!(body.children.as_ref().len(), 3);
+    
+    // Check that all three children were parsed
+    assert_eq!(body.children.as_ref()[0].node_type.as_str(), "header");
+    assert_eq!(body.children.as_ref()[1].node_type.as_str(), "div");
+    assert_eq!(body.children.as_ref()[2].node_type.as_str(), "footer");
+}
+
+#[test]
+fn test_self_closing_with_attributes() {
+    // Test that self-closing tags with attributes work
+    let xml = r#"
+        <html>
+            <body>
+                <header exclude-pages="1"/>
+                <div class="content">Text</div>
+            </body>
+        </html>
+    "#;
+    
+    let result = parse_xml_string(xml).unwrap();
+    let html = &result[0];
+    let body = &html.children.as_ref()[0];
+    let header = &body.children.as_ref()[0];
+    
+    assert_eq!(header.node_type.as_str(), "header");
+    assert_eq!(header.attributes.as_ref().len(), 1);
+    assert_eq!(header.attributes.as_ref()[0].key.as_str(), "exclude-pages");
+    assert_eq!(header.attributes.as_ref()[0].value.as_str(), "1");
+    assert_eq!(header.children.as_ref().len(), 0);
+}

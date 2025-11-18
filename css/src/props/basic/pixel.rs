@@ -960,7 +960,7 @@ mod tests {
             root_font_size: 16.0,
             containing_block_size: PhysicalSize::new(800.0, 600.0),
             element_size: None,
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize::new(1920.0, 1080.0),
         };
         
         let margin = PixelValue::percent(10.0); // 10%

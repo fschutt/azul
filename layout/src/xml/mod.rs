@@ -122,38 +122,126 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
     // we need to trach the index of the item in the parent.
     let mut current_hierarchy: Vec<usize> = Vec::new();
 
+    // HTML5-lite parser: List of void elements that should auto-close
+    // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
+    const VOID_ELEMENTS: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ];
+    
+    // HTML5-lite parser: Elements that auto-close when certain other elements are encountered
+    // Format: (element_name, closes_when_encountering)
+    const AUTO_CLOSE_RULES: &[(&str, &[&str])] = &[
+        // List items close when encountering another list item or when parent closes
+        ("li", &["li"]),
+        // Table cells/rows have complex closing rules
+        ("td", &["td", "th", "tr"]),
+        ("th", &["td", "th", "tr"]),
+        ("tr", &["tr"]),
+        // Paragraphs close on block-level elements
+        ("p", &["address", "article", "aside", "blockquote", "div", "dl", "fieldset", 
+                "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", 
+                "main", "nav", "ol", "p", "pre", "section", "table", "ul"]),
+        // Option closes on another option or optgroup
+        ("option", &["option", "optgroup"]),
+        ("optgroup", &["optgroup"]),
+        // DD/DT close on each other
+        ("dd", &["dd", "dt"]),
+        ("dt", &["dd", "dt"]),
+    ];
+    
+    // Track which hierarchy level is a void element (shouldn't be pushed to hierarchy)
+    let mut last_was_void = false;
+
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {
             ElementStart { local, .. } => {
+                let tag_name = local.to_string();
+                let is_void_element = VOID_ELEMENTS.contains(&tag_name.as_str());
+                
+                // HTML5-lite: Check if we need to auto-close the current element
+                if !current_hierarchy.is_empty() {
+                    if let Some(current_element) = get_item(&current_hierarchy, &mut root_node) {
+                        let current_tag = current_element.node_type.as_str();
+                        
+                        // Check if current element should auto-close when encountering this new tag
+                        for (element, closes_on) in AUTO_CLOSE_RULES {
+                            if current_tag == *element && closes_on.contains(&tag_name.as_str()) {
+                                // Auto-close the current element
+                                current_hierarchy.pop();
+                                break;
+                            }
+                        }
+                    }
+                }
+                
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
+                    
                     current_parent.children.push(XmlNode {
-                        node_type: local.to_string().into(),
+                        node_type: tag_name.into(),
                         attributes: StringPairVec::new(),
                         children: Vec::new().into(),
                         text: None.into(),
                     });
-                    current_hierarchy.push(children_len);
+                    
+                    // Only push to hierarchy if not a void element
+                    // Void elements auto-close and don't expect children
+                    if !is_void_element {
+                        current_hierarchy.push(children_len);
+                        last_was_void = false;
+                    } else {
+                        last_was_void = true;
+                    }
                 }
             }
             ElementEnd { end: Empty, .. } => {
-                current_hierarchy.pop();
+                // Don't pop hierarchy for void elements
+                if !last_was_void {
+                    current_hierarchy.pop();
+                }
+                last_was_void = false;
             }
             ElementEnd {
                 end: Close(_, close_value),
                 ..
             } => {
-                let i = get_item(&current_hierarchy, &mut root_node);
-                if let Some(last) = i {
-                    if last.node_type.as_str() != close_value.as_str() {
-                        return Err(XmlError::MalformedHierarchy(
-                            close_value.to_string().into(),
-                            last.node_type.clone(),
-                        ));
+                // HTML5-lite: Check if this is a void element - if so, ignore the closing tag
+                let is_void_element = VOID_ELEMENTS.contains(&close_value.as_str());
+                if is_void_element {
+                    // Void elements shouldn't have closing tags, but tolerate them
+                    last_was_void = false;
+                    continue;
+                }
+                
+                // HTML5-lite: Auto-close any elements that should be closed
+                // Walk up the hierarchy and auto-close elements until we find a match
+                let mut found_match = false;
+                let close_value_str = close_value.as_str();
+                
+                // Check if the closing tag matches any element in the current hierarchy
+                for i in (0..current_hierarchy.len()).rev() {
+                    if let Some(node) = get_item(&current_hierarchy[..=i], &mut root_node) {
+                        if node.node_type.as_str() == close_value_str {
+                            found_match = true;
+                            // Auto-close all elements from current position to the matching element
+                            let elements_to_close = current_hierarchy.len() - i;
+                            for _ in 0..elements_to_close {
+                                current_hierarchy.pop();
+                            }
+                            break;
+                        }
                     }
                 }
-                current_hierarchy.pop();
+                
+                if !found_match {
+                    // HTML5-lite: If no match found, this might be an optional closing tag
+                    // Just ignore it instead of erroring (lenient parsing)
+                    // In strict XML mode, we would return an error here
+                }
+                
+                last_was_void = false;
             }
             Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
