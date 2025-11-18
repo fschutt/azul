@@ -905,7 +905,7 @@ where
             width: paint_rect.size.width,
             height: paint_rect.size.height,
         };
-        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
 
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
@@ -986,7 +986,7 @@ where
             width: paint_rect.size.width,
             height: paint_rect.size.height,
         };
-        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
 
         let needs_clip = overflow_x.is_hidden_or_clip()
             || overflow_y.is_hidden_or_clip()
@@ -1116,7 +1116,7 @@ where
                 height: paint_rect.size.height,
             };
             let simple_border_radius =
-                get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
+                get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
@@ -1185,7 +1185,7 @@ where
                 width: table_paint_rect.size.width,
                 height: table_paint_rect.size.height,
             };
-            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
+            let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
             
             builder.push_rect(table_paint_rect, bg_color, border_radius);
         }
@@ -1287,7 +1287,7 @@ where
                     width: paint_rect.size.width,
                     height: paint_rect.size.height,
                 };
-                let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size);
+                let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
                 
                 // Only paint if background color has alpha > 0 (optimization)
                 if bg_color.a > 0 {

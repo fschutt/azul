@@ -5,6 +5,7 @@
 
 use azul_core::{
     dom::NodeId,
+    geom::LogicalSize,
     styled_dom::{StyledDom, StyledNodeState},
 };
 use azul_css::props::{
@@ -99,7 +100,7 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                dpi_scale: 1.0,
+                viewport_size: PhysicalSize::new(0.0, 0.0), // Not used for font-size resolution
             };
             
             v.inner.resolve_with_context(&context, PropertyContext::FontSize)
@@ -628,6 +629,7 @@ pub fn get_border_radius(
     node_id: NodeId,
     node_state: &StyledNodeState,
     element_size: PhysicalSizeImport,
+    viewport_size: LogicalSize,
 ) -> BorderRadius {
     use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
     
@@ -657,7 +659,7 @@ pub fn get_border_radius(
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-radius
         element_size: Some(PhysicalSize::new(element_size.width, element_size.height)),
-        dpi_scale: 1.0, // TODO: Pass DPI from FullWindowState through layout_document()
+        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
     };
 
     let top_left = styled_dom
@@ -989,7 +991,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0, // TODO: Pass DPI from FullWindowState through layout_document()
+        viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Pass viewport from LayoutContext
     };
 
     let font_size = cache

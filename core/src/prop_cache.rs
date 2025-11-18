@@ -3669,6 +3669,7 @@ impl CssPropertyCache {
             SizeMetric::Em => return None, // Reference can't be relative
             SizeMetric::Rem => return None, // Reference can't be relative
             SizeMetric::Percent => return None, // Reference can't be relative
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, // Reference can't be viewport-relative
         };
         
         // Resolve target based on reference
@@ -3681,6 +3682,7 @@ impl CssPropertyCache {
             SizeMetric::Em => target_pixel_value.number.get() * reference_px,
             SizeMetric::Rem => target_pixel_value.number.get() * reference_px, // Use reference as root font-size
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, // Need viewport context
         };
         
         // Create a new property with the resolved value
@@ -3844,6 +3846,12 @@ impl CssPropertyCache {
             SizeMetric::Mm => {
                 // 1mm = 3.7795275591px
                 Some(CssDependencyChain::absolute(prop_type, number * 3.7795275591))
+            }
+            // Viewport units: Cannot be resolved via dependency chain, need viewport context
+            // These should be resolved at layout time using ResolutionContext
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => {
+                // For now, treat as unresolvable (need viewport size at layout time)
+                None
             }
         }
     }

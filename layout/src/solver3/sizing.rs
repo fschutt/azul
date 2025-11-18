@@ -737,6 +737,7 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
                 SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
                 SizeMetric::Percent => None,
+                SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
             
             match pixels_opt {
@@ -789,6 +790,7 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
                 SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
                 SizeMetric::Percent => None,
+                SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
             
             match pixels_opt {

@@ -813,7 +813,7 @@ fn create_resolution_context(
         root_font_size,
         containing_block_size: containing_block_size.unwrap_or(PhysicalSize::new(0.0, 0.0)),
         element_size: None, // Not yet laid out
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     }
 }
 

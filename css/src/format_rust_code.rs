@@ -300,6 +300,22 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
             "PixelValue::const_from_metric_fractional(SizeMetric::Mm, {}, {})",
             pre_comma, post_comma
         ),
+        SizeMetric::Vw => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::Vw, {}, {})",
+            pre_comma, post_comma
+        ),
+        SizeMetric::Vh => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::Vh, {}, {})",
+            pre_comma, post_comma
+        ),
+        SizeMetric::Vmin => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::Vmin, {}, {})",
+            pre_comma, post_comma
+        ),
+        SizeMetric::Vmax => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::Vmax, {}, {})",
+            pre_comma, post_comma
+        ),
     }
 }
 

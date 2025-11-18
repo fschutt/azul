@@ -198,8 +198,9 @@ pub struct ResolutionContext {
     /// May be None during first layout pass before size is determined
     pub element_size: Option<PhysicalSize>,
     
-    /// DPI scaling factor (typically 1.0, but higher on HiDPI displays)
-    pub dpi_scale: f32,
+    /// The viewport size in CSS pixels (for vw, vh, vmin, vmax units)
+    /// This is the layout viewport size, not physical screen size
+    pub viewport_size: PhysicalSize,
 }
 
 impl Default for ResolutionContext {
@@ -210,7 +211,7 @@ impl Default for ResolutionContext {
             root_font_size: 16.0,
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize::new(0.0, 0.0),
         }
     }
 }
@@ -225,7 +226,7 @@ impl ResolutionContext {
             root_font_size: 16.0,
             containing_block_size: PhysicalSize { width: 0.0, height: 0.0 },
             element_size: None,
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize { width: 0.0, height: 0.0 },
         }
     }
     
@@ -238,7 +239,7 @@ impl ResolutionContext {
             root_font_size,
             containing_block_size: PhysicalSize { width: 0.0, height: 0.0 },
             element_size: None,
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize { width: 0.0, height: 0.0 },
         }
     }
     
@@ -253,6 +254,13 @@ impl ResolutionContext {
     #[inline]
     pub const fn with_element_size(mut self, element_size: PhysicalSize) -> Self {
         self.element_size = Some(element_size);
+        self
+    }
+    
+    /// Create a context with viewport size information (for vw, vh, vmin, vmax units)
+    #[inline]
+    pub const fn with_viewport_size(mut self, viewport_size: PhysicalSize) -> Self {
+        self.viewport_size = viewport_size;
         self
     }
 }
@@ -526,6 +534,9 @@ impl PixelValue {
             SizeMetric::Percent => {
                 NormalizedPercentage::from_unnormalized(self.number.get()).resolve(percent_resolve)
             }
+            // Viewport units: Cannot resolve without viewport context, return 0
+            // These should use resolve_with_context() instead
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => 0.0,
         }
     }
     
@@ -584,6 +595,25 @@ impl PixelValue {
             // Rem units - ALWAYS refer to root font-size (CSS Values 3)
             SizeMetric::Rem => {
                 self.number.get() * context.root_font_size
+            }
+            
+            // Viewport units - refer to viewport dimensions (CSS Values 3 §6.2)
+            // 1vw = 1% of viewport width, 1vh = 1% of viewport height
+            SizeMetric::Vw => {
+                self.number.get() * context.viewport_size.width / 100.0
+            }
+            SizeMetric::Vh => {
+                self.number.get() * context.viewport_size.height / 100.0
+            }
+            // vmin = smaller of vw or vh
+            SizeMetric::Vmin => {
+                let min_dimension = context.viewport_size.width.min(context.viewport_size.height);
+                self.number.get() * min_dimension / 100.0
+            }
+            // vmax = larger of vw or vh
+            SizeMetric::Vmax => {
+                let max_dimension = context.viewport_size.width.max(context.viewport_size.height);
+                self.number.get() * max_dimension / 100.0
             }
             
             // Percent units - reference depends on property type
@@ -813,6 +843,10 @@ pub fn parse_pixel_value<'a>(input: &'a str) -> Result<PixelValue, CssPixelValue
             ("in", SizeMetric::In),
             ("mm", SizeMetric::Mm),
             ("cm", SizeMetric::Cm),
+            ("vmax", SizeMetric::Vmax), // Must be before "vw" to match correctly
+            ("vmin", SizeMetric::Vmin), // Must be before "vw" to match correctly
+            ("vw", SizeMetric::Vw),
+            ("vh", SizeMetric::Vh),
             ("%", SizeMetric::Percent),
         ],
     )
@@ -832,6 +866,10 @@ pub fn parse_pixel_value_no_percent<'a>(
                 ("in", SizeMetric::In),
                 ("mm", SizeMetric::Mm),
                 ("cm", SizeMetric::Cm),
+                ("vmax", SizeMetric::Vmax), // Must be before "vw" to match correctly
+                ("vmin", SizeMetric::Vmin), // Must be before "vw" to match correctly
+                ("vw", SizeMetric::Vw),
+                ("vh", SizeMetric::Vh),
             ],
         )?,
     })

@@ -171,7 +171,7 @@ fn test_bug3_font_size_dependency_chain_inheritance() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let h1_font_size = PixelValue::em(2.0);
@@ -186,7 +186,7 @@ fn test_bug3_font_size_dependency_chain_inheritance() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     // Child has no font-size specified, uses inherited computed value
@@ -219,7 +219,7 @@ fn test_bug3_font_size_computed_value_inheritance() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     let parent_computed = parent_specified.resolve_with_context(&parent_context, PropertyContext::FontSize);
     assert_eq!(parent_computed, 32.0);
@@ -234,7 +234,7 @@ fn test_bug3_font_size_computed_value_inheritance() {
             root_font_size: 16.0,
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize::new(0.0, 0.0),
         },
         PropertyContext::FontSize
     );
@@ -265,7 +265,7 @@ fn test_all_bugs_combined_h1_32px_not_64px() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let h1_font_size = PixelValue::em(2.0);
@@ -281,7 +281,7 @@ fn test_all_bugs_combined_h1_32px_not_64px() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let buggy_resolved = h1_font_size.resolve_with_context(&buggy_context, PropertyContext::FontSize);
@@ -303,7 +303,7 @@ fn test_h1_margin_uses_own_font_size() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     // H1 margin: 0.67em

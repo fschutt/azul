@@ -180,6 +180,14 @@ pub enum SizeMetric {
     Cm,
     Mm,
     Percent,
+    /// Viewport width: 1vw = 1% of viewport width
+    Vw,
+    /// Viewport height: 1vh = 1% of viewport height
+    Vh,
+    /// Viewport minimum: 1vmin = 1% of smaller viewport dimension
+    Vmin,
+    /// Viewport maximum: 1vmax = 1% of larger viewport dimension
+    Vmax,
 }
 
 impl Default for SizeMetric {
@@ -200,6 +208,10 @@ impl fmt::Display for SizeMetric {
             Cm => write!(f, "cm"),
             Mm => write!(f, "mm"),
             Percent => write!(f, "%"),
+            Vw => write!(f, "vw"),
+            Vh => write!(f, "vh"),
+            Vmin => write!(f, "vmin"),
+            Vmax => write!(f, "vmax"),
         }
     }
 }

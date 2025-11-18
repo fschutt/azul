@@ -1033,7 +1033,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 root_font_size: get_root_font_size(styled_dom, node_state),
                 containing_block_size: PhysicalSize::new(constraints.available_size.width, 0.0),
                 element_size: None,
-                dpi_scale: 1.0,
+                viewport_size: PhysicalSize::new(0.0, 0.0),
             };
             ti.inner.resolve_with_context(&context, PropertyContext::Other)
         })
@@ -1067,7 +1067,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 root_font_size: get_root_font_size(styled_dom, node_state),
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                dpi_scale: 1.0,
+                viewport_size: PhysicalSize::new(0.0, 0.0),
             };
             cg.inner.resolve_with_context(&context, PropertyContext::Other)
         })
@@ -1437,7 +1437,7 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             root_font_size,
             containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-width
             element_size: None, // Not used for border-width
-            dpi_scale: 1.0,
+            viewport_size: PhysicalSize::new(0.0, 0.0),
         };
         
         // Top border
@@ -1820,7 +1820,7 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             root_font_size: get_root_font_size(styled_dom, table_state),
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            dpi_scale: 1.0, // TODO: Get actual DPI scale from ctx
+            viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Get actual DPI scale from ctx
         };
         
         let h_spacing = table_ctx.border_spacing.horizontal.resolve_with_context(&spacing_context, PropertyContext::Other);
@@ -2718,7 +2718,7 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             root_font_size: get_root_font_size(styled_dom, table_state),
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            dpi_scale: 1.0, // TODO: Get actual DPI scale from ctx
+            viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Get actual DPI scale from ctx
         };
         
         let h = table_ctx.border_spacing.horizontal.resolve_with_context(&spacing_context, PropertyContext::Other);

@@ -26,6 +26,8 @@ fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
         // For em/rem, use DEFAULT_FONT_SIZE as fallback (not ideal but needed without context)
         SizeMetric::Em | SizeMetric::Rem => Some(pv.number.get() * DEFAULT_FONT_SIZE),
         SizeMetric::Percent => None, // Cannot resolve without containing block
+        // Viewport units: Cannot resolve without viewport context
+        SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
     }
 }
 
@@ -80,6 +82,8 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             // For em/rem, use DEFAULT_FONT_SIZE as fallback
             SizeMetric::Em | SizeMetric::Rem => pv.number.get() * DEFAULT_FONT_SIZE,
             SizeMetric::Percent => 0.0, // Not supported in grid tracks
+            // Viewport units: Cannot resolve without viewport context, default to 0
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => 0.0,
         }
     };
     

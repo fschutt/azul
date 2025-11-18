@@ -98,7 +98,7 @@ fn resolve_position_offsets(
         root_font_size,
         containing_block_size,
         element_size: None, // Not needed for position offsets
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let mut offsets = PositionOffsets::default();

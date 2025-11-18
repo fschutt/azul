@@ -27,7 +27,7 @@ fn test_h1_p_margin_collapse_calculation() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let h1_margin = PixelValue::em(0.67);
@@ -40,7 +40,7 @@ fn test_h1_p_margin_collapse_calculation() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let p_margin = PixelValue::em(1.0);
@@ -71,7 +71,7 @@ fn test_margin_em_uses_element_font_size() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let margin = PixelValue::em(0.67);
@@ -105,7 +105,7 @@ fn test_comparison_old_vs_new_behavior() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let margin = PixelValue::em(margin_factor);

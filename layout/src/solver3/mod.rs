@@ -65,6 +65,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut BTreeMap<(usize, String), i32>,
+    pub viewport_size: LogicalSize,
 }
 
 impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
@@ -156,6 +157,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         selections,
         debug_messages,
         counters: &mut counter_values,
+        viewport_size: viewport.size,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -181,6 +183,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         selections,
         debug_messages,
         counters: &mut counter_values,
+        viewport_size: viewport.size,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

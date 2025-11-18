@@ -24,7 +24,7 @@ fn test_h1_margin_em_resolution_direct() {
         root_font_size: 16.0,     // Root font-size
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     // Test margin resolution (em refers to element's own font-size)
@@ -67,7 +67,7 @@ fn test_rem_unit_resolution() {
         root_font_size: 18.0,     // Root font-size (custom)
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     // Rem always uses root font-size
@@ -109,7 +109,7 @@ fn test_percent_margin_resolution() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let margin_top = PixelValue::percent(10.0); // 10%
@@ -143,7 +143,7 @@ fn test_nested_em_calculation() {
         root_font_size: html_font_size,
         containing_block_size: PhysicalSize::new(800.0, 600.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let margin = PixelValue::em(0.5);
@@ -181,7 +181,7 @@ fn test_comparison_old_vs_new() {
         root_font_size: 16.0,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
         element_size: None,
-        dpi_scale: 1.0,
+        viewport_size: PhysicalSize::new(0.0, 0.0),
     };
     
     let margin = PixelValue::em(margin_factor);
