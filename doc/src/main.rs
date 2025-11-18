@@ -29,11 +29,11 @@ fn main() -> anyhow::Result<()> {
     let args = args.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
 
     match &args[1..] {
-        ["print"] => {
+        ["print"] | ["print", ..] => {
             let api_json = load_api_json(&api_path)?;
             return print::handle_print_command(&api_json, &args[2..]);
         }
-        [_, "normalize"] => {
+        ["normalize"] => {
             println!("🔄 Normalizing api.json...\n");
             let api_data = load_api_json(&api_path)?;
             let api_json = serde_json::to_string_pretty(&api_data)?;
@@ -41,13 +41,13 @@ fn main() -> anyhow::Result<()> {
             println!("💾 Saved normalized api.json\n");
             return Ok(());
         }
-        [_, "autofix"] => {
+        ["autofix"] => {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
             autofix::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
             return Ok(());
         }
-        [_, "autofix", "explain"] => {
+        ["autofix", "explain"] => {
             let patches_dir = project_root.join("target").join("autofix").join("patches");
 
             if !patches_dir.exists() {
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
             patch::explain_patches(&patches_dir)?;
             return Ok(());
         }
-        [_, "patch", "safe", patch_dir] => {
+        ["patch", "safe", patch_dir] => {
             println!("🔧 Applying safe (path-only) patches to api.json...\n");
 
             // Load API data (need mutable copy for patching)
@@ -113,7 +113,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        [_, "patch", patch_file] => {
+        ["patch", patch_file] => {
             println!("🔧 Applying patches to api.json...\n");
 
             // Load API data (need mutable copy for patching)
@@ -200,7 +200,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        [_, "memtest", "run"] => {
+        ["memtest", "run"] => {
             let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
@@ -224,14 +224,14 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        [_, "memtest"] => {
+        ["memtest"] => {
             let api_data = load_api_json(&api_path)?;
             println!("🧪 Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
-        [_, "reftest", "headless", test_name] => {
+        ["reftest", "headless", test_name] => {
             println!("Running headless reftest for: {}", test_name);
 
             let output_dir = PathBuf::from("target").join("reftest_headless");
@@ -248,7 +248,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        [_, "reftest"] => {
+        ["reftest"] => {
             println!("Running local reftests...");
 
             let output_dir = PathBuf::from("target").join("reftest");
@@ -277,7 +277,113 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        [_, "deploy"] => {
+        ["codegen"] | ["codegen", "rust"] => {
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data.0.keys().next().expect("No version in api.json");
+            
+            println!("🔧 Generating Rust library code...\n");
+            
+            // Generate dll/lib.rs
+            let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
+            let dll_path = project_root.join("dll").join("lib.rs");
+            fs::write(&dll_path, dll_code)?;
+            println!("✅ Generated: {}", dll_path.display());
+            
+            // Generate azul-rs/azul.rs
+            let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
+            let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
+            fs::create_dir_all(rust_api_path.parent().unwrap())?;
+            fs::write(&rust_api_path, rust_api_code)?;
+            println!("✅ Generated: {}", rust_api_path.display());
+            
+            println!("\n✨ Rust code generation complete!");
+            return Ok(());
+        }
+        ["codegen", "c"] => {
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data.0.keys().next().expect("No version in api.json");
+            
+            println!("🔧 Generating C header file...\n");
+            
+            let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
+            let c_api_path = project_root.join("target").join("codegen").join("azul.h");
+            fs::create_dir_all(c_api_path.parent().unwrap())?;
+            fs::write(&c_api_path, c_api_code)?;
+            println!("✅ Generated: {}", c_api_path.display());
+            
+            println!("\n✨ C header generation complete!");
+            return Ok(());
+        }
+        ["codegen", "cpp"] => {
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data.0.keys().next().expect("No version in api.json");
+            
+            println!("🔧 Generating C++ header file...\n");
+            
+            let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+            let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
+            fs::create_dir_all(cpp_api_path.parent().unwrap())?;
+            fs::write(&cpp_api_path, cpp_api_code)?;
+            println!("✅ Generated: {}", cpp_api_path.display());
+            
+            println!("\n✨ C++ header generation complete!");
+            return Ok(());
+        }
+        ["codegen", "python"] => {
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data.0.keys().next().expect("No version in api.json");
+            
+            println!("🔧 Generating Python bindings...\n");
+            
+            let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
+            let python_api_path = project_root.join("dll").join("python.rs");
+            fs::write(&python_api_path, python_api_code)?;
+            println!("✅ Generated: {}", python_api_path.display());
+            
+            println!("\n✨ Python bindings generation complete!");
+            return Ok(());
+        }
+        ["codegen", "all"] => {
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data.0.keys().next().expect("No version in api.json");
+            
+            println!("🔧 Generating all language bindings...\n");
+            
+            // Generate dll/lib.rs
+            let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
+            let dll_path = project_root.join("dll").join("lib.rs");
+            fs::write(&dll_path, dll_code)?;
+            println!("✅ Generated: {}", dll_path.display());
+            
+            // Generate azul-rs/azul.rs
+            let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
+            let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
+            fs::create_dir_all(rust_api_path.parent().unwrap())?;
+            fs::write(&rust_api_path, rust_api_code)?;
+            println!("✅ Generated: {}", rust_api_path.display());
+            
+            // Generate C header
+            let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
+            let c_api_path = project_root.join("target").join("codegen").join("azul.h");
+            fs::write(&c_api_path, c_api_code)?;
+            println!("✅ Generated: {}", c_api_path.display());
+            
+            // Generate C++ header
+            let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+            let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
+            fs::write(&cpp_api_path, cpp_api_code)?;
+            println!("✅ Generated: {}", cpp_api_path.display());
+            
+            // Generate Python bindings
+            let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
+            let python_api_path = project_root.join("dll").join("python.rs");
+            fs::write(&python_api_path, python_api_code)?;
+            println!("✅ Generated: {}", python_api_path.display());
+            
+            println!("\n✨ All language bindings generated successfully!");
+            return Ok(());
+        }
+        ["deploy"] => {
             println!("Starting Azul Build and Deploy System...");
             let api_data = load_api_json(&api_path)?;
             let config = Config::from_args();
@@ -320,14 +426,15 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
 fn print_cli_help() -> anyhow::Result<()> {
     println!("Azul Documentation and Deployment Tool");
     println!("Usage:");
-    println!("  doc print [options]        - Print API information");
-    println!("  doc normalize              - Normalize api.json");
-    println!("  doc autofix                - Apply automatic fixes to API definitions");
-    println!("  doc autofix explain        - Explain what generated patches will do");
-    println!("  doc patch safe <dir>       - Apply and delete safe (path-only) patches");
-    println!("  doc patch <patch_file>     - Apply patches to api.json");
-    println!("  doc memtest [run]          - Generate and optionally run memory layout tests");
-    println!("  doc reftest [open]         - Run reftests and optionally open report");
-    println!("  doc deploy                 - Build and deploy the Azul library");
+    println!("  azul-doc print [options]        - Print API information");
+    println!("  azul-doc normalize              - Normalize api.json");
+    println!("  azul-doc autofix                - Apply automatic fixes to API definitions");
+    println!("  azul-doc autofix explain        - Explain what generated patches will do");
+    println!("  azul-doc patch safe <dir>       - Apply and delete safe (path-only) patches");
+    println!("  azul-doc patch <patch_file>     - Apply patches to api.json");
+    println!("  azul-doc memtest [run]          - Generate and optionally run memory layout tests");
+    println!("  azul-doc reftest [open]         - Run reftests and optionally open report");
+    println!("  azul-doc codegen [rust|c|cpp|python|all] - Generate language bindings");
+    println!("  azul-doc deploy                 - Build and deploy the Azul library");
     Ok(())
 }
