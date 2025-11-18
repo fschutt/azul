@@ -1490,11 +1490,17 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     ctx.debug_table_layout("After column width calculation:");
     ctx.debug_table_layout(format!("  Number of columns: {}", table_ctx.columns.len()));
+    eprintln!("========== COLUMN WIDTH DEBUG ==========");
+    eprintln!("Number of columns: {}", table_ctx.columns.len());
     for (i, col) in table_ctx.columns.iter().enumerate() {
         ctx.debug_table_layout(format!("  Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0)));
+        eprintln!("  Column {}: width={:.2}", i, col.computed_width.unwrap_or(0.0));
     }
     let total_col_width: f32 = table_ctx.columns.iter().filter_map(|c| c.computed_width).sum();
     ctx.debug_table_layout(format!("  Total column width: {:.2}", total_col_width));
+    eprintln!("  Total column width: {:.2}", total_col_width);
+    eprintln!("  Table content-box width: {:.2}", table_content_box_width);
+    eprintln!("=======================================");
     
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
@@ -2013,12 +2019,40 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait, Q: FontLoaderTrai
             }
         }
     } else if available_width >= total_max_width {
-        // Case 1: Plenty of space - use max widths
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
+        // Case 1: More space than max-content - distribute excess proportionally
+        // CSS 2.1 Section 17.5.2.2: Distribute extra space proportionally to max-content widths
+        let excess_width = available_width - total_max_width;
+        
+        // First pass: collect column info (max_width) to avoid borrowing issues
+        let column_info: Vec<(usize, f32, bool)> = table_ctx.columns.iter()
+            .enumerate()
+            .map(|(idx, c)| (idx, c.max_width, table_ctx.collapsed_columns.contains(&idx)))
+            .collect();
+        
+        // Calculate total weight for proportional distribution (use max_width as weight)
+        let total_weight: f32 = column_info.iter()
+            .filter(|(_, _, is_collapsed)| !is_collapsed)
+            .map(|(_, max_w, _)| max_w.max(1.0)) // Avoid division by zero
+            .sum();
+        
+        let num_non_collapsed = column_info.iter().filter(|(_, _, is_collapsed)| !is_collapsed).count();
+        
+        // Second pass: set computed widths
+        for (col_idx, max_width, is_collapsed) in column_info {
+            let col = &mut table_ctx.columns[col_idx];
+            if is_collapsed {
                 col.computed_width = Some(0.0);
             } else {
-                col.computed_width = Some(col.max_width);
+                // Start with max-content width, then add proportional share of excess
+                let weight_factor = if total_weight > 0.0 {
+                    max_width.max(1.0) / total_weight
+                } else {
+                    // If all columns have 0 max_width, distribute equally
+                    1.0 / num_non_collapsed.max(1) as f32
+                };
+                
+                let final_width = max_width + (excess_width * weight_factor);
+                col.computed_width = Some(final_width);
             }
         }
     } else if available_width >= total_min_width {
