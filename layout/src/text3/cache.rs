@@ -1844,6 +1844,12 @@ pub enum Direction {
     Rtl,
 }
 
+impl Direction {
+    pub fn is_rtl(&self) -> bool {
+        matches!(self, Direction::Rtl)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum FontVariantCaps {
     #[default]

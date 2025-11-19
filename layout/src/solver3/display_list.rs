@@ -191,14 +191,6 @@ pub enum DisplayListItem {
         styles: StyleBorderStyles,
         border_radius: StyleBorderRadius,
     },
-    /// Text rendered with individual glyph positioning (for simple renderers)
-    Text {
-        glyphs: Vec<GlyphInstance>,
-        font_hash: FontHash, // Changed from FontRef - just store the hash
-        font_size_px: f32,
-        color: ColorU,
-        clip_rect: LogicalRect,
-    },
     /// Text layout with full metadata (for PDF, accessibility, etc.)
     /// This is pushed BEFORE the individual Text items and contains
     /// the original text, glyph-to-unicode mapping, and positioning info
@@ -208,6 +200,14 @@ pub enum DisplayListItem {
         font_hash: FontHash,
         font_size_px: f32,
         color: ColorU,
+    },
+    /// Text rendered with individual glyph positioning (for simple renderers)
+    Text {
+        glyphs: Vec<GlyphInstance>,
+        font_hash: FontHash, // Changed from FontRef - just store the hash
+        font_size_px: f32,
+        color: ColorU,
+        clip_rect: LogicalRect,
     },
     /// Underline decoration for text (CSS text-decoration: underline)
     Underline {

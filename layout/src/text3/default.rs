@@ -40,8 +40,9 @@ pub fn font_ref_from_bytes(
     parse_outlines: bool,
 ) -> Option<FontRef> {
     // Parse the font bytes into ParsedFont
-    let parsed_font = ParsedFont::from_bytes(font_bytes, font_index, parse_outlines)?;
-
+    let mut warnings = Vec::new();
+    let parsed_font = ParsedFont::from_bytes(font_bytes, font_index, &mut warnings)?;
+    // TODO: Log warnings if needed
     Some(crate::parsed_font_to_font_ref(parsed_font))
 }
 
@@ -90,7 +91,7 @@ impl FontLoaderTrait<FontRef> for PathLoader {
         );
 
         // Parse the font bytes and wrap in FontRef
-        // NOTE: parse_outlines=true is required for rendering (WebRender needs glyph outlines)
+        // NOTE: Outlines are always parsed (parse_outlines = true)
         font_ref_from_bytes(font_bytes, font_index, true).ok_or_else(|| {
             LayoutError::ShapingError("Failed to parse font with allsorts".to_string())
         })
@@ -258,10 +259,7 @@ impl ParsedFont {
 
         // 3d. Apply GPOS positioning.
         if let Some(gpos) = self.gpos_cache.as_ref() {
-            let kern_table = self
-                .opt_kern_table
-                .as_ref()
-                .map(|kt| allsorts::tables::kern::KernTable::from_owned(&**kt));
+            let kern_table = self.opt_kern_table.as_ref().map(|kt| kt.as_borrowed());
             let apply_kerning = kern_table.is_some();
             // The modern `gpos::apply` takes a GlyphDirection enum and an iterator of features.
             gpos::apply(
@@ -699,8 +697,151 @@ fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
-impl Direction {
-    fn is_rtl(&self) -> bool {
-        matches!(self, Direction::Rtl)
+/// Public helper function to shape text for ParsedFont, returning Glyph<ParsedFont>
+/// This is used by the ParsedFontTrait implementation for ParsedFont
+pub fn shape_text_for_parsed_font(
+    parsed_font: &ParsedFont,
+    text: &str,
+    script: Script,
+    language: hyphenation::Language,
+    direction: Direction,
+    style: &StyleProperties,
+) -> Result<Vec<Glyph<ParsedFont>>, LayoutError> {
+    // Use the same shaping logic as shape_text_for_font_ref, but return ParsedFont instead
+    let script_tag = to_opentype_script_tag(script);
+    let lang_tag = to_opentype_lang_tag(language);
+
+    let mut user_features: Vec<FeatureInfo> = style
+        .font_features
+        .iter()
+        .filter_map(|s| parse_font_feature(s))
+        .map(|(tag, value)| FeatureInfo {
+            feature_tag: tag,
+            alternate: if value > 1 {
+                Some(value as usize)
+            } else {
+                None
+            },
+        })
+        .collect();
+    add_variant_features(style, &mut user_features);
+
+    let opt_gdef = parsed_font.opt_gdef_table.as_ref().map(|v| &**v);
+
+    let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = text
+        .char_indices()
+        .filter_map(|(cluster, ch)| {
+            let glyph_index = parsed_font.lookup_glyph_index(ch as u32).unwrap_or(0);
+            if cluster > u16::MAX as usize {
+                None
+            } else {
+                Some(allsorts::gsub::RawGlyph {
+                    unicodes: tinyvec::tiny_vec![[char; 1] => ch],
+                    glyph_index,
+                    liga_component_pos: cluster as u16,
+                    glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
+                    flags: allsorts::gsub::RawGlyphFlags::empty(),
+                    extra_data: (),
+                    variation: None,
+                })
+            }
+        })
+        .collect();
+
+    if let Some(gsub) = parsed_font.gsub_cache.as_ref() {
+        let features = if user_features.is_empty() {
+            Features::Mask(build_feature_mask_for_script(script))
+        } else {
+            Features::Custom(user_features.clone())
+        };
+
+        let dotted_circle_index = parsed_font
+            .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
+            .unwrap_or(0);
+        gsub::apply(
+            dotted_circle_index,
+            gsub,
+            opt_gdef,
+            script_tag,
+            Some(lang_tag),
+            &features,
+            None,
+            parsed_font.num_glyphs(),
+            &mut raw_glyphs,
+        )
+        .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
     }
+
+    let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
+
+    if let Some(gpos) = parsed_font.gpos_cache.as_ref() {
+        let kern_table = parsed_font.opt_kern_table.as_ref().map(|kt| kt.as_borrowed());
+        let apply_kerning = kern_table.is_some();
+        gpos::apply(
+            gpos,
+            opt_gdef,
+            kern_table,
+            apply_kerning,
+            &Features::Custom(user_features),
+            None,
+            script_tag,
+            Some(lang_tag),
+            &mut infos,
+        )
+        .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
+    }
+
+    let font_size = style.font_size_px;
+    let scale_factor = if parsed_font.font_metrics.units_per_em > 0 {
+        font_size / (parsed_font.font_metrics.units_per_em as f32)
+    } else {
+        0.01
+    };
+
+    let mut shaped_glyphs = Vec::new();
+    for info in infos.iter() {
+        let cluster = info.glyph.liga_component_pos as u32;
+        let source_char = text
+            .get(cluster as usize..)
+            .and_then(|s| s.chars().next())
+            .unwrap_or('\u{FFFD}');
+
+        let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
+        let advance = (base_advance as i32 + info.kerning as i32) as f32 * scale_factor;
+
+        let (offset_x_units, offset_y_units) =
+            if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
+                (x, y)
+            } else {
+                (0, 0)
+            };
+        let offset_x = offset_x_units as f32 * scale_factor;
+        let offset_y = offset_y_units as f32 * scale_factor;
+
+        let glyph = Glyph {
+            glyph_id: info.glyph.glyph_index,
+            codepoint: source_char,
+            font: parsed_font.shallow_clone(), // Use ParsedFont directly
+            style: Arc::new(style.clone()),
+            source: GlyphSource::Char,
+            logical_byte_index: cluster as usize,
+            logical_byte_len: source_char.len_utf8(),
+            content_index: 0,
+            cluster,
+            advance,
+            offset: Point {
+                x: offset_x,
+                y: offset_y,
+            },
+            vertical_advance: 0.0,
+            vertical_origin_y: 0.0,
+            vertical_bearing: Point { x: 0.0, y: 0.0 },
+            orientation: GlyphOrientation::Horizontal,
+            script,
+            bidi_level: BidiLevel::new(if direction.is_rtl() { 1 } else { 0 }),
+        };
+        shaped_glyphs.push(glyph);
+    }
+
+    Ok(shaped_glyphs)
 }

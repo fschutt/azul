@@ -21,7 +21,7 @@ use azul_core::resources::{
     GlyphOutline, GlyphOutlineOperation, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
     OutlineQuadTo, OwnedGlyphBoundingBox,
 };
-use azul_css::props::basic::FontMetrics;
+use azul_css::props::basic::FontMetrics as CssFontMetrics;
 use mock::MockFont;
 
 use crate::text3::cache::LayoutFontMetrics;
@@ -35,9 +35,12 @@ pub struct ParsedFont {
     pub hash: u64,
     /// Layout-specific font metrics (simplified from full FontMetrics)
     pub font_metrics: LayoutFontMetrics,
+    /// PDF-specific detailed font metrics
+    pub pdf_font_metrics: FontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
     pub hmtx_data: Vec<u8>,
+    pub vmtx_data: Vec<u8>,
     pub maxp_table: MaxpTable,
     pub gsub_cache: Option<GsubCache>,
     pub gpos_cache: Option<GposCache>,
@@ -47,10 +50,167 @@ pub struct ParsedFont {
     pub space_width: Option<usize>,
     pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub mock: Option<Box<MockFont>>,
+    /// Reverse mapping cache: glyph_id -> cluster text that produced this glyph
+    /// This handles ligatures (glyph 123 -> "fi") and complex scripts properly
+    pub reverse_glyph_cache: std::collections::BTreeMap<u16, String>,
     /// Original font bytes (needed to reconstruct font via allsorts)
     pub original_bytes: Vec<u8>,
     /// Original font index in the font file (for font collections)
     pub original_index: usize,
+    /// GID to CID mapping for CFF fonts (for PDF embedding)
+    pub index_to_cid: BTreeMap<u16, u16>,
+    /// Font type (TrueType or OpenType CFF) - for PDF font descriptor
+    pub font_type: FontType,
+    /// Font name from the NAME table
+    pub font_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FontType {
+    TrueType,
+    OpenTypeCFF(Vec<u8>), // Contains serialized CFF data
+}
+
+/// PDF-specific font metrics structure (simplified)
+/// Contains essential metrics from HEAD, HHEA, and OS/2 tables
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FontMetrics {
+    // head table
+    pub units_per_em: u16,
+    pub font_flags: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+
+    // hhea table
+    pub ascender: i16,
+    pub descender: i16,
+    pub line_gap: i16,
+    pub advance_width_max: u16,
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+
+    // os/2 table (optional fields - 0 if not present)
+    pub x_avg_char_width: i16,
+    pub us_weight_class: u16,
+    pub us_width_class: u16,
+    pub y_strikeout_size: i16,
+    pub y_strikeout_position: i16,
+}
+
+impl Default for FontMetrics {
+    fn default() -> Self {
+        FontMetrics::zero()
+    }
+}
+
+impl FontMetrics {
+    pub const fn zero() -> Self {
+        FontMetrics {
+            units_per_em: 1000,
+            font_flags: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            x_avg_char_width: 0,
+            us_weight_class: 0,
+            us_width_class: 0,
+            y_strikeout_size: 0,
+            y_strikeout_position: 0,
+        }
+    }
+}
+
+/// Result of font subsetting operation
+#[derive(Debug, Clone)]
+pub struct SubsetFont {
+    pub bytes: Vec<u8>,
+    /// Mapping (old glyph ID -> subset glyph ID + original char value)
+    pub glyph_mapping: BTreeMap<u16, (u16, char)>,
+}
+
+impl SubsetFont {
+    /// Return the changed text so that when rendering with the subset font (instead of the
+    /// original) the renderer will end up at the same glyph IDs as if we used the original text
+    /// on the original font
+    pub fn subset_text(&self, text: &str) -> String {
+        text.chars()
+            .filter_map(|c| {
+                self.glyph_mapping.values().find_map(|(ngid, ch)| {
+                    if *ch == c {
+                        char::from_u32(*ngid as u32)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
+    }
+}
+
+/// Trait for PDF font preparation
+pub trait PrepFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32>;
+    fn index_to_cid(&self, index: u16) -> Option<u16>;
+}
+
+impl PrepFont for ParsedFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32> {
+        self.lookup_glyph_index(codepoint).map(Into::into)
+    }
+
+    fn index_to_cid(&self, index: u16) -> Option<u16> {
+        self.index_to_cid.get(&index).copied()
+    }
+}
+
+impl PartialEq for ParsedFont {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Eq for ParsedFont {}
+
+// Serialize/Deserialize based on original_bytes
+impl serde::Serialize for ParsedFont {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ParsedFont", 2)?;
+        state.serialize_field("bytes", &self.original_bytes)?;
+        state.serialize_field("index", &self.original_index)?;
+        state.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ParsedFont {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct ParsedFontData {
+            bytes: Vec<u8>,
+            index: usize,
+        }
+
+        let data = ParsedFontData::deserialize(deserializer)?;
+        let mut warnings = Vec::new();
+        ParsedFont::from_bytes(&data.bytes, data.index, &mut warnings)
+            .ok_or_else(|| serde::de::Error::custom("Failed to parse font from bytes"))
+    }
 }
 
 impl fmt::Debug for ParsedFont {
@@ -79,18 +239,60 @@ impl fmt::Debug for ParsedFont {
 // #[cfg(feature = "text_layout")]
 // impl FontImpl for ParsedFont { ... }
 
+/// Warning message from font parsing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontParseWarning {
+    pub severity: FontParseWarningSeverity,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontParseWarningSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+impl FontParseWarning {
+    pub fn info(message: String) -> Self {
+        Self {
+            severity: FontParseWarningSeverity::Info,
+            message,
+        }
+    }
+    
+    pub fn warning(message: String) -> Self {
+        Self {
+            severity: FontParseWarningSeverity::Warning,
+            message,
+        }
+    }
+    
+    pub fn error(message: String) -> Self {
+        Self {
+            severity: FontParseWarningSeverity::Error,
+            message,
+        }
+    }
+}
+
 impl ParsedFont {
     /// Parse a font from bytes using allsorts
     ///
     /// # Arguments
     /// * `font_bytes` - The font file data
     /// * `font_index` - Index of the font in a font collection (0 for single fonts)
-    /// * `parse_outlines` - Whether to parse and cache glyph outlines (expensive, skip for
-    ///   layout-only)
+    /// * `warnings` - Optional vector to collect parsing warnings
     ///
     /// # Returns
     /// `Some(ParsedFont)` if parsing succeeds, `None` otherwise
-    pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_outlines: bool) -> Option<Self> {
+    ///
+    /// Note: Outlines are always parsed (parse_outlines = true)
+    pub fn from_bytes(
+        font_bytes: &[u8],
+        font_index: usize,
+        warnings: &mut Vec<FontParseWarning>,
+    ) -> Option<Self> {
         use std::{
             collections::hash_map::DefaultHasher,
             hash::{Hash, Hasher},
@@ -109,8 +311,34 @@ impl ParsedFont {
         };
 
         let scope = ReadScope::new(font_bytes);
-        let font_file = scope.read::<FontData<'_>>().ok()?;
-        let provider = font_file.table_provider(font_index).ok()?;
+        let font_file = match scope.read::<FontData<'_>>() {
+            Ok(ff) => {
+                warnings.push(FontParseWarning::info("Successfully read font data".to_string()));
+                ff
+            }
+            Err(e) => {
+                warnings.push(FontParseWarning::error(format!("Failed to read font data: {}", e)));
+                return None;
+            }
+        };
+        let provider = match font_file.table_provider(font_index) {
+            Ok(p) => {
+                warnings.push(FontParseWarning::info(format!("Successfully loaded font at index {}", font_index)));
+                p
+            }
+            Err(e) => {
+                warnings.push(FontParseWarning::error(format!("Failed to get table provider for font index {}: {}", font_index, e)));
+                return None;
+            }
+        };
+        
+        // Extract font name from NAME table early (before provider is moved)
+        let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
+            ReadScope::new(&name_data?)
+                .read::<allsorts::tables::NameTable>()
+                .ok()
+                .and_then(|name_table| name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME))
+        });
 
         let head_table = provider
             .table_data(tag::HEAD)
@@ -159,6 +387,12 @@ impl ParsedFont {
             .ok()
             .and_then(|s| Some(s?.to_vec()))
             .unwrap_or_default();
+        
+        let vmtx_data = provider
+            .table_data(tag::VMTX)
+            .ok()
+            .and_then(|s| Some(s?.to_vec()))
+            .unwrap_or_default();
 
         let hhea_table = provider
             .table_data(tag::HHEA)
@@ -177,9 +411,14 @@ impl ParsedFont {
             descent: hhea_table.descender as f32,
             line_gap: hhea_table.line_gap as f32,
         };
+        
+        // Build PDF-specific font metrics
+        let pdf_font_metrics = Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
 
-        // Parse glyph outlines and metrics (required for rendering and layout)
+        // Parse glyph outlines and metrics (always enabled for PDF generation)
+        let parse_outlines = true;
         let glyph_records_decoded = if parse_outlines {
+            warnings.push(FontParseWarning::info("Parsing glyph outlines and metrics".to_string()));
             // Full parsing: outlines + metrics
             glyf_table
                 .records_mut()
@@ -291,9 +530,11 @@ impl ParsedFont {
         let mut font = ParsedFont {
             hash,
             font_metrics,
+            pdf_font_metrics,
             num_glyphs,
             hhea_table,
             hmtx_data,
+            vmtx_data,
             maxp_table,
             gsub_cache,
             gpos_cache,
@@ -303,8 +544,12 @@ impl ParsedFont {
             glyph_records_decoded,
             space_width: None,
             mock: None,
+            reverse_glyph_cache: BTreeMap::new(),
             original_bytes: font_bytes.to_vec(),
             original_index: font_index,
+            index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
+            font_type: FontType::TrueType, // Default, will be updated if CFF
+            font_name,
         };
 
         // Calculate space width
@@ -312,6 +557,71 @@ impl ParsedFont {
         font.space_width = space_width;
 
         Some(font)
+    }
+    
+    /// Parse PDF-specific font metrics from HEAD, HHEA, and OS/2 tables
+    fn parse_pdf_font_metrics(
+        font_bytes: &[u8],
+        font_index: usize,
+        head_table: &allsorts::tables::HeadTable,
+        hhea_table: &allsorts::tables::HheaTable,
+    ) -> FontMetrics {
+        use allsorts::{binary::read::ReadScope, font_data::FontData, tables::{FontTableProvider, os2::Os2}, tag};
+        
+        let scope = ReadScope::new(font_bytes);
+        let font_file = scope.read::<FontData<'_>>().ok();
+        let provider = font_file
+            .as_ref()
+            .and_then(|ff| ff.table_provider(font_index).ok());
+        
+        let os2_table = provider
+            .as_ref()
+            .and_then(|p| p.table_data(tag::OS_2).ok())
+            .and_then(|os2_data| {
+                let data = os2_data?;
+                let scope = ReadScope::new(&data);
+                // Os2 requires the table length as dependency parameter
+                scope.read_dep::<Os2>(data.len()).ok()
+            });
+        
+        if let Some(os2) = os2_table {
+            FontMetrics {
+                units_per_em: head_table.units_per_em,
+                font_flags: head_table.flags,
+                x_min: head_table.x_min,
+                y_min: head_table.y_min,
+                x_max: head_table.x_max,
+                y_max: head_table.y_max,
+                ascender: hhea_table.ascender,
+                descender: hhea_table.descender,
+                line_gap: hhea_table.line_gap,
+                advance_width_max: hhea_table.advance_width_max,
+                caret_slope_rise: hhea_table.caret_slope_rise,
+                caret_slope_run: hhea_table.caret_slope_run,
+                x_avg_char_width: os2.x_avg_char_width,
+                us_weight_class: os2.us_weight_class,
+                us_width_class: os2.us_width_class,
+                y_strikeout_size: os2.y_strikeout_size,
+                y_strikeout_position: os2.y_strikeout_position,
+            }
+        } else {
+            // Fallback if OS/2 table is missing
+            FontMetrics {
+                units_per_em: head_table.units_per_em,
+                font_flags: head_table.flags,
+                x_min: head_table.x_min,
+                y_min: head_table.y_min,
+                x_max: head_table.x_max,
+                y_max: head_table.y_max,
+                ascender: hhea_table.ascender,
+                descender: hhea_table.descender,
+                line_gap: hhea_table.line_gap,
+                advance_width_max: hhea_table.advance_width_max,
+                caret_slope_rise: hhea_table.caret_slope_rise,
+                caret_slope_run: hhea_table.caret_slope_run,
+                ..FontMetrics::zero()
+            }
+        }
     }
 
     fn get_space_width_internal(&self) -> Option<usize> {
@@ -440,6 +750,58 @@ impl ParsedFont {
             .map_err(|e| format!("Subset error: {:?}", e))?;
 
         Ok((font_bytes, glyph_mapping))
+    }
+
+    /// Get the width of a glyph in font units (internal, unscaled)
+    pub fn get_glyph_width_internal(&self, glyph_index: u16) -> Option<usize> {
+        allsorts::glyph_info::advance(
+            &self.maxp_table,
+            &self.hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
+    }
+
+    /// Get the width of the space character (unscaled font units)
+    #[inline]
+    pub const fn get_space_width(&self) -> Option<usize> {
+        self.space_width
+    }
+
+    /// Add glyph-to-text mapping to reverse cache
+    /// This should be called during text shaping when we know both the source text and resulting glyphs
+    pub fn cache_glyph_mapping(&mut self, glyph_id: u16, cluster_text: &str) {
+        self.reverse_glyph_cache.insert(glyph_id, cluster_text.to_string());
+    }
+
+    /// Get the cluster text that produced a specific glyph ID
+    /// Returns the original text that was shaped into this glyph (handles ligatures correctly)
+    pub fn get_glyph_cluster_text(&self, glyph_id: u16) -> Option<&str> {
+        self.reverse_glyph_cache.get(&glyph_id).map(|s| s.as_str())
+    }
+
+    /// Get the first character from the cluster text for a glyph ID
+    /// This is useful for PDF ToUnicode CMap generation which requires single character mappings
+    pub fn get_glyph_primary_char(&self, glyph_id: u16) -> Option<char> {
+        self.reverse_glyph_cache
+            .get(&glyph_id)
+            .and_then(|text| text.chars().next())
+    }
+
+    /// Clear the reverse glyph cache (useful for memory management)
+    pub fn clear_glyph_cache(&mut self) {
+        self.reverse_glyph_cache.clear();
+    }
+
+    /// Get the bounding box size of a glyph (unscaled units) - for PDF
+    /// Returns (width, height) in font units
+    pub fn get_glyph_bbox_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
+        let g = self.glyph_records_decoded.get(&glyph_index)?;
+        let glyph_width = g.horz_advance as i32;
+        let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32;
+        Some((glyph_width, glyph_height))
     }
 }
 
@@ -993,5 +1355,95 @@ pub mod mock {
             self.glyph_indices.insert(unicode, index);
             self
         }
+    }
+}
+
+// --- ParsedFontTrait Implementation for ParsedFont ---
+
+impl crate::text3::cache::ShallowClone for ParsedFont {
+    fn shallow_clone(&self) -> Self {
+        self.clone() // ParsedFont::clone uses Arc internally, so it's shallow
+    }
+}
+
+impl crate::text3::cache::ParsedFontTrait for ParsedFont {
+    fn shape_text(
+        &self,
+        text: &str,
+        script: crate::text3::script::Script,
+        language: hyphenation::Language,
+        direction: crate::text3::cache::Direction,
+        style: &crate::text3::cache::StyleProperties,
+    ) -> Result<Vec<crate::text3::cache::Glyph<Self>>, crate::text3::cache::LayoutError> {
+        // Call the existing shape_text_for_parsed_font method (defined in default.rs)
+        crate::text3::default::shape_text_for_parsed_font(
+            self,
+            text,
+            script,
+            language,
+            direction,
+            style,
+        )
+    }
+
+    fn get_hash(&self) -> u64 {
+        self.hash
+    }
+
+    fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<azul_core::geom::LogicalSize> {
+        self.glyph_records_decoded.get(&glyph_id).map(|record| {
+            let units_per_em = self.font_metrics.units_per_em as f32;
+            let scale_factor = if units_per_em > 0.0 {
+                font_size_px / units_per_em
+            } else {
+                0.01
+            };
+            let bbox = &record.bounding_box;
+            azul_core::geom::LogicalSize {
+                width: (bbox.max_x - bbox.min_x) as f32 * scale_factor,
+                height: (bbox.max_y - bbox.min_y) as f32 * scale_factor,
+            }
+        })
+    }
+
+    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        let glyph_id = self.lookup_glyph_index('-' as u32)?;
+        let advance_units = self.get_horizontal_advance(glyph_id);
+        let scale_factor = if self.font_metrics.units_per_em > 0 {
+            font_size / (self.font_metrics.units_per_em as f32)
+        } else {
+            return None;
+        };
+        let scaled_advance = advance_units as f32 * scale_factor;
+        Some((glyph_id, scaled_advance))
+    }
+
+    fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        let glyph_id = self.lookup_glyph_index('\u{0640}' as u32)?;
+        let advance_units = self.get_horizontal_advance(glyph_id);
+        let scale_factor = if self.font_metrics.units_per_em > 0 {
+            font_size / (self.font_metrics.units_per_em as f32)
+        } else {
+            return None;
+        };
+        let scaled_advance = advance_units as f32 * scale_factor;
+        Some((glyph_id, scaled_advance))
+    }
+
+    fn has_glyph(&self, codepoint: u32) -> bool {
+        self.lookup_glyph_index(codepoint).is_some()
+    }
+
+    fn get_vertical_metrics(&self, glyph_id: u16) -> Option<crate::text3::cache::VerticalMetrics> {
+        // Default implementation - can be enhanced later
+        None
+    }
+
+    fn get_font_metrics(&self) -> crate::text3::cache::LayoutFontMetrics {
+        self.font_metrics.clone()
+    }
+
+    fn num_glyphs(&self) -> u16 {
+        self.num_glyphs
     }
 }

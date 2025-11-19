@@ -22,12 +22,22 @@ pub mod cpurender;
 pub mod event_determination;
 #[cfg(feature = "font_loading")]
 pub mod font;
+#[cfg(feature = "font_loading")]
+pub use font::parsed::{
+    FontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
+    PrepFont, SubsetFont,
+};
+
+// Re-export allsorts types needed by printpdf
+#[cfg(feature = "font_loading")]
+pub use allsorts::subset::CmapTarget;
+// Re-export hyphenation for external crates (like printpdf)
+#[cfg(feature = "text_layout")]
+pub use hyphenation;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
 #[cfg(feature = "pdf")]
 pub mod paged;
-#[cfg(feature = "pdf")]
-pub mod pdf;
 #[cfg(feature = "text_layout")]
 pub mod text3;
 #[cfg(feature = "text_layout")]
@@ -48,11 +58,6 @@ pub mod xml;
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
 #[cfg(feature = "pdf")]
 pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page};
-#[cfg(feature = "pdf")]
-pub use pdf::{
-    display_list_to_pdf_ops, FontId, PdfColor, PdfOp, PdfPageRender, PdfPoint, PdfRenderResources,
-    XObjectId,
-};
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
@@ -85,7 +90,7 @@ pub fn parse_font_fn(
     ParsedFont::from_bytes(
         source.data.as_ref(),
         source.index as usize,
-        source.load_outlines,
+        &mut Vec::new(), // Ignore warnings for now
     )
     .map(|parsed_font| parsed_font_to_font_ref(parsed_font))
 }
