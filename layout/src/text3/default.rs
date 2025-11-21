@@ -295,13 +295,13 @@ impl ParsedFont {
                 .unwrap_or('\u{FFFD}');
 
             let base_advance = self.get_horizontal_advance(info.glyph.glyph_index);
-            // Ensure both operands are i32 before adding
-            let advance = (base_advance as i32 + info.kerning as i32) as f32 * scale_factor;
+            let advance = base_advance as f32 * scale_factor;
+            let kerning = info.kerning as f32 * scale_factor;
 
             // Debug output for specific glyphs
             if source_char == ' ' || source_char == 'W' || source_char == 'o' {
-                println!("[shape_text] char='{}', gid={}, base_advance={}, kerning={}, final_advance={:.2}",
-                    source_char, info.glyph.glyph_index, base_advance, info.kerning, advance);
+                println!("[shape_text] char='{}', gid={}, base_advance={}, kerning={}, advance={:.2}, total={:.2}",
+                    source_char, info.glyph.glyph_index, base_advance, info.kerning, advance, advance + kerning);
             }
 
             let (offset_x_units, offset_y_units) =
@@ -324,6 +324,7 @@ impl ParsedFont {
                 content_index: 0,
                 cluster,
                 advance,
+                kerning,
                 offset: Point {
                     x: offset_x,
                     y: offset_y,
@@ -813,7 +814,8 @@ pub fn shape_text_for_parsed_font(
             .unwrap_or('\u{FFFD}');
 
         let base_advance = parsed_font.get_horizontal_advance(info.glyph.glyph_index);
-        let advance = (base_advance as i32 + info.kerning as i32) as f32 * scale_factor;
+        let advance = base_advance as f32 * scale_factor;
+        let kerning = info.kerning as f32 * scale_factor;
 
         let (offset_x_units, offset_y_units) =
             if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
@@ -835,6 +837,7 @@ pub fn shape_text_for_parsed_font(
             content_index: 0,
             cluster,
             advance,
+            kerning,
             offset: Point {
                 x: offset_x,
                 y: offset_y,

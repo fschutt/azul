@@ -833,6 +833,7 @@ pub struct Glyph<T: ParsedFontTrait> {
 
     // Metrics
     pub advance: f32,
+    pub kerning: f32,
     pub offset: Point,
 
     // Vertical text support
@@ -2294,8 +2295,12 @@ pub struct ShapedGlyph<T: ParsedFontTrait> {
     pub glyph_id: u16,
     /// The byte offset of this glyph's source character(s) within its cluster text.
     pub cluster_offset: u32,
-    /// The horizontal advance for this glyph (for horizontal text)
+    /// The horizontal advance for this glyph (for horizontal text) - this is the BASE advance
+    /// from the font metrics, WITHOUT kerning applied
     pub advance: f32,
+    /// The kerning adjustment for this glyph (positive = more space, negative = less space)
+    /// This is separate from advance so we can position glyphs absolutely
+    pub kerning: f32,
     /// The horizontal offset/bearing for this glyph
     pub offset: Point,
     /// The vertical advance for this glyph (for vertical text).
@@ -3960,13 +3965,14 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                         style: g.style,
                         cluster_offset: 0,
                         advance: g.advance,
+                        kerning: g.kerning,
                         offset: g.offset,
                         vertical_advance: g.vertical_advance,
                         vertical_offset: g.vertical_bearing,
                     })
                     .collect::<Vec<_>>();
 
-                let total_width: f32 = shaped_glyphs.iter().map(|g| g.advance).sum();
+                let total_width: f32 = shaped_glyphs.iter().map(|g| g.advance + g.kerning).sum();
                 let bounds = Rect {
                     x: 0.0,
                     y: 0.0,
@@ -4077,6 +4083,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             cluster_offset: (g.logical_byte_index - cluster_start_byte_in_text)
                                 as u32,
                             advance: g.advance,
+                            kerning: g.kerning,
                             vertical_advance: g.vertical_advance,
                             vertical_offset: g.vertical_bearing,
                             offset: g.offset,
@@ -4129,6 +4136,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                         vertical_offset: g.vertical_bearing,
                         cluster_offset: (g.logical_byte_index - cluster_start_byte_in_text) as u32,
                         advance: g.advance,
+                        kerning: g.kerning,
                         offset: g.offset,
                     }
                 })
@@ -4699,6 +4707,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 cluster_offset: 0,
                 script: Script::Latin,
                 advance: hyphen_advance,
+                kerning: 0.0,
                 offset: Point::default(),
                 style: style.clone(),
                 vertical_advance: hyphen_advance,
@@ -5186,6 +5195,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             style: style.clone(),
             script: Script::Arabic,
             advance: kashida_advance,
+            kerning: 0.0,
             cluster_offset: 0,
             offset: Point::default(),
             vertical_advance: 0.0,
@@ -5777,6 +5787,7 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
                 style: run.style.clone(),
                 font: font.shallow_clone(), // Use shallow_clone instead of clone
                 advance: shaped_in_run.advance,
+                kerning: shaped_in_run.kerning,
                 source: GlyphSource::Char,
                 script: run.script,
                 bidi_level: run.bidi_level,

@@ -439,8 +439,8 @@ fn split_cluster_for_hyphenation<T: ParsedFontTrait>(
         return None;
     }
 
-    let first_part_advance: f32 = first_part_glyphs.iter().map(|g| g.advance).sum();
-    let second_part_advance: f32 = second_part_glyphs.iter().map(|g| g.advance).sum();
+    let first_part_advance: f32 = first_part_glyphs.iter().map(|g| g.advance + g.kerning).sum();
+    let second_part_advance: f32 = second_part_glyphs.iter().map(|g| g.advance + g.kerning).sum();
 
     // We can approximate the split text, but a more robust solution would map glyphs back to bytes.
     let first_part = ShapedCluster {

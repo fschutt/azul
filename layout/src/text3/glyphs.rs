@@ -283,8 +283,8 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<
                 });
             }
 
-            // Advance pen position
-            pen_x += glyph.advance;
+            // Advance pen position by advance + kerning
+            pen_x += glyph.advance + glyph.kerning;
         }
     }
 
