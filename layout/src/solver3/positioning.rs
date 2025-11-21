@@ -141,7 +141,7 @@ fn resolve_position_offsets(
 /// calculates the final positions of out-of-flow elements (`absolute`, `fixed`).
 pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    tree: &mut LayoutTree<T>,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
 ) -> Result<()> {
@@ -155,8 +155,26 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let position_type = get_position_type(ctx.styled_dom, Some(dom_id));
 
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-            let element_size = node.used_size.unwrap_or_default();
-
+            // Get parent info before any mutable borrows
+            let parent_info: Option<(usize, LogicalPosition, f32, f32, f32, f32)> = {
+                let node = &tree.nodes[node_index];
+                node.parent.and_then(|parent_idx| {
+                    let parent_node = tree.get(parent_idx)?;
+                    let parent_dom_id = parent_node.dom_node_id?;
+                    let parent_position = get_position_type(ctx.styled_dom, Some(parent_dom_id));
+                    if parent_position == LayoutPosition::Absolute || parent_position == LayoutPosition::Fixed {
+                        calculated_positions.get(&parent_idx).map(|parent_pos| {
+                            (parent_idx, *parent_pos, 
+                             parent_node.box_props.border.left, parent_node.box_props.border.top,
+                             parent_node.box_props.padding.left, parent_node.box_props.padding.top)
+                        })
+                    } else {
+                        None
+                    }
+                })
+            };
+            
+            // Determine containing block FIRST (before calculating size)
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
             } else {
@@ -169,14 +187,60 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 )?
             };
 
+            // Get node again after containing block calculation
+            let node = &tree.nodes[node_index];
+            
+            // Calculate used size for out-of-flow elements (they don't get sized during normal layout)
+            let element_size = if let Some(size) = node.used_size {
+                size
+            } else {
+                // Element hasn't been sized yet - calculate it now using containing block
+                let intrinsic = node.intrinsic_sizes.unwrap_or_default();
+                let size = crate::solver3::sizing::calculate_used_size_for_node(
+                    ctx.styled_dom,
+                    Some(dom_id),
+                    containing_block_rect.size,
+                    intrinsic,
+                    &node.box_props,
+                )?;
+                
+                // Store the calculated size in the tree node
+                if let Some(node_mut) = tree.get_mut(node_index) {
+                    node_mut.used_size = Some(size);
+                }
+                
+                size
+            };
+
+            eprintln!("[position_out_of_flow] node_index={}, position={:?}, containing_block={:?}, element_size={:?}", 
+                node_index, position_type, containing_block_rect, element_size);
+
             // Resolve offsets using the now-known containing block size.
             let offsets =
                 resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
 
-            let static_pos = calculated_positions
+            eprintln!("[position_out_of_flow] node_index={}, offsets={:?}", node_index, offsets);
+
+            let mut static_pos = calculated_positions
                 .get(&node_index)
                 .copied()
                 .unwrap_or_default();
+            
+            // Special case: If this is a fixed-position element with (0,0) static position
+            // and it has a positioned parent, use the parent's content-box position
+            if position_type == LayoutPosition::Fixed && static_pos == LogicalPosition::zero() {
+                if let Some((_, parent_pos, border_left, border_top, padding_left, padding_top)) = parent_info {
+                    // Add parent's border and padding to get content-box position
+                    static_pos = LogicalPosition::new(
+                        parent_pos.x + border_left + padding_left,
+                        parent_pos.y + border_top + padding_top,
+                    );
+                    eprintln!("[position_out_of_flow] Adjusted static_pos for fixed child of positioned parent: {:?}", static_pos);
+                }
+            }
+            
+            eprintln!("[position_out_of_flow] node_index={}, static_pos={:?}", node_index, static_pos);
+            
             let mut final_pos = LogicalPosition::zero();
 
             // Vertical Positioning

@@ -802,6 +802,98 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
     }
 
+    // Second pass: Set static positions for out-of-flow children
+    // Out-of-flow elements (absolute/fixed) don't appear in layout_output.positions,
+    // but they still need a static position for when no explicit offsets are specified
+    let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
+        let current_node = tree.get(node_index).unwrap();
+        current_node.children.iter()
+            .filter_map(|&child_index| {
+                if calculated_positions.contains_key(&child_index) {
+                    None
+                } else {
+                    let child = tree.get(child_index)?;
+                    Some((child_index, child.dom_node_id))
+                }
+            })
+            .collect()
+    };
+    
+    for (child_index, child_dom_id_opt) in out_of_flow_children {
+        if let Some(child_dom_id) = child_dom_id_opt {
+            let position_type = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            if position_type == azul_css::props::layout::LayoutPosition::Absolute 
+                || position_type == azul_css::props::layout::LayoutPosition::Fixed {
+                // Set static position to parent's content-box origin
+                // This is where the element would appear if it were in normal flow
+                calculated_positions.insert(child_index, self_content_box_pos);
+                
+                eprintln!("[cache] Set static position for out-of-flow child {} at {:?}", 
+                    child_index, self_content_box_pos);
+                
+                // Recursively set static positions for nested out-of-flow descendants
+                // but DON'T do full layout (that happens in position_out_of_flow_elements)
+                set_static_positions_recursive(
+                    ctx,
+                    tree,
+                    text_cache,
+                    child_index,
+                    self_content_box_pos,
+                    calculated_positions,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Recursively set static positions for out-of-flow descendants without doing layout
+fn set_static_positions_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree<T>,
+    _text_cache: &mut text3::cache::LayoutCache<T>,
+    node_index: usize,
+    parent_content_box_pos: LogicalPosition,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+) -> Result<()> {
+    let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
+        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        node.children.iter()
+            .filter_map(|&child_index| {
+                if calculated_positions.contains_key(&child_index) {
+                    None
+                } else {
+                    let child = tree.get(child_index)?;
+                    Some((child_index, child.dom_node_id))
+                }
+            })
+            .collect()
+    };
+    
+    for (child_index, child_dom_id_opt) in out_of_flow_children {
+        if let Some(child_dom_id) = child_dom_id_opt {
+            let position_type = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            if position_type == azul_css::props::layout::LayoutPosition::Absolute 
+                || position_type == azul_css::props::layout::LayoutPosition::Fixed {
+                calculated_positions.insert(child_index, parent_content_box_pos);
+                
+                eprintln!("[cache] Set static position for nested out-of-flow child {} at {:?}", 
+                    child_index, parent_content_box_pos);
+                
+                // Continue recursively
+                set_static_positions_recursive(
+                    ctx,
+                    tree,
+                    _text_cache,
+                    child_index,
+                    parent_content_box_pos,
+                    calculated_positions,
+                )?;
+            }
+        }
+    }
+    
     Ok(())
 }
 

@@ -308,7 +308,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
     // --- Step 3: Position Out-of-Flow Elements ---
     positioning::position_out_of_flow_elements(
         &mut ctx,
-        &new_tree,
+        &mut new_tree,
         &mut calculated_positions,
         viewport,
     )?;
