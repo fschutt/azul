@@ -105,7 +105,7 @@ use azul_css::{
                 LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
             },
         },
-        style::{StyleTextAlign, StyleVerticalAlign},
+        style::{StyleTextAlign, StyleVerticalAlign, lists::StyleListStyleType},
         property::{CssProperty, CssPropertyType},
     },
 };
@@ -414,6 +414,16 @@ static VERTICAL_ALIGN_CENTER: CssProperty = CssProperty::VerticalAlign(CssProper
     StyleVerticalAlign::Center,
 ));
 
+/// list-style-type: disc (default for <ul>)
+static LIST_STYLE_TYPE_DISC: CssProperty = CssProperty::ListStyleType(CssPropertyValue::Exact(
+    StyleListStyleType::Disc,
+));
+
+/// list-style-type: decimal (default for <ol>)
+static LIST_STYLE_TYPE_DECIMAL: CssProperty = CssProperty::ListStyleType(CssPropertyValue::Exact(
+    StyleListStyleType::Decimal,
+));
+
 // TODO: Uncomment when TextDecoration is implemented in azul-css
 // const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
 //     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
@@ -545,8 +555,10 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         // Lists
         (NT::Ul, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Ul, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DISC),
         (NT::Ol, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Ol, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DECIMAL),
         (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
         (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dl, PT::Width) => Some(&WIDTH_100_PERCENT),

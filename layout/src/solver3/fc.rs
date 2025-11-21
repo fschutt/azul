@@ -3709,6 +3709,7 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     counters: &BTreeMap<(usize, String), i32>,
 ) -> String {
     use crate::solver3::{counters::format_counter, getters::get_list_style_type};
+    use azul_css::props::style::lists::StyleListStyleType;
     
     // Get the parent list-item node
     let marker_node = match tree.get(marker_index) {
@@ -3731,8 +3732,30 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
         None => return String::new(),
     };
     
-    // Get list-style-type from the list-item element
-    let list_style_type = get_list_style_type(styled_dom, Some(parent_dom_id));
+    // Get list-style-type from the list container (<ul> or <ol>)
+    // We need to look at the grandparent to find the list container
+    let list_container_dom_id = if let Some(grandparent_index) = parent_node.parent {
+        if let Some(grandparent) = tree.get(grandparent_index) {
+            grandparent.dom_node_id
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    // Try to get list-style-type from the list container first, then fall back to the list-item
+    let list_style_type = if let Some(container_id) = list_container_dom_id {
+        let container_type = get_list_style_type(styled_dom, Some(container_id));
+        // If the container has a specific style, use it; otherwise check the list-item itself
+        if container_type != StyleListStyleType::default() {
+            container_type
+        } else {
+            get_list_style_type(styled_dom, Some(parent_dom_id))
+        }
+    } else {
+        get_list_style_type(styled_dom, Some(parent_dom_id))
+    };
     
     // Get the counter value for "list-item" counter
     let counter_value = counters
