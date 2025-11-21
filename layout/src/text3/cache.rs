@@ -315,6 +315,68 @@ pub struct CursorBoundsError {
 }
 
 /// Unified constraints combining all layout features
+///
+/// # CSS Inline Layout Module Level 3: Constraint Mapping
+///
+/// This structure maps CSS properties to layout constraints:
+///
+/// ## \u00a7 2.1 Layout of Line Boxes
+/// - `available_width`: \u26a0\ufe0f CRITICAL - Should equal containing block's inner width
+///   * Currently defaults to 0.0 which causes immediate line breaking
+///   * Per spec: "logical width of a line box is equal to the inner logical
+///     width of its containing block"
+/// - `available_height`: For block-axis constraints (max-height)
+///
+/// ## \u00a7 2.2 Layout Within Line Boxes
+/// - `text_align`: \u2705 Horizontal alignment (start, end, center, justify)
+/// - `vertical_align`: \u26a0\ufe0f PARTIAL - Only baseline supported, missing:
+///   * top, bottom, middle, text-top, text-bottom
+///   * <length>, <percentage> values
+///   * sub, super positions
+/// - `line_height`: \u2705 Distance between baselines
+///
+/// ## \u00a7 3 Baselines and Alignment Metrics
+/// - `text_orientation`: \u2705 For vertical writing (sideways, upright)
+/// - `writing_mode`: \u2705 horizontal-tb, vertical-rl, vertical-lr
+/// - `direction`: \u2705 ltr, rtl for BiDi
+///
+/// ## \u00a7 4 Baseline Alignment (vertical-align property)
+/// \u26a0\ufe0f INCOMPLETE: Only basic baseline alignment implemented
+///
+/// ## \u00a7 5 Line Spacing (line-height property)
+/// - `line_height`: \u2705 Implemented
+/// - \u274c MISSING: line-fit-edge for controlling which edges contribute to line height
+///
+/// ## \u00a7 6 Trimming Leading (text-box-trim)
+/// - \u274c NOT IMPLEMENTED: text-box-trim property
+/// - \u274c NOT IMPLEMENTED: text-box-edge property
+///
+/// ## CSS Text Module Level 3
+/// - `text_indent`: \u2705 First line indentation
+/// - `text_justify`: \u2705 Justification algorithm (auto, inter-word, inter-character)
+/// - `hyphenation`: \u2705 Automatic hyphenation
+/// - `hanging_punctuation`: \u2705 Hanging punctuation at line edges
+///
+/// ## CSS Text Level 4
+/// - `text_wrap`: \u2705 balance, pretty, stable
+/// - `line_clamp`: \u2705 Max number of lines
+///
+/// ## CSS Writing Modes Level 4
+/// - `text_combine_upright`: \u2705 Tate-chu-yoko for vertical text
+///
+/// ## CSS Shapes Module
+/// - `shape_boundaries`: \u2705 Custom line box shapes
+/// - `shape_exclusions`: \u2705 Exclusion areas (float-like behavior)
+/// - `exclusion_margin`: \u2705 Margin around exclusions
+///
+/// ## Multi-column Layout
+/// - `columns`: \u2705 Number of columns
+/// - `column_gap`: \u2705 Gap between columns
+///
+/// # Known Issues:
+/// 1. \u26a0\ufe0f available_width defaults to 0.0 instead of containing block width
+/// 2. \u26a0\ufe0f vertical_align only supports baseline
+/// 3. \u274c initial-letter (drop caps) not implemented
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
@@ -359,6 +421,10 @@ impl Default for UnifiedConstraints {
         Self {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
+            // \u26a0\ufe0f CRITICAL BUG: This should be set to the containing block's inner width
+            // per CSS Inline-3 \u00a7 2.1, but defaults to 0.0 which causes immediate line breaking.
+            // This value should be passed from the box layout solver (fc.rs) when creating
+            // UnifiedConstraints for text layout.
             available_width: 0.0,
             available_height: None,
             writing_mode: None,
@@ -932,6 +998,9 @@ pub struct InlineShape {
     pub fill: Option<ColorU>,
     pub stroke: Option<Stroke>,
     pub baseline_offset: f32,
+    /// The NodeId of the element that created this shape (e.g., inline-block)
+    /// This allows us to look up styling information (background, border) when rendering
+    pub source_node_id: Option<azul_core::dom::NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1007,6 +1076,7 @@ impl PartialEq for InlineShape {
             && self.shape_def == other.shape_def
             && self.fill == other.fill
             && self.stroke == other.stroke
+            && self.source_node_id == other.source_node_id
     }
 }
 
@@ -1018,6 +1088,7 @@ impl Hash for InlineShape {
         self.fill.hash(state);
         self.stroke.hash(state);
         self.baseline_offset.to_bits().hash(state);
+        self.source_node_id.hash(state);
     }
 }
 
@@ -1032,7 +1103,8 @@ impl PartialOrd for InlineShape {
                         .partial_cmp(&other.stroke)
                         .unwrap_or(Ordering::Equal)
                 })
-                .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset)),
+                .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset))
+                .then_with(|| self.source_node_id.cmp(&other.source_node_id)),
         )
     }
 }
@@ -3444,6 +3516,45 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
     /// content into a single set of constraints, it flows the content through an
     /// ordered sequence of `LayoutFragment`s.
     ///
+    /// # CSS Inline Layout Module Level 3: Pipeline Implementation
+    ///
+    /// This implements the inline formatting context with 5 stages:
+    ///
+    /// ## Stage 1: Logical Analysis (InlineContent -> LogicalItem)
+    /// \u2705 IMPLEMENTED: Parses raw content into logical units
+    /// - Handles text runs, inline-blocks, replaced elements
+    /// - Applies style overrides at character level
+    /// - Implements \u00a7 2.2: Content size contribution calculation
+    ///
+    /// ## Stage 2: BiDi Reordering (LogicalItem -> VisualItem)
+    /// \u2705 IMPLEMENTED: Uses CSS 'direction' property per CSS Writing Modes
+    /// - Reorders items for right-to-left text (Arabic, Hebrew)
+    /// - Respects containing block direction (not auto-detection)
+    /// - Conforms to Unicode BiDi Algorithm (UAX #9)
+    ///
+    /// ## Stage 3: Shaping (VisualItem -> ShapedItem)
+    /// \u2705 IMPLEMENTED: Converts text to glyphs
+    /// - Uses HarfBuzz for OpenType shaping
+    /// - Handles ligatures, kerning, contextual forms
+    /// - Caches shaped results for performance
+    ///
+    /// ## Stage 4: Text Orientation Transformations
+    /// \u26a0\ufe0f PARTIAL: Applies text-orientation for vertical text
+    /// - Uses constraints from *first* fragment only
+    /// - \u274c TODO: Should re-orient if fragments have different writing modes
+    ///
+    /// ## Stage 5: Flow Loop (ShapedItem -> PositionedItem)
+    /// \u2705 IMPLEMENTED: Breaks lines and positions content
+    /// - Calls perform_fragment_layout for each fragment
+    /// - Uses BreakCursor to flow content across fragments
+    /// - Implements \u00a7 5: Line breaking and hyphenation
+    ///
+    /// # Missing Features from CSS Inline-3:
+    /// - \u00a7 3.3: initial-letter (drop caps)
+    /// - \u00a7 4: vertical-align (only baseline supported)
+    /// - \u00a7 6: text-box-trim (leading trim)
+    /// - \u00a7 7: inline-sizing (aspect-ratio for inline-blocks)
+    ///
     /// # Arguments
     /// * `content` - The raw `InlineContent` to be laid out.
     /// * `style_overrides` - Character-level style changes.
@@ -4331,6 +4442,34 @@ fn calculate_line_metrics<T: ParsedFontTrait>(items: &[ShapedItem<T>]) -> (f32, 
 ///
 /// The loop terminates when either the fragment is filled (e.g., runs out of
 /// vertical space) or the content stream managed by the `cursor` is exhausted.
+///
+/// # CSS Inline Layout Module Level 3 Implementation
+///
+/// This function implements the inline formatting context as described in:
+/// https://www.w3.org/TR/css-inline-3/#inline-formatting-context
+///
+/// ## § 2.1 Layout of Line Boxes
+/// "In general, the line-left edge of a line box touches the line-left edge of its
+/// containing block and the line-right edge touches the line-right edge of its
+/// containing block, and thus the logical width of a line box is equal to the inner
+/// logical width of its containing block."
+///
+/// ⚠️ ISSUE: available_width should be set to the containing block's inner width,
+/// but is currently defaulting to 0.0 in UnifiedConstraints::default().
+/// This causes premature line breaking.
+///
+/// ## § 2.2 Layout Within Line Boxes
+/// The layout process follows these steps:
+/// 1. Baseline Alignment: All inline-level boxes are aligned by their baselines
+/// 2. Content Size Contribution: Calculate layout bounds for each box
+/// 3. Line Box Sizing: Size line box to fit aligned layout bounds
+/// 4. Content Positioning: Position boxes within the line box
+///
+/// ## Missing Features:
+/// - § 3 Baselines and Alignment Metrics: Only basic baseline alignment implemented
+/// - § 4 Baseline Alignment: vertical-align property not fully supported
+/// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
+/// - § 6 Trimming Leading: text-box-trim not implemented
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor<T>,
     logical_items: &[LogicalItem],
@@ -4358,6 +4497,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     let num_columns = fragment_constraints.columns.max(1);
     let total_column_gap = fragment_constraints.column_gap * (num_columns - 1) as f32;
     
+    // CSS Inline Layout § 2.1: "the logical width of a line box is equal to the inner
+    // logical width of its containing block"
+    // ⚠️ CRITICAL BUG: If fragment_constraints.available_width is 0.0 (from default),
+    // column_width will be 0.0, causing all text to break immediately!
+    // This should be set to the containing block's content box width.
+    //
     // Handle infinite available_width (used for intrinsic sizing / max-content measurement).
     // With infinite width, column_width would be INFINITY, which causes NaN when multiplied
     // by 0 for the first column. Instead, treat as effectively unbounded (very large).
@@ -4461,6 +4606,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // Reset counter when we find valid segments
             empty_segment_count = 0;
 
+            // CSS Text Module Level 3 § 5 Line Breaking and Word Boundaries
+            // https://www.w3.org/TR/css-text-3/#line-breaking
+            // "When an inline box exceeds the logical width of a line box, it is split
+            // into several fragments, which are partitioned across multiple line boxes."
             let (mut line_items, was_hyphenated) =
                 break_one_line(cursor, &line_constraints, false, hyphenator.as_ref());
             if line_items.is_empty() {
@@ -4527,6 +4676,55 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
 /// Breaks a single line of items to fit within the given geometric constraints,
 /// handling multi-segment lines and hyphenation.
+/// Break a single line from the current cursor position.
+///
+/// # CSS Text Module Level 3 \u00a7 5 Line Breaking and Word Boundaries
+/// https://www.w3.org/TR/css-text-3/#line-breaking
+///
+/// Implements the line breaking algorithm:
+/// 1. "When an inline box exceeds the logical width of a line box, it is split
+///    into several fragments, which are partitioned across multiple line boxes."
+///
+/// ## \u2705 Implemented Features:
+/// - **Break Opportunities**: Identifies word boundaries and break points
+/// - **Soft Wraps**: Wraps at spaces between words
+/// - **Hard Breaks**: Handles explicit line breaks (\\n)
+/// - **Overflow**: If a word is too long, places it anyway to avoid infinite loop
+/// - **Hyphenation**: Tries to break long words at hyphenation points (\u00a7 5.4)
+///
+/// ## \u26a0\ufe0f Known Issues:
+/// - If `line_constraints.total_available` is 0.0 (from `available_width: 0.0` bug),
+///   every word will overflow, causing single-word lines
+/// - This is the symptom visible in the PDF: "List items break extremely early"
+///
+/// ## \u00a7 5.2 Breaking Rules for Letters
+/// \u2705 IMPLEMENTED: Uses Unicode line breaking algorithm
+/// - Relies on UAX #14 for break opportunities
+/// - Respects non-breaking spaces and zero-width joiners
+///
+/// ## \u00a7 5.3 Breaking Rules for Punctuation
+/// \u26a0\ufe0f PARTIAL: Basic punctuation handling
+/// - \u274c TODO: hanging-punctuation is declared in UnifiedConstraints but not used here
+/// - \u274c TODO: Should implement punctuation trimming at line edges
+///
+/// ## \u00a7 5.4 Hyphenation
+/// \u2705 IMPLEMENTED: Automatic hyphenation with hyphenator library
+/// - Tries to hyphenate words that overflow
+/// - Inserts hyphen glyph at break point
+/// - Carries remainder to next line
+///
+/// ## \u00a7 5.5 Overflow Wrapping
+/// \u2705 IMPLEMENTED: Emergency breaking
+/// - If line is empty and word doesn't fit, forces at least one item
+/// - Prevents infinite loop
+/// - This is "overflow-wrap: break-word" behavior
+///
+/// # Missing Features:
+/// - \u274c word-break property (normal, break-all, keep-all)
+/// - \u274c line-break property (auto, loose, normal, strict, anywhere)
+/// - \u274c overflow-wrap: anywhere vs break-word distinction
+/// - \u274c white-space: break-spaces handling
+///
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor<T>,
     line_constraints: &LineConstraints,
@@ -4773,6 +4971,69 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 ///
 /// # Returns
 /// A tuple containing the `Vec` of positioned items and the calculated height of the line box.
+/// Position items on a single line after breaking.
+///
+/// # CSS Inline Layout Module Level 3 \u00a7 2.2 Layout Within Line Boxes
+/// https://www.w3.org/TR/css-inline-3/#layout-within-line-boxes
+///
+/// Implements the positioning algorithm:
+/// 1. "All inline-level boxes are aligned by their baselines"
+/// 2. "Calculate layout bounds for each inline box"
+/// 3. "Size the line box to fit the aligned layout bounds"
+/// 4. "Position all inline boxes within the line box"
+///
+/// ## \u2705 Implemented Features:
+///
+/// ### \u00a7 4 Baseline Alignment (vertical-align)
+/// \u26a0\ufe0f PARTIAL IMPLEMENTATION:
+/// - \u2705 `baseline`: Aligns box baseline with parent baseline (default)
+/// - \u2705 `top`: Aligns top of box with top of line box
+/// - \u2705 `middle`: Centers box within line box
+/// - \u2705 `bottom`: Aligns bottom of box with bottom of line box
+/// - \u274c MISSING: `text-top`, `text-bottom`, `sub`, `super`
+/// - \u274c MISSING: `<length>`, `<percentage>` values for custom offset
+///
+/// ### \u00a7 2.2.1 Text Alignment (text-align)
+/// \u2705 IMPLEMENTED:
+/// - `left`, `right`, `center`: Physical alignment
+/// - `start`, `end`: Logical alignment (respects direction: ltr/rtl)
+/// - `justify`: Distributes space between words/characters
+/// - `justify-all`: Justifies last line too
+///
+/// ### \u00a7 7.3 Text Justification (text-justify)
+/// \u2705 IMPLEMENTED:
+/// - `inter-word`: Adds space between words
+/// - `inter-character`: Adds space between characters
+/// - `kashida`: Arabic kashida elongation
+/// - \u274c MISSING: `distribute` (CJK justification)
+///
+/// ### CSS Text \u00a7 8.1 Text Indentation (text-indent)
+/// \u2705 IMPLEMENTED: First line indentation
+///
+/// ### CSS Text \u00a7 4.1 Word Spacing (word-spacing)
+/// \u2705 IMPLEMENTED: Additional space between words
+///
+/// ### CSS Text \u00a7 4.2 Letter Spacing (letter-spacing)
+/// \u2705 IMPLEMENTED: Additional space between characters
+///
+/// ## Segment-Aware Layout:
+/// \u2705 Handles CSS Shapes and multi-column layouts
+/// - Breaks line into segments (for shape boundaries)
+/// - Calculates justification per segment
+/// - Applies alignment within each segment's bounds
+///
+/// ## Known Issues:
+/// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets alignment_offset=0
+///   to avoid infinite positioning. This is correct for measurement but documented for clarity.
+/// - The function assumes `line_index == 0` means first line for text-indent.
+///   A more robust system would track paragraph boundaries.
+///
+/// # Missing Features:
+/// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
+/// - \u274c \u00a7 3.3 Initial Letters (drop caps)
+/// - \u274c Full vertical-align support (sub, super, lengths, percentages)
+/// - \u274c white-space: break-spaces alignment behavior
+///
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem<T>>,
     line_constraints: &LineConstraints,

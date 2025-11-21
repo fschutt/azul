@@ -90,7 +90,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 /// a `Vec<XmlNode>` - which are the "root" nodes, containing all their
 /// children recursively.
 #[cfg(feature = "xml")]
-pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
+pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     use xmlparser::{ElementEnd::*, Token::*, Tokenizer};
 
     use self::XmlParseError::*;
@@ -179,12 +179,11 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
                     
-                    current_parent.children.push(XmlNode {
+                    current_parent.children.push(XmlNodeChild::Element(XmlNode {
                         node_type: tag_name.into(),
                         attributes: StringPairVec::new(),
                         children: Vec::new().into(),
-                        text: None.into(),
-                    });
+                    }));
                     
                     // Only push to hierarchy if not a void element
                     // Void elements auto-close and don't expect children
@@ -253,17 +252,14 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
                 }
             }
             Text { text } => {
-                let text = text.trim();
-                if !text.is_empty() {
-                    if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                        if let Some(s) = last.text.as_mut() {
-                            let mut newstr = s.as_str().to_string();
-                            newstr.push_str(text);
-                            *s = newstr.into();
-                        }
-                        if last.text.is_none() {
-                            last.text = Some(text.to_string().into()).into();
-                        }
+                // Skip whitespace-only text nodes between block elements
+                // but preserve them within inline contexts (e.g., between inline elements)
+                let is_whitespace_only = text.trim().is_empty();
+                
+                if !is_whitespace_only {
+                    if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
+                        // Add text as a child node
+                        current_parent.children.push(XmlNodeChild::Text(text.to_string().into()));
                     }
                 }
             }

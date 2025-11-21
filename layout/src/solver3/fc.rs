@@ -745,6 +745,16 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
 
+    eprintln!("[layout_ifc] Collected {} inline content items for node {}", inline_content.len(), node_index);
+    for (i, item) in inline_content.iter().enumerate() {
+        match item {
+            InlineContent::Text(run) => eprintln!("  [{}] Text: '{}'", i, run.text),
+            InlineContent::Shape(_) => eprintln!("  [{}] Shape", i),
+            InlineContent::Image(_) => eprintln!("  [{}] Image", i),
+            _ => eprintln!("  [{}] Other", i),
+        }
+    }
+    
     ctx.debug_ifc_layout(format!("Collected {} inline content items", inline_content.len()));
 
     if inline_content.is_empty() {
@@ -3077,10 +3087,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
             // The intrinsic sizing pass has already calculated its preferred size.
             let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
-            // For an inline-block, its width is its max-content width.
-            let width = intrinsic_size.max_content_width;
-
-            // To find its height and baseline, we must lay out its contents.
+            
+            // CRITICAL FIX: For inline-blocks, check if explicit CSS width/height are specified
+            // If so, use those instead of intrinsic sizes (which may be 0 for empty inline-blocks)
             let styled_node_state = ctx
                 .styled_dom
                 .styled_nodes
@@ -3088,6 +3097,35 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 .get(dom_id)
                 .map(|n| n.state.clone())
                 .unwrap_or_default();
+            
+            let css_width = crate::solver3::getters::get_css_width(ctx.styled_dom, dom_id, &styled_node_state);
+            let css_height = crate::solver3::getters::get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+            
+            // Resolve explicit width if specified, otherwise use max-content width
+            let width = match css_width.unwrap_or_default() {
+                azul_css::props::layout::LayoutWidth::Px(px) => {
+                    // Convert pixel value to actual pixels
+                    use azul_css::props::basic::SizeMetric;
+                    match px.metric {
+                        SizeMetric::Px => px.number.get(),
+                        SizeMetric::Pt => px.number.get() * 1.33333, // PT_TO_PX
+                        SizeMetric::In => px.number.get() * 96.0,
+                        SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                        SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                        SizeMetric::Em | SizeMetric::Rem => {
+                            // TODO: Resolve em/rem properly with font-size
+                            px.number.get() * 16.0 // DEFAULT_FONT_SIZE
+                        }
+                        _ => intrinsic_size.max_content_width, // Percent/viewport - use intrinsic
+                    }
+                }
+                _ => intrinsic_size.max_content_width, // Auto or other - use intrinsic
+            };
+            
+            eprintln!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): intrinsic_width={}, css_width={:?}, final_width={}", 
+                dom_id, intrinsic_size.max_content_width, css_width, width);
+
+            // To find its height and baseline, we must lay out its contents.
             let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(width, f32::INFINITY),
@@ -3104,7 +3142,25 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             let layout_output =
                 layout_formatting_context(ctx, tree, text_cache, child_index, &child_constraints)?;
 
-            let final_height = layout_output.overflow_size.height;
+            let mut final_height = layout_output.overflow_size.height;
+            
+            // CRITICAL FIX: Check for explicit CSS height
+            if let azul_css::props::layout::LayoutHeight::Px(px) = css_height.unwrap_or_default() {
+                use azul_css::props::basic::SizeMetric;
+                final_height = match px.metric {
+                    SizeMetric::Px => px.number.get(),
+                    SizeMetric::Pt => px.number.get() * 1.33333,
+                    SizeMetric::In => px.number.get() * 96.0,
+                    SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                    SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                    SizeMetric::Em | SizeMetric::Rem => px.number.get() * 16.0,
+                    _ => final_height, // Percent/viewport - use layout result
+                };
+            }
+            
+            eprintln!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): layout_height={}, css_height={:?}, final_height={}", 
+                dom_id, layout_output.overflow_size.height, css_height, final_height);
+            
             let final_size = LogicalSize::new(width, final_height);
 
             // Update the node in the tree with its now-known used size.
@@ -3123,6 +3179,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 fill: None,
                 stroke: None,
                 baseline_offset,
+                source_node_id: Some(dom_id),
             }));
             child_map.insert(content_index, child_index);
         } else if let NodeType::Image(image_data) =
@@ -3153,9 +3210,166 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 object_fit: ObjectFit::Fill,
             }));
             child_map.insert(content_index, child_index);
+        } else {
+            // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
+            // According to CSS Inline-3 spec §2, inline boxes are "transparent" wrappers
+            // We must recursively collect their text children with inherited style
+            eprintln!(
+                "[collect_and_measure_inline_content] Found inline span (DOM {:?}), recursing",
+                dom_id
+            );
+            
+            let span_style = get_style_properties(ctx.styled_dom, dom_id);
+            collect_inline_span_recursive(
+                ctx,
+                tree,
+                dom_id,
+                span_style,
+                &mut content,
+                &mut child_map,
+                &children,
+            )?;
         }
     }
     Ok((content, child_map))
+}
+
+/// Recursively collects inline content from an inline span (display: inline) element.
+/// 
+/// According to CSS Inline Layout Module Level 3 §2:
+/// "Inline boxes are transparent wrappers that wrap their content."
+/// They don't create a new formatting context - their children participate in the
+/// same IFC as the parent.
+///
+/// This function processes:
+/// - Text nodes: collected with the span's inherited style
+/// - Nested inline spans: recursively descended
+/// - Inline-blocks, images: measured and added as shapes
+fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree<T>,
+    span_dom_id: NodeId,
+    span_style: StyleProperties,
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+    parent_children: &[usize], // Layout tree children of parent IFC
+) -> Result<()> {
+    eprintln!("[collect_inline_span_recursive] Processing inline span {:?}", span_dom_id);
+    
+    // Get DOM children of this span
+    let span_dom_children: Vec<NodeId> = span_dom_id
+        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
+        .collect();
+    
+    eprintln!("[collect_inline_span_recursive] Span has {} DOM children", span_dom_children.len());
+    
+    for &child_dom_id in &span_dom_children {
+        let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
+        
+        // CASE 1: Text node - collect with span's style
+        if let NodeType::Text(ref text_content) = node_data.get_node_type() {
+            eprintln!(
+                "[collect_inline_span_recursive] ✓ Found text in span: '{}'",
+                text_content.as_str()
+            );
+            content.push(InlineContent::Text(StyledRun {
+                text: text_content.to_string(),
+                style: Arc::new(span_style.clone()),
+                logical_start_byte: 0,
+            }));
+            continue;
+        }
+        
+        // CASE 2: Element node - check its display type
+        let child_display = get_display_property(ctx.styled_dom, Some(child_dom_id))
+            .unwrap_or_default();
+        
+        // Find the corresponding layout tree node
+        let child_index = parent_children
+            .iter()
+            .find(|&&idx| {
+                tree.get(idx)
+                    .and_then(|n| n.dom_node_id)
+                    .map(|id| id == child_dom_id)
+                    .unwrap_or(false)
+            })
+            .copied();
+        
+        match child_display {
+            LayoutDisplay::Inline => {
+                // Nested inline span - recurse with child's style
+                eprintln!("[collect_inline_span_recursive] Found nested inline span {:?}", child_dom_id);
+                let child_style = get_style_properties(ctx.styled_dom, child_dom_id);
+                collect_inline_span_recursive(
+                    ctx,
+                    tree,
+                    child_dom_id,
+                    child_style,
+                    content,
+                    child_map,
+                    parent_children,
+                )?;
+            }
+            LayoutDisplay::InlineBlock => {
+                // Inline-block inside span - measure and add as shape
+                let Some(child_index) = child_index else {
+                    eprintln!("[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout node", child_dom_id);
+                    continue;
+                };
+                
+                let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+                let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
+                let width = intrinsic_size.max_content_width;
+                
+                let styled_node_state = ctx
+                    .styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(child_dom_id)
+                    .map(|n| n.state.clone())
+                    .unwrap_or_default();
+                let writing_mode = get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state).unwrap_or_default();
+                let child_constraints = LayoutConstraints {
+                    available_size: LogicalSize::new(width, f32::INFINITY),
+                    writing_mode,
+                    bfc_state: None,
+                    text_align: TextAlign::Start,
+                };
+                
+                drop(child_node);
+                
+                let layout_output = layout_formatting_context(ctx, tree, &mut TextLayoutCache::default(), child_index, &child_constraints)?;
+                let final_height = layout_output.overflow_size.height;
+                let final_size = LogicalSize::new(width, final_height);
+                
+                tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+                let baseline_offset = layout_output.baseline.unwrap_or(final_height);
+                
+                content.push(InlineContent::Shape(InlineShape {
+                    shape_def: ShapeDefinition::Rectangle {
+                        size: crate::text3::cache::Size {
+                            width,
+                            height: final_height,
+                        },
+                        corner_radius: None,
+                    },
+                    fill: None,
+                    stroke: None,
+                    baseline_offset,
+                    source_node_id: Some(child_dom_id),
+                }));
+                
+                // Note: We don't add to child_map here because this is inside a span
+                eprintln!("[collect_inline_span_recursive] Added inline-block shape {}x{}", width, final_height);
+            }
+            _ => {
+                // Other display types inside span (shouldn't normally happen)
+                eprintln!("[collect_inline_span_recursive] WARNING: Unsupported display type {:?} inside inline span", child_display);
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 /// Positions a floated child within the BFC and updates the floating context.

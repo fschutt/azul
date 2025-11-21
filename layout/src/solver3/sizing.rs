@@ -567,6 +567,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 fill: None,
                 stroke: None,
                 baseline_offset: intrinsic_sizes.max_content_height,
+                source_node_id: Some(child_dom_id),
             }));
         }
     }
@@ -689,6 +690,14 @@ pub fn calculate_used_size_for_node(
         "[calculate_used_size_for_node] css_width={:?}, css_height={:?}, display={:?}",
         css_width, css_height, display
     );
+    
+    // Debug: Extra logging for inline-blocks with explicit dimensions
+    if display.unwrap_or_default() == LayoutDisplay::InlineBlock {
+        eprintln!(
+            "[calculate_used_size_for_node] !!! INLINE-BLOCK detected: NodeId={:?}, css_width={:?}, css_height={:?}, intrinsic.max_content_width={}, intrinsic.max_content_height={}",
+            id, css_width, css_height, intrinsic.max_content_width, intrinsic.max_content_height
+        );
+    }
 
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
@@ -696,10 +705,11 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::Auto => {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
-                LayoutDisplay::Block | LayoutDisplay::FlowRoot => {
+                LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
                     // For block-level, non-replaced elements, 'auto' width fills the
                     // containing block (minus margins, borders, padding)
                     // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left - margin_right - border_left - border_right - padding_left - padding_right
+                    // CSS 2.1 Section 12.5.1: List-items have the same sizing as block boxes
                     let available_width = containing_block_size.width 
                         - _box_props.margin.left 
                         - _box_props.margin.right
@@ -708,7 +718,7 @@ pub fn calculate_used_size_for_node(
                         - _box_props.padding.left
                         - _box_props.padding.right;
                     
-                    eprintln!("[calculate_used_size_for_node] Auto width for block: containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), available_width={}", 
+                    eprintln!("[calculate_used_size_for_node] Auto width for block/list-item: containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), available_width={}", 
                         containing_block_size.width, 
                         _box_props.margin.left, _box_props.margin.right,
                         _box_props.border.left, _box_props.border.right,

@@ -1083,6 +1083,23 @@ where
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
 
+        // Skip inline-blocks - they are rendered by text3 in paint_inline_content
+        // Inline-blocks participate in inline formatting context and their backgrounds
+        // must be positioned by the text layout engine, not the block layout engine
+        if let Some(dom_id) = node.dom_node_id {
+            use azul_css::props::layout::LayoutDisplay;
+            let styled_node_state = self.get_styled_node_state(dom_id);
+            let display = self.ctx.styled_dom.css_property_cache.ptr
+                .get_display(&self.ctx.styled_dom.node_data.as_container()[dom_id], &dom_id, &styled_node_state)
+                .and_then(|v| v.get_property().cloned())
+                .unwrap_or(LayoutDisplay::Inline);
+            
+            if display == LayoutDisplay::InlineBlock {
+                // text3 will handle this via InlineShape
+                return Ok(());
+            }
+        }
+
         // CSS 2.2 Section 17.5.1: Tables in the visual formatting model
         // Tables have a special 6-layer background painting order
         use azul_core::dom::FormattingContext;
@@ -1554,22 +1571,76 @@ where
             }
         }
 
-        for item in &layout.items {
+        // Render inline objects (images, shapes/inline-blocks, etc.)
+        // These are positioned by the text3 engine and need to be rendered at their calculated positions
+        for positioned_item in &layout.items {
             let base_pos = container_rect.origin;
-            match &item.item {
+            match &positioned_item.item {
                 ShapedItem::Object {
-                    content, bounds, ..
+                    content, bounds, baseline_offset, source, ..
                 } => {
+                    // Calculate the absolute position of this object
+                    // positioned_item.position is relative to the container
                     let object_bounds = LogicalRect::new(
-                        LogicalPosition::new(base_pos.x + bounds.x, base_pos.y + bounds.y),
+                        LogicalPosition::new(
+                            base_pos.x + positioned_item.position.x,
+                            base_pos.y + positioned_item.position.y,
+                        ),
                         LogicalSize::new(bounds.width, bounds.height),
                     );
-                    if let InlineContent::Image(image) = content {
-                        if let Some(image_key) =
-                            get_image_key_for_image_source(&image.source, self.id_namespace)
-                        {
-                            builder.push_image(object_bounds, image_key);
+                    
+                    eprintln!(
+                        "[paint_inline_content] Object at position ({}, {}), bounds={}x{}, baseline_offset={}",
+                        positioned_item.position.x, positioned_item.position.y,
+                        bounds.width, bounds.height, baseline_offset
+                    );
+                    
+                    match content {
+                        InlineContent::Image(image) => {
+                            if let Some(image_key) =
+                                get_image_key_for_image_source(&image.source, self.id_namespace)
+                            {
+                                builder.push_image(object_bounds, image_key);
+                                eprintln!("[paint_inline_content] ✓ Pushed image to display list");
+                            }
                         }
+                        InlineContent::Shape(shape) => {
+                            // Render inline-block backgrounds using their CSS styling
+                            // The text3 engine positions these correctly in the inline flow
+                            if let Some(node_id) = shape.source_node_id {
+                                let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].state;
+                                let bg_color = get_background_color(
+                                    self.ctx.styled_dom,
+                                    node_id,
+                                    styled_node_state,
+                                );
+                                
+                                // Only render if there's a visible background
+                                if bg_color.a > 0 {
+                                    let element_size = PhysicalSizeImport {
+                                        width: bounds.width,
+                                        height: bounds.height,
+                                    };
+                                    let border_radius = get_border_radius(
+                                        self.ctx.styled_dom,
+                                        node_id,
+                                        styled_node_state,
+                                        element_size,
+                                        self.ctx.viewport_size,
+                                    );
+                                    
+                                    builder.push_rect(object_bounds, bg_color, border_radius);
+                                    
+                                    eprintln!(
+                                        "[paint_inline_content] ✓ Rendered inline-block: {}x{} @ ({}, {}), color={:?}",
+                                        bounds.width, bounds.height,
+                                        positioned_item.position.x, positioned_item.position.y,
+                                        bg_color
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {} // Other item types (e.g., breaks) don't produce painted output.
