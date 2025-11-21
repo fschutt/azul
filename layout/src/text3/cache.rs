@@ -5290,7 +5290,13 @@ fn classify_character(codepoint: u32) -> CharacterClass {
 /// Helper to get the primary measure (width or height) of a shaped item.
 pub fn get_item_measure<T: ParsedFontTrait>(item: &ShapedItem<T>, is_vertical: bool) -> f32 {
     match item {
-        ShapedItem::Cluster(c) => c.advance,
+        ShapedItem::Cluster(c) => {
+            // Total width = base advance + kerning adjustments
+            // Kerning is stored separately in glyphs for inspection, but the total
+            // cluster width must include it for correct layout positioning
+            let total_kerning: f32 = c.glyphs.iter().map(|g| g.kerning).sum();
+            c.advance + total_kerning
+        }
         ShapedItem::Object { bounds, .. }
         | ShapedItem::CombinedBlock { bounds, .. }
         | ShapedItem::Tab { bounds, .. } => {

@@ -606,13 +606,31 @@ impl ParsedFont {
         println!("[ParsedFont::from_bytes] Calculated space_width: {:?}", space_width);
         println!("[ParsedFont::from_bytes] Total glyph_records_decoded: {}", font.glyph_records_decoded.len());
         
-        // Debug: Check if space glyph is in glyph_records
+        // Ensure space glyph is in glyph_records_decoded
+        // Space glyphs often don't have outlines, so they may not be loaded by default
         if let Some(space_gid) = font.lookup_glyph_index(' ' as u32) {
             println!("[ParsedFont::from_bytes] Space glyph ID: {}", space_gid);
             if let Some(space_record) = font.glyph_records_decoded.get(&space_gid) {
                 println!("[ParsedFont::from_bytes] Space glyph record found: horz_advance={}", space_record.horz_advance);
             } else {
                 println!("[ParsedFont::from_bytes] WARNING: Space glyph ID {} NOT found in glyph_records_decoded!", space_gid);
+                
+                // Add a minimal space glyph record with the calculated advance width
+                if let Some(space_width_val) = space_width {
+                    let space_record = OwnedGlyph {
+                        bounding_box: OwnedGlyphBoundingBox {
+                            max_x: 0,
+                            max_y: 0,
+                            min_x: 0,
+                            min_y: 0,
+                        },
+                        horz_advance: space_width_val as u16,
+                        outline: Vec::new(), // Space has no visual outline
+                        unresolved_composite: Vec::new(),
+                        phantom_points: None,
+                    };
+                    font.glyph_records_decoded.insert(space_gid, space_record);
+                }
             }
         } else {
             println!("[ParsedFont::from_bytes] WARNING: Cannot map space char to glyph ID!");

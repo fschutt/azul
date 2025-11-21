@@ -283,8 +283,11 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<
                 });
             }
 
-            // Advance pen position by advance + kerning
-            pen_x += glyph.advance + glyph.kerning;
+            // Advance pen position - DON'T add kerning here because it's already
+            // included in the positioned_item.position.x from the layout engine!
+            // We only advance by the base advance to track our position within this cluster
+            let old_pen_x = pen_x;
+            pen_x += glyph.advance;
         }
     }
 
