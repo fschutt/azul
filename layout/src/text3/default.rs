@@ -298,6 +298,12 @@ impl ParsedFont {
             // Ensure both operands are i32 before adding
             let advance = (base_advance as i32 + info.kerning as i32) as f32 * scale_factor;
 
+            // Debug output for specific glyphs
+            if source_char == ' ' || source_char == 'W' || source_char == 'o' {
+                println!("[shape_text] char='{}', gid={}, base_advance={}, kerning={}, final_advance={:.2}",
+                    source_char, info.glyph.glyph_index, base_advance, info.kerning, advance);
+            }
+
             let (offset_x_units, offset_y_units) =
                 if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
                     (x, y)

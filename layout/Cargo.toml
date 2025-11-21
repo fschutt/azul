@@ -46,6 +46,7 @@ unicode-normalization   = { version = "0.1.24",  default-features = false, optio
 allsorts = { git = "https://github.com/yeslogic/allsorts", rev = "4c951b440f80f0e05fe9da863d318fb3a805a936", default-features = false, features = ["flate2_rust"], optional = true }
 lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.9.1", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
+base64 = "0.22.1"
 
 [features]
 default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender", "accessibility"]

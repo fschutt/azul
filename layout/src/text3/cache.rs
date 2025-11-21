@@ -2196,7 +2196,8 @@ pub struct VisualItem {
 #[derive(Debug, Clone)]
 pub enum ShapedItem<T: ParsedFontTrait> {
     Cluster(ShapedCluster<T>),
-    /// A block of combined text (tate-chu-yoko) that is laid out as a single unbreakable object.
+    /// A block of combined text (tate-chu-yoko) that is laid out 
+    // as a single unbreakable object.
     CombinedBlock {
         source: ContentIndex,
         /// The glyphs to be rendered horizontally within the vertical line.

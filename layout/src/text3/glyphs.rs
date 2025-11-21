@@ -147,6 +147,155 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<Glyp
     runs
 }
 
+/// A glyph run optimized for PDF rendering.
+/// Groups glyphs by font, color, size, and style, while breaking at line boundaries.
+#[derive(Debug, Clone)]
+pub struct PdfGlyphRun<T: ParsedFontTrait> {
+    /// The glyphs in this run with their absolute positions
+    pub glyphs: Vec<PdfPositionedGlyph>,
+    /// The color of the text
+    pub color: ColorU,
+    /// The font used for this run
+    pub font: T,
+    /// Font hash for identification
+    pub font_hash: u64,
+    /// Font size in pixels
+    pub font_size_px: f32,
+    /// Text decoration flags
+    pub text_decoration: crate::text3::cache::TextDecoration,
+    /// The line index this run belongs to (for breaking runs at line boundaries)
+    pub line_index: usize,
+    /// Text direction for this run
+    pub direction: crate::text3::cache::Direction,
+    /// Writing mode for this run
+    pub writing_mode: crate::text3::cache::WritingMode,
+    /// The starting position (baseline) of this run - used for SetTextMatrix
+    pub baseline_start: Point,
+    /// Original cluster text for debugging/CID mapping
+    pub cluster_texts: Vec<String>,
+}
+
+/// A glyph with its absolute position and cluster text for PDF rendering
+#[derive(Debug, Clone)]
+pub struct PdfPositionedGlyph {
+    /// Glyph ID
+    pub glyph_id: u16,
+    /// Absolute position on the baseline (Y-down coordinate system)
+    pub position: Point,
+    /// The advance width of this glyph
+    pub advance: f32,
+    /// The original cluster text this glyph represents (for CID mapping)
+    pub cluster_text: String,
+}
+
+/// Extract glyph runs optimized for PDF rendering.
+/// This function:
+/// - Groups consecutive glyphs by font, color, size, style, and line
+/// - Breaks runs at line boundaries (different line_index)
+/// - Preserves absolute positioning for each glyph (critical for RTL and complex scripts)
+/// - Includes cluster text for proper CID/Unicode mapping
+pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(layout: &UnifiedLayout<T>) -> Vec<PdfGlyphRun<T>> {
+    let mut runs: Vec<PdfGlyphRun<T>> = Vec::new();
+    let mut current_run: Option<PdfGlyphRun<T>> = None;
+
+    for positioned_item in &layout.items {
+        // Only process text clusters
+        let cluster = match &positioned_item.item {
+            ShapedItem::Cluster(c) => c,
+            _ => continue, // Skip non-text items
+        };
+
+        if cluster.glyphs.is_empty() {
+            continue;
+        }
+
+        // Calculate the baseline position for this cluster
+        let (item_ascent, _) = get_item_vertical_metrics(&positioned_item.item);
+        let baseline_y = positioned_item.position.y + item_ascent;
+
+        // Process each glyph in the cluster
+        let mut pen_x = positioned_item.position.x;
+        
+        for glyph in &cluster.glyphs {
+            let glyph_color = glyph.style.color;
+            let font_hash = glyph.font.get_hash();
+            let font_size_px = glyph.style.font_size_px;
+            let text_decoration = glyph.style.text_decoration.clone();
+            let line_index = positioned_item.line_index;
+            let direction = cluster.direction;
+            let writing_mode = cluster.style.writing_mode;
+
+            // Calculate absolute glyph position on baseline
+            let glyph_position = Point {
+                x: pen_x + glyph.offset.x,
+                y: baseline_y - glyph.offset.y, // Y-down: subtract positive GPOS offset
+            };
+
+            let pdf_glyph = PdfPositionedGlyph {
+                glyph_id: glyph.glyph_id,
+                position: glyph_position,
+                advance: glyph.advance,
+                cluster_text: cluster.text.clone(),
+            };
+
+            // Check if we can add to the current run
+            // Break the run if any style property or line changes
+            let should_break = if let Some(run) = current_run.as_ref() {
+                run.font_hash != font_hash
+                    || run.color != glyph_color
+                    || run.font_size_px != font_size_px
+                    || run.text_decoration != text_decoration
+                    || run.line_index != line_index
+                    || run.direction != direction
+                    || run.writing_mode != writing_mode
+            } else {
+                false
+            };
+
+            if should_break {
+                // Finalize the current run and start a new one
+                if let Some(run) = current_run.take() {
+                    runs.push(run);
+                }
+            }
+
+            if let Some(run) = current_run.as_mut() {
+                // Add to existing run
+                run.glyphs.push(pdf_glyph);
+                run.cluster_texts.push(cluster.text.clone());
+            } else {
+                // Start a new run
+                current_run = Some(PdfGlyphRun {
+                    glyphs: vec![pdf_glyph],
+                    color: glyph_color,
+                    font: glyph.font.clone(),
+                    font_hash,
+                    font_size_px,
+                    text_decoration: text_decoration.clone(),
+                    line_index,
+                    direction,
+                    writing_mode,
+                    baseline_start: Point {
+                        x: pen_x,
+                        y: baseline_y,
+                    },
+                    cluster_texts: vec![cluster.text.clone()],
+                });
+            }
+
+            // Advance pen position
+            pen_x += glyph.advance;
+        }
+    }
+
+    // Push the final run if any
+    if let Some(run) = current_run {
+        runs.push(run);
+    }
+
+    runs
+}
+
 /// Transforms the final layout into a simple list of glyphs and their absolute positions.
 ///
 /// This function iterates through all positioned items in a layout, filtering for text clusters

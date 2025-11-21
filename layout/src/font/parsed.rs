@@ -181,35 +181,33 @@ impl PartialEq for ParsedFont {
 
 impl Eq for ParsedFont {}
 
-// Serialize/Deserialize based on original_bytes
+const FONT_B64_START: &str = "data:font/ttf;base64,";
+
 impl serde::Serialize for ParsedFont {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("ParsedFont", 2)?;
-        state.serialize_field("bytes", &self.original_bytes)?;
-        state.serialize_field("index", &self.original_index)?;
-        state.end()
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use base64::Engine;
+        let s = format!(
+            "{FONT_B64_START}{}",
+            base64::prelude::BASE64_STANDARD.encode(&self.to_bytes(None).unwrap_or_default())
+        );
+        s.serialize(serializer)
     }
 }
 
 impl<'de> serde::Deserialize<'de> for ParsedFont {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct ParsedFontData {
-            bytes: Vec<u8>,
-            index: usize,
-        }
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<ParsedFont, D::Error> {
+        use base64::Engine;
+        let s = String::deserialize(deserializer)?;
+        let b64 = if s.starts_with(FONT_B64_START) {
+            let b = &s[FONT_B64_START.len()..];
+            base64::prelude::BASE64_STANDARD.decode(&b).ok()
+        } else {
+            None
+        };
 
-        let data = ParsedFontData::deserialize(deserializer)?;
         let mut warnings = Vec::new();
-        ParsedFont::from_bytes(&data.bytes, data.index, &mut warnings)
-            .ok_or_else(|| serde::de::Error::custom("Failed to parse font from bytes"))
+        ParsedFont::from_bytes(&b64.unwrap_or_default(), 0, &mut warnings)
+        .ok_or_else(|| serde::de::Error::custom(format!("Font deserialization error: {warnings:?}")))
     }
 }
 
@@ -420,6 +418,7 @@ impl ParsedFont {
         let glyph_records_decoded = if parse_outlines {
             warnings.push(FontParseWarning::info("Parsing glyph outlines and metrics".to_string()));
             // Full parsing: outlines + metrics
+            // CRITICAL: Always call .parse() first to convert Present -> Parsed!
             glyf_table
                 .records_mut()
                 .into_iter()
@@ -428,7 +427,37 @@ impl ParsedFont {
                     if glyph_index > (u16::MAX as usize) {
                         return None;
                     }
-                    glyph_record.parse().ok()?;
+                    
+                    // ALWAYS parse the glyph record first!
+                    if let Err(_e) = glyph_record.parse() {
+                        // If parsing fails, we can still try to get the advance width
+                        let glyph_index = glyph_index as u16;
+                        let horz_advance = allsorts::glyph_info::advance(
+                            &maxp_table,
+                            &hhea_table,
+                            &hmtx_data,
+                            glyph_index,
+                        )
+                        .unwrap_or_default();
+                        
+                        // Return minimal glyph with just advance
+                        return Some((
+                            glyph_index,
+                            OwnedGlyph {
+                                horz_advance,
+                                bounding_box: OwnedGlyphBoundingBox {
+                                    min_x: 0,
+                                    min_y: 0,
+                                    max_x: horz_advance as i16,
+                                    max_y: 0,
+                                },
+                                outline: Vec::new(),
+                                unresolved_composite: Vec::new(),
+                                phantom_points: None,
+                            },
+                        ));
+                    }
+                    
                     let glyph_index = glyph_index as u16;
                     let horz_advance = allsorts::glyph_info::advance(
                         &maxp_table,
@@ -437,8 +466,27 @@ impl ParsedFont {
                         glyph_index,
                     )
                     .unwrap_or_default();
+                    
+                    // After parse(), record should be Parsed, not Present
                     match glyph_record {
-                        GlyfRecord::Present { .. } => None,
+                        GlyfRecord::Present { .. } => {
+                            // This shouldn't happen after parse(), but handle it anyway
+                            Some((
+                                glyph_index,
+                                OwnedGlyph {
+                                    horz_advance,
+                                    bounding_box: OwnedGlyphBoundingBox {
+                                        min_x: 0,
+                                        min_y: 0,
+                                        max_x: horz_advance as i16,
+                                        max_y: 0,
+                                    },
+                                    outline: Vec::new(),
+                                    unresolved_composite: Vec::new(),
+                                    phantom_points: None,
+                                },
+                            ))
+                        }
                         GlyfRecord::Parsed(g) => {
                             OwnedGlyph::from_glyph_data(g, horz_advance).map(|g| (glyph_index, g))
                         }
@@ -553,7 +601,23 @@ impl ParsedFont {
         };
 
         // Calculate space width
+        println!("[ParsedFont::from_bytes] About to calculate space_width...");
         let space_width = font.get_space_width_internal();
+        println!("[ParsedFont::from_bytes] Calculated space_width: {:?}", space_width);
+        println!("[ParsedFont::from_bytes] Total glyph_records_decoded: {}", font.glyph_records_decoded.len());
+        
+        // Debug: Check if space glyph is in glyph_records
+        if let Some(space_gid) = font.lookup_glyph_index(' ' as u32) {
+            println!("[ParsedFont::from_bytes] Space glyph ID: {}", space_gid);
+            if let Some(space_record) = font.glyph_records_decoded.get(&space_gid) {
+                println!("[ParsedFont::from_bytes] Space glyph record found: horz_advance={}", space_record.horz_advance);
+            } else {
+                println!("[ParsedFont::from_bytes] WARNING: Space glyph ID {} NOT found in glyph_records_decoded!", space_gid);
+            }
+        } else {
+            println!("[ParsedFont::from_bytes] WARNING: Cannot map space char to glyph ID!");
+        }
+        
         font.space_width = space_width;
 
         Some(font)
@@ -624,19 +688,28 @@ impl ParsedFont {
         }
     }
 
-    fn get_space_width_internal(&self) -> Option<usize> {
+    pub fn get_space_width_internal(&self) -> Option<usize> {
         if let Some(mock) = self.mock.as_ref() {
             return mock.space_width;
         }
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts::glyph_info::advance(
+        println!("[get_space_width_internal] Space char maps to glyph_index: {}", glyph_index);
+        
+        let advance_result = allsorts::glyph_info::advance(
             &self.maxp_table,
             &self.hhea_table,
             &self.hmtx_data,
             glyph_index,
-        )
-        .ok()
-        .map(|s| s as usize)
+        );
+        
+        match &advance_result {
+            Ok(adv) => println!("[get_space_width_internal] allsorts returned advance: {} font units", adv),
+            Err(e) => println!("[get_space_width_internal] allsorts ERROR: {:?}", e),
+        }
+        
+        let width = advance_result.ok().map(|s| s as usize);
+        println!("[get_space_width_internal] Final space_width: {:?}", width);
+        width
     }
 
     /// Look up the glyph index for a Unicode codepoint
@@ -653,10 +726,18 @@ impl ParsedFont {
         if let Some(mock) = self.mock.as_ref() {
             return mock.glyph_advances.get(&glyph_index).copied().unwrap_or(0);
         }
-        self.glyph_records_decoded
+        let advance = self.glyph_records_decoded
             .get(&glyph_index)
             .map(|gi| gi.horz_advance)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        
+        // Debug: log for space glyph (gid usually 3)
+        if glyph_index == 3 {
+            println!("[get_horizontal_advance] glyph_index={}, advance={}, glyph_records contains key: {}",
+                glyph_index, advance, self.glyph_records_decoded.contains_key(&glyph_index));
+        }
+        
+        advance
     }
 
     /// Get the number of glyphs in this font
