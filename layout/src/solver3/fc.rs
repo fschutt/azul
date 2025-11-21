@@ -749,6 +749,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     for (i, item) in inline_content.iter().enumerate() {
         match item {
             InlineContent::Text(run) => eprintln!("  [{}] Text: '{}'", i, run.text),
+            InlineContent::Marker { run, position_outside } => eprintln!("  [{}] Marker: '{}' (outside={})", i, run.text, position_outside),
             InlineContent::Shape(_) => eprintln!("  [{}] Shape", i),
             InlineContent::Image(_) => eprintln!("  [{}] Image", i),
             _ => eprintln!("  [{}] Other", i),
@@ -2981,29 +2982,61 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         
         // Find the layout node index for the list-item DOM node
         let list_item_layout_idx = tree.nodes.iter().enumerate()
-            .find(|(_, node)| node.dom_node_id == Some(list_dom_id))
+            .find(|(_, node)| node.dom_node_id == Some(list_dom_id) && node.pseudo_element.is_none())
             .map(|(idx, _)| idx);
         
         if let Some(list_idx) = list_item_layout_idx {
-            // Get the DOM ID for this layout node
-            let list_dom_id_for_style = tree.get(list_idx)
-                .and_then(|n| n.dom_node_id)
-                .unwrap_or(list_dom_id);
+            // Per CSS spec, the ::marker pseudo-element is the first child of the list-item
+            // Find the ::marker pseudo-element in the list-item's children
+            let list_item_node = tree.get(list_idx).ok_or(LayoutError::InvalidTree)?;
+            let marker_idx = list_item_node.children.iter().find(|&&child_idx| {
+                tree.get(child_idx)
+                    .map(|child| child.pseudo_element == Some(crate::solver3::layout_tree::PseudoElement::Marker))
+                    .unwrap_or(false)
+            }).copied();
             
-            // Generate marker text segments with proper Unicode font fallback
-            let base_style = Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style));
-            let marker_segments = generate_list_marker_segments(
-                tree,
-                ctx.styled_dom,
-                list_idx,
-                ctx.counters,
-                &ctx.font_manager.fc_cache,
-                base_style,
-            );
-            
-            ctx.debug_ifc_layout(format!("Generated {} list marker segments", marker_segments.len()));
-            for segment in marker_segments {
-                content.push(InlineContent::Text(segment));
+            if let Some(marker_idx) = marker_idx {
+                ctx.debug_ifc_layout(format!("Found ::marker pseudo-element at index {}", marker_idx));
+                
+                // Get the DOM ID for style resolution (marker references the same DOM node as list-item)
+                let list_dom_id_for_style = tree.get(marker_idx)
+                    .and_then(|n| n.dom_node_id)
+                    .unwrap_or(list_dom_id);
+                
+                // Get list-style-position to determine marker positioning
+                // Default is 'outside' per CSS Lists Module Level 3
+                use crate::solver3::getters::get_list_style_position;
+                use azul_css::props::style::lists::StyleListStylePosition;
+                
+                let list_style_position = get_list_style_position(ctx.styled_dom, Some(list_dom_id));
+                let position_outside = matches!(list_style_position, StyleListStylePosition::Outside);
+                
+                ctx.debug_ifc_layout(format!("List marker list-style-position: {:?} (outside={})", 
+                                             list_style_position, position_outside));
+                
+                // Generate marker text segments with proper Unicode font fallback
+                let base_style = Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style));
+                let marker_segments = generate_list_marker_segments(
+                    tree,
+                    ctx.styled_dom,
+                    marker_idx,  // Pass the marker index, not the list-item index
+                    ctx.counters,
+                    &ctx.font_manager.fc_cache,
+                    base_style,
+                );
+                
+                ctx.debug_ifc_layout(format!("Generated {} list marker segments", marker_segments.len()));
+                
+                // Add markers as InlineContent::Marker with position information
+                // Outside markers will be positioned in the padding gutter by the layout engine
+                for segment in marker_segments {
+                    content.push(InlineContent::Marker {
+                        run: segment,
+                        position_outside,
+                    });
+                }
+            } else {
+                ctx.debug_ifc_layout(format!("WARNING: List-item at index {} has no ::marker pseudo-element", list_idx));
             }
         }
     }
@@ -3702,6 +3735,10 @@ fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::Layout
 ///
 /// This function looks up the counter value from the cache and formats it
 /// according to the list-style-type property.
+/// 
+/// Per CSS Lists Module Level 3, the ::marker pseudo-element is the first child
+/// of the list-item, and references the same DOM node. Counter resolution happens
+/// on the list-item (parent) node.
 fn generate_list_marker_text<T: ParsedFontTrait>(
     tree: &LayoutTree<T>,
     styled_dom: &StyledDom,
@@ -3711,30 +3748,50 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     use crate::solver3::{counters::format_counter, getters::get_list_style_type};
     use azul_css::props::style::lists::StyleListStyleType;
     
-    // Get the parent list-item node
+    // Get the marker node
     let marker_node = match tree.get(marker_index) {
         Some(n) => n,
         None => return String::new(),
     };
     
-    let parent_index = match marker_node.parent {
+    // Verify this is actually a ::marker pseudo-element
+    // Per spec, markers must be pseudo-elements, not anonymous boxes
+    if marker_node.pseudo_element != Some(crate::solver3::layout_tree::PseudoElement::Marker) {
+        eprintln!("[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element (pseudo={:?}, anonymous_type={:?})", 
+                 marker_index, marker_node.pseudo_element, marker_node.anonymous_type);
+        // Fallback for old-style anonymous markers during transition
+        if marker_node.anonymous_type != Some(crate::solver3::layout_tree::AnonymousBoxType::ListItemMarker) {
+            return String::new();
+        }
+    }
+    
+    // Get the parent list-item node (::marker is first child of list-item)
+    let list_item_index = match marker_node.parent {
         Some(p) => p,
-        None => return String::new(),
+        None => {
+            eprintln!("[generate_list_marker_text] ERROR: Marker has no parent");
+            return String::new();
+        }
     };
     
-    let parent_node = match tree.get(parent_index) {
+    let list_item_node = match tree.get(list_item_index) {
         Some(n) => n,
         None => return String::new(),
     };
     
-    let parent_dom_id = match parent_node.dom_node_id {
+    let list_item_dom_id = match list_item_node.dom_node_id {
         Some(id) => id,
-        None => return String::new(),
+        None => {
+            eprintln!("[generate_list_marker_text] ERROR: List-item has no DOM ID");
+            return String::new();
+        }
     };
     
-    // Get list-style-type from the list container (<ul> or <ol>)
-    // We need to look at the grandparent to find the list container
-    let list_container_dom_id = if let Some(grandparent_index) = parent_node.parent {
+    eprintln!("[generate_list_marker_text] marker_index={}, list_item_index={}, list_item_dom_id={:?}", 
+             marker_index, list_item_index, list_item_dom_id);
+    
+    // Get list-style-type from the list-item or its container
+    let list_container_dom_id = if let Some(grandparent_index) = list_item_node.parent {
         if let Some(grandparent) = tree.get(grandparent_index) {
             grandparent.dom_node_id
         } else {
@@ -3747,21 +3804,27 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     // Try to get list-style-type from the list container first, then fall back to the list-item
     let list_style_type = if let Some(container_id) = list_container_dom_id {
         let container_type = get_list_style_type(styled_dom, Some(container_id));
-        // If the container has a specific style, use it; otherwise check the list-item itself
         if container_type != StyleListStyleType::default() {
             container_type
         } else {
-            get_list_style_type(styled_dom, Some(parent_dom_id))
+            get_list_style_type(styled_dom, Some(list_item_dom_id))
         }
     } else {
-        get_list_style_type(styled_dom, Some(parent_dom_id))
+        get_list_style_type(styled_dom, Some(list_item_dom_id))
     };
     
-    // Get the counter value for "list-item" counter
+    // Get the counter value for "list-item" counter from the LIST-ITEM node
+    // Per CSS spec, counters are scoped to elements, and the list-item counter
+    // is incremented at the list-item element, not the marker pseudo-element
     let counter_value = counters
-        .get(&(parent_index, "list-item".to_string()))
+        .get(&(list_item_index, "list-item".to_string()))
         .copied()
-        .unwrap_or(1);
+        .unwrap_or_else(|| {
+            eprintln!("[generate_list_marker_text] WARNING: No counter found for list-item at index {}, defaulting to 1", list_item_index);
+            1
+        });
+    
+    eprintln!("[generate_list_marker_text] counter_value={} for list_item_index={}", counter_value, list_item_index);
     
     // Format the counter according to the list-style-type
     let marker_text = format_counter(counter_value, list_style_type);

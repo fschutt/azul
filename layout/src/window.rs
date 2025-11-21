@@ -4629,6 +4629,10 @@ impl LayoutWindow {
                     // For Ruby annotations, include the base text
                     result.push_str(&self.extract_text_from_inline_content(base));
                 }
+                InlineContent::Marker { run, .. } => {
+                    // Markers contribute their text
+                    result.push_str(&run.text);
+                }
                 // Images and shapes don't contribute to plain text
                 InlineContent::Image(_) | InlineContent::Shape(_) => {}
             }

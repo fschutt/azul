@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 143] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 145] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -136,6 +136,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 143] = [
     (CssPropertyType::PaddingLeft, "padding-left"),
     (CssPropertyType::PaddingRight, "padding-right"),
     (CssPropertyType::PaddingBottom, "padding-bottom"),
+    (CssPropertyType::PaddingInlineStart, "padding-inline-start"),
+    (CssPropertyType::PaddingInlineEnd, "padding-inline-end"),
     (CssPropertyType::MarginTop, "margin-top"),
     (CssPropertyType::MarginLeft, "margin-left"),
     (CssPropertyType::MarginRight, "margin-right"),
@@ -315,6 +317,8 @@ pub type LayoutPaddingTopValue = CssPropertyValue<LayoutPaddingTop>;
 pub type LayoutPaddingBottomValue = CssPropertyValue<LayoutPaddingBottom>;
 pub type LayoutPaddingLeftValue = CssPropertyValue<LayoutPaddingLeft>;
 pub type LayoutPaddingRightValue = CssPropertyValue<LayoutPaddingRight>;
+pub type LayoutPaddingInlineStartValue = CssPropertyValue<LayoutPaddingInlineStart>;
+pub type LayoutPaddingInlineEndValue = CssPropertyValue<LayoutPaddingInlineEnd>;
 pub type LayoutMarginTopValue = CssPropertyValue<LayoutMarginTop>;
 pub type LayoutMarginBottomValue = CssPropertyValue<LayoutMarginBottom>;
 pub type LayoutTextJustifyValue = CssPropertyValue<LayoutTextJustify>;
@@ -553,6 +557,8 @@ pub enum CssProperty {
     PaddingLeft(LayoutPaddingLeftValue),
     PaddingRight(LayoutPaddingRightValue),
     PaddingBottom(LayoutPaddingBottomValue),
+    PaddingInlineStart(LayoutPaddingInlineStartValue),
+    PaddingInlineEnd(LayoutPaddingInlineEndValue),
     MarginTop(LayoutMarginTopValue),
     MarginLeft(LayoutMarginLeftValue),
     MarginRight(LayoutMarginRightValue),
@@ -730,6 +736,8 @@ pub enum CssPropertyType {
     PaddingLeft,
     PaddingRight,
     PaddingBottom,
+    PaddingInlineStart,
+    PaddingInlineEnd,
     MarginTop,
     MarginLeft,
     MarginRight,
@@ -913,6 +921,8 @@ impl CssPropertyType {
             CssPropertyType::PaddingLeft => "padding-left",
             CssPropertyType::PaddingRight => "padding-right",
             CssPropertyType::PaddingBottom => "padding-bottom",
+            CssPropertyType::PaddingInlineStart => "padding-inline-start",
+            CssPropertyType::PaddingInlineEnd => "padding-inline-end",
             CssPropertyType::MarginTop => "margin-top",
             CssPropertyType::MarginLeft => "margin-left",
             CssPropertyType::MarginRight => "margin-right",
@@ -2305,6 +2315,8 @@ pub fn parse_css_property<'a>(
             CssPropertyType::PaddingLeft => parse_layout_padding_left(value)?.into(),
             CssPropertyType::PaddingRight => parse_layout_padding_right(value)?.into(),
             CssPropertyType::PaddingBottom => parse_layout_padding_bottom(value)?.into(),
+            CssPropertyType::PaddingInlineStart => parse_layout_padding_inline_start(value)?.into(),
+            CssPropertyType::PaddingInlineEnd => parse_layout_padding_inline_end(value)?.into(),
 
             CssPropertyType::MarginTop => parse_layout_margin_top(value)?.into(),
             CssPropertyType::MarginLeft => parse_layout_margin_left(value)?.into(),
@@ -3157,6 +3169,8 @@ impl_from_css_prop!(LayoutPaddingTop, CssProperty::PaddingTop);
 impl_from_css_prop!(LayoutPaddingLeft, CssProperty::PaddingLeft);
 impl_from_css_prop!(LayoutPaddingRight, CssProperty::PaddingRight);
 impl_from_css_prop!(LayoutPaddingBottom, CssProperty::PaddingBottom);
+impl_from_css_prop!(LayoutPaddingInlineStart, CssProperty::PaddingInlineStart);
+impl_from_css_prop!(LayoutPaddingInlineEnd, CssProperty::PaddingInlineEnd);
 impl_from_css_prop!(LayoutMarginTop, CssProperty::MarginTop);
 impl_from_css_prop!(LayoutMarginLeft, CssProperty::MarginLeft);
 impl_from_css_prop!(LayoutMarginRight, CssProperty::MarginRight);
@@ -3307,6 +3321,8 @@ impl CssProperty {
             CssProperty::PaddingLeft(v) => v.get_css_value_fmt(),
             CssProperty::PaddingRight(v) => v.get_css_value_fmt(),
             CssProperty::PaddingBottom(v) => v.get_css_value_fmt(),
+            CssProperty::PaddingInlineStart(v) => v.get_css_value_fmt(),
+            CssProperty::PaddingInlineEnd(v) => v.get_css_value_fmt(),
             CssProperty::MarginTop(v) => v.get_css_value_fmt(),
             CssProperty::MarginLeft(v) => v.get_css_value_fmt(),
             CssProperty::MarginRight(v) => v.get_css_value_fmt(),
@@ -3751,6 +3767,8 @@ impl CssProperty {
             CssProperty::PaddingLeft(_) => CssPropertyType::PaddingLeft,
             CssProperty::PaddingRight(_) => CssPropertyType::PaddingRight,
             CssProperty::PaddingBottom(_) => CssPropertyType::PaddingBottom,
+            CssProperty::PaddingInlineStart(_) => CssPropertyType::PaddingInlineStart,
+            CssProperty::PaddingInlineEnd(_) => CssPropertyType::PaddingInlineEnd,
             CssProperty::MarginTop(_) => CssPropertyType::MarginTop,
             CssProperty::MarginLeft(_) => CssPropertyType::MarginLeft,
             CssProperty::MarginRight(_) => CssPropertyType::MarginRight,
@@ -5197,6 +5215,8 @@ impl CssProperty {
             PaddingLeft(c) => c.is_initial(),
             PaddingRight(c) => c.is_initial(),
             PaddingBottom(c) => c.is_initial(),
+            PaddingInlineStart(c) => c.is_initial(),
+            PaddingInlineEnd(c) => c.is_initial(),
             MarginTop(c) => c.is_initial(),
             MarginLeft(c) => c.is_initial(),
             MarginRight(c) => c.is_initial(),
@@ -5822,6 +5842,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::PaddingBottom(p) => format!(
             "CssProperty::PaddingBottom({})",
             print_css_property_value(p, tabs, "LayoutPaddingBottom")
+        ),
+        CssProperty::PaddingInlineStart(p) => format!(
+            "CssProperty::PaddingInlineStart({})",
+            print_css_property_value(p, tabs, "LayoutPaddingInlineStart")
+        ),
+        CssProperty::PaddingInlineEnd(p) => format!(
+            "CssProperty::PaddingInlineEnd({})",
+            print_css_property_value(p, tabs, "LayoutPaddingInlineEnd")
         ),
         CssProperty::MarginTop(p) => format!(
             "CssProperty::MarginTop({})",

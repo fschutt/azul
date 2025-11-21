@@ -820,6 +820,14 @@ pub enum InlineContent {
     Space(InlineSpace),
     LineBreak(InlineBreak),
     Tab,
+    /// List marker (::marker pseudo-element)
+    /// Markers with list-style-position: outside are positioned
+    /// in the padding gutter of the list container
+    Marker {
+        run: StyledRun,
+        /// Whether marker is positioned outside (in padding) or inside (inline)
+        position_outside: bool,
+    },
     // Ruby annotation
     Ruby {
         base: Vec<InlineContent>,
@@ -2169,6 +2177,10 @@ pub enum LogicalItem {
         /// The text of this specific logical item (often a single grapheme cluster).
         text: String,
         style: Arc<StyleProperties>,
+        /// If this text is a list marker: whether it should be positioned outside
+        /// (in the padding gutter) or inside (inline with content).
+        /// None for non-marker content.
+        marker_position_outside: Option<bool>,
     },
     /// Tate-chu-yoko: Run of text to be laid out horizontally within a vertical context.
     CombinedText {
@@ -2208,10 +2220,12 @@ impl Hash for LogicalItem {
                 source,
                 text,
                 style,
+                marker_position_outside,
             } => {
                 source.hash(state);
                 text.hash(state);
                 style.as_ref().hash(state); // Hash the content, not the Arc pointer
+                marker_position_outside.hash(state);
             }
             LogicalItem::CombinedText {
                 source,
@@ -2356,6 +2370,10 @@ pub struct ShapedCluster<T: ParsedFontTrait> {
     pub direction: Direction,
     /// Font style of this cluster
     pub style: Arc<StyleProperties>,
+    /// If this cluster is a list marker: whether it should be positioned outside
+    /// (in the padding gutter) or inside (inline with content).
+    /// None for non-marker content.
+    pub marker_position_outside: Option<bool>,
 }
 
 /// A single, shaped glyph with its essential metrics.
@@ -3679,8 +3697,15 @@ pub fn create_logical_items(
 
     for (run_idx, inline_item) in content.iter().enumerate() {
         println!("Processing content run #{}", run_idx);
+        
+        // Extract marker information if this is a marker
+        let marker_position_outside = match inline_item {
+            InlineContent::Marker { position_outside, .. } => Some(*position_outside),
+            _ => None,
+        };
+        
         match inline_item {
-            InlineContent::Text(run) => {
+            InlineContent::Text(run) | InlineContent::Marker { run, .. } => {
                 let text = &run.text;
                 if text.is_empty() {
                     println!("  Run is empty, skipping.");
@@ -3806,6 +3831,7 @@ pub fn create_logical_items(
                             },
                             text: text_slice.to_string(),
                             style: style_to_use,
+                            marker_position_outside,
                         });
                     }
                 }
@@ -3950,7 +3976,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
 
     for item in visual_items {
         match &item.logical_source {
-            LogicalItem::Text { style, source, .. } => {
+            LogicalItem::Text { style, source, marker_position_outside, .. } => {
                 let direction = if item.bidi_level.is_rtl() {
                     Direction::Rtl
                 } else {
@@ -3995,7 +4021,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 };
                 let language = script_to_language(item.script, &item.text);
 
-                let shaped_clusters = shape_text_correctly(
+                let mut shaped_clusters = shape_text_correctly(
                     &item.text,
                     item.script,
                     language,
@@ -4004,6 +4030,14 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                     style,
                     *source,
                 )?;
+                
+                // Set marker flag on all clusters if this is a marker
+                if let Some(is_outside) = marker_position_outside {
+                    for cluster in &mut shaped_clusters {
+                        cluster.marker_position_outside = Some(*is_outside);
+                    }
+                }
+                
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
             LogicalItem::Tab { source, style } => {
@@ -4204,6 +4238,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 advance,
                 direction,
                 style: style.clone(),
+                marker_position_outside: None,
             });
             current_cluster_glyphs.clear();
             cluster_id = glyph.cluster;
@@ -4255,6 +4290,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             advance,
             direction,
             style: style.clone(),
+            marker_position_outside: None,
         });
     }
 
@@ -4297,6 +4333,10 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
             },
             0.0,
         )),
+        InlineContent::Marker { .. } => {
+            // Markers are treated as text content, not measurable objects
+            Err(LayoutError::InvalidText("Marker is text content, not a measurable object".into()))
+        }
         _ => Err(LayoutError::InvalidText("Not a measurable object".into())),
     }
 }
@@ -4914,6 +4954,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
             advance: hyphen_advance,
             direction: Direction::Ltr,
             style: style.clone(),
+            marker_position_outside: None,
         });
 
         possible_breaks.push(HyphenationBreak {
@@ -5184,6 +5225,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 _ => line_baseline_y, // Baseline
             };
 
+            // Calculate item measure (needed for both positioning and pen advance)
+            let item_measure = get_item_measure(&item, is_vertical);
+
             let position = if is_vertical {
                 Point {
                     x: item_baseline_pos - item_ascent,
@@ -5192,13 +5236,31 @@ pub fn position_one_line<T: ParsedFontTrait>(
             } else {
                 println!("[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, item_ascent={}", 
                     main_axis_pen, item_baseline_pos, item_ascent);
+                
+                // Check if this is an outside marker - if so, position it in the padding gutter
+                let x_position = if let ShapedItem::Cluster(cluster) = &item {
+                    if cluster.marker_position_outside == Some(true) {
+                        // Position marker to the left (negative offset) so it appears in the padding area
+                        // The marker width + some spacing should fit in the container's padding-left (40px by default)
+                        let marker_width = item_measure;
+                        let spacing = 4.0; // Small gap between marker and content
+                        println!("[Pos1Line] Outside marker detected! width={}, positioning at x={}", 
+                                 marker_width, -(marker_width + spacing));
+                        -(marker_width + spacing)
+                    } else {
+                        main_axis_pen
+                    }
+                } else {
+                    main_axis_pen
+                };
+                
                 Point {
                     y: item_baseline_pos - item_ascent,
-                    x: main_axis_pen,
+                    x: x_position,
                 }
             };
 
-            let item_measure = get_item_measure(&item, is_vertical);
+            // item_measure is calculated above for marker positioning
             let item_text = item
                 .as_cluster()
                 .map(|c| c.text.as_str())
@@ -5212,25 +5274,37 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 position,
                 line_index,
             });
-            main_axis_pen += item_measure;
+            
+            // Outside markers don't advance the pen - they're positioned in the padding gutter
+            let is_outside_marker = if let ShapedItem::Cluster(c) = &item {
+                c.marker_position_outside == Some(true)
+            } else {
+                false
+            };
+            
+            if !is_outside_marker {
+                main_axis_pen += item_measure;
+            }
 
-            // Apply calculated spacing to the pen
-            if extra_char_spacing > 0.0 && can_justify_after(&item) {
+            // Apply calculated spacing to the pen (skip for outside markers)
+            if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) {
                 main_axis_pen += extra_char_spacing;
             }
             if let ShapedItem::Cluster(c) = &item {
-                let letter_spacing_px = match c.style.letter_spacing {
-                    Spacing::Px(px) => px as f32,
-                    Spacing::Em(em) => em * c.style.font_size_px,
-                };
-                main_axis_pen += letter_spacing_px;
-                if is_word_separator(&item) {
-                    let word_spacing_px = match c.style.word_spacing {
+                if !is_outside_marker {
+                    let letter_spacing_px = match c.style.letter_spacing {
                         Spacing::Px(px) => px as f32,
                         Spacing::Em(em) => em * c.style.font_size_px,
                     };
-                    main_axis_pen += word_spacing_px;
-                    main_axis_pen += extra_word_spacing;
+                    main_axis_pen += letter_spacing_px;
+                    if is_word_separator(&item) {
+                        let word_spacing_px = match c.style.word_spacing {
+                            Spacing::Px(px) => px as f32,
+                            Spacing::Em(em) => em * c.style.font_size_px,
+                        };
+                        main_axis_pen += word_spacing_px;
+                        main_axis_pen += extra_word_spacing;
+                    }
                 }
             }
         }
@@ -5476,6 +5550,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             advance: kashida_advance,
             direction: Direction::Ltr,
             style,
+            marker_position_outside: None,
         })
     };
 

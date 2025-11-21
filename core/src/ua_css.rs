@@ -103,9 +103,10 @@ use azul_css::{
             spacing::{
                 LayoutMarginTop, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
                 LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+                LayoutPaddingInlineStart, LayoutPaddingInlineEnd,
             },
         },
-        style::{StyleTextAlign, StyleVerticalAlign, lists::StyleListStyleType},
+        style::{StyleTextAlign, StyleVerticalAlign, content::CounterReset, lists::StyleListStyleType},
         property::{CssProperty, CssPropertyType},
     },
 };
@@ -424,6 +425,27 @@ static LIST_STYLE_TYPE_DECIMAL: CssProperty = CssProperty::ListStyleType(CssProp
     StyleListStyleType::Decimal,
 ));
 
+/// counter-reset: list-item 0 (default for <ul>, <ol>)
+/// Per CSS Lists Module Level 3, list containers automatically reset the list-item counter
+static COUNTER_RESET_LIST_ITEM: CssProperty = CssProperty::CounterReset(CssPropertyValue::Exact(
+    CounterReset::list_item(),
+));
+
+/// padding-inline-start: 40px (default for <li>)
+/// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
+/// padding-inline-start: 40px for list items per CSS Lists Module Level 3
+/// Applied to <li> items to create gutter space for ::marker pseudo-elements
+/// NOTE: This should be on the list items, not the container, because:
+/// 1. ::marker pseudo-elements are children of <li>, not <ul>/<ol>
+/// 2. The marker needs to be positioned relative to the list item's content box
+/// 3. Padding on <li> creates space between the marker and the text content
+/// TODO: Change to PaddingInlineStart once logical property resolution is implemented
+static PADDING_INLINE_START_40PX: CssProperty = CssProperty::PaddingLeft(CssPropertyValue::Exact(
+    LayoutPaddingLeft {
+        inner: PixelValue::const_px(40),
+    },
+));
+
 // TODO: Uncomment when TextDecoration is implemented in azul-css
 // const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
 //     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
@@ -552,13 +574,17 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
         (NT::H6, PT::MarginBottom) => Some(&MARGIN_BOTTOM_2_33EM),
 
-        // Lists
+        // Lists - padding on container creates gutter for markers
         (NT::Ul, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Ul, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DISC),
+        (NT::Ul, PT::CounterReset) => Some(&COUNTER_RESET_LIST_ITEM),
+        (NT::Ul, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
         (NT::Ol, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Ol, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DECIMAL),
+        (NT::Ol, PT::CounterReset) => Some(&COUNTER_RESET_LIST_ITEM),
+        (NT::Ol, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
         (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
         (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dl, PT::Width) => Some(&WIDTH_100_PERCENT),

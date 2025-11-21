@@ -45,6 +45,8 @@ define_spacing_property!(LayoutPaddingTop);
 define_spacing_property!(LayoutPaddingRight);
 define_spacing_property!(LayoutPaddingBottom);
 define_spacing_property!(LayoutPaddingLeft);
+define_spacing_property!(LayoutPaddingInlineStart);
+define_spacing_property!(LayoutPaddingInlineEnd);
 
 define_spacing_property!(LayoutMarginTop);
 define_spacing_property!(LayoutMarginRight);
@@ -337,6 +339,10 @@ typed_pixel_value_parser!(parse_layout_padding_right, LayoutPaddingRight);
 typed_pixel_value_parser!(parse_layout_padding_bottom, LayoutPaddingBottom);
 #[cfg(feature = "parser")]
 typed_pixel_value_parser!(parse_layout_padding_left, LayoutPaddingLeft);
+#[cfg(feature = "parser")]
+typed_pixel_value_parser!(parse_layout_padding_inline_start, LayoutPaddingInlineStart);
+#[cfg(feature = "parser")]
+typed_pixel_value_parser!(parse_layout_padding_inline_end, LayoutPaddingInlineEnd);
 
 #[cfg(feature = "parser")]
 typed_pixel_value_parser!(parse_layout_margin_top, LayoutMarginTop);

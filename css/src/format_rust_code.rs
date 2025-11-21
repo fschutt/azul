@@ -424,6 +424,8 @@ impl_pixel_value_fmt!(LayoutPaddingTop);
 impl_pixel_value_fmt!(LayoutPaddingBottom);
 impl_pixel_value_fmt!(LayoutPaddingRight);
 impl_pixel_value_fmt!(LayoutPaddingLeft);
+impl_pixel_value_fmt!(LayoutPaddingInlineStart);
+impl_pixel_value_fmt!(LayoutPaddingInlineEnd);
 
 impl FormatAsRustCode for LayoutWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {

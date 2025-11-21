@@ -402,6 +402,25 @@ pub fn reconcile_recursive<T: ParsedFontTrait>(
         new_node_idx
     );
 
+    // CRITICAL: For list-items, create a ::marker pseudo-element as the first child
+    // This must be done after the node is created but before processing children
+    // Per CSS Lists Module Level 3, ::marker is generated as the first child of list-items
+    {
+        use azul_css::props::layout::LayoutDisplay;
+        let node_data = &styled_dom.node_data.as_container()[new_dom_id];
+        let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].state;
+        let cache = &styled_dom.css_property_cache.ptr;
+        
+        if let Some(display_value) = cache.get_display(node_data, &new_dom_id, node_state) {
+            if let Some(display) = display_value.get_property() {
+                if *display == LayoutDisplay::ListItem {
+                    // Create ::marker pseudo-element for this list-item
+                    new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
+                }
+            }
+        }
+    }
+
     // Reconcile children to check for structural changes and build the new tree structure.
     let hierarchy_container = styled_dom.node_hierarchy.as_container();
     let new_children_dom_ids: Vec<_> = {
@@ -906,6 +925,30 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
         None => return,
     };
     
+    // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
+    // Pseudo-elements inherit counter values from their parent element
+    // but don't participate in counter-reset or counter-increment themselves
+    if node.pseudo_element.is_some() {
+        // Store the parent's counter values for this pseudo-element
+        // so it can be looked up during marker text generation
+        if let Some(parent_idx) = node.parent {
+            // Copy all counter values from parent to this pseudo-element
+            let parent_counters: Vec<_> = counters
+                .iter()
+                .filter(|((idx, _), _)| *idx == parent_idx)
+                .map(|((_, name), &value)| (name.clone(), value))
+                .collect();
+            
+            for (counter_name, value) in parent_counters {
+                counters.insert((node_idx, counter_name), value);
+            }
+        }
+        
+        // Don't recurse to children of pseudo-elements
+        // (pseudo-elements shouldn't have children in normal circumstances)
+        return;
+    }
+    
     // Only process real DOM nodes, not anonymous boxes
     let dom_id = match node.dom_node_id {
         Some(id) => id,
@@ -938,58 +981,42 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
         .and_then(|d| d.get_property().copied());
     let is_list_item = matches!(display, Some(azul_css::props::layout::LayoutDisplay::ListItem));
     
-    // Process counter-reset
+    // Process counter-reset (now properly typed)
     if let Some(counter_reset_value) = cache.get_counter_reset(node_data, &dom_id, node_state) {
         if let Some(counter_reset) = counter_reset_value.get_property() {
-            let reset_str = counter_reset.inner.as_str();
-            if reset_str != "none" {
-                // Parse counter-reset: "counter-name value"
-                // e.g., "list-item 0" or "section 1"
-                let parts: Vec<&str> = reset_str.split_whitespace().collect();
-                if !parts.is_empty() {
-                    let counter_name = parts[0].to_string();
-                    let reset_value = if parts.len() > 1 {
-                        parts[1].parse::<i32>().unwrap_or(0)
-                    } else {
-                        0 // Default reset value is 0
-                    };
-                    
-                    // Reset the counter by pushing a new scope
-                    counter_stacks
-                        .entry(counter_name.clone())
-                        .or_default()
-                        .push(reset_value);
-                    reset_counters_at_this_level.push(counter_name);
-                }
+            let counter_name_str = counter_reset.counter_name.as_str();
+            if counter_name_str != "none" {
+                let counter_name = counter_name_str.to_string();
+                let reset_value = counter_reset.value;
+                
+                eprintln!("[compute_counters] Resetting counter '{}' to {} at node_idx={}", counter_name, reset_value, node_idx);
+                
+                // Reset the counter by pushing a new scope
+                counter_stacks
+                    .entry(counter_name.clone())
+                    .or_default()
+                    .push(reset_value);
+                reset_counters_at_this_level.push(counter_name);
             }
         }
     }
     
-    // Process counter-increment
+    // Process counter-increment (now properly typed)
     if let Some(counter_inc_value) = cache.get_counter_increment(node_data, &dom_id, node_state) {
         if let Some(counter_inc) = counter_inc_value.get_property() {
-            let inc_str = counter_inc.inner.as_str();
-            if inc_str != "none" {
-                // Parse counter-increment: "counter-name value"
-                // e.g., "list-item 1" or "list-item"
-                let parts: Vec<&str> = inc_str.split_whitespace().collect();
-                if !parts.is_empty() {
-                    let counter_name = parts[0].to_string();
-                    let inc_value = if parts.len() > 1 {
-                        parts[1].parse::<i32>().unwrap_or(1)
-                    } else {
-                        1 // Default increment value is 1
-                    };
-                    
-                    // Increment the counter in the current scope
-                    let stack = counter_stacks.entry(counter_name.clone()).or_default();
-                    if stack.is_empty() {
-                        // Auto-initialize if counter doesn't exist
-                        stack.push(inc_value);
-                    } else {
-                        if let Some(current) = stack.last_mut() {
-                            *current += inc_value;
-                        }
+            let counter_name_str = counter_inc.counter_name.as_str();
+            if counter_name_str != "none" {
+                let counter_name = counter_name_str.to_string();
+                let inc_value = counter_inc.value;
+                
+                // Increment the counter in the current scope
+                let stack = counter_stacks.entry(counter_name.clone()).or_default();
+                if stack.is_empty() {
+                    // Auto-initialize if counter doesn't exist
+                    stack.push(inc_value);
+                } else {
+                    if let Some(current) = stack.last_mut() {
+                        *current += inc_value;
                     }
                 }
             }
@@ -1014,6 +1041,7 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
     // Store the current counter values for this node
     for (counter_name, stack) in counter_stacks.iter() {
         if let Some(&value) = stack.last() {
+            eprintln!("[compute_counters] Storing counter '{}' = {} for node_idx={}", counter_name, value, node_idx);
             counters.insert((node_idx, counter_name.clone()), value);
         }
     }

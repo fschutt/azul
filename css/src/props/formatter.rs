@@ -144,6 +144,18 @@ impl PrintAsCssValue for LayoutPaddingBottom {
     }
 }
 
+impl PrintAsCssValue for LayoutPaddingInlineStart {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
+impl PrintAsCssValue for LayoutPaddingInlineEnd {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self.inner)
+    }
+}
+
 impl PrintAsCssValue for LayoutMarginTop {
     fn print_as_css_value(&self) -> String {
         format!("{}", self.inner)

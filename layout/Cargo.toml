@@ -16,7 +16,7 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2021"
-autoexamples = false
+autoexamples = true
 
 [dependencies]
 azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }

@@ -396,6 +396,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::PaddingBottom => {
                 CssProperty::PaddingBottom(CssPropertyValue::$content_type)
             }
+            CssPropertyType::PaddingInlineStart => {
+                CssProperty::PaddingInlineStart(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::PaddingInlineEnd => {
+                CssProperty::PaddingInlineEnd(CssPropertyValue::$content_type)
+            }
             CssPropertyType::MarginTop => CssProperty::MarginTop(CssPropertyValue::$content_type),
             CssPropertyType::MarginLeft => CssProperty::MarginLeft(CssPropertyValue::$content_type),
             CssPropertyType::MarginRight => {
