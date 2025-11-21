@@ -123,20 +123,84 @@ impl FloatValue {
     /// This is needed because f32 operations are not allowed in const fn,
     /// but we still want to represent values like 1.5, 0.83, etc.
     ///
+    /// The function automatically detects the number of decimal places in `post_comma`
+    /// and supports up to 3 decimal places. If more digits are provided, only the first
+    /// 3 are used (truncation, not rounding).
+    ///
     /// # Arguments
     /// * `pre_comma` - The integer part (e.g., 1 for 1.5)
-    /// * `post_comma` - The fractional part as a single digit (e.g., 5 for 0.5)
+    /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5, 52 for 0.52, 523 for 0.523)
     ///
     /// # Examples
     /// ```
     /// // 1.5 = const_new_fractional(1, 5)
+    /// // 1.52 = const_new_fractional(1, 52)
+    /// // 1.523 = const_new_fractional(1, 523)
     /// // 0.83 = const_new_fractional(0, 83)
     /// // 1.17 = const_new_fractional(1, 17)
+    /// // 2.123456 -> 2.123 (truncated to 3 decimal places)
     /// ```
     #[inline]
     pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+        // Get absolute value for digit counting
+        let abs_post = if post_comma < 0 { -post_comma } else { post_comma };
+        
+        // Determine the number of digits and extract only the first 3
+        let (normalized_post, divisor) = if abs_post < 10 {
+            // 1 digit: 5 → 0.5
+            (abs_post, 10)
+        } else if abs_post < 100 {
+            // 2 digits: 83 → 0.83
+            (abs_post, 100)
+        } else if abs_post < 1000 {
+            // 3 digits: 523 → 0.523
+            (abs_post, 1000)
+        } else if abs_post < 10000 {
+            // 4+ digits: take first 3 (e.g., 5234 → 523 → 0.523)
+            (abs_post / 10, 1000)
+        } else if abs_post < 100000 {
+            (abs_post / 100, 1000)
+        } else if abs_post < 1000000 {
+            (abs_post / 1000, 1000)
+        } else if abs_post < 10000000 {
+            (abs_post / 10000, 1000)
+        } else if abs_post < 100000000 {
+            (abs_post / 100000, 1000)
+        } else if abs_post < 1000000000 {
+            (abs_post / 1000000, 1000)
+        } else if abs_post < 10000000000 {
+            (abs_post / 10000000, 1000)
+        } else if abs_post < 100000000000 {
+            (abs_post / 100000000, 1000)
+        } else if abs_post < 1000000000000 {
+            (abs_post / 1000000000, 1000)
+        } else if abs_post < 10000000000000 {
+            (abs_post / 10000000000, 1000)
+        } else if abs_post < 100000000000000 {
+            (abs_post / 100000000000, 1000)
+        } else if abs_post < 1000000000000000 {
+            (abs_post / 1000000000000, 1000)
+        } else {
+            // Cap at maximum isize support
+            (abs_post / 10000000000000, 1000)
+        };
+        
+        // Calculate fractional part
+        let fractional_part = normalized_post * (FP_PRECISION_MULTIPLIER_CONST / divisor);
+        
+        // Apply sign: if post_comma is negative, negate the fractional part
+        let signed_fractional = if post_comma < 0 { -fractional_part } else { fractional_part };
+        
+        // For negative pre_comma, the fractional part should also be negative
+        // E.g., -1.5 = -1 + (-0.5), not -1 + 0.5
+        let final_fractional = if pre_comma < 0 && post_comma >= 0 {
+            -signed_fractional
+        } else {
+            signed_fractional
+        };
+        
         Self {
-            number: pre_comma * FP_PRECISION_MULTIPLIER_CONST + post_comma * (FP_PRECISION_MULTIPLIER_CONST / 100),
+            number: pre_comma * FP_PRECISION_MULTIPLIER_CONST + final_fractional,
         }
     }
 
@@ -346,5 +410,208 @@ mod tests {
         ));
         assert!(parse_percentage_value("fifty%").is_err());
         assert!(parse_percentage_value("").is_err());
+    }
+
+    #[test]
+    fn test_const_new_fractional_single_digit() {
+        // Single digit post_comma (1 decimal place)
+        let val = FloatValue::const_new_fractional(1, 5);
+        assert_eq!(val.get(), 1.5);
+
+        let val = FloatValue::const_new_fractional(0, 5);
+        assert_eq!(val.get(), 0.5);
+
+        let val = FloatValue::const_new_fractional(2, 3);
+        assert_eq!(val.get(), 2.3);
+
+        let val = FloatValue::const_new_fractional(0, 0);
+        assert_eq!(val.get(), 0.0);
+
+        let val = FloatValue::const_new_fractional(10, 9);
+        assert_eq!(val.get(), 10.9);
+    }
+
+    #[test]
+    fn test_const_new_fractional_two_digits() {
+        // Two digits post_comma (2 decimal places)
+        let val = FloatValue::const_new_fractional(0, 83);
+        assert!((val.get() - 0.83).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(1, 17);
+        assert!((val.get() - 1.17).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(1, 52);
+        assert!((val.get() - 1.52).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(0, 33);
+        assert!((val.get() - 0.33).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(2, 67);
+        assert!((val.get() - 2.67).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(0, 10);
+        assert!((val.get() - 0.10).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(0, 99);
+        assert!((val.get() - 0.99).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_const_new_fractional_three_digits() {
+        // Three digits post_comma (3 decimal places)
+        let val = FloatValue::const_new_fractional(1, 523);
+        assert!((val.get() - 1.523).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(0, 123);
+        assert!((val.get() - 0.123).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(2, 999);
+        assert!((val.get() - 2.999).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(0, 100);
+        assert!((val.get() - 0.100).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(5, 1);
+        assert!((val.get() - 5.1).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_const_new_fractional_truncation() {
+        // More than 3 digits should be truncated (not rounded)
+        
+        // 4 digits: 5234 → 523 → 0.523
+        let val = FloatValue::const_new_fractional(0, 5234);
+        assert!((val.get() - 0.523).abs() < 0.001);
+
+        // 5 digits: 12345 → 123 → 0.123
+        let val = FloatValue::const_new_fractional(1, 12345);
+        assert!((val.get() - 1.123).abs() < 0.001);
+
+        // 6 digits: 123456 → 123 → 1.123
+        let val = FloatValue::const_new_fractional(1, 123456);
+        assert!((val.get() - 1.123).abs() < 0.001);
+
+        // 7 digits: 9876543 → 987 → 0.987
+        let val = FloatValue::const_new_fractional(0, 9876543);
+        assert!((val.get() - 0.987).abs() < 0.001);
+
+        // 10 digits
+        let val = FloatValue::const_new_fractional(2, 1234567890);
+        assert!((val.get() - 2.123).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_const_new_fractional_negative() {
+        // Negative pre_comma values
+        let val = FloatValue::const_new_fractional(-1, 5);
+        assert_eq!(val.get(), -1.5);
+
+        let val = FloatValue::const_new_fractional(0, 83);
+        assert!((val.get() - 0.83).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(-2, 123);
+        assert!((val.get() - -2.123).abs() < 0.001);
+
+        // Negative post_comma (unusual case - treated as negative fractional part)
+        let val = FloatValue::const_new_fractional(1, -5);
+        assert_eq!(val.get(), 0.5); // 1 + (-0.5) = 0.5
+
+        let val = FloatValue::const_new_fractional(0, -50);
+        assert!((val.get() - -0.5).abs() < 0.001); // 0 + (-0.5) = -0.5
+    }
+
+    #[test]
+    fn test_const_new_fractional_edge_cases() {
+        // Zero
+        let val = FloatValue::const_new_fractional(0, 0);
+        assert_eq!(val.get(), 0.0);
+
+        // Large integer part
+        let val = FloatValue::const_new_fractional(100, 5);
+        assert_eq!(val.get(), 100.5);
+
+        let val = FloatValue::const_new_fractional(1000, 99);
+        assert!((val.get() - 1000.99).abs() < 0.001);
+
+        // Maximum precision (3 digits)
+        let val = FloatValue::const_new_fractional(0, 999);
+        assert!((val.get() - 0.999).abs() < 0.001);
+
+        // Small fractional values
+        let val = FloatValue::const_new_fractional(1, 1);
+        assert!((val.get() - 1.1).abs() < 0.001);
+
+        let val = FloatValue::const_new_fractional(1, 10);
+        assert!((val.get() - 1.10).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_const_new_fractional_ua_css_values() {
+        // Test actual values used in ua_css.rs
+        
+        // H1: 2em
+        let val = FloatValue::const_new_fractional(2, 0);
+        assert_eq!(val.get(), 2.0);
+
+        // H2: 1.5em
+        let val = FloatValue::const_new_fractional(1, 5);
+        assert_eq!(val.get(), 1.5);
+
+        // H3: 1.17em
+        let val = FloatValue::const_new_fractional(1, 17);
+        assert!((val.get() - 1.17).abs() < 0.001);
+
+        // H4: 1em
+        let val = FloatValue::const_new_fractional(1, 0);
+        assert_eq!(val.get(), 1.0);
+
+        // H5: 0.83em
+        let val = FloatValue::const_new_fractional(0, 83);
+        assert!((val.get() - 0.83).abs() < 0.001);
+
+        // H6: 0.67em
+        let val = FloatValue::const_new_fractional(0, 67);
+        assert!((val.get() - 0.67).abs() < 0.001);
+
+        // Margins: 0.67em
+        let val = FloatValue::const_new_fractional(0, 67);
+        assert!((val.get() - 0.67).abs() < 0.001);
+
+        // Margins: 0.83em
+        let val = FloatValue::const_new_fractional(0, 83);
+        assert!((val.get() - 0.83).abs() < 0.001);
+
+        // Margins: 1.33em
+        let val = FloatValue::const_new_fractional(1, 33);
+        assert!((val.get() - 1.33).abs() < 0.001);
+
+        // Margins: 1.67em
+        let val = FloatValue::const_new_fractional(1, 67);
+        assert!((val.get() - 1.67).abs() < 0.001);
+
+        // Margins: 2.33em
+        let val = FloatValue::const_new_fractional(2, 33);
+        assert!((val.get() - 2.33).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_const_new_fractional_consistency() {
+        // Verify consistency between const_new_fractional and new()
+        
+        let const_val = FloatValue::const_new_fractional(1, 5);
+        let runtime_val = FloatValue::new(1.5);
+        assert_eq!(const_val.get(), runtime_val.get());
+
+        let const_val = FloatValue::const_new_fractional(0, 83);
+        let runtime_val = FloatValue::new(0.83);
+        assert!((const_val.get() - runtime_val.get()).abs() < 0.001);
+
+        let const_val = FloatValue::const_new_fractional(1, 523);
+        let runtime_val = FloatValue::new(1.523);
+        assert!((const_val.get() - runtime_val.get()).abs() < 0.001);
+
+        let const_val = FloatValue::const_new_fractional(2, 99);
+        let runtime_val = FloatValue::new(2.99);
+        assert!((const_val.get() - runtime_val.get()).abs() < 0.001);
     }
 }
