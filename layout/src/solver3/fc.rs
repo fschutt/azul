@@ -1130,6 +1130,32 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         escaped_bottom_margin = None;
     }
 
+    // BROWSER COMPATIBILITY FIX (CSS 2.2 § 9.5 + implicit browser behavior):
+    // Major browsers (Chrome, Firefox) implicitly expand a block container with height:auto
+    // to contain its floated children, even though CSS 2.2 technically says floats don't
+    // contribute to the height of their container with overflow:visible.
+    // 
+    // This is a de-facto standard behavior that ensures floated content doesn't escape
+    // its container's background/border, which would otherwise create visual artifacts.
+    //
+    // We implement this by checking if any float extends beyond the current main_pen
+    // (which represents the bottom of in-flow content), and if so, expanding main_pen
+    // to encompass the floats.
+    if !float_context.floats.is_empty() {
+        let lowest_float_end = float_context.floats.iter()
+            .map(|f| f.rect.origin.y + f.rect.size.height)
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(0.0);
+        
+        if lowest_float_end > main_pen {
+            eprintln!(
+                "[layout_bfc] FLOAT CONTAINMENT: Container {} expanding from main_pen={} to {} to contain floats",
+                node_index, main_pen, lowest_float_end
+            );
+            main_pen = lowest_float_end;
+        }
+    }
+
     // The final overflow size is determined by the final pen position and the max cross size.
     output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
 
