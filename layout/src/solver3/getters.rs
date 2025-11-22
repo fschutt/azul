@@ -727,30 +727,79 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
 // Rendering Property Getters
 
 /// Information about background color for a node
+///
+/// # CSS Background Propagation (Special Case for HTML Root)
+///
+/// According to CSS Backgrounds and Borders Module Level 3, Section "The Canvas Background 
+/// and the HTML `<body>` Element":
+///
+/// For HTML documents where the root element is `<html>`, if the computed value of 
+/// `background-image` on the root element is `none` AND its `background-color` is `transparent`,
+/// user agents **must propagate** the computed values of the background properties from the 
+/// first `<body>` child element to the root element.
+///
+/// This behavior exists for backwards compatibility with older HTML where backgrounds were 
+/// typically set on `<body>` using `bgcolor` attributes, and ensures that the `<body>` 
+/// background covers the entire viewport/canvas even when `<body>` itself has constrained 
+/// dimensions.
+///
+/// Implementation: When requesting the background of an `<html>` node, we first check if it 
+/// has a transparent background with no image. If so, we look for a `<body>` child and use 
+/// its background instead.
 pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-
-    // Get the background content from the styled DOM
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_background_content(node_data, &node_id, node_state)
-        .and_then(|bg| bg.get_property())
-        .and_then(|bg_vec| bg_vec.get(0)) // Use .get() method on the Vec type
-        .and_then(|first_bg| match first_bg {
-            azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color.clone()),
-            _ => None,
-        })
-        .unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0, // Transparent by default
-        })
+    
+    // Fast path: Get this node's background
+    let get_node_bg = |node_id: NodeId, node_data: &azul_core::dom::NodeData| {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_background_content(node_data, &node_id, node_state)
+            .and_then(|bg| bg.get_property())
+            .and_then(|bg_vec| bg_vec.get(0))
+            .and_then(|first_bg| match first_bg {
+                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color.clone()),
+                azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
+                _ => None,
+            })
+    };
+    
+    let own_bg = get_node_bg(node_id, node_data);
+    
+    // CSS Background Propagation: Special handling for <html> root element
+    // Only check propagation if this is an Html node AND has transparent background (no color/image)
+    use azul_core::dom::NodeType;
+    if matches!(node_data.node_type, NodeType::Html) && own_bg.is_none() {
+        // Html node with transparent background - check if we should propagate from <body>
+        
+        // Find first child of <html>
+        if let Some(first_child) = styled_dom.node_hierarchy.as_container()
+            .get(node_id)
+            .and_then(|node| node.first_child_id(node_id))
+        {
+            let first_child_data = &styled_dom.node_data.as_container()[first_child];
+            
+            // Check if first child is <body>
+            if matches!(first_child_data.node_type, NodeType::Body) {
+                // Propagate <body>'s background to <html> (canvas)
+                if let Some(body_bg) = get_node_bg(first_child, first_child_data) {
+                    return body_bg;
+                }
+            }
+        }
+    }
+    
+    // Return own background or transparent default
+    own_bg.unwrap_or(ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0, // Transparent by default
+    })
 }
 
 /// Information about border rendering
