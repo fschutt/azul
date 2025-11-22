@@ -855,28 +855,85 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
                     child_index, child_margin_top, main_pen);
             } else if !parent_has_top_blocker {
-                // First child's top margin can escape parent
-                // CSS 2.2 § 8.3.1: Only checks parent for "no top border, no top padding"
-                // Child's own blocker status (padding/border) is irrelevant for parent-child collapse
-                // The child may have a blocker that prevents collapse with ITS OWN children,
-                // but this doesn't prevent its margin from escaping through its parent
-                // Accumulate it with parent's margin (will be returned to parent's parent)
+                // ========== MARGIN ESCAPE CASE ==========
+                // CSS 2.2 § 8.3.1: "The top margin of an in-flow block element collapses with
+                // its first in-flow block-level child's top margin if the element has no top
+                // border, no top padding, and the child has no clearance."
+                //
+                // When margins collapse, they "escape" upward through the parent to be resolved
+                // in the grandparent's coordinate space. This is critical for understanding the
+                // coordinate system separation:
+                //
+                // Example: <body padding=20><div margin=0><div margin=30></div></div></body>
+                //   - Middle div (our parent) has no padding → margins can escape
+                //   - Inner div's 30px margin collapses with middle div's 0px margin = 30px
+                //   - This 30px margin "escapes" to be handled by body's BFC
+                //   - Body positions middle div at Y=30 (relative to body's content-box)
+                //   - Middle div's content-box height does NOT include the escaped 30px
+                //   - Inner div is positioned at Y=0 in middle div's content-box
+                //
+                // COORDINATE SYSTEM INVARIANT:
+                //   - Parent's margin belongs to grandparent's coordinate space
+                //   - Child's margin (when escaped) also belongs to grandparent's coordinate space
+                //   - They collapse BEFORE entering this BFC's coordinate space
+                //   - We return the collapsed margin so grandparent can position parent correctly
+                //
+                // NOTE: Child's own blocker status (padding/border) is IRRELEVANT for parent-child
+                // collapse. The child may have padding that prevents collapse with ITS OWN children,
+                // but this doesn't prevent its margin from escaping through its parent.
+                //
+                // BUG HISTORY: Previously, we incorrectly added parent_margin_top to main_pen in the
+                // blocked case, which double-counted the margin by mixing coordinate systems.
+                // The parent's margin is NEVER in our (the parent's content-box) coordinate system!
+                
                 accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
-                // IMPORTANT: Mark margin as resolved so siblings don't apply it!
-                // The escaped margin will be handled by returning it to the parent's parent BFC
                 top_margin_resolved = true;
-                top_margin_escaped = true; // Flag that margin escaped (for return value)
+                top_margin_escaped = true;
+                
                 // Track escaped margin so it gets subtracted from content-box height
+                // The escaped margin is NOT part of our content-box - it belongs to our parent's parent
                 total_escaped_top_margin = accumulated_top_margin;
+                
                 // Position child at pen (no margin applied - it escaped!)
                 eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}, total_escaped={}",
                     child_index, parent_margin_top, child_margin_top, accumulated_top_margin, total_escaped_top_margin);
             } else {
-                // Can't escape: parent has blocker (padding/border)
-                // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse
-                // When blocker exists, margins are NOT adjoining (in different coordinate spaces)
-                // Parent's margin was resolved by parent's parent BFC (outside our scope)
-                // We ONLY handle child's margin in our content-box coordinate space
+                // ========== MARGIN BLOCKED CASE ==========
+                // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse.
+                // When padding or border exists, margins do NOT collapse and exist in different
+                // coordinate spaces.
+                //
+                // CRITICAL COORDINATE SYSTEM SEPARATION:
+                //   This is where the architecture becomes subtle. When layout_bfc() is called:
+                //   1. We are INSIDE the parent's content-box coordinate space (main_pen starts at 0)
+                //   2. The parent's own margin was ALREADY RESOLVED by the grandparent's BFC
+                //   3. The parent's margin is in the grandparent's coordinate space, not ours
+                //   4. We NEVER reference the parent's margin in this BFC - it's outside our scope
+                //
+                // Example: <body padding=20><div margin=30 padding=20><div margin=30></div></div></body>
+                //   - Middle div has padding=20 → blocker exists, margins don't collapse
+                //   - Body's BFC positions middle div at Y=30 (middle div's margin, in body's space)
+                //   - Middle div's BFC starts at its content-box (after the padding)
+                //   - main_pen=0 at the top of middle div's content-box
+                //   - Inner div has margin=30 → we add 30 to main_pen (in OUR coordinate space)
+                //   - Inner div positioned at Y=30 (relative to middle div's content-box)
+                //   - Absolute position: 20 (body padding) + 30 (middle margin) + 20 (middle padding) + 30 (inner margin) = 100px
+                //
+                // BUG HISTORY (CRITICAL - DO NOT REINTRODUCE):
+                //   Previous code incorrectly added parent_margin_top to main_pen here:
+                //     ❌ main_pen += parent_margin_top;  // WRONG! Mixes coordinate systems
+                //     ❌ main_pen += child_margin_top;
+                //   This caused the "double margin" bug where margins were applied twice:
+                //   - Once by grandparent positioning parent (correct)
+                //   - Again inside parent's BFC (INCORRECT - wrong coordinate system)
+                //
+                //   The parent's margin belongs to GRANDPARENT's coordinate space and was already
+                //   used to position the parent. Adding it again here is like adding feet to meters.
+                //
+                // CORRECT BEHAVIOR:
+                //   We ONLY add the child's margin in our (parent's content-box) coordinate space.
+                //   The parent's margin is irrelevant to us - it's outside our scope.
+                
                 main_pen += child_margin_top;
                 eprintln!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by child_margin={}, main_pen={}",
                     child_index, parent_has_top_blocker, child_margin_top, main_pen);
@@ -899,7 +956,28 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 eprintln!("[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, child_margin_top={}, main_pen={}",
                     child_index, child_margin_top, main_pen);
             } else {
-                // Normal sibling margin collapse
+                // ========== SIBLING MARGIN COLLAPSE ==========
+                // CSS 2.2 § 8.3.1: "Vertical margins of adjacent block boxes in the normal
+                // flow collapse." The collapsed margin is the maximum of the two margins.
+                //
+                // IMPORTANT: Sibling margins ARE part of the parent's content-box height!
+                // Unlike escaped margins (which belong to grandparent's space), sibling margins
+                // are the space BETWEEN children within our content-box.
+                //
+                // Example: <div><div margin-bottom=30></div><div margin-top=40></div></div>
+                //   - First child ends at Y=100 (including its content + margins)
+                //   - Collapsed margin = max(30, 40) = 40px
+                //   - Second child starts at Y=140 (100 + 40)
+                //   - Parent's content-box height includes this 40px gap
+                //
+                // We track total_sibling_margins for debugging, but NOTE: we do NOT subtract
+                // these from content-box height! They are part of the layout space.
+                //
+                // BUG HISTORY: Previously subtracted total_sibling_margins from content-box height:
+                //   ❌ content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins;
+                // This was wrong because sibling margins are BETWEEN boxes (part of content),
+                // not OUTSIDE boxes (like escaped margins).
+                
                 let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
                 main_pen += collapsed;
                 total_sibling_margins += collapsed;
@@ -1243,15 +1321,49 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // This matches Chrome/Firefox behavior where float margins escape through
     // the container's padding when there's existing in-flow content.
 
-    // The final overflow size is determined by the final pen position and the max cross size.
-    // CSS 2.2 § 8.3.1: Escaped margins don't contribute to the content-box height!
-    // Content-box height calculation:
-    // - main_pen: total space used (includes ALL margins - escaped, collapsed, etc.)
-    // - total_escaped_top_margin: first child's margin that escaped through parent → SUBTRACT (outside content-box)
-    // - total_sibling_margins: collapsed margins BETWEEN siblings → do NOT subtract (they're INSIDE content-box)
-    // 
-    // The collapsed sibling margins are the space BETWEEN boxes, which is part of the parent's content area.
-    // Only escaped margins are outside the parent's content-box (they belong to the parent's parent coordinate space).
+    // ========== CONTENT-BOX HEIGHT CALCULATION ==========
+    // CSS 2.2 § 8.3.1: "The top border edge of the box is defined to coincide with
+    // the top border edge of the [first] child" when margins collapse/escape.
+    //
+    // This means escaped margins do NOT contribute to the parent's content-box height.
+    //
+    // CALCULATION BREAKDOWN:
+    //   main_pen = total vertical space used by all children and margins
+    //   
+    //   Components of main_pen:
+    //   1. Children's border-boxes (always included)
+    //   2. Sibling collapsed margins (space BETWEEN children - part of content)
+    //   3. First child's position (0 if margin escaped, margin_top if blocked)
+    //   
+    //   What to subtract:
+    //   - total_escaped_top_margin: First child's margin that went to grandparent's space
+    //     This margin is OUTSIDE our content-box, so we must subtract it.
+    //   
+    //   What NOT to subtract:
+    //   - total_sibling_margins: These are the gaps BETWEEN children, which are
+    //     legitimately part of our content area's layout space.
+    //
+    // Example with escaped margin:
+    //   <div class="parent" padding=0>              <!-- Node 2 -->
+    //     <div class="child1" margin=30></div>      <!-- Node 3, margin escapes -->
+    //     <div class="child2" margin=40></div>      <!-- Node 5 -->
+    //   </div>
+    //
+    //   Layout process:
+    //   - Node 3 positioned at main_pen=0 (margin escaped)
+    //   - Node 3 size=140px → main_pen advances to 140
+    //   - Sibling collapse: max(30 child1 bottom, 40 child2 top) = 40px
+    //   - main_pen advances to 180
+    //   - Node 5 size=130px → main_pen advances to 310
+    //   - total_escaped_top_margin = 30
+    //   - total_sibling_margins = 40 (tracked but NOT subtracted)
+    //   - content_box_height = 310 - 30 = 280px ✓
+    //
+    // BUG HISTORY:
+    //   ❌ Previously: content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins
+    //   This incorrectly subtracted sibling margins, making parent too small.
+    //   Sibling margins are BETWEEN boxes (part of layout), not OUTSIDE boxes (like escaped margins).
+    
     let content_box_height = main_pen - total_escaped_top_margin;
     output.overflow_size = LogicalSize::from_main_cross(content_box_height, max_cross_size, writing_mode);
     
