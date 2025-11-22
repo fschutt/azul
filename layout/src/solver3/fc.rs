@@ -841,14 +841,11 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if clearance_applied {
                 // Clearance inhibits all margin collapsing for this element
                 // The clearance has already positioned main_pen past floats
-                // Now add the child's full top margin (no collapsing)
-                if !top_margin_resolved {
-                    main_pen += parent_margin_top;
-                    top_margin_resolved = true;
-                }
+                // CSS 2.2 § 8.3.1: Parent's margin was already handled by parent's parent BFC
+                // We only add child's margin in our content-box coordinate space
                 main_pen += child_margin_top;
-                eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, parent_margin={}, child_margin={}, main_pen={}",
-                    child_index, parent_margin_top, child_margin_top, main_pen);
+                eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
+                    child_index, child_margin_top, main_pen);
             } else if !parent_has_top_blocker && !child_has_top_blocker {
                 // First child's top margin can escape parent
                 // Accumulate it with parent's margin (will be returned to parent's parent)
@@ -858,15 +855,13 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     child_index, parent_margin_top, child_margin_top, accumulated_top_margin);
             } else {
                 // Can't escape: parent has blocker (padding/border)
-                // CSS 2.2 § 8.3.1 Rule 3.1: Blocker prevents collapse
-                // Advance pen by parent's top margin (if any) + child's full top margin
-                if !top_margin_resolved {
-                    main_pen += parent_margin_top;
-                    top_margin_resolved = true;
-                }
+                // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse
+                // When blocker exists, margins are NOT adjoining (in different coordinate spaces)
+                // Parent's margin was resolved by parent's parent BFC (outside our scope)
+                // We ONLY handle child's margin in our content-box coordinate space
                 main_pen += child_margin_top;
-                eprintln!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by parent_margin={} + child_margin={}, main_pen={}",
-                    child_index, parent_has_top_blocker, parent_margin_top, child_margin_top, main_pen);
+                eprintln!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by child_margin={}, main_pen={}",
+                    child_index, parent_has_top_blocker, child_margin_top, main_pen);
             }
         } else {
             // Not first child: handle sibling collapse
@@ -4247,12 +4242,11 @@ fn has_margin_collapse_blocker(
 /// # Returns
 /// `true` if the element is empty and its margins can collapse internally
 fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::LayoutNode<T>) -> bool {
-    // Per CSS 2.1 spec: An empty block is one with:
-    // - No in-flow children
-    // - No inline content (text)
-    // - No border or padding (checked elsewhere via has_margin_collapse_blocker)
-    // - No explicit height (height: auto or height: 0)
-    // - No min-height that would force a height
+    // Per CSS 2.2 § 8.3.1: An empty block is one that:
+    // - Has zero computed 'min-height'
+    // - Has zero or 'auto' computed 'height'  
+    // - Has no in-flow children
+    // - Has no line boxes (no text/inline content)
     
     // Check if node has children
     if !node.children.is_empty() {
@@ -4272,17 +4266,19 @@ fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::Layout
         return false;
     }
     
-    // DON'T check used_size.height here! 
-    // During the sizing pass, empty blocks may get a default height (e.g., line-height).
-    // We need to check if there's an EXPLICIT height that forces the block to have size.
-    // Since we don't have access to CSS properties here, and the box_props don't include
-    // explicit height info, we use a heuristic: if used_size exists and is exactly 0,
-    // it's explicitly empty. Otherwise, we can't determine it from used_size alone.
-    // 
-    // The proper solution would be to check the CSS property directly, but that requires
-    // StyledDom access. For now, we assume empty blocks have NO content, so they're empty.
+    // Check if node has explicit height > 0
+    // CSS 2.2 § 8.3.1: Elements with explicit height are NOT empty
+    if let Some(size) = node.used_size {
+        if size.height > 0.0 {
+            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
+                println!("[is_empty_block] Node {:?} has explicit height={} → NOT EMPTY", 
+                         node.dom_node_id, size.height);
+            }
+            return false;
+        }
+    }
     
-    // Empty block: no children, no inline content
+    // Empty block: no children, no inline content, no height
     if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
         println!("[is_empty_block] Node {:?} IS EMPTY ✓", node.dom_node_id);
     }
