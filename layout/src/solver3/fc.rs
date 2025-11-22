@@ -727,11 +727,22 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
         
-        // Use escaped margins if the child has them (nested margin propagation - Phase 4)
-        let child_margin_top = child_node.escaped_top_margin
-            .unwrap_or_else(|| child_margin.main_start(writing_mode));
-        let child_margin_bottom = child_node.escaped_bottom_margin
-            .unwrap_or_else(|| child_margin.main_end(writing_mode));
+        eprintln!("[layout_bfc] Child {} margin from box_props: top={}, right={}, bottom={}, left={}",
+            child_index, child_margin.top, child_margin.right, child_margin.bottom, child_margin.left);
+        
+        // IMPORTANT: Use the ACTUAL margins from box_props, NOT escaped margins!
+        // Escaped margins are only relevant for the parent-child relationship WITHIN a node's
+        // own BFC layout. When positioning this child in ITS parent's BFC, we use its actual margins.
+        // CSS 2.2 § 8.3.1: Margin collapsing happens between ADJACENT margins, which means:
+        // - Parent's top and first child's top (if no blocker)
+        // - Sibling's bottom and next sibling's top
+        // - Parent's bottom and last child's bottom (if no blocker)
+        // The escaped_top_margin stored in the child node is for its OWN children, not for itself!
+        let child_margin_top = child_margin.main_start(writing_mode);
+        let child_margin_bottom = child_margin.main_end(writing_mode);
+        
+        eprintln!("[layout_bfc] Child {} final margins: margin_top={}, margin_bottom={}",
+            child_index, child_margin_top, child_margin_bottom);
         
         // Check if this child has border/padding that prevents margin collapsing
         let child_has_top_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, true);
@@ -799,6 +810,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
         
         // PHASE 2: Parent-Child Top Margin Escape (First Child)
+        // CSS 2.2 § 8.3.1: "The top margin of a box is adjacent to the top margin of its first 
+        // in-flow child if the box has no top border, no top padding, and the child has no clearance."
         if is_first_child {
             is_first_child = false;
             
@@ -807,29 +820,36 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // Accumulate it with parent's margin (will be returned to parent's parent)
                 accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
                 // Position child at pen (no margin applied - it escaped!)
+                eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}",
+                    child_index, parent_margin_top, child_margin_top, accumulated_top_margin);
             } else {
-                // Can't escape: resolve parent's margin and apply child's
-                if accumulated_top_margin == 0.0 {
-                    accumulated_top_margin = parent_margin_top;
+                // Can't escape: parent has blocker (padding/border)
+                // CSS 2.2 § 8.3.1 Rule 3.1: Blocker prevents collapse
+                // Advance pen by parent's top margin (if any) + child's full top margin
+                if !top_margin_resolved {
+                    main_pen += parent_margin_top;
+                    top_margin_resolved = true;
                 }
-                main_pen += accumulated_top_margin;
-                top_margin_resolved = true;
                 main_pen += child_margin_top;
+                eprintln!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by parent_margin={} + child_margin={}, main_pen={}",
+                    child_index, parent_has_top_blocker, parent_margin_top, child_margin_top, main_pen);
             }
         } else {
             // Not first child: handle sibling collapse
+            // CSS 2.2 § 8.3.1 Rule 1: "Vertical margins of adjacent block boxes in the normal flow collapse"
             
-            // Resolve accumulated top margin if not yet done
-
+            // Resolve accumulated top margin if not yet done (for parent's first in-flow child)
+            if !top_margin_resolved {
+                main_pen += accumulated_top_margin;
+                top_margin_resolved = true;
+            }
             
             // Sibling margin collapse
-            if child_has_top_blocker {
-                // Child has blocker: add both margins (no collapse)
-                main_pen += last_margin_bottom + child_margin_top;
-            } else {
-                // Normal sibling collapse
-                advance_pen_with_margin_collapse(&mut main_pen, last_margin_bottom, child_margin_top);
-            }
+            let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
+            main_pen += collapsed;
+            
+            eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}",
+                child_index, last_margin_bottom, child_margin_top, collapsed, main_pen);
         }
 
         // Position child (non-empty blocks only reach here)
@@ -1024,8 +1044,13 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         main_pen += child_size.main(writing_mode);
         has_content = true;
         
-        // Save child's bottom margin for next sibling
+        // Update last margin for next sibling
+        // CSS 2.2 § 8.3.1: The bottom margin of this box will collapse with the top margin
+        // of the next sibling (if no clearance or blockers intervene)
         last_margin_bottom = child_margin_bottom;
+        
+        eprintln!("[layout_bfc] Child {} positioned at final_pos={:?}, size={:?}, advanced main_pen to {}, last_margin_bottom={}",
+            child_index, final_pos, child_size, main_pen, last_margin_bottom);
 
         // Track the maximum cross-axis size to determine the BFC's overflow size.
         let child_cross_extent =
