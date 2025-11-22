@@ -11,7 +11,7 @@ use azul_core::{
 use azul_css::props::{
     basic::ColorU,
     layout::{
-        LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent,
+        LayoutClear, LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent,
         LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
     },
     style::{StyleTextAlign, lists::{StyleListStyleType, StyleListStylePosition}},
@@ -472,6 +472,15 @@ impl ExtractPropertyValue<LayoutFloat> for azul_css::props::property::CssPropert
     }
 }
 
+impl ExtractPropertyValue<LayoutClear> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<LayoutClear> {
+        match self {
+            Self::Clear(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<LayoutOverflow> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<LayoutOverflow> {
         match self {
@@ -544,6 +553,13 @@ get_css_property!(
     get_float,
     LayoutFloat,
     azul_css::props::property::CssPropertyType::Float
+);
+
+get_css_property!(
+    get_clear,
+    get_clear,
+    LayoutClear,
+    azul_css::props::property::CssPropertyType::Clear
 );
 
 get_css_property!(

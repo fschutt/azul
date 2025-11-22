@@ -859,8 +859,41 @@ where
         // 3. Paint the node's own content (text, images, hit-test areas).
         self.paint_node_content(builder, node_index)?;
 
-        // 4. Recursively paint the in-flow children.
+        // 4. Recursively paint the in-flow children in correct CSS painting order:
+        //    - First: Non-float block-level children
+        //    - Then: Float children (so they appear on top)
+        //    - Finally: Inline-level children (though typically handled above in paint_node_content)
+        
+        // Separate children into floats and non-floats
+        let mut non_float_children = Vec::new();
+        let mut float_children = Vec::new();
+        
         for &child_index in children_indices {
+            let child_node = self
+                .positioned_tree
+                .tree
+                .get(child_index)
+                .ok_or(LayoutError::InvalidTree)?;
+            
+            // Check if this child is a float
+            let is_float = if let Some(dom_id) = child_node.dom_node_id {
+                use crate::solver3::getters::get_float;
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                let float_value = get_float(self.ctx.styled_dom, dom_id, &styled_node_state);
+                !matches!(float_value.unwrap_or_default(), azul_css::props::layout::LayoutFloat::None)
+            } else {
+                false
+            };
+            
+            if is_float {
+                float_children.push(child_index);
+            } else {
+                non_float_children.push(child_index);
+            }
+        }
+        
+        // Paint non-float children first
+        for child_index in non_float_children {
             let child_node = self
                 .positioned_tree
                 .tree
@@ -880,6 +913,24 @@ where
                 self.pop_node_clips(builder, child_node)?;
             }
         }
+        
+        // Paint float children AFTER non-floats (so they appear on top)
+        for child_index in float_children {
+            let child_node = self
+                .positioned_tree
+                .tree
+                .get(child_index)
+                .ok_or(LayoutError::InvalidTree)?;
+
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            self.paint_node_background_and_border(builder, child_index)?;
+            self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
+
+            if did_push_clip {
+                self.pop_node_clips(builder, child_node)?;
+            }
+        }
+        
         Ok(())
     }
 

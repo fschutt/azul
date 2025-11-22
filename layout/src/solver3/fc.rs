@@ -173,6 +173,11 @@ pub struct FloatingContext {
 }
 
 impl FloatingContext {
+    /// Add a newly positioned float to the context
+    pub fn add_float(&mut self, kind: LayoutFloat, rect: LogicalRect) {
+        self.floats.push(FloatBox { kind, rect });
+    }
+    
     /// Finds the available space on the cross-axis for a line box at a given main-axis range.
     ///
     /// Returns a tuple of (`cross_start_offset`, `cross_end_offset`) relative to the
@@ -298,6 +303,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
+    float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
 ) -> Result<LayoutOutput> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
@@ -306,7 +312,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     match node.formatting_context {
         FormattingContext::Block { .. } => {
-            layout_bfc(ctx, tree, text_cache, node_index, constraints).map(|r| r.output)
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache).map(|r| r.output)
         }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints),
@@ -351,7 +357,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
             Ok(output)
         }
-        _ => layout_bfc(ctx, tree, text_cache, node_index, constraints).map(|r| r.output),
+        _ => {
+            let mut temp_float_cache = std::collections::BTreeMap::new();
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache).map(|r| r.output)
+        }
     }
 }
 
@@ -366,6 +375,78 @@ pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
     LogicalPosition {
         x: point.x,
         y: point.y,
+    }
+}
+
+/// Position a float within a BFC, considering existing floats.
+/// Returns the LogicalRect (margin box) for the float.
+fn position_float(
+    float_ctx: &FloatingContext,
+    float_type: LayoutFloat,
+    size: LogicalSize,
+    margin: &EdgeSizes,
+    current_main_offset: f32,
+    bfc_cross_size: f32,
+    wm: LayoutWritingMode,
+) -> LogicalRect {
+    // Start at the current main-axis position (Y in horizontal-tb)
+    let mut main_start = current_main_offset;
+    
+    // Calculate total size including margins
+    let total_main = size.main(wm) + margin.main_start(wm) + margin.main_end(wm);
+    let total_cross = size.cross(wm) + margin.cross_start(wm) + margin.cross_end(wm);
+    
+    // Find a position where the float fits
+    let cross_start = loop {
+        let (avail_start, avail_end) = float_ctx.available_line_box_space(
+            main_start,
+            main_start + total_main,
+            bfc_cross_size,
+            wm,
+        );
+        
+        let available_width = avail_end - avail_start;
+        
+        if available_width >= total_cross {
+            // Found space that fits
+            if float_type == LayoutFloat::Left {
+                // Position at line-left (avail_start)
+                break avail_start + margin.cross_start(wm);
+            } else {
+                // Position at line-right (avail_end - size)
+                break avail_end - total_cross + margin.cross_start(wm);
+            }
+        }
+        
+        // Not enough space at this Y, move down past the lowest overlapping float
+        let next_main = float_ctx.floats.iter()
+            .filter(|f| {
+                let f_main_start = f.rect.origin.main(wm);
+                let f_main_end = f_main_start + f.rect.size.main(wm);
+                f_main_end > main_start && f_main_start < main_start + total_main
+            })
+            .map(|f| f.rect.origin.main(wm) + f.rect.size.main(wm))
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        if let Some(next) = next_main {
+            main_start = next;
+        } else {
+            // No overlapping floats found, use current position anyway
+            if float_type == LayoutFloat::Left {
+                break avail_start + margin.cross_start(wm);
+            } else {
+                break avail_end - total_cross + margin.cross_start(wm);
+            }
+        }
+    };
+    
+    LogicalRect {
+        origin: LogicalPosition::from_main_cross(
+            main_start + margin.main_start(wm),
+            cross_start,
+            wm
+        ),
+        size,
     }
 }
 
@@ -418,6 +499,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
+    float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
 ) -> Result<BfcLayoutResult> {
     let node = tree
         .get(node_index)
@@ -425,41 +507,110 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         .clone();
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
+    
+    eprintln!("\n[layout_bfc] ENTERED for node_index={}, children.len()={}, incoming_bfc_state={}", 
+        node_index, node.children.len(), constraints.bfc_state.is_some());
+    
+    // Initialize FloatingContext for this BFC
+    // We always recalculate float positions in this pass, but we'll store them in the cache
+    // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
+    let mut float_context = FloatingContext::default();
+    let mut float_children = Vec::new();
 
-    // --- Pass 1: Sizing ---
-    // We must first calculate the size of all child nodes before we can position them.
-    // We do this by recursively calling the main layout function for each child.
-    // This populates the `used_size` field on each child LayoutNode.
+    // --- Pass 1: Separate floats from normal flow and size all children ---
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
-        // Skip out-of-flow children, as they don't affect the BFC's content size.
+        // Skip out-of-flow children (absolute/fixed)
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             continue;
         }
+        
+        // Check if this child is floated
+        use crate::solver3::getters::get_float;
+        if let Some(node_id) = child_dom_id {
+            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
+            let float_type = get_float(ctx.styled_dom, node_id, &styled_node.state);
+            
+            eprintln!("[layout_bfc Pass 1] Checking child: index={}, dom_id={:?}, float_type={:?}, is_none={}", 
+                child_index, node_id, float_type, float_type.is_none());
+            
+            if !float_type.is_none() {
+                // This is a float - separate it from normal flow
+                // Extract the actual LayoutFloat value from MultiValue
+                match float_type {
+                    crate::solver3::getters::MultiValue::Exact(float_val) => {
+                        eprintln!("[layout_bfc] Detected float child: index={}, type={:?}", child_index, float_val);
+                        float_children.push((child_index, float_val));
+                    }
+                    _ => {}
+                }
+                // Don't skip - we still need to size it
+            }
+        }
 
-        // We use a temporary, discarded position map to prevent this sizing pass
-        // from polluting the final `calculated_positions` map with incorrect values.
+        // Size all children (floats and normal flow)
         let mut temp_positions = BTreeMap::new();
-
-        // The child's containing block is its parent's content box.
-        // The position is a placeholder because we only care about the size calculation here.
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
             child_index,
-            LogicalPosition::zero(), // Placeholder position for sizing pass
-            constraints.available_size, /* The parent's content-box size is the child's containing
-                                      * block size */
+            LogicalPosition::zero(),
+            constraints.available_size,
             &mut temp_positions,
-            &mut bool::default(), // Placeholder for scrollbar reflow detection
+            &mut bool::default(),
+            float_cache,
         )?;
     }
+    
+    // --- Pass 1.5: Position floats and add them to float context ---
+    // NOTE: All floats start positioning from Y=0 (main_offset=0).
+    // The position_float function will find the correct Y based on existing floats.
+    
+    eprintln!("[layout_bfc] Pass 1.5: Positioning {} floats", float_children.len());
+    
+    for (float_index, float_type) in &float_children {
+        let float_node = tree.get(*float_index).ok_or(LayoutError::InvalidTree)?;
+        let float_size = float_node.used_size.unwrap_or_default();
+        let float_margin = &float_node.box_props.margin;
+        
+        eprintln!(
+            "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}",
+            float_index, float_type, float_size
+        );
+        
+        // Position the float - always start from Y=0
+        let float_rect = position_float(
+            &float_context,
+            *float_type,
+            float_size,
+            float_margin,
+            0.0, // Start at top of BFC
+            constraints.available_size.cross(writing_mode),
+            writing_mode,
+        );
+        
+        eprintln!(
+            "[layout_bfc] Float positioned at: {:?}",
+            float_rect
+        );
+        
+        // Add to float context BEFORE positioning next float
+        float_context.add_float(*float_type, float_rect);
+        
+        // Store position in output
+        output.positions.insert(*float_index, float_rect.origin);
+    }
+    
+    // Store the float context in cache for future layout passes
+    eprintln!("[layout_bfc] Storing {} floats in cache for node {}", 
+        float_context.floats.len(), node_index);
+    float_cache.insert(node_index, float_context.clone());
 
-    // --- Pass 2: Positioning with Complete Margin Collapsing ---
+    // --- Pass 2: Positioning normal flow with float awareness ---
     
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
@@ -491,12 +642,19 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
-
-
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-
             continue;
+        }
+        
+        // Skip floats - they were already positioned in Pass 1.5
+        use crate::solver3::getters::get_float;
+        if let Some(node_id) = child_dom_id {
+            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
+            let child_float = get_float(ctx.styled_dom, node_id, &styled_node.state);
+            if !child_float.is_none() {
+                continue;
+            }
         }
 
         // Track first and last in-flow children for parent-child collapse
@@ -553,6 +711,32 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         // From here on: non-empty blocks only
         
+        // Check for clear property and advance pen if needed
+        use crate::solver3::getters::get_clear;
+        if let Some(node_id) = child_dom_id {
+            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
+            let child_clear = get_clear(ctx.styled_dom, node_id, &styled_node.state);
+            match child_clear {
+                crate::solver3::getters::MultiValue::Exact(clear_val) if clear_val != LayoutClear::None => {
+                    let cleared_offset = float_context.clearance_offset(
+                        clear_val,
+                        main_pen,
+                        writing_mode,
+                    );
+                    if cleared_offset > main_pen {
+                        ctx.debug_info(format!(
+                            "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
+                            child_index, clear_val, main_pen, cleared_offset
+                        ));
+                        main_pen = cleared_offset;
+                        // Clearance breaks margin collapse
+                        last_margin_bottom = 0.0;
+                    }
+                }
+                _ => {}
+            }
+        }
+        
         // PHASE 2: Parent-Child Top Margin Escape (First Child)
         if is_first_child {
             is_first_child = false;
@@ -588,17 +772,157 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
 
         // Position child (non-empty blocks only reach here)
-        let child_cross_pos = child_margin.cross_start(writing_mode);
-        let child_main_pos = main_pen;
+        // Query available space considering floats
+        let (cross_start, cross_end) = float_context.available_line_box_space(
+            main_pen,
+            main_pen + child_size.main(writing_mode),
+            constraints.available_size.cross(writing_mode),
+            writing_mode,
+        );
+        
+        let available_cross = cross_end - cross_start;
+        
+        ctx.debug_info(format!(
+            "[layout_bfc] Positioning child {}: main_pen={}, cross_range={}..{}, available_cross={}",
+            child_index, main_pen, cross_start, cross_end, available_cross
+        ));
+        
+        // Get child's margin and formatting context
+        let (child_margin_cloned, is_inline_fc) = {
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            (child_node.box_props.margin.clone(), 
+             child_node.formatting_context == FormattingContext::Inline)
+        };
+        let child_margin = &child_margin_cloned;
+        
+        // Position child
+        // NOTE: IFC children (blocks with text) are positioned at their FULL WIDTH
+        // behind floats (same origin), not shifted by cross_start.
+        // Only the TEXT INSIDE wraps around floats via exclusion zones.
+        let (child_cross_pos, child_main_pos) = if is_inline_fc {
+            // IFC: Position at full width origin (0), not affected by floats
+            (child_margin.cross_start(writing_mode), main_pen)
+        } else {
+            // Block: Position in available space between floats
+            (cross_start + child_margin.cross_start(writing_mode), main_pen)
+        };
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         
+        // Re-layout IFC children with float context for correct text wrapping
+        if is_inline_fc {
+            // Use cached floats if available (from previous layout passes),
+            // otherwise use the floats positioned in this pass
+            let floats_for_ifc = float_cache.get(&node_index).unwrap_or(&float_context);
+            
+            eprintln!(
+                "[layout_bfc] Re-layouting IFC child {} with float context at Y={}, child_cross_pos={}",
+                child_index, main_pen, child_cross_pos
+            );
+            eprintln!(
+                "[layout_bfc]   Using {} floats (from cache: {})",
+                floats_for_ifc.floats.len(),
+                float_cache.contains_key(&node_index)
+            );
+            
+            // Translate float coordinates from BFC-relative to IFC-relative
+            // The IFC child is positioned at (child_cross_pos, main_pen) in BFC coordinates
+            // Floats need to be relative to the IFC's CONTENT-BOX origin (inside padding/border)
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let padding_border_cross = child_node.box_props.padding.cross_start(writing_mode) 
+                                     + child_node.box_props.border.cross_start(writing_mode);
+            let padding_border_main = child_node.box_props.padding.main_start(writing_mode)
+                                    + child_node.box_props.border.main_start(writing_mode);
+            
+            // Content-box origin in BFC coordinates
+            let content_box_cross = child_cross_pos + padding_border_cross;
+            let content_box_main = main_pen + padding_border_main;
+            
+            eprintln!(
+                "[layout_bfc]   Border-box at ({}, {}), Content-box at ({}, {}), padding+border=({}, {})",
+                child_cross_pos, main_pen, content_box_cross, content_box_main,
+                padding_border_cross, padding_border_main
+            );
+            
+            let mut ifc_floats = FloatingContext::default();
+            for float_box in &floats_for_ifc.floats {
+                // Convert float position from BFC coords to IFC CONTENT-BOX relative coords
+                let float_rel_to_ifc = LogicalRect {
+                    origin: LogicalPosition {
+                        x: float_box.rect.origin.x - content_box_cross,
+                        y: float_box.rect.origin.y - content_box_main,
+                    },
+                    size: float_box.rect.size,
+                };
+                
+                eprintln!(
+                    "[layout_bfc] Float {:?}: BFC coords = {:?}, IFC-content-relative = {:?}",
+                    float_box.kind, float_box.rect, float_rel_to_ifc
+                );
+                
+                ifc_floats.add_float(float_box.kind, float_rel_to_ifc);
+            }
+            
+            // Create a BfcState with IFC-relative float coordinates
+            let mut bfc_state = BfcState {
+                pen: LogicalPosition::zero(),  // IFC starts at its own origin
+                floats: ifc_floats.clone(),
+                margins: MarginCollapseContext::default(),
+            };
+            
+            eprintln!(
+                "[layout_bfc]   Created IFC-relative FloatingContext with {} floats",
+                ifc_floats.floats.len()
+            );
+            
+            // Get the IFC child's content-box size (after padding/border)
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_content_size = child_node.box_props.inner_size(child_size, writing_mode);
+            
+            eprintln!(
+                "[layout_bfc]   IFC child size: border-box={:?}, content-box={:?}",
+                child_size, child_content_size
+            );
+            
+            // Create new constraints with float context
+            // IMPORTANT: Use the child's CONTENT-BOX width, not the BFC width!
+            let ifc_constraints = LayoutConstraints {
+                available_size: child_content_size,
+                bfc_state: Some(&mut bfc_state),
+                writing_mode,
+                text_align: constraints.text_align,
+            };
+            
+            // Re-layout the IFC with float awareness
+            // This will pass floats as exclusion zones to text3 for line wrapping
+            let ifc_output = layout_formatting_context(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                &ifc_constraints,
+                float_cache,
+            )?;
+            
+            // DON'T update used_size - the box keeps its full width!
+            // Only the text layout inside changes to wrap around floats
+            
+            eprintln!(
+                "[layout_bfc] IFC child {} re-layouted with float context (text will wrap, box stays full width)",
+                child_index
+            );
+            
+            // Merge positions from IFC output (inline-block children, etc.)
+            for (idx, pos) in ifc_output.positions {
+                output.positions.insert(idx, pos);
+            }
+        }
 
         
         output.positions.insert(child_index, final_pos);
 
-        // Advance the pen past the child's content size
+        // Advance the pen past the child's content size (potentially updated)
         main_pen += child_size.main(writing_mode);
         has_content = true;
         
@@ -732,6 +1056,9 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
+    let float_count = constraints.bfc_state.as_ref().map(|s| s.floats.floats.len()).unwrap_or(0);
+    eprintln!("[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}", 
+              node_index, constraints.bfc_state.is_some(), float_count);
     ctx.debug_ifc_layout(format!("CALLED for node_index={}", node_index));
 
     let ifc_root_dom_id = tree
@@ -766,6 +1093,10 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Phase 2: Translate constraints and define a single layout fragment for text3.
     let text3_constraints =
         translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
+    
+    eprintln!("[layout_ifc] CALLING text_cache.layout_flow for node {} with {} exclusions", 
+              node_index, text3_constraints.shape_exclusions.len());
+    
     let fragments = vec![LayoutFragment {
         id: "main".to_string(),
         constraints: text3_constraints,
@@ -810,7 +1141,20 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         ));
 
         // Store the detailed result for the display list generator.
-        node.inline_layout_result = Some(main_frag.clone());
+        // IMPORTANT: Only overwrite the result if we have float exclusions OR if there's no result yet.
+        // This ensures that the final, float-aware layout is preserved even if there are
+        // subsequent layout passes without floats (e.g., for auto-sizing).
+        let has_floats = constraints.bfc_state.as_ref().map(|s| !s.floats.floats.is_empty()).unwrap_or(false);
+        let should_store = has_floats || node.inline_layout_result.is_none();
+        
+        if should_store {
+            eprintln!("[layout_ifc] Storing inline_layout_result for node {} (has_floats={}, is_new={})",
+                      node_index, has_floats, node.inline_layout_result.is_none());
+            node.inline_layout_result = Some(main_frag.clone());
+        } else {
+            eprintln!("[layout_ifc] SKIPPING inline_layout_result for node {} (no floats, result exists)",
+                      node_index);
+        }
 
         // Extract the overall size and baseline for the IFC root.
         output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
@@ -845,22 +1189,38 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
     // Convert floats into exclusion zones for text3 to flow around.
     let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
+        eprintln!(
+            "[translate_to_text3] dom_id={:?}, converting {} floats to exclusions",
+            dom_id, bfc_state.floats.floats.len()
+        );
         bfc_state
             .floats
             .floats
             .iter()
-            .map(|float_box| {
-                ShapeBoundary::Rectangle(crate::text3::cache::Rect {
+            .enumerate()
+            .map(|(i, float_box)| {
+                let rect = crate::text3::cache::Rect {
                     x: float_box.rect.origin.x,
                     y: float_box.rect.origin.y,
                     width: float_box.rect.size.width,
                     height: float_box.rect.size.height,
-                })
+                };
+                eprintln!(
+                    "[translate_to_text3]   Exclusion #{}: {:?} at ({}, {}) size {}x{}",
+                    i, float_box.kind, rect.x, rect.y, rect.width, rect.height
+                );
+                ShapeBoundary::Rectangle(rect)
             })
             .collect()
     } else {
+        eprintln!("[translate_to_text3] dom_id={:?}, NO bfc_state - no float exclusions", dom_id);
         Vec::new()
     };
+    
+    eprintln!(
+        "[translate_to_text3] dom_id={:?}, available_size={}x{}, shape_exclusions.len()={}",
+        dom_id, constraints.available_size.width, constraints.available_size.height, shape_exclusions.len()
+    );
 
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
@@ -1870,7 +2230,8 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         };
         
         // Layout the caption node
-        let caption_output = layout_formatting_context(ctx, tree, text_cache, caption_idx, &caption_constraints)?;
+        let mut empty_float_cache = std::collections::BTreeMap::new();
+        let caption_output = layout_formatting_context(ctx, tree, text_cache, caption_idx, &caption_constraints, &mut empty_float_cache)?;
         caption_height = caption_output.overflow_size.height;
         
         // Position caption based on caption-side property
@@ -2136,6 +2497,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     let mut temp_positions = BTreeMap::new();
     let mut temp_scrollbar_reflow = false;
+    let mut temp_float_cache = std::collections::BTreeMap::new();
     
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -2146,6 +2508,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         min_constraints.available_size,
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
+        &mut temp_float_cache,
     )?;
     
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
@@ -2187,6 +2550,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     let mut temp_positions = BTreeMap::new();
     let mut temp_scrollbar_reflow = false;
+    let mut temp_float_cache = std::collections::BTreeMap::new();
     
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -2197,6 +2561,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         max_constraints.available_size,
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
+        &mut temp_float_cache,
     )?;
     
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
@@ -2535,6 +2900,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         let mut temp_positions = BTreeMap::new();
         let mut temp_scrollbar_reflow = false;
+        let mut temp_float_cache = std::collections::BTreeMap::new();
         
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
@@ -2545,6 +2911,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             cell_constraints.available_size,
             &mut temp_positions,
             &mut temp_scrollbar_reflow,
+            &mut temp_float_cache,
         )?;
         
         let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
@@ -3172,8 +3539,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
             // Recursively lay out the inline-block to get its final height and baseline.
             // Note: This does not affect its final position, only its dimensions.
+            let mut empty_float_cache = std::collections::BTreeMap::new();
             let layout_output =
-                layout_formatting_context(ctx, tree, text_cache, child_index, &child_constraints)?;
+                layout_formatting_context(ctx, tree, text_cache, child_index, &child_constraints, &mut empty_float_cache)?;
 
             let mut final_height = layout_output.overflow_size.height;
             
@@ -3371,7 +3739,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 
                 drop(child_node);
                 
-                let layout_output = layout_formatting_context(ctx, tree, &mut TextLayoutCache::default(), child_index, &child_constraints)?;
+                let mut empty_float_cache = std::collections::BTreeMap::new();
+                let layout_output = layout_formatting_context(ctx, tree, &mut TextLayoutCache::default(), child_index, &child_constraints, &mut empty_float_cache)?;
                 let final_height = layout_output.overflow_size.height;
                 let final_size = LogicalSize::new(width, final_height);
                 

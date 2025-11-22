@@ -1476,8 +1476,10 @@ impl CssPropertyCache {
                     if let NodeDataInlineCssProperty::Normal(p) = css_prop {
                         if p.get_type() == *css_property_type {
                             if *css_property_type == CssPropertyType::PaddingTop 
-                                || *css_property_type == CssPropertyType::FontWeight {
-                                println!("[GET_PROPERTY] Found inline {:?} for node {:?}: {:?}", 
+                                || *css_property_type == CssPropertyType::FontWeight
+                                || *css_property_type == CssPropertyType::Float
+                                || *css_property_type == CssPropertyType::Clear {
+                                eprintln!("[GET_PROPERTY] Found inline {:?} for node {:?}: {:?}", 
                                     css_property_type, node_id, p);
                             }
                             return Some(p);

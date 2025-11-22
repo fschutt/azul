@@ -78,6 +78,10 @@ pub struct LayoutCache<T: ParsedFontTrait> {
     /// Key: (layout_index, counter_name), Value: counter value
     /// This stores the computed counter values after processing counter-reset and counter-increment.
     pub counters: BTreeMap<(usize, String), i32>,
+    /// Cache of positioned floats for each BFC node (layout_index -> FloatingContext).
+    /// This persists float positions across multiple layout passes, ensuring IFC children
+    /// always have access to correct float exclusions even when layout is recalculated.
+    pub float_cache: BTreeMap<usize, fc::FloatingContext>,
 }
 
 /// The result of a reconciliation pass.
@@ -519,6 +523,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // The map of final absolute positions, which is mutated by this function.
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     reflow_needed_for_scrollbars: &mut bool,
+    // Cache of positioned floats for each BFC node
+    float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     let (constraints, dom_id, writing_mode, mut final_used_size, box_props) = {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
@@ -622,7 +628,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         )
     };
 
-    let layout_output = layout_formatting_context(ctx, tree, text_cache, node_index, &constraints)?;
+    let layout_output = layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
     let content_size = layout_output.overflow_size;
 
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
@@ -798,6 +804,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 inner_size_after_scrollbars,
                 calculated_positions,
                 reflow_needed_for_scrollbars,
+                float_cache,
             )?;
         }
     }

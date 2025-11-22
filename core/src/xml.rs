@@ -1605,6 +1605,15 @@ pub fn str_to_rust_code<'a>(
     let mut global_style = Css::empty();
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        println!("[CSS_PARSE] Found <head> node with {} children", head_node.children.as_ref().len());
+        for (i, child) in head_node.children.as_ref().iter().enumerate() {
+            if let XmlNodeChild::Element(node) = child {
+                println!("[CSS_PARSE]   Child {}: node_type={}", i, node.node_type);
+            } else {
+                println!("[CSS_PARSE]   Child {}: text node", i);
+            }
+        }
+        
         for child in head_node.children.as_ref() {
             if let XmlNodeChild::Element(node) = child {
                 match DynamicXmlComponent::new(node) {

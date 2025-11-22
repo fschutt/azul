@@ -259,6 +259,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
                 cb_size,
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
+                &mut cache.float_cache,
             )?;
 
             // CRITICAL: Insert the root node's own position into calculated_positions
