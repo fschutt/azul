@@ -212,14 +212,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 size
             };
 
-            eprintln!("[position_out_of_flow] node_index={}, position={:?}, containing_block={:?}, element_size={:?}", 
-                node_index, position_type, containing_block_rect, element_size);
-
             // Resolve offsets using the now-known containing block size.
             let offsets =
                 resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
-
-            eprintln!("[position_out_of_flow] node_index={}, offsets={:?}", node_index, offsets);
 
             let mut static_pos = calculated_positions
                 .get(&node_index)
@@ -235,11 +230,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                         parent_pos.x + border_left + padding_left,
                         parent_pos.y + border_top + padding_top,
                     );
-                    eprintln!("[position_out_of_flow] Adjusted static_pos for fixed child of positioned parent: {:?}", static_pos);
                 }
             }
-            
-            eprintln!("[position_out_of_flow] node_index={}, static_pos={:?}", node_index, static_pos);
             
             let mut final_pos = LogicalPosition::zero();
 
@@ -285,8 +277,9 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Iterate through all nodes. We need the index to modify the position map.
     for node_index in 0..tree.nodes.len() {
         let node = &tree.nodes[node_index];
+        let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
-        if get_position_type(ctx.styled_dom, node.dom_node_id) == LayoutPosition::Relative {
+        if position_type == LayoutPosition::Relative {
             // Determine the containing block size for resolving percentages.
             // For `position: relative`, this is the parent's content box size.
             let containing_block_size = if let Some(parent_idx) = node.parent {
@@ -322,21 +315,49 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 let mut delta_x = 0.0;
                 let mut delta_y = 0.0;
 
-                // Note: The spec says if both 'left' and 'right' are specified, 'right' is ignored.
-                // This implementation sums them, which is a common simplification but not strictly
-                // correct. A fully compliant engine would respect directionality
-                // (ltr/rtl).
-                if let Some(left) = offsets.left {
-                    delta_x += left;
-                }
-                if let Some(right) = offsets.right {
-                    delta_x -= right;
-                }
+                // According to CSS 2.1 Section 9.3.2:
+                // - For `top` and `bottom`: if both are specified, `top` wins and `bottom` is ignored
+                // - For `left` and `right`: depends on direction (ltr/rtl)
+                //   - In LTR: if both specified, `left` wins and `right` is ignored
+                //   - In RTL: if both specified, `right` wins and `left` is ignored
+                
+                // Vertical positioning: `top` takes precedence over `bottom`
                 if let Some(top) = offsets.top {
-                    delta_y += top;
+                    delta_y = top;
+                } else if let Some(bottom) = offsets.bottom {
+                    delta_y = -bottom;
                 }
-                if let Some(bottom) = offsets.bottom {
-                    delta_y -= bottom;
+                
+                // Horizontal positioning: depends on direction
+                // Get the direction for this element
+                let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
+                let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
+                let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].state;
+                let direction = ctx.styled_dom
+                    .css_property_cache
+                    .ptr
+                    .get_direction(node_data, &node_dom_id, node_state)
+                    .and_then(|s| s.get_property().copied())
+                    .unwrap_or(azul_css::props::style::StyleDirection::Ltr);
+                
+                use azul_css::props::style::StyleDirection;
+                match direction {
+                    StyleDirection::Ltr => {
+                        // In LTR mode: `left` takes precedence over `right`
+                        if let Some(left) = offsets.left {
+                            delta_x = left;
+                        } else if let Some(right) = offsets.right {
+                            delta_x = -right;
+                        }
+                    }
+                    StyleDirection::Rtl => {
+                        // In RTL mode: `right` takes precedence over `left`
+                        if let Some(right) = offsets.right {
+                            delta_x = -right;
+                        } else if let Some(left) = offsets.left {
+                            delta_x = left;
+                        }
+                    }
                 }
 
                 // Only apply the shift if there is a non-zero delta.

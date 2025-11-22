@@ -306,19 +306,27 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         break;
     }
 
-    // --- Step 3: Position Out-of-Flow Elements ---
-    positioning::position_out_of_flow_elements(
-        &mut ctx,
-        &mut new_tree,
-        &mut calculated_positions,
-        viewport,
-    )?;
-
-    // --- Step 3.5: Adjust Relatively Positioned Elements ---
+    // --- Step 3: Adjust Relatively Positioned Elements ---
+    // This must be done BEFORE positioning out-of-flow elements, because
+    // relatively positioned elements establish containing blocks for their
+    // absolutely positioned descendants. If we adjust relative positions after
+    // positioning absolute elements, the absolute elements will be positioned
+    // relative to the wrong (pre-adjustment) position of their containing block.
     // Pass the viewport to correctly resolve percentage offsets for the root element.
     positioning::adjust_relative_positions(
         &mut ctx,
         &new_tree,
+        &mut calculated_positions,
+        viewport,
+    )?;
+
+    // --- Step 3.5: Position Out-of-Flow Elements ---
+    // This must be done AFTER adjusting relative positions, so that absolutely
+    // positioned elements are positioned relative to the final (post-adjustment)
+    // position of their relatively positioned containing blocks.
+    positioning::position_out_of_flow_elements(
+        &mut ctx,
+        &mut new_tree,
         &mut calculated_positions,
         viewport,
     )?;
