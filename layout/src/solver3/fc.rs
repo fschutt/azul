@@ -642,6 +642,13 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
     
+    // Track escaped margins separately from content-box height
+    // CSS 2.2 § 8.3.1: Escaped margins don't contribute to parent's content-box height,
+    // but DO affect sibling positioning within the parent
+    let mut total_escaped_top_margin = 0.0f32;
+    // Track all inter-sibling margins (collapsed) - these are also not part of content height
+    let mut total_sibling_margins = 0.0f32;
+    
     // Margin collapsing state
     let mut last_margin_bottom = 0.0f32;
     let mut is_first_child = true;
@@ -859,9 +866,11 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // The escaped margin will be handled by returning it to the parent's parent BFC
                 top_margin_resolved = true;
                 top_margin_escaped = true; // Flag that margin escaped (for return value)
+                // Track escaped margin so it gets subtracted from content-box height
+                total_escaped_top_margin = accumulated_top_margin;
                 // Position child at pen (no margin applied - it escaped!)
-                eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}",
-                    child_index, parent_margin_top, child_margin_top, accumulated_top_margin);
+                eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}, total_escaped={}",
+                    child_index, parent_margin_top, child_margin_top, accumulated_top_margin, total_escaped_top_margin);
             } else {
                 // Can't escape: parent has blocker (padding/border)
                 // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse
@@ -893,8 +902,9 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // Normal sibling margin collapse
                 let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
                 main_pen += collapsed;
-                eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}",
-                    child_index, last_margin_bottom, child_margin_top, collapsed, main_pen);
+                total_sibling_margins += collapsed;
+                eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}, total_sibling_margins={}",
+                    child_index, last_margin_bottom, child_margin_top, collapsed, main_pen, total_sibling_margins);
             }
         }
 
@@ -957,13 +967,31 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // Position child
         // For normal flow blocks (including IFCs): position at full width (cross_start = 0)
         // For BFC-establishing blocks: position in available space between floats
-        let (child_cross_pos, child_main_pos) = if establishes_bfc {
+        let (child_cross_pos, mut child_main_pos) = if establishes_bfc {
             // BFC: Position in space between floats
             (cross_start + child_margin.cross_start(writing_mode), main_pen)
         } else {
             // Normal flow: Position at full width (floats don't affect box position)
             (child_margin.cross_start(writing_mode), main_pen)
         };
+        
+        // CSS 2.2 § 8.3.1: If child's top margin escaped through parent, adjust position
+        // "If the top margin of a box collapses with its first child's top margin,
+        // the top border edge of the box is defined to coincide with the top border edge of the child."
+        // This means the child's margin appears ABOVE the parent, so we offset the child down.
+        // IMPORTANT: This only applies to the FIRST child! For siblings, normal margin collapse applies.
+        let child_escaped_margin = child_node.escaped_top_margin.unwrap_or(0.0);
+        let is_first_in_flow_child = Some(child_index) == first_child_index;
+        
+        if child_escaped_margin > 0.0 && is_first_in_flow_child {
+            child_main_pos += child_escaped_margin;
+            total_escaped_top_margin += child_escaped_margin;
+            eprintln!("[layout_bfc] FIRST child {} has escaped_top_margin={}, adjusting position from {} to {}, total_escaped={}",
+                child_index, child_escaped_margin, main_pen, child_main_pos, total_escaped_top_margin);
+        } else if child_escaped_margin > 0.0 {
+            eprintln!("[layout_bfc] NON-FIRST child {} has escaped_top_margin={} but NOT adjusting position (sibling margin collapse handles this)",
+                child_index, child_escaped_margin);
+        }
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
@@ -1086,8 +1114,17 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         output.positions.insert(child_index, final_pos);
 
-        // Advance the pen past the child's content size (potentially updated)
-        main_pen += child_size.main(writing_mode);
+        // Advance the pen past the child's content size
+        // For FIRST child with escaped margin: the escaped margin was added to position,
+        // so we need to add it to main_pen too for correct sibling positioning
+        // For NON-FIRST children: escaped margins are internal to that child, don't affect our pen
+        if is_first_in_flow_child && child_escaped_margin > 0.0 {
+            main_pen += child_size.main(writing_mode) + child_escaped_margin;
+            eprintln!("[layout_bfc] Advanced main_pen by child_size={} + escaped={} = {} total",
+                child_size.main(writing_mode), child_escaped_margin, main_pen);
+        } else {
+            main_pen += child_size.main(writing_mode);
+        }
         has_content = true;
         
         // Update last margin for next sibling
@@ -1207,7 +1244,19 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // the container's padding when there's existing in-flow content.
 
     // The final overflow size is determined by the final pen position and the max cross size.
-    output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
+    // CSS 2.2 § 8.3.1: Escaped margins don't contribute to the content-box height!
+    // Content-box height calculation:
+    // - main_pen: total space used (includes ALL margins - escaped, collapsed, etc.)
+    // - total_escaped_top_margin: first child's margin that escaped through parent → SUBTRACT (outside content-box)
+    // - total_sibling_margins: collapsed margins BETWEEN siblings → do NOT subtract (they're INSIDE content-box)
+    // 
+    // The collapsed sibling margins are the space BETWEEN boxes, which is part of the parent's content area.
+    // Only escaped margins are outside the parent's content-box (they belong to the parent's parent coordinate space).
+    let content_box_height = main_pen - total_escaped_top_margin;
+    output.overflow_size = LogicalSize::from_main_cross(content_box_height, max_cross_size, writing_mode);
+    
+    eprintln!("[layout_bfc] FINAL for node {}: main_pen={}, total_escaped_top={}, total_sibling_margins={}, content_box_height={}", 
+        node_index, main_pen, total_escaped_top_margin, total_sibling_margins, content_box_height);
 
     // Baseline calculation would happen here in a full implementation.
     output.baseline = None;

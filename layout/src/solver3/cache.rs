@@ -631,13 +631,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let layout_result = layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
     let content_size = layout_result.output.overflow_size;
     
-    // If the child's top margin escaped (parent-child collapse), adjust the position
-    // CSS 2.2 § 8.3.1: "In this case, the position of the element is determined by the margin of the first child."
-    // The escaped margin pushes THIS element down in its containing block
-    let mut margin_adjustment = LogicalPosition::zero();
+    // Note: escaped_top_margin is handled by the PARENT when positioning this node,
+    // not by adjusting our own content-box position. The content-box is always at
+    // (border+padding) offset from the margin-box, regardless of escaped margins.
     if let Some(escaped_margin) = layout_result.escaped_top_margin {
-        eprintln!("[calculate_layout_for_subtree] Node {} has escaped_top_margin={}", node_index, escaped_margin);
-        margin_adjustment.y = escaped_margin;
+        eprintln!("[calculate_layout_for_subtree] Node {} has escaped_top_margin={} (will be handled by parent)", node_index, escaped_margin);
     }
 
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
@@ -723,10 +721,9 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // The absolute position of this node's content-box for its children.
     // containing_block_pos is the absolute position of this node's margin-box.
     // To get to the content-box, we add: border + padding (NOT margin, that's already in containing_block_pos)
-    // PLUS any escaped top margin from first child (this pushes us down)
     let self_content_box_pos = LogicalPosition::new(
-        containing_block_pos.x + current_node.box_props.border.left + current_node.box_props.padding.left + margin_adjustment.x,
-        containing_block_pos.y + current_node.box_props.border.top + current_node.box_props.padding.top + margin_adjustment.y,
+        containing_block_pos.x + current_node.box_props.border.left + current_node.box_props.padding.left,
+        containing_block_pos.y + current_node.box_props.border.top + current_node.box_props.padding.top,
     );
 
     // DEBUG: Log content-box calculation
