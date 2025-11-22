@@ -234,8 +234,12 @@ impl FloatingContext {
                 || (check_right && float.kind == LayoutFloat::Right);
 
             if should_clear_this_float {
-                let float_main_end = float.rect.origin.main(wm) + float.rect.size.main(wm);
-                max_end_offset = max_end_offset.max(float_main_end);
+                // CSS 2.2 § 9.5.2: "the top border edge of the box be below the bottom outer edge"
+                // Outer edge = margin-box boundary (content + padding + border + margin)
+                let float_margin_box_end = float.rect.origin.main(wm) 
+                                         + float.rect.size.main(wm) 
+                                         + float.margin.main_end(wm);
+                max_end_offset = max_end_offset.max(float_margin_box_end);
             }
         }
 
@@ -671,57 +675,57 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
         
         // Check if this child is a float - if so, position it at current main_pen
-        use crate::solver3::getters::get_float;
         let is_float = if let Some(node_id) = child_dom_id {
-            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
-            let float_type = get_float(ctx.styled_dom, node_id, &styled_node.state);
+            let float_type = get_float_property(ctx.styled_dom, Some(node_id));
             
-            if !float_type.is_none() {
-                // Extract the actual LayoutFloat value
-                if let crate::solver3::getters::MultiValue::Exact(float_val) = float_type {
-                    let float_size = child_node.used_size.unwrap_or_default();
-                    let float_margin = &child_node.box_props.margin;
+            if float_type != LayoutFloat::None {
+                let float_size = child_node.used_size.unwrap_or_default();
+                let float_margin = &child_node.box_props.margin;
                     
-                    // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
-                    // If there's a previous in-flow element with a bottom margin, we must
-                    // include it in the Y position calculation for this float.
-                    let float_y = main_pen + last_margin_bottom;
-                    
-                    eprintln!(
-                        "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={} (main_pen={} + last_margin={})",
-                        child_index, float_val, float_size, float_y, main_pen, last_margin_bottom
-                    );
-                    
-                    // Position the float at the CURRENT main_pen + last margin (respects DOM order!)
-                    let float_rect = position_float(
-                        &float_context,
-                        float_val,
-                        float_size,
-                        float_margin,
-                        float_y,  // Include last_margin_bottom since float margins don't collapse!
-                        constraints.available_size.cross(writing_mode),
-                        writing_mode,
-                    );
-                    
-                    eprintln!("[layout_bfc] Float positioned at: {:?}", float_rect);
-                    
-                    // Add to float context BEFORE positioning next element
-                    float_context.add_float(float_val, float_rect, *float_margin);
-                    
-                    // Store position in output
-                    output.positions.insert(child_index, float_rect.origin);
-                    
-                    eprintln!("[layout_bfc] *** FLOAT POSITIONED: child={}, main_pen={} (unchanged - floats don't advance pen)", child_index, main_pen);
-                    
-                    // Floats are taken out of normal flow - DON'T advance main_pen
-                    // Continue to next child
-                    continue;
-                }
+                // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
+                // If there's a previous in-flow element with a bottom margin, we must
+                // include it in the Y position calculation for this float.
+                let float_y = main_pen + last_margin_bottom;
+                
+                eprintln!(
+                    "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={} (main_pen={} + last_margin={})",
+                    child_index, float_type, float_size, float_y, main_pen, last_margin_bottom
+                );
+                
+                // Position the float at the CURRENT main_pen + last margin (respects DOM order!)
+                let float_rect = position_float(
+                    &float_context,
+                    float_type,
+                    float_size,
+                    float_margin,
+                    float_y,  // Include last_margin_bottom since float margins don't collapse!
+                    constraints.available_size.cross(writing_mode),
+                    writing_mode,
+                );
+                
+                eprintln!("[layout_bfc] Float positioned at: {:?}", float_rect);
+                
+                // Add to float context BEFORE positioning next element
+                float_context.add_float(float_type, float_rect, *float_margin);
+                
+                // Store position in output
+                output.positions.insert(child_index, float_rect.origin);
+                
+                eprintln!("[layout_bfc] *** FLOAT POSITIONED: child={}, main_pen={} (unchanged - floats don't advance pen)", child_index, main_pen);
+                
+                // Floats are taken out of normal flow - DON'T advance main_pen
+                // Continue to next child
+                continue;
             }
             false
         } else {
             false
         };
+        
+        // Early exit for floats (already handled above)
+        if is_float {
+            continue;
+        }
 
         // From here: normal flow (non-float) children only
 
@@ -755,11 +759,23 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_has_top_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, true);
         let child_has_bottom_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, false);
         
+        // Check for clear property FIRST - clearance affects whether element is considered empty
+        // CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
+        // An element with clearance is NOT empty even if it has no content
+        let child_clear = if let Some(node_id) = child_dom_id {
+            get_clear_property(ctx.styled_dom, Some(node_id))
+        } else {
+            LayoutClear::None
+        };
+        eprintln!("[layout_bfc] Child {} clear property: {:?}", child_index, child_clear);
+        
         // PHASE 1: Empty Block Detection & Self-Collapse
         let is_empty = is_empty_block(child_node);
         
         // Handle empty blocks FIRST (they collapse through and don't participate in layout)
-        if is_empty && !child_has_top_blocker && !child_has_bottom_blocker {
+        // EXCEPTION: Elements with clear property are NOT skipped even if empty!
+        // CSS 2.2 § 9.5.2: Clear property affects positioning even for empty elements
+        if is_empty && !child_has_top_blocker && !child_has_bottom_blocker && child_clear == LayoutClear::None {
             // Empty block: collapse its own top and bottom margins FIRST
             let self_collapsed = collapse_margins(child_margin_top, child_margin_bottom);
             
@@ -788,41 +804,52 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             continue;
         }
         
-        // From here on: non-empty blocks only
+        // From here on: non-empty blocks only (or empty blocks with clear property)
         
-        // Check for clear property and advance pen if needed
-        use crate::solver3::getters::get_clear;
-        if let Some(node_id) = child_dom_id {
-            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
-            let child_clear = get_clear(ctx.styled_dom, node_id, &styled_node.state);
-            match child_clear {
-                crate::solver3::getters::MultiValue::Exact(clear_val) if clear_val != LayoutClear::None => {
-                    let cleared_offset = float_context.clearance_offset(
-                        clear_val,
-                        main_pen,
-                        writing_mode,
-                    );
-                    if cleared_offset > main_pen {
-                        ctx.debug_info(format!(
-                            "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
-                            child_index, clear_val, main_pen, cleared_offset
-                        ));
-                        main_pen = cleared_offset;
-                        // Clearance breaks margin collapse
-                        last_margin_bottom = 0.0;
-                    }
-                }
-                _ => {}
+        // Apply clearance if needed
+        // CSS 2.2 § 9.5.2: Clearance inhibits margin collapsing
+        let clearance_applied = if child_clear != LayoutClear::None {
+            let cleared_offset = float_context.clearance_offset(
+                child_clear,
+                main_pen,
+                writing_mode,
+            );
+            eprintln!("[layout_bfc] Child {} clearance check: cleared_offset={}, main_pen={}", 
+                child_index, cleared_offset, main_pen);
+            if cleared_offset > main_pen {
+                ctx.debug_info(format!(
+                    "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
+                    child_index, child_clear, main_pen, cleared_offset
+                ));
+                main_pen = cleared_offset;
+                true // Signal that clearance was applied
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
         
         // PHASE 2: Parent-Child Top Margin Escape (First Child)
         // CSS 2.2 § 8.3.1: "The top margin of a box is adjacent to the top margin of its first 
         // in-flow child if the box has no top border, no top padding, and the child has no clearance."
+        // CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
         if is_first_child {
             is_first_child = false;
             
-            if !parent_has_top_blocker && !child_has_top_blocker {
+            // Clearance prevents collapse (acts as invisible blocker)
+            if clearance_applied {
+                // Clearance inhibits all margin collapsing for this element
+                // The clearance has already positioned main_pen past floats
+                // Now add the child's full top margin (no collapsing)
+                if !top_margin_resolved {
+                    main_pen += parent_margin_top;
+                    top_margin_resolved = true;
+                }
+                main_pen += child_margin_top;
+                eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, parent_margin={}, child_margin={}, main_pen={}",
+                    child_index, parent_margin_top, child_margin_top, main_pen);
+            } else if !parent_has_top_blocker && !child_has_top_blocker {
                 // First child's top margin can escape parent
                 // Accumulate it with parent's margin (will be returned to parent's parent)
                 accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
@@ -844,6 +871,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         } else {
             // Not first child: handle sibling collapse
             // CSS 2.2 § 8.3.1 Rule 1: "Vertical margins of adjacent block boxes in the normal flow collapse"
+            // CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
             
             // Resolve accumulated top margin if not yet done (for parent's first in-flow child)
             if !top_margin_resolved {
@@ -851,12 +879,18 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 top_margin_resolved = true;
             }
             
-            // Sibling margin collapse
-            let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
-            main_pen += collapsed;
-            
-            eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}",
-                child_index, last_margin_bottom, child_margin_top, collapsed, main_pen);
+            if clearance_applied {
+                // Clearance inhibits collapsing - add full margin
+                main_pen += child_margin_top;
+                eprintln!("[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, child_margin_top={}, main_pen={}",
+                    child_index, child_margin_top, main_pen);
+            } else {
+                // Normal sibling margin collapse
+                let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
+                main_pen += collapsed;
+                eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}",
+                    child_index, last_margin_bottom, child_margin_top, collapsed, main_pen);
+            }
         }
 
         // Position child (non-empty blocks only reach here)
@@ -1054,10 +1088,16 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // Update last margin for next sibling
         // CSS 2.2 § 8.3.1: The bottom margin of this box will collapse with the top margin
         // of the next sibling (if no clearance or blockers intervene)
-        last_margin_bottom = child_margin_bottom;
+        // CSS 2.2 § 9.5.2: If clearance was applied, margin collapsing is inhibited
+        if clearance_applied {
+            // Clearance inhibits collapse - next sibling starts fresh
+            last_margin_bottom = 0.0;
+        } else {
+            last_margin_bottom = child_margin_bottom;
+        }
         
-        eprintln!("[layout_bfc] Child {} positioned at final_pos={:?}, size={:?}, advanced main_pen to {}, last_margin_bottom={}",
-            child_index, final_pos, child_size, main_pen, last_margin_bottom);
+        eprintln!("[layout_bfc] Child {} positioned at final_pos={:?}, size={:?}, advanced main_pen to {}, last_margin_bottom={}, clearance_applied={}",
+            child_index, final_pos, child_size, main_pen, last_margin_bottom, clearance_applied);
 
         // Track the maximum cross-axis size to determine the BFC's overflow size.
         let child_cross_extent =
