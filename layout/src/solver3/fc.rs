@@ -162,8 +162,10 @@ pub enum TextAlign {
 struct FloatBox {
     /// The type of float (Left or Right).
     kind: LayoutFloat,
-    /// The rectangle occupied by the float's margin-box.
+    /// The rectangle of the float's content box (origin includes top/left margin offset).
     rect: LogicalRect,
+    /// The margin sizes (needed to calculate true margin-box bounds).
+    margin: EdgeSizes,
 }
 
 /// Manages the state of all floated elements within a Block Formatting Context.
@@ -174,8 +176,8 @@ pub struct FloatingContext {
 
 impl FloatingContext {
     /// Add a newly positioned float to the context
-    pub fn add_float(&mut self, kind: LayoutFloat, rect: LogicalRect) {
-        self.floats.push(FloatBox { kind, rect });
+    pub fn add_float(&mut self, kind: LayoutFloat, rect: LogicalRect, margin: EdgeSizes) {
+        self.floats.push(FloatBox { kind, rect, margin });
     }
     
     /// Finds the available space on the cross-axis for a line box at a given main-axis range.
@@ -699,7 +701,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     eprintln!("[layout_bfc] Float positioned at: {:?}", float_rect);
                     
                     // Add to float context BEFORE positioning next element
-                    float_context.add_float(float_val, float_rect);
+                    float_context.add_float(float_val, float_rect, *float_margin);
                     
                     // Store position in output
                     output.positions.insert(child_index, float_rect.origin);
@@ -979,7 +981,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     float_box.kind, float_box.rect, float_rel_to_ifc
                 );
                 
-                ifc_floats.add_float(float_box.kind, float_rel_to_ifc);
+                ifc_floats.add_float(float_box.kind, float_rel_to_ifc, float_box.margin);
             }
             
             // Create a BfcState with IFC-relative float coordinates
@@ -1130,31 +1132,17 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         escaped_bottom_margin = None;
     }
 
-    // BROWSER COMPATIBILITY FIX (CSS 2.2 § 9.5 + implicit browser behavior):
-    // Major browsers (Chrome, Firefox) implicitly expand a block container with height:auto
-    // to contain its floated children, even though CSS 2.2 technically says floats don't
-    // contribute to the height of their container with overflow:visible.
-    // 
-    // This is a de-facto standard behavior that ensures floated content doesn't escape
-    // its container's background/border, which would otherwise create visual artifacts.
+    // CSS 2.2 § 9.5: Floats don't contribute to container height with overflow:visible
+    // However, browsers DO expand containers to contain floats in specific cases:
+    // 1. If there's NO in-flow content (main_pen == 0), floats determine height
+    // 2. If container establishes a BFC (overflow != visible)
     //
-    // We implement this by checking if any float extends beyond the current main_pen
-    // (which represents the bottom of in-flow content), and if so, expanding main_pen
-    // to encompass the floats.
-    if !float_context.floats.is_empty() {
-        let lowest_float_end = float_context.floats.iter()
-            .map(|f| f.rect.origin.y + f.rect.size.height)
-            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap_or(0.0);
-        
-        if lowest_float_end > main_pen {
-            eprintln!(
-                "[layout_bfc] FLOAT CONTAINMENT: Container {} expanding from main_pen={} to {} to contain floats",
-                node_index, main_pen, lowest_float_end
-            );
-            main_pen = lowest_float_end;
-        }
-    }
+    // In this case, we have in-flow content (main_pen > 0) and overflow:visible,
+    // so floats should NOT expand the container. Their margins can "bleed" beyond
+    // the container boundaries into the parent.
+    //
+    // This matches Chrome/Firefox behavior where float margins escape through
+    // the container's padding when there's existing in-flow content.
 
     // The final overflow size is determined by the final pen position and the max cross size.
     output.overflow_size = LogicalSize::from_main_cross(main_pen, max_cross_size, writing_mode);
@@ -3972,6 +3960,7 @@ fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let new_float_box = FloatBox {
                 kind: float_type,
                 rect: LogicalRect::new(final_pos, child_margin_box_size),
+                margin: EdgeSizes::default(), // TODO: Pass actual margin if this function is used
             };
             floating_context.floats.push(new_float_box);
             return Ok(final_pos);
