@@ -3,11 +3,15 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::{PixelValue, SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}},
-        layout::grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
+        layout::{
+            flex::LayoutFlexBasis,
+            grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
+        },
         property::{
-            LayoutAlignItemsValue, LayoutDisplayValue, LayoutFlexDirectionValue,
-            LayoutFlexWrapValue, LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue,
-            LayoutGridAutoRowsValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
+            LayoutAlignContentValue, LayoutAlignItemsValue, LayoutAlignSelfValue,
+            LayoutDisplayValue, LayoutFlexDirectionValue, LayoutFlexWrapValue,
+            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
+            LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
             LayoutJustifyContentValue, LayoutPositionValue,
         },
     },
@@ -197,14 +201,27 @@ pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignIt
     }
 }
 
-pub fn layout_align_self_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignSelf {
-    use azul_css::props::layout::LayoutAlignItems;
+pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
+    use azul_css::props::layout::LayoutAlignSelf;
     match val.get_property_or_default().unwrap_or_default() {
-        LayoutAlignItems::Start => taffy::AlignSelf::FlexStart,
-        LayoutAlignItems::End => taffy::AlignSelf::FlexEnd,
-        LayoutAlignItems::Center => taffy::AlignSelf::Center,
-        LayoutAlignItems::Baseline => taffy::AlignSelf::Baseline,
-        LayoutAlignItems::Stretch => taffy::AlignSelf::Stretch,
+        LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items
+        LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
+        LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
+        LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
+        LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
+        LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
+    }
+}
+
+pub fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::AlignContent {
+    use azul_css::props::layout::LayoutAlignContent;
+    match val.get_property_or_default().unwrap_or_default() {
+        LayoutAlignContent::Start => taffy::AlignContent::FlexStart,
+        LayoutAlignContent::End => taffy::AlignContent::FlexEnd,
+        LayoutAlignContent::Center => taffy::AlignContent::Center,
+        LayoutAlignContent::Stretch => taffy::AlignContent::Stretch,
+        LayoutAlignContent::SpaceBetween => taffy::AlignContent::SpaceBetween,
+        LayoutAlignContent::SpaceAround => taffy::AlignContent::SpaceAround,
     }
 }
 
@@ -274,6 +291,22 @@ fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto
     }
 }
 
+// Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto for margins
+// CSS spec: margin default is 0, not auto (auto has special centering meaning in flexbox)
+fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
+    match mv {
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+            taffy::LengthPercentageAuto::length(0.0)  // Margins default to 0, not auto
+        }
+        MultiValue::Exact(pv) => {
+            pixel_value_to_pixels_fallback(&pv)
+                .map(taffy::LengthPercentageAuto::length)
+                .or_else(|| pv.to_percent().map(|p| taffy::LengthPercentageAuto::percent(p.get())))
+                .unwrap_or_else(|| taffy::LengthPercentageAuto::length(0.0))  // Fallback to 0 for margins
+        }
+    }
+}
+
 // Helper function to convert MultiValue<PixelValue> to LengthPercentage
 fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> taffy::LengthPercentage {
     match mv {
@@ -326,6 +359,10 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         taffy_style.display = layout_display_to_taffy(
             CssPropertyValue::Exact(get_display_type(styled_dom, id))
         );
+        
+        if matches!(id.index(), 2 | 3 | 5 | 7) {
+            println!("[TRANSLATE_STYLE] Node {:?}: display={:?}", id, taffy_style.display);
+        }
 
         // Position
         taffy_style.position = from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
@@ -342,9 +379,15 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let width = get_css_width(self.ctx.styled_dom, id, node_state);
         let height = get_css_height(self.ctx.styled_dom, id, node_state);
 
+        let taffy_width = from_layout_width(width.unwrap_or_default());
+        let taffy_height = from_layout_height(height.unwrap_or_default());
+        
+        println!("[TRANSLATE_STYLE] Node {:?}: css_width={:?} -> taffy={:?}, css_height={:?} -> taffy={:?}", 
+            id, width, taffy_width, height, taffy_height);
+
         taffy_style.size = taffy::Size {
-            width: from_layout_width(width.unwrap_or_default()),
-            height: from_layout_height(height.unwrap_or_default()),
+            width: taffy_width,
+            height: taffy_height,
         };
 
         // Min/Max Size
@@ -352,17 +395,39 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             width: pixel_to_lp(get_css_min_width(styled_dom, id, node_state).unwrap_or_default().inner).into(),
             height: pixel_to_lp(get_css_min_height(styled_dom, id, node_state).unwrap_or_default().inner).into(),
         };
+        
+        // For max-size, we need to handle Auto specially - it should translate to Taffy's auto, not a concrete value
+        // This is CRITICAL for flexbox stretch to work: items with max-height: auto CAN be stretched
+        let max_width_css = get_css_max_width(styled_dom, id, node_state);
+        let max_height_css = get_css_max_height(styled_dom, id, node_state);
+        
         taffy_style.max_size = taffy::Size {
-            width: pixel_to_lp(get_css_max_width(styled_dom, id, node_state).unwrap_or_default().inner).into(),
-            height: pixel_to_lp(get_css_max_height(styled_dom, id, node_state).unwrap_or_default().inner).into(),
+            width: match max_width_css {
+                MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => taffy::Dimension::auto(),
+                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+            },
+            height: match max_height_css {
+                MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => taffy::Dimension::auto(),
+                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+            },
         };
 
         // Box Model (margin, padding, border)
+        let margin_left_css = get_css_margin_left(styled_dom, id, node_state);
+        let margin_right_css = get_css_margin_right(styled_dom, id, node_state);
+        let margin_top_css = get_css_margin_top(styled_dom, id, node_state);
+        let margin_bottom_css = get_css_margin_bottom(styled_dom, id, node_state);
+        
+        if matches!(id.index(), 3 | 5 | 7) {
+            eprintln!("[MARGIN_DEBUG] Node {:?}: left={:?}, right={:?}, top={:?}, bottom={:?}", 
+                id, margin_left_css, margin_right_css, margin_top_css, margin_bottom_css);
+        }
+        
         taffy_style.margin = taffy::Rect {
-            left: multi_value_to_lpa(get_css_margin_left(styled_dom, id, node_state)),
-            right: multi_value_to_lpa(get_css_margin_right(styled_dom, id, node_state)),
-            top: multi_value_to_lpa(get_css_margin_top(styled_dom, id, node_state)),
-            bottom: multi_value_to_lpa(get_css_margin_bottom(styled_dom, id, node_state)),
+            left: multi_value_to_lpa_margin(margin_left_css),
+            right: multi_value_to_lpa_margin(margin_right_css),
+            top: multi_value_to_lpa_margin(margin_top_css),
+            bottom: multi_value_to_lpa_margin(margin_bottom_css),
         };
 
         taffy_style.padding = taffy::Rect {
@@ -502,7 +567,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             })
             .map(layout_flex_wrap_to_taffy)
             .unwrap_or(taffy::FlexWrap::NoWrap);
-        taffy_style.align_items = cache
+        taffy_style.align_items = Some(cache
             .get_property(node_data, &id, node_state, &CssPropertyType::AlignItems)
             .and_then(|p| {
                 if let CssProperty::AlignItems(v) = p {
@@ -511,8 +576,16 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                     None
                 }
             })
-            .map(layout_align_items_to_taffy);
-        taffy_style.justify_content = cache
+            .map(layout_align_items_to_taffy)
+            .unwrap_or_else(|| {
+                // CSS spec: default depends on display type
+                match taffy_style.display {
+                    taffy::Display::Flex => taffy::AlignItems::Stretch,  // Flexbox default
+                    taffy::Display::Grid => taffy::AlignItems::Start,    // Grid default
+                    _ => taffy::AlignItems::Stretch,
+                }
+            }));
+        taffy_style.justify_content = Some(cache
             .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
             .and_then(|p| {
                 if let CssProperty::JustifyContent(v) = p {
@@ -521,12 +594,24 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                     None
                 }
             })
-            .map(layout_justify_content_to_taffy);
+            .map(layout_justify_content_to_taffy)
+            .unwrap_or_else(|| {
+                // CSS spec: default depends on display type
+                match taffy_style.display {
+                    taffy::Display::Flex => taffy::JustifyContent::FlexStart,  // Flexbox default
+                    taffy::Display::Grid => taffy::JustifyContent::Start,      // Grid default
+                    _ => taffy::JustifyContent::FlexStart,
+                }
+            }));
         taffy_style.flex_grow = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
             .and_then(|p| {
                 if let CssProperty::FlexGrow(v) = p {
-                    Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                    let value = v.get_property_or_default().unwrap_or_default().inner.get();
+                    if value > 0.0 {
+                        println!("[TAFFY_BRIDGE] Node {:?} has flex-grow: {}", id, value);
+                    }
+                    Some(value)
                 } else {
                     None
                 }
@@ -542,7 +627,61 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                 }
             })
             .unwrap_or(1.0);
-        // TODO: flex_basis, align_self, gap, grid
+        taffy_style.flex_basis = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::FlexBasis)
+            .and_then(|p| {
+                if let CssProperty::FlexBasis(v) = p {
+                    let basis = match v.get_property_or_default().unwrap_or_default() {
+                        LayoutFlexBasis::Auto => taffy::Dimension::auto(),
+                        LayoutFlexBasis::Exact(pv) => {
+                            pixel_value_to_pixels_fallback(&pv)
+                                .map(taffy::Dimension::length)
+                                .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
+                                .unwrap_or_else(taffy::Dimension::auto)
+                        }
+                    };
+                    println!("[TAFFY_BRIDGE] Node {:?} has flex-basis: {:?}", id, basis);
+                    
+                    // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis take precedence
+                    // This is a workaround for Taffy not properly prioritizing flex-basis over width
+                    if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
+                        println!("[TAFFY_BRIDGE] Node {:?}: Clearing width because flex-basis is set", id);
+                        taffy_style.size.width = taffy::Dimension::auto();
+                    }
+                    
+                    Some(basis)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(taffy::Dimension::auto);
+        taffy_style.align_self = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
+            .and_then(|p| {
+                if let CssProperty::AlignSelf(v) = p {
+                    layout_align_self_to_taffy(*v)
+                } else {
+                    None
+                }
+            });
+        taffy_style.align_content = Some(cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::AlignContent)
+            .and_then(|p| {
+                if let CssProperty::AlignContent(v) = p {
+                    Some(*v)
+                } else {
+                    None
+                }
+            })
+            .map(layout_align_content_to_taffy)
+            .unwrap_or_else(|| {
+                // CSS spec: default depends on display type
+                match taffy_style.display {
+                    taffy::Display::Flex => taffy::AlignContent::Stretch,  // Flexbox default
+                    taffy::Display::Grid => taffy::AlignContent::Start,    // Grid default
+                    _ => taffy::AlignContent::Stretch,
+                }
+            }));
 
         taffy_style
     }
@@ -553,12 +692,110 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let style = self.translate_style_to_taffy(dom_id);
         style
     }
+    
+    /// Determines if cross-axis intrinsic size should be suppressed for stretching.
+    /// 
+    /// Per CSS Flexbox spec, align-items: stretch makes items fill the cross-axis
+    /// ONLY if the item's cross-size is 'auto' AND the item has no intrinsic cross-size.
+    /// 
+    /// Returns (suppress_width, suppress_height) booleans.
+    fn should_suppress_cross_intrinsic(&self, node_idx: usize, style: &Style) -> (bool, bool) {
+        let Some(node) = self.tree.get(node_idx) else {
+            return (false, false);
+        };
+        
+        if let Some(dom_id) = node.dom_node_id {
+            println!("[SUPPRESS_CHECK] Node {:?} (DOM {:?}): checking stretch suppression", node_idx, dom_id);
+        }
+        
+        // Check if parent is a flex or grid container
+        let Some(ref parent_fc) = node.parent_formatting_context else {
+            println!("[SUPPRESS_CHECK]   No parent_formatting_context");
+            return (false, false);
+        };
+        
+        println!("[SUPPRESS_CHECK]   parent_fc={:?}", parent_fc);
+        
+        match parent_fc {
+            FormattingContext::Flex => {
+                // Get parent node to check its flex-direction and align-items
+                let Some(parent_idx) = node.parent else {
+                    return (false, false);
+                };
+                let parent_style = self.get_taffy_style(parent_idx);
+                
+                // Determine if flex container is row or column
+                let is_row = matches!(
+                    parent_style.flex_direction,
+                    taffy::FlexDirection::Row | taffy::FlexDirection::RowReverse
+                );
+                
+                println!("[SUPPRESS_CHECK]   flex_direction={:?}, is_row={}", parent_style.flex_direction, is_row);
+                
+                // Get effective align value for this item
+                // align-self overrides parent's align-items
+                let align = style.align_self
+                    .or(parent_style.align_items)
+                    .unwrap_or(taffy::AlignSelf::Stretch);
+                
+                println!("[SUPPRESS_CHECK]   align_self={:?}, parent_align_items={:?}, effective={:?}", 
+                    style.align_self, parent_style.align_items, align);
+                
+                let should_stretch = matches!(align, taffy::AlignSelf::Stretch);
+                
+                println!("[SUPPRESS_CHECK]   should_stretch={}", should_stretch);
+                
+                if !should_stretch {
+                    return (false, false);
+                }
+                
+                // Check if cross-axis size is auto
+                // For row flex: cross-axis is height
+                // For column flex: cross-axis is width
+                let cross_size_is_auto = if is_row {
+                    style.size.height == taffy::Dimension::auto()
+                } else {
+                    style.size.width == taffy::Dimension::auto()
+                };
+                
+                println!("[SUPPRESS_CHECK]   size.width={:?}, size.height={:?}, cross_size_is_auto={}", 
+                    style.size.width, style.size.height, cross_size_is_auto);
+                
+                if !cross_size_is_auto {
+                    return (false, false);
+                }
+                
+                // All conditions met: suppress intrinsic cross-size
+                let result = if is_row {
+                    (false, true)  // Suppress height for row flex
+                } else {
+                    (true, false)  // Suppress width for column flex
+                };
+                println!("[SUPPRESS_CHECK]   Result: suppress_width={}, suppress_height={}", result.0, result.1);
+                result
+            }
+            FormattingContext::Grid => {
+                // TODO: Implement grid stretch detection
+                // Grid is more complex because:
+                // 1. Default align-items is 'start', not 'stretch'
+                // 2. Items can stretch in both axes simultaneously
+                // 3. Need to check grid-auto-flow and track sizing
+                (false, false)
+            }
+            _ => (false, false),
+        }
+    }
 
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
         let Some(node) = self.tree.get(node_idx) else {
             return Vec::new();
         };
+        
+        if node_idx == 2 {
+            println!("[get_layout_children] Node 2 has {} children: {:?}", node.children.len(), node.children);
+        }
+        
         node.children
             .iter()
             .filter(|&&child_idx| {
@@ -600,6 +837,42 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_idx: usize,
     inputs: LayoutInput,
 ) -> LayoutOutput {
+    println!("[LAYOUT_TAFFY] Container node_idx={}, formatting_context={:?}", node_idx, tree.get(node_idx).unwrap().formatting_context);
+    println!("[LAYOUT_TAFFY]   inputs.known_dimensions={:?}", inputs.known_dimensions);
+    println!("[LAYOUT_TAFFY]   inputs.parent_size={:?}", inputs.parent_size);
+    println!("[LAYOUT_TAFFY]   inputs.available_space={:?}", inputs.available_space);
+    println!("[LAYOUT_TAFFY]   inputs.sizing_mode={:?}", inputs.sizing_mode);
+    println!("[LAYOUT_TAFFY]   inputs.run_mode={:?}", inputs.run_mode);
+    
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "[XYZTEST] About to get children for node {}", node_idx);
+    let _ = std::io::stderr().flush();
+    
+    // DEBUG: Print children
+    let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
+    
+    let _ = writeln!(std::io::stderr(), "[XYZTEST] Got children vector of length {}", children.len());
+    let _ = std::io::stderr().flush();
+    
+    eprintln!("[LAYOUT_TAFFY]   Container has {} children: {:?}", children.len(), children);
+    // DEBUG: Print children
+    let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
+    eprintln!("[LAYOUT_TAFFY]   Got children vector");
+    eprintln!("[LAYOUT_TAFFY]   Container has {} children: {:?}", children.len(), children);
+    for &child_idx in &children {
+        if let Some(child) = tree.get(child_idx) {
+            println!("[LAYOUT_TAFFY]     Child {}: dom_id={:?}, fc={:?}, has_used_size={}", 
+                child_idx, child.dom_node_id, child.formatting_context, child.used_size.is_some());
+        }
+    }
+    
+    // Clear cache to force re-measure
+    for &child_idx in &children {
+        if let Some(child) = tree.get_mut(child_idx) {
+            child.taffy_cache.clear();
+        }
+    }
+    
     let mut bridge = TaffyBridge::new(ctx, tree);
     let node = bridge.tree.get(node_idx).unwrap();
     let output = match node.formatting_context {
@@ -607,6 +880,8 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         FormattingContext::Grid => compute_grid_layout(&mut bridge, node_idx.into(), inputs),
         _ => LayoutOutput::HIDDEN,
     };
+    
+    println!("[LAYOUT_TAFFY] Container node_idx={}, output.size={:?}", node_idx, output.size);
     output
 }
 
@@ -621,7 +896,10 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
         Self: 'c;
 
     fn child_ids(&self, node_id: taffy::NodeId) -> Self::ChildIter<'_> {
-        self.get_layout_children(node_id.into())
+        let node_idx: usize = node_id.into();
+        let children = self.get_layout_children(node_idx);
+        println!("[child_ids] Node {:?} has {} children: {:?}", node_idx, children.len(), children);
+        children
             .into_iter()
             .map(|id| id.into())
             .collect::<Vec<taffy::NodeId>>()
@@ -629,7 +907,12 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
     }
 
     fn child_count(&self, node_id: taffy::NodeId) -> usize {
-        self.get_layout_children(node_id.into()).len()
+        let node_idx: usize = node_id.into();
+        let count = self.get_layout_children(node_idx).len();
+        if node_idx == 2 {
+            println!("[child_count] Node 2 has {} children", count);
+        }
+        count
     }
 
     fn get_child_id(&self, node_id: taffy::NodeId, index: usize) -> taffy::NodeId {
@@ -649,27 +932,26 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
     fn get_core_container_style(&self, node_id: taffy::NodeId) -> Self::CoreContainerStyle<'_> {
         let node_idx: usize = node_id.into();
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
-        let style = self.translate_style_to_taffy(dom_id);
-        println!(
-            "  -> Taffy get_core_container_style for node_idx={}, dom_id={:?}",
-            node_idx, dom_id
-        );
-        println!(
-            "     display={:?}, flex_grow={:?}, size={:?}",
-            style.display, style.flex_grow, style.size
-        );
-        style
+        self.translate_style_to_taffy(dom_id)
     }
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
-        println!(
-            "  -> Taffy set_unrounded_layout: node_idx={}, size={:?}, location={:?}",
-            node_idx, layout.size, layout.location
-        );
         if let Some(node) = self.tree.get_mut(node_idx) {
-            node.used_size = Some(translate_taffy_size_back(layout.size));
-            node.relative_position = Some(translate_taffy_point_back(layout.location));
+            let size = translate_taffy_size_back(layout.size);
+            let pos = translate_taffy_point_back(layout.location);
+            
+            println!("[SET_LAYOUT] Node {:?}, size={:?}x{:?}", node_idx, size.width, size.height);
+            
+            if let Some(dom_id) = node.dom_node_id {
+                if matches!(dom_id.index(), 2 | 3 | 5 | 7) {
+                    println!("[SET_LAYOUT]   DOM {:?}, taffy_layout.size={:?}", 
+                        dom_id, layout.size);
+                }
+            }
+            
+            node.used_size = Some(size);
+            node.relative_position = Some(pos);
         }
     }
 
@@ -678,7 +960,16 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
         node_id: taffy::NodeId,
         inputs: LayoutInput,
     ) -> LayoutOutput {
-        compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
+        let node_idx: usize = node_id.into();
+        
+        if let Some(node) = self.tree.get(node_idx) {
+            if let Some(dom_id) = node.dom_node_id {
+                println!("[COMPUTE_CHILD_LAYOUT] Node {:?}: inputs.known_dimensions={:?}, fc={:?}", 
+                    dom_id, inputs.known_dimensions, node.formatting_context);
+            }
+        }
+        
+        let result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
                 .tree
@@ -687,30 +978,141 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
                 .unwrap_or_default();
 
             match fc {
-                FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
+                FormattingContext::Flex => {
+                    if let Some(node) = tree.tree.get(node_idx) {
+                        if let Some(dom_id) = node.dom_node_id {
+                            println!("[FLEXBOX_INPUT] Container {:?}: inputs.known_dimensions={:?}", 
+                                dom_id, inputs.known_dimensions);
+                        }
+                    }
+                    
+                    let result = compute_flexbox_layout(tree, node_id, inputs);
+                    
+                    if let Some(node) = tree.tree.get(node_idx) {
+                        if let Some(dom_id) = node.dom_node_id {
+                            println!("[FLEXBOX_RESULT] Container {:?}: result.size={:?}", 
+                                dom_id, result.size);
+                        }
+                    }
+                    
+                    result
+                },
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 _ => {
                     let node = tree.tree.get(node_idx).unwrap();
+                    
+                    // Check if this node has any children
+                    let has_children = tree.child_count(node_id) > 0;
+                    
+                    // Check if this node has intrinsic content (text, images, etc.)
+                    let has_intrinsic_content = node.intrinsic_sizes.is_some() 
+                        && (node.intrinsic_sizes.unwrap().max_content_width > 0.0 
+                            || node.intrinsic_sizes.unwrap().max_content_height > 0.0);
+                    
+                    if let Some(dom_id) = node.dom_node_id {
+                        if matches!(dom_id.index(), 3 | 5 | 7) {
+                            println!("[LEAF_LAYOUT] Node {:?}, fc={:?}, parent_fc={:?}, has_children={}, has_intrinsic={}", 
+                                dom_id, node.formatting_context, node.parent_formatting_context, 
+                                has_children, has_intrinsic_content);
+                        }
+                    }
+                    
+                    // CRITICAL FIX: Empty containers (no children, no intrinsic content) should return 
+                    // an empty layout and let Taffy's stretch algorithm handle sizing.
+                    // This is how TaffyTree's default behavior works for .new_with_children(&[])
+                    if !has_children && !has_intrinsic_content {
+                        // Empty container - return minimal layout
+                        // Taffy will apply stretch sizing externally
+                        if let Some(dom_id) = node.dom_node_id {
+                            if matches!(dom_id.index(), 3 | 5 | 7) {
+                                println!("[EMPTY_CONTAINER] Node {:?}: Returning empty layout, Taffy will apply stretch", dom_id);
+                            }
+                        }
+                        
+                        return LayoutOutput {
+                            size: Size {
+                                width: inputs.known_dimensions.width.unwrap_or(0.0),
+                                height: inputs.known_dimensions.height.unwrap_or(0.0),
+                            },
+                            content_size: Size {
+                                width: inputs.known_dimensions.width.unwrap_or(0.0),
+                                height: inputs.known_dimensions.height.unwrap_or(0.0),
+                            },
+                            first_baselines: taffy::Point { x: None, y: None },
+                            top_margin: taffy::CollapsibleMarginSet::ZERO,
+                            bottom_margin: taffy::CollapsibleMarginSet::ZERO,
+                            margins_can_collapse_through: false,
+                        };
+                    }
+                    
+                    // Has content - use measure function
                     let style = tree.get_taffy_style(node_idx);
+                    let (suppress_width, suppress_height) = tree.should_suppress_cross_intrinsic(node_idx, &style);
+                    
                     compute_leaf_layout(
                         inputs,
                         &style,
                         |_, _| 0.0,
                         |known_dimensions, _available_space| {
                             let intrinsic = node.intrinsic_sizes.unwrap_or_default();
-                            Size {
-                                width: known_dimensions
-                                    .width
-                                    .unwrap_or(intrinsic.max_content_width),
-                                height: known_dimensions
-                                    .height
-                                    .unwrap_or(intrinsic.max_content_height),
+                            
+                            if let Some(dom_id) = node.dom_node_id {
+                                if matches!(dom_id.index(), 3 | 5 | 7) {
+                                    println!("[MEASURE] Node {:?}: known_dimensions={:?}, intrinsic={:?}", 
+                                        dom_id, known_dimensions, intrinsic);
+                                    println!("[MEASURE]   suppress_width={}, suppress_height={}", 
+                                        suppress_width, suppress_height);
+                                }
                             }
+                            
+                            let result = Size {
+                                width: known_dimensions.width.unwrap_or(
+                                    if suppress_width { 
+                                        0.0  // Signal no intrinsic width constraint
+                                    } else { 
+                                        intrinsic.max_content_width 
+                                    }
+                                ),
+                                height: known_dimensions.height.unwrap_or(
+                                    if suppress_height { 
+                                        0.0  // Signal no intrinsic height constraint
+                                    } else { 
+                                        intrinsic.max_content_height 
+                                    }
+                                ),
+                            };
+                            
+                            if let Some(dom_id) = node.dom_node_id {
+                                if matches!(dom_id.index(), 3 | 5 | 7) {
+                                    println!("[MEASURE]   result={:?}", result);
+                                }
+                            }
+                            
+                            result
                         },
                     )
                 }
             }
-        })
+        });
+        
+        // CRITICAL FIX: Store layout for container nodes!
+        // Taffy only calls set_unrounded_layout for leaf nodes,
+        // so we must manually store the layout for containers.
+        if let Some(node) = self.tree.get_mut(node_idx) {
+            if matches!(node.formatting_context, FormattingContext::Flex | FormattingContext::Grid) {
+                let size = translate_taffy_size_back(result.size);
+                node.used_size = Some(size);
+                
+                if let Some(dom_id) = node.dom_node_id {
+                    if matches!(dom_id.index(), 2) {
+                        println!("[STORE_CONTAINER_LAYOUT] Container {:?}: stored size={:?}x{:?}", 
+                            dom_id, size.width, size.height);
+                    }
+                }
+            }
+        }
+        
+        result
     }
 }
 
@@ -768,11 +1170,46 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutFlexboxContainer
         &self,
         node_id: taffy::NodeId,
     ) -> Self::FlexboxContainerStyle<'_> {
-        self.get_core_container_style(node_id)
+        let style = self.get_core_container_style(node_id);
+        
+        let node_idx: usize = node_id.into();
+        if let Some(node) = self.tree.get(node_idx) {
+            if let Some(dom_id) = node.dom_node_id {
+                // Check if height is auto
+                use taffy::Dimension;
+                let is_auto = style.size.height == Dimension::auto();
+                println!("[get_flexbox_container_style] Container {:?}:", dom_id);
+                println!("  size.height is auto: {}", is_auto);
+                println!("  size.height = {:?}", style.size.height);
+                println!("  size.width = {:?}", style.size.width);
+            }
+        }
+        
+        style
     }
 
     fn get_flexbox_child_style(&self, child_node_id: taffy::NodeId) -> Self::FlexboxItemStyle<'_> {
-        self.get_core_container_style(child_node_id)
+        use taffy::Dimension;
+        
+        let style = self.get_core_container_style(child_node_id);
+        
+        let node_idx: usize = child_node_id.into();
+        if let Some(node) = self.tree.get(node_idx) {
+            if let Some(dom_id) = node.dom_node_id {
+                if matches!(dom_id.index(), 3 | 5 | 7) {
+                    println!("[get_flexbox_child_style] Node {:?}:", dom_id);
+                    println!("  size.width is auto: {}", style.size.width == Dimension::auto());
+                    println!("  size.height is auto: {}", style.size.height == Dimension::auto());
+                    println!("  min_size.width is auto: {}", style.min_size.width == Dimension::auto());
+                    println!("  min_size.height is auto: {}", style.min_size.height == Dimension::auto());
+                    println!("  max_size.width is auto: {}", style.max_size.width == Dimension::auto());
+                    println!("  max_size.height is auto: {}", style.max_size.height == Dimension::auto());
+                    println!("  align_self={:?}, flex_grow={}", style.align_self, style.flex_grow);
+                }
+            }
+        }
+        
+        style
     }
 }
 
@@ -875,7 +1312,7 @@ fn from_layout_position(val: LayoutPosition) -> Position {
         LayoutPosition::Relative => Position::Relative,
         LayoutPosition::Absolute => Position::Absolute,
         LayoutPosition::Fixed => Position::Absolute, // Taffy doesn't distinguish Fixed
-        LayoutPosition::Sticky => Position::Relative, // Sticky wird als Relative behandelt
+        LayoutPosition::Sticky => Position::Relative, // Sticky = Relative for Taffy
     }
 }
 

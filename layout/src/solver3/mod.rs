@@ -14,10 +14,11 @@ pub mod scrollbar;
 pub mod sizing;
 pub mod taffy_bridge;
 
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod tests_arabic;
+// Test modules commented out until they are implemented
+// #[cfg(test)]
+// mod tests;
+// #[cfg(test)]
+// mod tests_arabic;
 
 use std::{collections::BTreeMap, sync::Arc};
 

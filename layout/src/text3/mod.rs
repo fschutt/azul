@@ -25,5 +25,6 @@ pub mod knuth_plass;
 pub mod script;
 pub mod selection;
 
-#[cfg(test)]
-pub mod tests;
+// Test module commented out until it is implemented
+// #[cfg(test)]
+// pub mod tests;

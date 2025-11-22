@@ -611,6 +611,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 StyleTextAlign::Center => fc::TextAlign::Center,
                 StyleTextAlign::Justify => fc::TextAlign::Justify,
             },
+            containing_block_size,
         };
 
         eprintln!(

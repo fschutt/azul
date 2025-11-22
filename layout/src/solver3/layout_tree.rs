@@ -100,6 +100,8 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     pub subtree_hash: SubtreeHash,
     /// The formatting context this node establishes or participates in.
     pub formatting_context: FormattingContext,
+    /// Parent's formatting context (needed to determine if stretch applies)
+    pub parent_formatting_context: Option<FormattingContext>,
     /// Cached intrinsic sizes (min-content, max-content, etc.)
     pub intrinsic_sizes: Option<IntrinsicSizes>,
     /// The size used during the last layout pass.
@@ -569,11 +571,13 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         
         // CSS 2.2 Section 17.2.1: Anonymous boxes inherit properties from their 
         // enclosing non-anonymous box
+        let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context.clone());
         self.nodes.push(LayoutNode {
             dom_node_id: None,  // Anonymous boxes have no DOM correspondence
             pseudo_element: None,
             parent: Some(parent),
             formatting_context: fc,
+            parent_formatting_context: parent_fc,
             box_props: BoxProps::default(),  // Anonymous boxes inherit from parent
             taffy_cache: TaffyCache::new(),
             is_anonymous: true,
@@ -617,11 +621,13 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         
         // The marker references the same DOM node as the list-item
         // This is important for style resolution (the marker inherits from the list-item)
+        let parent_fc = self.nodes.get(list_item_idx).map(|n| n.formatting_context.clone());
         self.nodes.push(LayoutNode {
             dom_node_id: Some(list_item_dom_id),
             pseudo_element: Some(PseudoElement::Marker),
             parent: Some(list_item_idx),
             formatting_context: FormattingContext::Inline, // Markers contain inline text
+            parent_formatting_context: parent_fc,
             box_props: BoxProps::default(),  // Will be resolved from ::marker styles
             taffy_cache: TaffyCache::new(),
             is_anonymous: false,  // Pseudo-elements are not anonymous boxes
@@ -657,11 +663,14 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let index = self.nodes.len();
+        let parent_fc = parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
+        eprintln!("[create_node_from_dom] dom_id={:?}, parent={:?}, parent_fc={:?}", dom_id, parent, parent_fc);
         self.nodes.push(LayoutNode {
             dom_node_id: Some(dom_id),
             pseudo_element: None,
             parent,
             formatting_context: determine_formatting_context(styled_dom, dom_id),
+            parent_formatting_context: parent_fc,
             box_props: resolve_box_props(styled_dom, dom_id, debug_messages),
             taffy_cache: TaffyCache::new(),
             is_anonymous: false,
@@ -694,6 +703,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         let index = self.nodes.len();
         let mut new_node = old_node.clone();
         new_node.parent = parent;
+        new_node.parent_formatting_context = parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
         self.nodes.push(new_node);

@@ -4321,12 +4321,13 @@ mod tests {
         let width = cache.get_width(&node_data, &node_id, &node_state);
         assert!(width.is_some(), "Expected <body> to have width: 100% from UA CSS");
         
-        // Test that <body> has height: 100% from UA CSS
+        // Note: height: 100% was removed from UA CSS (ua_css.rs:506 commented out)
+        // This is correct - <body> should have height: auto by default per CSS spec
         let height = cache.get_height(&node_data, &node_id, &node_state);
-        assert!(height.is_some(), "Expected <body> to have height: 100% from UA CSS");
+        assert!(height.is_none(), "<body> should not have explicit height from UA CSS (should be auto)");
         
-        // Test margins are zero
+        // Test margins (body has 8px margins from UA CSS)
         let margin_top = cache.get_margin_top(&node_data, &node_id, &node_state);
-        assert!(margin_top.is_some(), "Expected <body> to have margin-top: 0 from UA CSS");
+        assert!(margin_top.is_some(), "Expected <body> to have margin-top from UA CSS");
     }
 }

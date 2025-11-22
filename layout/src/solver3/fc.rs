@@ -104,6 +104,9 @@ pub struct LayoutConstraints<'a> {
     pub bfc_state: Option<&'a mut BfcState>,
     // Other properties like text-align would go here.
     pub text_align: TextAlign,
+    /// The size of the containing block (parent's content box).
+    /// This is used for resolving percentage-based sizes and as parent_size for Taffy.
+    pub containing_block_size: LogicalSize,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -416,15 +419,85 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 width: AvailableSpace::Definite(constraints.available_size.width),
                 height: AvailableSpace::Definite(constraints.available_size.height),
             };
+            
+            // Check if the container has explicit width/height set in CSS
+            // Per CSS spec: Flex containers with explicit sizes should use InherentSize mode,
+            // not ContentSize (which is for shrink-to-fit behavior)
+            let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+            
+            // Resolve explicit CSS dimensions to pixel values
+            // This is CRITICAL for align-items: stretch to work correctly!
+            // Taffy uses known_dimensions to calculate cross_axis_available_space for children
+            let (explicit_width, has_explicit_width) = node.dom_node_id
+                .map(|id| {
+                    use crate::solver3::getters::get_css_width;
+                    use azul_css::props::layout::LayoutWidth;
+                    let width = get_css_width(&ctx.styled_dom, id, &ctx.styled_dom.styled_nodes.as_container()[id].state);
+                    match width.unwrap_or_default() {
+                        LayoutWidth::Auto => (None, false),
+                        LayoutWidth::Px(px) => {
+                            // Resolve to pixels using containing block (parent) size
+                            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+                            let pixels = match px.metric {
+                                SizeMetric::Px => px.number.get(),
+                                SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                                SizeMetric::Percent => px.number.get() / 100.0 * constraints.available_size.width,
+                                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                                _ => px.number.get(), // Fallback
+                            };
+                            (Some(pixels), true)
+                        }
+                        LayoutWidth::MinContent | LayoutWidth::MaxContent => (None, false),
+                    }
+                })
+                .unwrap_or((None, false));
+                
+            let (explicit_height, has_explicit_height) = node.dom_node_id
+                .map(|id| {
+                    use crate::solver3::getters::get_css_height;
+                    use azul_css::props::layout::LayoutHeight;
+                    let height = get_css_height(&ctx.styled_dom, id, &ctx.styled_dom.styled_nodes.as_container()[id].state);
+                    match height.unwrap_or_default() {
+                        LayoutHeight::Auto => (None, false),
+                        LayoutHeight::Px(px) => {
+                            // Resolve to pixels using containing block (parent) size
+                            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+                            let pixels = match px.metric {
+                                SizeMetric::Px => px.number.get(),
+                                SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                                SizeMetric::Percent => px.number.get() / 100.0 * constraints.available_size.height,
+                                SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                                _ => px.number.get(), // Fallback
+                            };
+                            (Some(pixels), true)
+                        }
+                        LayoutHeight::MinContent | LayoutHeight::MaxContent => (None, false),
+                    }
+                })
+                .unwrap_or((None, false));
+            
+            // Use InherentSize when explicit dimensions are set (per CSS spec)
+            // Use ContentSize for auto-sizing (shrink-to-fit)
+            let sizing_mode = if has_explicit_width || has_explicit_height {
+                taffy::SizingMode::InherentSize
+            } else {
+                taffy::SizingMode::ContentSize
+            };
+
+            // CRITICAL FIX: Pass explicit dimensions as known_dimensions to Taffy
+            // This allows Taffy's flexbox to correctly calculate cross_axis_available_space
+            // for align-items: stretch to work properly
+            let known_dimensions = TaffySize {
+                width: explicit_width,
+                height: explicit_height,
+            };
 
             let taffy_inputs = LayoutInput {
-                known_dimensions: TaffySize::NONE,
-                parent_size: translate_taffy_size(constraints.available_size),
+                known_dimensions,
+                parent_size: translate_taffy_size(constraints.containing_block_size),
                 available_space,
                 run_mode: taffy::RunMode::PerformLayout,
-                // Sizing mode is ContentSize because solver3's `constraints.available_size`
-                // represents the parent's content-box (inner size after padding/border).
-                sizing_mode: taffy::SizingMode::ContentSize,
+                sizing_mode,
                 // We are in the main layout pass, not a measurement pass. We need Taffy
                 // to compute the final size and position for both axes.
                 axis: taffy::RequestedAxis::Both,
@@ -433,6 +506,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 vertical_margins_are_collapsible: Line::FALSE,
             };
 
+            println!("CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}", node_index);
             let taffy_output =
                 taffy_bridge::layout_taffy_subtree(ctx, tree, node_index, taffy_inputs);
 
@@ -1162,6 +1236,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 bfc_state: Some(&mut bfc_state),
                 writing_mode,
                 text_align: constraints.text_align,
+                containing_block_size: constraints.containing_block_size,
             };
             
             // Re-layout the IFC with float awareness
@@ -1436,7 +1511,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // Phase 1: Collect and measure all inline-level children.
     let (inline_content, child_map) =
-        collect_and_measure_inline_content(ctx, text_cache, tree, node_index)?;
+        collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
 
     eprintln!("[layout_ifc] Collected {} inline content items for node {}", inline_content.len(), node_index);
     for (i, item) in inline_content.iter().enumerate() {
@@ -2593,6 +2668,7 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             writing_mode: constraints.writing_mode,
             bfc_state: None, // Caption creates its own BFC
             text_align: constraints.text_align,
+            containing_block_size: constraints.containing_block_size,
         };
         
         // Layout the caption node
@@ -2859,6 +2935,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         writing_mode: constraints.writing_mode,
         bfc_state: None, // Don't propagate BFC state for measurement
         text_align: constraints.text_align,
+        containing_block_size: constraints.containing_block_size,
     };
     
     let mut temp_positions = BTreeMap::new();
@@ -2912,6 +2989,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         writing_mode: constraints.writing_mode,
         bfc_state: None, // Don't propagate BFC state for measurement
         text_align: constraints.text_align,
+        containing_block_size: constraints.containing_block_size,
     };
     
     let mut temp_positions = BTreeMap::new();
@@ -3243,6 +3321,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             writing_mode: constraints.writing_mode,
             bfc_state: None,
             text_align: constraints.text_align,
+            containing_block_size: constraints.containing_block_size,
         };
         
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
@@ -3262,6 +3341,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             writing_mode: constraints.writing_mode,
             bfc_state: None,
             text_align: constraints.text_align,
+            containing_block_size: constraints.containing_block_size,
         };
         
         let mut temp_positions = BTreeMap::new();
@@ -3645,6 +3725,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
     text_cache: &mut TextLayoutCache<T>,
     tree: &mut LayoutTree<T>,
     ifc_root_index: usize,
+    constraints: &LayoutConstraints,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     ctx.debug_ifc_layout(format!("collect_and_measure_inline_content: node_index={}", ifc_root_index));
 
@@ -3898,6 +3979,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 writing_mode,
                 bfc_state: None, // Inline-blocks establish a new BFC, so no state is passed in.
                 text_align: TextAlign::Start, // Does not affect size/baseline of the container.
+                containing_block_size: constraints.containing_block_size,
             };
 
             // Drop the immutable borrow before calling layout_formatting_context
@@ -3995,6 +4077,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 &mut content,
                 &mut child_map,
                 &children,
+                constraints,
             )?;
         }
     }
@@ -4020,6 +4103,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     content: &mut Vec<InlineContent>,
     child_map: &mut HashMap<ContentIndex, usize>,
     parent_children: &[usize], // Layout tree children of parent IFC
+    constraints: &LayoutConstraints,
 ) -> Result<()> {
     eprintln!("[collect_inline_span_recursive] Processing inline span {:?}", span_dom_id);
     
@@ -4075,6 +4159,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     content,
                     child_map,
                     parent_children,
+                    constraints,
                 )?;
             }
             LayoutDisplay::InlineBlock => {
@@ -4101,6 +4186,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     writing_mode,
                     bfc_state: None,
                     text_align: TextAlign::Start,
+                    containing_block_size: constraints.containing_block_size,
                 };
                 
                 drop(child_node);

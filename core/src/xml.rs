@@ -3285,46 +3285,34 @@ mod tests {
     #[test]
     fn test_xml_node_structure() {
         // Test the basic XmlNode structure to ensure text content is preserved
+        // Updated to use XmlNodeChild enum (Text/Element)
         
         let node = XmlNode {
             node_type: "p".into(),
             attributes: StringPairVec::from_const_slice(&[]),
             children: vec![
-                XmlNode {
-                    node_type: "text".into(),
-                    text: Some("Before ".into()).into(),
-                    ..Default::default()
-                },
-                XmlNode {
+                XmlNodeChild::Text("Before ".into()),
+                XmlNodeChild::Element(XmlNode {
                     node_type: "span".into(),
                     children: vec![
-                        XmlNode {
-                            node_type: "text".into(),
-                            text: Some("inline".into()).into(),
-                            ..Default::default()
-                        }
+                        XmlNodeChild::Text("inline".into()),
                     ].into(),
                     ..Default::default()
-                },
-                XmlNode {
-                    node_type: "text".into(),
-                    text: Some(" after".into()).into(),
-                    ..Default::default()
-                },
+                }),
+                XmlNodeChild::Text(" after".into()),
             ].into(),
-            text: None.into(),
         };
         
         // Verify structure
         assert_eq!(node.children.as_ref().len(), 3);
-        assert_eq!(node.children.as_ref()[0].text.as_ref().map(|s| s.as_str()), Some("Before "));
-        assert_eq!(node.children.as_ref()[1].node_type.as_str(), "span");
-        assert_eq!(node.children.as_ref()[2].text.as_ref().map(|s| s.as_str()), Some(" after"));
+        assert_eq!(node.children.as_ref()[0].as_text(), Some("Before "));
+        assert_eq!(node.children.as_ref()[1].as_element().unwrap().node_type.as_str(), "span");
+        assert_eq!(node.children.as_ref()[2].as_text(), Some(" after"));
         
         // Verify span's child
-        let span = &node.children.as_ref()[1];
+        let span = node.children.as_ref()[1].as_element().unwrap();
         assert_eq!(span.children.as_ref().len(), 1);
-        assert_eq!(span.children.as_ref()[0].text.as_ref().map(|s| s.as_str()), Some("inline"));
+        assert_eq!(span.children.as_ref()[0].as_text(), Some("inline"));
         
         println!("✓ Test passed: XmlNode structure preserves text nodes correctly");
     }

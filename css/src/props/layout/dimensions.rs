@@ -481,7 +481,8 @@ mod tests {
 
     #[test]
     fn test_parse_layout_height_invalid() {
-        assert!(parse_layout_height("auto").is_err());
+        // "auto" is now a valid value for height (CSS spec)
+        assert!(parse_layout_height("auto").is_ok());
         // Liberal parsing accepts whitespace between number and unit
         assert!(parse_layout_height("150 px").is_ok());
         assert!(parse_layout_height("px").is_err());
