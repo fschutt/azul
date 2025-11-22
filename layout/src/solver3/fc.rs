@@ -296,6 +296,95 @@ pub(crate) fn convert_font_weight(weight: azul_css::props::basic::font::StyleFon
     }
 }
 
+/// Checks if a node establishes a new Block Formatting Context (BFC).
+/// 
+/// Per CSS 2.2 § 9.4.1, a BFC is established by:
+/// - Floats (elements with float other than 'none')
+/// - Absolutely positioned elements (position: absolute or fixed)
+/// - Block containers that are not block boxes (e.g., inline-blocks, table-cells)
+/// - Block boxes with 'overflow' other than 'visible' and 'clip'
+/// - Elements with 'display: flow-root'
+/// - Table cells, table captions, and inline-blocks
+/// 
+/// Normal flow block-level boxes do NOT establish a new BFC.
+/// This is critical for correct float interaction: normal blocks should overlap floats
+/// (not shrink around them), while their inline content wraps around floats.
+fn establishes_new_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+    ctx: &LayoutContext<T, Q>,
+    node: &LayoutNode<T>,
+) -> bool {
+    use crate::solver3::getters::{get_float, get_display_property, get_overflow_x, get_overflow_y};
+    use azul_core::dom::FormattingContext;
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::props::layout::{LayoutFloat, LayoutDisplay, LayoutOverflow, LayoutPosition};
+    
+    let Some(dom_id) = node.dom_node_id else {
+        return false;
+    };
+    
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+    
+    // 1. Floats establish BFC
+    let float_val = get_float(ctx.styled_dom, dom_id, node_state);
+    if matches!(float_val, crate::solver3::getters::MultiValue::Exact(LayoutFloat::Left | LayoutFloat::Right)) {
+        return true;
+    }
+    
+    // 2. Absolutely positioned elements establish BFC
+    let position = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(dom_id));
+    if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
+        return true;
+    }
+    
+    // 3. Inline-blocks, table-cells, table-captions establish BFC
+    let display = get_display_property(ctx.styled_dom, Some(dom_id));
+    if matches!(display, 
+        crate::solver3::getters::MultiValue::Exact(
+            LayoutDisplay::InlineBlock | 
+            LayoutDisplay::TableCell | 
+            LayoutDisplay::TableCaption
+        )
+    ) {
+        return true;
+    }
+    
+    // 4. display: flow-root establishes BFC
+    if matches!(display, crate::solver3::getters::MultiValue::Exact(LayoutDisplay::FlowRoot)) {
+        return true;
+    }
+    
+    // 5. Block boxes with overflow other than 'visible' or 'clip' establish BFC
+    // Note: 'clip' does NOT establish BFC per CSS Overflow Module Level 3
+    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, node_state);
+    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, node_state);
+    
+    let creates_bfc_via_overflow = |ov: &crate::solver3::getters::MultiValue<LayoutOverflow>| {
+        matches!(ov, 
+            &crate::solver3::getters::MultiValue::Exact(
+                LayoutOverflow::Hidden | 
+                LayoutOverflow::Scroll | 
+                LayoutOverflow::Auto
+            )
+        )
+    };
+    
+    if creates_bfc_via_overflow(&overflow_x) || creates_bfc_via_overflow(&overflow_y) {
+        return true;
+    }
+    
+    // 6. Table, Flex, and Grid containers establish BFC (via FormattingContext)
+    if matches!(node.formatting_context, 
+        FormattingContext::Table | 
+        FormattingContext::Flex | 
+        FormattingContext::Grid
+    ) {
+        return true;
+    }
+    
+    // Normal flow block boxes do NOT establish BFC
+    false
+}
+
 /// Main dispatcher for formatting context layout.
 pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
@@ -515,9 +604,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // We always recalculate float positions in this pass, but we'll store them in the cache
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
-    let mut float_children = Vec::new();
 
-    // --- Pass 1: Separate floats from normal flow and size all children ---
+    // --- Pass 1: Size all children (floats and normal flow) ---
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
@@ -527,31 +615,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             continue;
         }
-        
-        // Check if this child is floated
-        use crate::solver3::getters::get_float;
-        if let Some(node_id) = child_dom_id {
-            let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
-            let float_type = get_float(ctx.styled_dom, node_id, &styled_node.state);
-            
-            eprintln!("[layout_bfc Pass 1] Checking child: index={}, dom_id={:?}, float_type={:?}, is_none={}", 
-                child_index, node_id, float_type, float_type.is_none());
-            
-            if !float_type.is_none() {
-                // This is a float - separate it from normal flow
-                // Extract the actual LayoutFloat value from MultiValue
-                match float_type {
-                    crate::solver3::getters::MultiValue::Exact(float_val) => {
-                        eprintln!("[layout_bfc] Detected float child: index={}, type={:?}", child_index, float_val);
-                        float_children.push((child_index, float_val));
-                    }
-                    _ => {}
-                }
-                // Don't skip - we still need to size it
-            }
-        }
 
-        // Size all children (floats and normal flow)
+        // Size all children (floats and normal flow) - floats will be positioned later in Pass 2
         let mut temp_positions = BTreeMap::new();
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
@@ -565,52 +630,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             float_cache,
         )?;
     }
-    
-    // --- Pass 1.5: Position floats and add them to float context ---
-    // NOTE: All floats start positioning from Y=0 (main_offset=0).
-    // The position_float function will find the correct Y based on existing floats.
-    
-    eprintln!("[layout_bfc] Pass 1.5: Positioning {} floats", float_children.len());
-    
-    for (float_index, float_type) in &float_children {
-        let float_node = tree.get(*float_index).ok_or(LayoutError::InvalidTree)?;
-        let float_size = float_node.used_size.unwrap_or_default();
-        let float_margin = &float_node.box_props.margin;
-        
-        eprintln!(
-            "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}",
-            float_index, float_type, float_size
-        );
-        
-        // Position the float - always start from Y=0
-        let float_rect = position_float(
-            &float_context,
-            *float_type,
-            float_size,
-            float_margin,
-            0.0, // Start at top of BFC
-            constraints.available_size.cross(writing_mode),
-            writing_mode,
-        );
-        
-        eprintln!(
-            "[layout_bfc] Float positioned at: {:?}",
-            float_rect
-        );
-        
-        // Add to float context BEFORE positioning next float
-        float_context.add_float(*float_type, float_rect);
-        
-        // Store position in output
-        output.positions.insert(*float_index, float_rect.origin);
-    }
-    
-    // Store the float context in cache for future layout passes
-    eprintln!("[layout_bfc] Storing {} floats in cache for node {}", 
-        float_context.floats.len(), node_index);
-    float_cache.insert(node_index, float_context.clone());
 
-    // --- Pass 2: Positioning normal flow with float awareness ---
+    // --- Pass 2: Single-pass interleaved layout (position floats and normal flow in DOM order) ---
     
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
@@ -647,15 +668,55 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             continue;
         }
         
-        // Skip floats - they were already positioned in Pass 1.5
+        // Check if this child is a float - if so, position it at current main_pen
         use crate::solver3::getters::get_float;
-        if let Some(node_id) = child_dom_id {
+        let is_float = if let Some(node_id) = child_dom_id {
             let styled_node = &ctx.styled_dom.styled_nodes.as_container()[node_id];
-            let child_float = get_float(ctx.styled_dom, node_id, &styled_node.state);
-            if !child_float.is_none() {
-                continue;
+            let float_type = get_float(ctx.styled_dom, node_id, &styled_node.state);
+            
+            if !float_type.is_none() {
+                // Extract the actual LayoutFloat value
+                if let crate::solver3::getters::MultiValue::Exact(float_val) = float_type {
+                    let float_size = child_node.used_size.unwrap_or_default();
+                    let float_margin = &child_node.box_props.margin;
+                    
+                    eprintln!(
+                        "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={}",
+                        child_index, float_val, float_size, main_pen
+                    );
+                    
+                    // Position the float at the CURRENT main_pen (respects DOM order!)
+                    let float_rect = position_float(
+                        &float_context,
+                        float_val,
+                        float_size,
+                        float_margin,
+                        main_pen,  // Use current Y position, not 0!
+                        constraints.available_size.cross(writing_mode),
+                        writing_mode,
+                    );
+                    
+                    eprintln!("[layout_bfc] Float positioned at: {:?}", float_rect);
+                    
+                    // Add to float context BEFORE positioning next element
+                    float_context.add_float(float_val, float_rect);
+                    
+                    // Store position in output
+                    output.positions.insert(child_index, float_rect.origin);
+                    
+                    eprintln!("[layout_bfc] *** FLOAT POSITIONED: child={}, main_pen={} (unchanged - floats don't advance pen)", child_index, main_pen);
+                    
+                    // Floats are taken out of normal flow - DON'T advance main_pen
+                    // Continue to next child
+                    continue;
+                }
             }
-        }
+            false
+        } else {
+            false
+        };
+
+        // From here: normal flow (non-float) children only
 
         // Track first and last in-flow children for parent-child collapse
         if first_child_index.is_none() {
@@ -772,20 +833,52 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         }
 
         // Position child (non-empty blocks only reach here)
-        // Query available space considering floats
-        let (cross_start, cross_end) = float_context.available_line_box_space(
-            main_pen,
-            main_pen + child_size.main(writing_mode),
-            constraints.available_size.cross(writing_mode),
-            writing_mode,
-        );
+        // 
+        // CSS 2.2 § 9.4.1: "In a block formatting context, each box's left outer edge touches 
+        // the left edge of the containing block (for right-to-left formatting, right edges touch). 
+        // This is true even in the presence of floats (although a box's line boxes may shrink 
+        // due to the floats), unless the box establishes a new block formatting context 
+        // (in which case the box itself may become narrower due to the floats)."
+        //
+        // CSS 2.2 § 9.5: "The border box of a table, a block-level replaced element, or an element 
+        // in the normal flow that establishes a new block formatting context (such as an element 
+        // with 'overflow' other than 'visible') must not overlap any floats in the same block 
+        // formatting context as the element itself."
         
-        let available_cross = cross_end - cross_start;
+        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+        let establishes_bfc = establishes_new_bfc(ctx, child_node);
         
-        ctx.debug_info(format!(
-            "[layout_bfc] Positioning child {}: main_pen={}, cross_range={}..{}, available_cross={}",
-            child_index, main_pen, cross_start, cross_end, available_cross
-        ));
+        // Query available space considering floats ONLY if child establishes new BFC
+        let (cross_start, cross_end, available_cross) = if establishes_bfc {
+            // New BFC: Must shrink or move down to avoid overlapping floats
+            let (start, end) = float_context.available_line_box_space(
+                main_pen,
+                main_pen + child_size.main(writing_mode),
+                constraints.available_size.cross(writing_mode),
+                writing_mode,
+            );
+            let available = end - start;
+            
+            ctx.debug_info(format!(
+                "[layout_bfc] Child {} establishes BFC: shrinking to avoid floats, cross_range={}..{}, available_cross={}",
+                child_index, start, end, available
+            ));
+            
+            (start, end, available)
+        } else {
+            // Normal flow: Overlaps floats, positioned at full width
+            // Only the child's INLINE CONTENT (if any) wraps around floats
+            let start = 0.0;
+            let end = constraints.available_size.cross(writing_mode);
+            let available = end - start;
+            
+            ctx.debug_info(format!(
+                "[layout_bfc] Child {} is normal flow: overlapping floats at full width, available_cross={}",
+                child_index, available
+            ));
+            
+            (start, end, available)
+        };
         
         // Get child's margin and formatting context
         let (child_margin_cloned, is_inline_fc) = {
@@ -796,28 +889,33 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_margin = &child_margin_cloned;
         
         // Position child
-        // NOTE: IFC children (blocks with text) are positioned at their FULL WIDTH
-        // behind floats (same origin), not shifted by cross_start.
-        // Only the TEXT INSIDE wraps around floats via exclusion zones.
-        let (child_cross_pos, child_main_pos) = if is_inline_fc {
-            // IFC: Position at full width origin (0), not affected by floats
-            (child_margin.cross_start(writing_mode), main_pen)
-        } else {
-            // Block: Position in available space between floats
+        // For normal flow blocks (including IFCs): position at full width (cross_start = 0)
+        // For BFC-establishing blocks: position in available space between floats
+        let (child_cross_pos, child_main_pos) = if establishes_bfc {
+            // BFC: Position in space between floats
             (cross_start + child_margin.cross_start(writing_mode), main_pen)
+        } else {
+            // Normal flow: Position at full width (floats don't affect box position)
+            (child_margin.cross_start(writing_mode), main_pen)
         };
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         
+        eprintln!(
+            "[layout_bfc] *** NORMAL FLOW BLOCK POSITIONED: child={}, final_pos={:?}, main_pen={}, establishes_bfc={}",
+            child_index, final_pos, main_pen, establishes_bfc
+        );
+        
         // Re-layout IFC children with float context for correct text wrapping
-        if is_inline_fc {
+        // Normal flow blocks WITH inline content need float context propagated
+        if is_inline_fc && !establishes_bfc {
             // Use cached floats if available (from previous layout passes),
             // otherwise use the floats positioned in this pass
             let floats_for_ifc = float_cache.get(&node_index).unwrap_or(&float_context);
             
             eprintln!(
-                "[layout_bfc] Re-layouting IFC child {} with float context at Y={}, child_cross_pos={}",
+                "[layout_bfc] Re-layouting IFC child {} (normal flow) with parent's float context at Y={}, child_cross_pos={}",
                 child_index, main_pen, child_cross_pos
             );
             eprintln!(
@@ -934,6 +1032,12 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             child_cross_pos + child_size.cross(writing_mode) + child_margin.cross_end(writing_mode);
         max_cross_size = max_cross_size.max(child_cross_extent);
     }
+    
+    // Store the float context in cache for future layout passes
+    // This happens after ALL children (floats and normal) have been positioned
+    eprintln!("[layout_bfc] Storing {} floats in cache for node {}", 
+        float_context.floats.len(), node_index);
+    float_cache.insert(node_index, float_context.clone());
     
     // PHASE 3: Parent-Child Bottom Margin Escape
     let mut escaped_top_margin = None;

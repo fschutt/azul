@@ -935,6 +935,14 @@ fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::La
 }
 
 /// Applies content-based height sizing to a node
+/// 
+/// CRITICAL FIX: This function now respects min-height/max-height constraints from Phase 1.
+/// According to CSS 2.2 § 10.7, when height is 'auto', the final height must be:
+///   max(min_height, min(content_height, max_height))
+/// 
+/// The `used_size` parameter already contains the size constrained by min-height/max-height
+/// from the initial sizing pass. We must take the maximum of this constrained size and 
+/// the new content-based size to ensure min-height is not lost.
 fn apply_content_based_height<T: ParsedFontTrait>(
     mut used_size: LogicalSize,
     content_size: LogicalSize,
@@ -946,13 +954,21 @@ fn apply_content_based_height<T: ParsedFontTrait>(
     let main_axis_padding_border =
         node_props.padding.main_sum(writing_mode) + node_props.border.main_sum(writing_mode);
 
+    // CRITICAL: 'old_main_size' holds the size constrained by min-height/max-height from Phase 1
+    let old_main_size = used_size.main(writing_mode);
     let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
-    used_size = used_size.with_main(writing_mode, new_main_size);
+    
+    // Final size = max(min_height_constrained_size, content_size)
+    // This ensures that min-height is respected even when content is smaller
+    let final_main_size = old_main_size.max(new_main_size);
+    
+    used_size = used_size.with_main(writing_mode, final_main_size);
 
     eprintln!(
-        "[apply_content_based_height] Auto height: content_size={:?}, padding_border={}, \
-         new_main_size={}",
-        content_size, main_axis_padding_border, new_main_size
+        "[apply_content_based_height] node={}: old_main={:.2} (Phase 1 with min-height), \
+         content={:.2}, padding+border={:.2}, new_content={:.2}, final={:.2}",
+        node_index, old_main_size, content_size.main(writing_mode), 
+        main_axis_padding_border, new_main_size, final_main_size
     );
 
     used_size

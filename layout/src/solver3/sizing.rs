@@ -11,7 +11,7 @@ use azul_core::{
     dom::{FormattingContext, NodeId, NodeType},
     geom::LogicalSize,
     resources::RendererResources,
-    styled_dom::StyledDom,
+    styled_dom::{StyledDom, StyledNodeState},
 };
 use azul_css::{
     css::CssPropertyValue,
@@ -833,21 +833,238 @@ pub fn calculate_used_size_for_node(
         LayoutHeight::MaxContent => intrinsic.max_content_height,
     };
 
-    // Step 3: Map the resolved physical dimensions to logical dimensions.
+    // Step 3: Apply min/max constraints (CSS 2.2 § 10.4 and § 10.7)
+    // "The tentative used width is calculated (without 'min-width' and 'max-width')
+    // ...If the tentative used width is greater than 'max-width', the rules above are 
+    // applied again using the computed value of 'max-width' as the computed value for 'width'.
+    // If the resulting width is smaller than 'min-width', the rules above are applied again 
+    // using the value of 'min-width' as the computed value for 'width'."
+    
+    let constrained_width = apply_width_constraints(
+        styled_dom, id, node_state, resolved_width, containing_block_size.width, _box_props
+    );
+    
+    let constrained_height = apply_height_constraints(
+        styled_dom, id, node_state, resolved_height, containing_block_size.height, _box_props
+    );
+
+    // Step 4: Convert content-box dimensions to border-box dimensions
+    // The constraints above give us CONTENT-BOX sizes (min-height/max-height apply to content).
+    // We need to return BORDER-BOX sizes (which include padding and border).
+    // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are: 
+    // margin, border, padding, width, and height."
+    let border_box_width = constrained_width + _box_props.padding.left + _box_props.padding.right 
+        + _box_props.border.left + _box_props.border.right;
+    let border_box_height = constrained_height + _box_props.padding.top + _box_props.padding.bottom 
+        + _box_props.border.top + _box_props.border.bottom;
+
+    // Step 5: Map the resolved physical dimensions to logical dimensions.
     // The `width` property always corresponds to the cross (inline) axis size.
     // The `height` property always corresponds to the main (block) axis size.
-    let cross_size = resolved_width;
-    let main_size = resolved_height;
+    let cross_size = border_box_width;
+    let main_size = border_box_height;
 
-    // Step 4: Construct the final LogicalSize from the logical dimensions.
+    // Step 6: Construct the final LogicalSize from the logical dimensions.
     let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
     eprintln!(
-        "[calculate_used_size_for_node] RESULT: {:?} (resolved_width={}, resolved_height={})",
-        result, resolved_width, resolved_height
+        "[calculate_used_size_for_node] RESULT: {:?} (content: w={}, h={}, border-box: w={}, h={})",
+        result, constrained_width, constrained_height, border_box_width, border_box_height
     );
 
     Ok(result)
+}
+
+/// Apply min-width and max-width constraints to tentative width
+/// Per CSS 2.2 § 10.4: min-width overrides max-width if min > max
+fn apply_width_constraints(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    tentative_width: f32,
+    containing_block_width: f32,
+    box_props: &BoxProps,
+) -> f32 {
+    use crate::solver3::getters::{get_css_min_width, get_css_max_width, MultiValue};
+    use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+    
+    // Resolve min-width (default is 0)
+    let min_width = match get_css_min_width(styled_dom, id, node_state) {
+        MultiValue::Exact(mw) => {
+            let px = &mw.inner;
+            let pixels_opt = match px.metric {
+                SizeMetric::Px => Some(px.number.get()),
+                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                SizeMetric::In => Some(px.number.get() * 96.0),
+                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Percent => None,
+                _ => None,
+            };
+            
+            match pixels_opt {
+                Some(pixels) => pixels,
+                None => px.to_percent().map(|p| {
+                    resolve_percentage_with_box_model(
+                        containing_block_width,
+                        p.get(),
+                        (box_props.margin.left, box_props.margin.right),
+                        (box_props.border.left, box_props.border.right),
+                        (box_props.padding.left, box_props.padding.right),
+                    )
+                }).unwrap_or(0.0),
+            }
+        },
+        _ => 0.0,
+    };
+    
+    // Resolve max-width (default is infinity/none)
+    let max_width = match get_css_max_width(styled_dom, id, node_state) {
+        MultiValue::Exact(mw) => {
+            let px = &mw.inner;
+            // Check if it's the default "max" value (f32::MAX)
+            if px.number.get() >= core::f32::MAX - 1.0 {
+                None
+            } else {
+                let pixels_opt = match px.metric {
+                    SizeMetric::Px => Some(px.number.get()),
+                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                    SizeMetric::In => Some(px.number.get() * 96.0),
+                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                    SizeMetric::Percent => None,
+                    _ => None,
+                };
+                
+                match pixels_opt {
+                    Some(pixels) => Some(pixels),
+                    None => px.to_percent().map(|p| {
+                        resolve_percentage_with_box_model(
+                            containing_block_width,
+                            p.get(),
+                            (box_props.margin.left, box_props.margin.right),
+                            (box_props.border.left, box_props.border.right),
+                            (box_props.padding.left, box_props.padding.right),
+                        )
+                    }),
+                }
+            }
+        },
+        _ => None,
+    };
+    
+    // Apply constraints: max(min_width, min(tentative, max_width))
+    // If min > max, min wins per CSS spec
+    let mut result = tentative_width;
+    
+    if let Some(max) = max_width {
+        result = result.min(max);
+    }
+    
+    result = result.max(min_width);
+    
+    eprintln!("[apply_width_constraints] tentative={}, min={}, max={:?}, result={}", 
+        tentative_width, min_width, max_width, result);
+    
+    result
+}
+
+/// Apply min-height and max-height constraints to tentative height
+/// Per CSS 2.2 § 10.7: min-height overrides max-height if min > max
+fn apply_height_constraints(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    tentative_height: f32,
+    containing_block_height: f32,
+    box_props: &BoxProps,
+) -> f32 {
+    use crate::solver3::getters::{get_css_min_height, get_css_max_height, MultiValue};
+    use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+    
+    // Resolve min-height (default is 0)
+    let min_height = match get_css_min_height(styled_dom, id, node_state) {
+        MultiValue::Exact(mh) => {
+            let px = &mh.inner;
+            let pixels_opt = match px.metric {
+                SizeMetric::Px => Some(px.number.get()),
+                SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                SizeMetric::In => Some(px.number.get() * 96.0),
+                SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Percent => None,
+                _ => None,
+            };
+            
+            match pixels_opt {
+                Some(pixels) => pixels,
+                None => px.to_percent().map(|p| {
+                    resolve_percentage_with_box_model(
+                        containing_block_height,
+                        p.get(),
+                        (box_props.margin.top, box_props.margin.bottom),
+                        (box_props.border.top, box_props.border.bottom),
+                        (box_props.padding.top, box_props.padding.bottom),
+                    )
+                }).unwrap_or(0.0),
+            }
+        },
+        _ => 0.0,
+    };
+    
+    // Resolve max-height (default is infinity/none)
+    let max_height = match get_css_max_height(styled_dom, id, node_state) {
+        MultiValue::Exact(mh) => {
+            let px = &mh.inner;
+            // Check if it's the default "max" value (f32::MAX)
+            if px.number.get() >= core::f32::MAX - 1.0 {
+                None
+            } else {
+                let pixels_opt = match px.metric {
+                    SizeMetric::Px => Some(px.number.get()),
+                    SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
+                    SizeMetric::In => Some(px.number.get() * 96.0),
+                    SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
+                    SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
+                    SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                    SizeMetric::Percent => None,
+                    _ => None,
+                };
+                
+                match pixels_opt {
+                    Some(pixels) => Some(pixels),
+                    None => px.to_percent().map(|p| {
+                        resolve_percentage_with_box_model(
+                            containing_block_height,
+                            p.get(),
+                            (box_props.margin.top, box_props.margin.bottom),
+                            (box_props.border.top, box_props.border.bottom),
+                            (box_props.padding.top, box_props.padding.bottom),
+                        )
+                    }),
+                }
+            }
+        },
+        _ => None,
+    };
+    
+    // Apply constraints: max(min_height, min(tentative, max_height))
+    // If min > max, min wins per CSS spec
+    let mut result = tentative_height;
+    
+    if let Some(max) = max_height {
+        result = result.min(max);
+    }
+    
+    result = result.max(min_height);
+    
+    eprintln!("[apply_height_constraints] tentative={}, min={}, max={:?}, result={}", 
+        tentative_height, min_height, max_height, result);
+    
+    result
 }
 
 fn collect_text_recursive<T: ParsedFontTrait>(
