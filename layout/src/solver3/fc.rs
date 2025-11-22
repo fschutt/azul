@@ -682,18 +682,23 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     let float_size = child_node.used_size.unwrap_or_default();
                     let float_margin = &child_node.box_props.margin;
                     
+                    // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
+                    // If there's a previous in-flow element with a bottom margin, we must
+                    // include it in the Y position calculation for this float.
+                    let float_y = main_pen + last_margin_bottom;
+                    
                     eprintln!(
-                        "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={}",
-                        child_index, float_val, float_size, main_pen
+                        "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={} (main_pen={} + last_margin={})",
+                        child_index, float_val, float_size, float_y, main_pen, last_margin_bottom
                     );
                     
-                    // Position the float at the CURRENT main_pen (respects DOM order!)
+                    // Position the float at the CURRENT main_pen + last margin (respects DOM order!)
                     let float_rect = position_float(
                         &float_context,
                         float_val,
                         float_size,
                         float_margin,
-                        main_pen,  // Use current Y position, not 0!
+                        float_y,  // Include last_margin_bottom since float margins don't collapse!
                         constraints.available_size.cross(writing_mode),
                         writing_mode,
                     );
