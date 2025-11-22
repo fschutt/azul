@@ -49,17 +49,17 @@ use crate::{
 
 /// Result of BFC layout with margin escape information
 #[derive(Debug, Clone)]
-struct BfcLayoutResult {
+pub(crate) struct BfcLayoutResult {
     /// Standard layout output (positions, overflow size, baseline)
-    output: LayoutOutput,
+    pub(crate) output: LayoutOutput,
     
     /// Top margin that escaped the BFC (for parent-child collapse)
     /// If Some, this margin should be used by parent instead of positioning this BFC
-    escaped_top_margin: Option<f32>,
+    pub(crate) escaped_top_margin: Option<f32>,
     
     /// Bottom margin that escaped the BFC (for parent-child collapse)
     /// If Some, this margin should collapse with next sibling
-    escaped_bottom_margin: Option<f32>,
+    pub(crate) escaped_bottom_margin: Option<f32>,
 }
 
 impl BfcLayoutResult {
@@ -399,7 +399,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_index: usize,
     constraints: &LayoutConstraints,
     float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
-) -> Result<LayoutOutput> {
+) -> Result<BfcLayoutResult> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
     ctx.debug_info(format!("[layout_formatting_context] node_index={}, fc={:?}, available_size={:?}", 
@@ -407,10 +407,10 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     match node.formatting_context {
         FormattingContext::Block { .. } => {
-            layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache).map(|r| r.output)
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
-        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints),
-        FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints),
+        FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints).map(|output| BfcLayoutResult::from_output(output)),
+        FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints).map(|output| BfcLayoutResult::from_output(output)),
         FormattingContext::Flex | FormattingContext::Grid => {
             let available_space = TaffySize {
                 width: AvailableSpace::Definite(constraints.available_size.width),
@@ -450,11 +450,11 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 }
             }
 
-            Ok(output)
+            Ok(BfcLayoutResult::from_output(output))
         }
         _ => {
             let mut temp_float_cache = std::collections::BTreeMap::new();
-            layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache).map(|r| r.output)
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
     }
 }
@@ -659,6 +659,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Track accumulated top margin for first-child escape
     let mut accumulated_top_margin = 0.0f32;
     let mut top_margin_resolved = false;
+    let mut top_margin_escaped = false; // Track if first child's margin escaped (for return value)
     
     // Track if we have any actual content (non-empty blocks)
     let mut has_content = false;
@@ -846,10 +847,18 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 main_pen += child_margin_top;
                 eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
                     child_index, child_margin_top, main_pen);
-            } else if !parent_has_top_blocker && !child_has_top_blocker {
+            } else if !parent_has_top_blocker {
                 // First child's top margin can escape parent
+                // CSS 2.2 § 8.3.1: Only checks parent for "no top border, no top padding"
+                // Child's own blocker status (padding/border) is irrelevant for parent-child collapse
+                // The child may have a blocker that prevents collapse with ITS OWN children,
+                // but this doesn't prevent its margin from escaping through its parent
                 // Accumulate it with parent's margin (will be returned to parent's parent)
                 accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
+                // IMPORTANT: Mark margin as resolved so siblings don't apply it!
+                // The escaped margin will be handled by returning it to the parent's parent BFC
+                top_margin_resolved = true;
+                top_margin_escaped = true; // Flag that margin escaped (for return value)
                 // Position child at pen (no margin applied - it escaped!)
                 eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}",
                     child_index, parent_margin_top, child_margin_top, accumulated_top_margin);
@@ -872,6 +881,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if !top_margin_resolved {
                 main_pen += accumulated_top_margin;
                 top_margin_resolved = true;
+                eprintln!("[layout_bfc] RESOLVED top margin for node {} at sibling {}: accumulated={}, main_pen={}", node_index, child_index, accumulated_top_margin, main_pen);
             }
             
             if clearance_applied {
@@ -1050,7 +1060,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             
             // Re-layout the IFC with float awareness
             // This will pass floats as exclusion zones to text3 for line wrapping
-            let ifc_output = layout_formatting_context(
+            let ifc_result = layout_formatting_context(
                 ctx,
                 tree,
                 text_cache,
@@ -1068,7 +1078,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             );
             
             // Merge positions from IFC output (inline-block children, etc.)
-            for (idx, pos) in ifc_output.positions {
+            for (idx, pos) in ifc_result.output.positions {
                 output.positions.insert(idx, pos);
             }
         }
@@ -1111,13 +1121,20 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let mut escaped_bottom_margin = None;
     
     // Handle top margin escape
-    if !top_margin_resolved && accumulated_top_margin > 0.0 {
-        // No content was positioned, all margins accumulated
-        // This can happen with only empty children
+    if top_margin_escaped {
+        // First child's margin escaped through parent
         escaped_top_margin = Some(accumulated_top_margin);
+        eprintln!("[layout_bfc] Returning escaped top margin: accumulated={}, node={}", accumulated_top_margin, node_index);
+    } else if !top_margin_resolved && accumulated_top_margin > 0.0 {
+        // No content was positioned, all margins accumulated (empty blocks)
+        escaped_top_margin = Some(accumulated_top_margin);
+        eprintln!("[layout_bfc] Escaping top margin (no content): accumulated={}, node={}", accumulated_top_margin, node_index);
     } else if !top_margin_resolved {
-        // First child's margin escaped
+        // Unusual case: no content, zero margin
         escaped_top_margin = Some(accumulated_top_margin);
+        eprintln!("[layout_bfc] Escaping top margin (zero, no content): accumulated={}, node={}", accumulated_top_margin, node_index);
+    } else {
+        eprintln!("[layout_bfc] NOT escaping top margin: top_margin_resolved={}, escaped={}, accumulated={}, node={}", top_margin_resolved, top_margin_escaped, accumulated_top_margin, node_index);
     }
     
     // Handle bottom margin escape
@@ -1125,18 +1142,23 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let last_child = tree.get(last_idx).ok_or(LayoutError::InvalidTree)?;
         let last_has_bottom_blocker = has_margin_collapse_blocker(&last_child.box_props, writing_mode, false);
         
+        eprintln!("[layout_bfc] Bottom margin for node {}: parent_has_bottom_blocker={}, last_has_bottom_blocker={}, last_margin_bottom={}, main_pen_before={}", 
+            node_index, parent_has_bottom_blocker, last_has_bottom_blocker, last_margin_bottom, main_pen);
+        
         if !parent_has_bottom_blocker && !last_has_bottom_blocker && has_content {
             // Last child's bottom margin can escape
             let collapsed_bottom = collapse_margins(parent_margin_bottom, last_margin_bottom);
             escaped_bottom_margin = Some(collapsed_bottom);
+            eprintln!("[layout_bfc] Bottom margin ESCAPED for node {}: collapsed={}", node_index, collapsed_bottom);
             // Don't add last_margin_bottom to pen (it escaped)
         } else {
             // Can't escape: add to pen
             main_pen += last_margin_bottom;
-            // Also add parent's bottom margin if we have content
-            if has_content {
-                main_pen += parent_margin_bottom;
-            }
+            // NOTE: We do NOT add parent_margin_bottom to main_pen here!
+            // parent_margin_bottom is added OUTSIDE the content-box (in the margin-box)
+            // The content-box height should only include children's content and margins
+            eprintln!("[layout_bfc] Bottom margin BLOCKED for node {}: added last_margin_bottom={}, main_pen_after={}", 
+                node_index, last_margin_bottom, main_pen);
         }
     } else {
         // No children: just use parent's margins
@@ -2414,8 +2436,8 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         // Layout the caption node
         let mut empty_float_cache = std::collections::BTreeMap::new();
-        let caption_output = layout_formatting_context(ctx, tree, text_cache, caption_idx, &caption_constraints, &mut empty_float_cache)?;
-        caption_height = caption_output.overflow_size.height;
+        let caption_result = layout_formatting_context(ctx, tree, text_cache, caption_idx, &caption_constraints, &mut empty_float_cache)?;
+        caption_height = caption_result.output.overflow_size.height;
         
         // Position caption based on caption-side property
         use azul_css::props::layout::StyleCaptionSide;
@@ -3723,10 +3745,10 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             // Recursively lay out the inline-block to get its final height and baseline.
             // Note: This does not affect its final position, only its dimensions.
             let mut empty_float_cache = std::collections::BTreeMap::new();
-            let layout_output =
+            let layout_result =
                 layout_formatting_context(ctx, tree, text_cache, child_index, &child_constraints, &mut empty_float_cache)?;
 
-            let mut final_height = layout_output.overflow_size.height;
+            let mut final_height = layout_result.output.overflow_size.height;
             
             // CRITICAL FIX: Check for explicit CSS height
             if let azul_css::props::layout::LayoutHeight::Px(px) = css_height.unwrap_or_default() {
@@ -3743,14 +3765,14 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             }
             
             eprintln!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): layout_height={}, css_height={:?}, final_height={}", 
-                dom_id, layout_output.overflow_size.height, css_height, final_height);
+                dom_id, layout_result.output.overflow_size.height, css_height, final_height);
             
             let final_size = LogicalSize::new(width, final_height);
 
             // Update the node in the tree with its now-known used size.
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
-            let baseline_offset = layout_output.baseline.unwrap_or(final_height);
+            let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
 
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
@@ -3923,12 +3945,12 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 drop(child_node);
                 
                 let mut empty_float_cache = std::collections::BTreeMap::new();
-                let layout_output = layout_formatting_context(ctx, tree, &mut TextLayoutCache::default(), child_index, &child_constraints, &mut empty_float_cache)?;
-                let final_height = layout_output.overflow_size.height;
+                let layout_result = layout_formatting_context(ctx, tree, &mut TextLayoutCache::default(), child_index, &child_constraints, &mut empty_float_cache)?;
+                let final_height = layout_result.output.overflow_size.height;
                 let final_size = LogicalSize::new(width, final_height);
                 
                 tree.get_mut(child_index).unwrap().used_size = Some(final_size);
-                let baseline_offset = layout_output.baseline.unwrap_or(final_height);
+                let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
                 
                 content.push(InlineContent::Shape(InlineShape {
                     shape_def: ShapeDefinition::Rectangle {
