@@ -35,6 +35,7 @@ use azul_css::{
 };
 
 use crate::{
+    font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
@@ -44,10 +45,6 @@ use crate::{
         },
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         LayoutContext, LayoutError, LayoutTree, Result,
-    },
-    text3::{
-        self,
-        cache::{FontLoaderTrait, ParsedFontTrait},
     },
 };
 
@@ -515,7 +512,7 @@ pub fn reconcile_recursive<T: ParsedFontTrait>(
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     node_index: usize,
     // The absolute position of the containing block's content-box origin.
     containing_block_pos: LogicalPosition,
@@ -867,7 +864,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn set_static_positions_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    _text_cache: &mut text3::cache::LayoutCache<T>,
+    _text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     node_index: usize,
     parent_content_box_pos: LogicalPosition,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,

@@ -12,6 +12,7 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2021"
+resolver = "2"
 autoexamples = false
 
 [dependencies]
@@ -23,6 +24,12 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 [features]
+# Default features: CSS parser + file I/O
+# NOTE: parser is REQUIRED, azul-css does not work without it
 default = ["parser", "io"]
-parser = ["azul-simplecss"]
-io = ["serde", "serde_json", "dirs-next"]
+
+# CSS parser support (azul-simplecss) - REQUIRED
+parser = ["dep:azul-simplecss"]
+
+# File I/O and serialization support
+io = ["dep:serde", "dep:serde_json", "dep:dirs-next"]

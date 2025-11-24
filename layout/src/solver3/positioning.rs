@@ -27,7 +27,7 @@ use crate::{
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
     },
-    text3::cache::{FontLoaderTrait, ParsedFontTrait},
+    font_traits::{FontLoaderTrait, ParsedFontTrait},
 };
 
 #[derive(Debug, Default)]

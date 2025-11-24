@@ -42,17 +42,17 @@ use self::{
     layout_tree::{generate_layout_tree, LayoutTree},
     sizing::calculate_intrinsic_sizes,
 };
-pub use crate::text3::cache::LayoutCache as TextLayoutCache;
+
+#[cfg(feature = "text_layout")]
+pub use crate::font_traits::TextLayoutCache;
+
 use crate::{
+    font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
         fc::{check_scrollbar_necessity, LayoutConstraints, LayoutResult},
         layout_tree::DirtyFlag,
-    },
-    text3::{
-        self,
-        cache::{FontLoaderTrait, FontManager, ParsedFontTrait},
     },
 };
 
@@ -62,7 +62,10 @@ pub type NodeHashMap = BTreeMap<usize, u64>;
 /// Central context for a single layout pass.
 pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub styled_dom: &'a StyledDom,
-    pub font_manager: &'a FontManager<T, Q>,
+    #[cfg(feature = "text_layout")]
+    pub font_manager: &'a crate::font_traits::FontManager<T, Q>,
+    #[cfg(not(feature = "text_layout"))]
+    pub font_manager: core::marker::PhantomData<(&'a T, &'a Q)>,
     pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut BTreeMap<(usize, String), i32>,
@@ -136,12 +139,13 @@ impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
 }
 
 /// Main entry point for the incremental, cached layout engine
+#[cfg(feature = "text_layout")]
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
     cache: &mut LayoutCache<T>,
     text_cache: &mut TextLayoutCache<T>,
     new_dom: StyledDom,
     viewport: LogicalRect,
-    font_manager: &FontManager<T, Q>,
+    font_manager: &crate::font_traits::FontManager<T, Q>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -415,7 +419,7 @@ pub enum LayoutError {
     SizingFailed,
     PositioningFailed,
     DisplayListFailed,
-    Text(text3::cache::LayoutError),
+    Text(crate::font_traits::LayoutError),
 }
 
 impl std::fmt::Display for LayoutError {
@@ -425,13 +429,13 @@ impl std::fmt::Display for LayoutError {
             LayoutError::SizingFailed => write!(f, "Sizing calculation failed"),
             LayoutError::PositioningFailed => write!(f, "Position calculation failed"),
             LayoutError::DisplayListFailed => write!(f, "Display list generation failed"),
-            LayoutError::Text(e) => write!(f, "Text layout error: {}", e),
+            LayoutError::Text(e) => write!(f, "Text layout error: {:?}", e),
         }
     }
 }
 
-impl From<text3::cache::LayoutError> for LayoutError {
-    fn from(err: text3::cache::LayoutError) -> Self {
+impl From<crate::font_traits::LayoutError> for LayoutError {
+    fn from(err: crate::font_traits::LayoutError) -> Self {
         LayoutError::Text(err)
     }
 }

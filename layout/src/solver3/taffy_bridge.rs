@@ -273,7 +273,7 @@ use crate::{
         layout_tree::{get_display_type, LayoutNode, LayoutTree},
         sizing, LayoutContext,
     },
-    text3::cache::{FontLoaderTrait, ParsedFontTrait},
+    font_traits::{FontLoaderTrait, ParsedFontTrait},
 };
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto

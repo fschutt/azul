@@ -31,7 +31,15 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-use hyphenation::Language;
+#[cfg(feature = "text_layout_hyphenation")]
+use hyphenation::Language as HyphenationLanguage;
+#[cfg(feature = "text_layout_hyphenation")]
+pub use hyphenation::Language;
+
+#[cfg(not(feature = "text_layout_hyphenation"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Language;
+
 use rust_fontconfig::UnicodeRange;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

@@ -10,7 +10,10 @@
 extern crate alloc;
 extern crate core;
 
+pub mod font_traits;
+#[cfg(feature = "image_decoding")]
 pub mod image;
+#[cfg(feature = "text_layout")]
 pub mod managers;
 pub mod solver3;
 
@@ -95,6 +98,7 @@ pub fn parse_font_fn(
     .map(|parsed_font| parsed_font_to_font_ref(parsed_font))
 }
 
+#[cfg(feature = "font_loading")]
 pub fn parsed_font_to_font_ref(
     parsed_font: crate::font::parsed::ParsedFont,
 ) -> azul_css::props::basic::FontRef {
@@ -111,6 +115,7 @@ pub fn parsed_font_to_font_ref(
     azul_css::props::basic::FontRef::new(raw_ptr, parsed_font_destructor)
 }
 
+#[cfg(feature = "font_loading")]
 pub fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
 ) -> &crate::font::parsed::ParsedFont {

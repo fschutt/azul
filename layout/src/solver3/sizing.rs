@@ -26,6 +26,11 @@ use rust_fontconfig::FcFontCache;
 
 use crate::{
     font::parsed::ParsedFont,
+    font_traits::{
+        FontLoaderTrait, FontManager, FontProviderTrait, ImageSource, InlineContent, InlineImage,
+        InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
+        StyleProperties, StyledRun, UnifiedConstraints,
+    },
     solver3::{
         geometry::{BoxProps, BoxSizing, IntrinsicSizes},
         getters::{
@@ -36,12 +41,10 @@ use crate::{
         positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
-    text3::cache::{
-        FontLoaderTrait, FontManager, FontProviderTrait, ImageSource, InlineContent, InlineImage,
-        InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
-        StyleProperties, StyledRun, UnifiedConstraints,
-    },
 };
+
+#[cfg(feature = "text_layout")]
+use crate::text3;
 
 /// Resolves a percentage value against an available size, accounting for the CSS box model.
 ///

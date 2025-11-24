@@ -19,7 +19,7 @@ use azul_css::props::{
 
 use crate::{
     solver3::{display_list::{BorderRadius, PhysicalSizeImport}, layout_tree::LayoutNode, scrollbar::ScrollbarInfo},
-    text3::cache::{ParsedFontTrait, StyleProperties},
+    font_traits::{ParsedFontTrait, StyleProperties},
 };
 
 // ============================================================================

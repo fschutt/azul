@@ -65,6 +65,10 @@ use azul_css::{
 };
 
 use crate::{
+    font_traits::{
+        FontHash, FontLoaderTrait, ImageSource, InlineContent, ParsedFontTrait, ShapedItem,
+        UnifiedLayout,
+    },
     solver3::{
         getters::{
             get_background_color, get_border_info, get_border_radius, get_caret_style,
@@ -76,11 +80,10 @@ use crate::{
         scrollbar::ScrollbarInfo,
         LayoutContext, LayoutError, Result,
     },
-    text3::cache::{
-        FontHash, FontLoaderTrait, ImageSource, InlineContent, ParsedFontTrait, ShapedItem,
-        UnifiedLayout,
-    },
 };
+
+#[cfg(feature = "text_layout")]
+use crate::text3;
 use std::sync::Arc;
 
 /// Border widths for all four sides

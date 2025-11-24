@@ -27,6 +27,12 @@ use azul_css::{
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 use crate::{
+    font_traits::{
+        ContentIndex, FontLoaderTrait, ImageSource, InlineContent, InlineImage, InlineShape,
+        LayoutFragment, ObjectFit, ParsedFontTrait, SegmentAlignment, ShapeBoundary,
+        ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, TextLayoutCache,
+        UnifiedConstraints,
+    },
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{get_display_property, get_style_properties, get_writing_mode},
@@ -36,16 +42,10 @@ use crate::{
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutError, Result,
     },
-    text3::{
-        self,
-        cache::{
-            ContentIndex, FontLoaderTrait, ImageSource, InlineContent, InlineImage, InlineShape,
-            LayoutCache as TextLayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait,
-            SegmentAlignment, ShapeBoundary, ShapeDefinition, ShapedItem, Size, StyleProperties,
-            StyledRun, UnifiedConstraints,
-        },
-    },
 };
+
+#[cfg(feature = "text_layout")]
+use crate::text3;
 
 /// Result of BFC layout with margin escape information
 #[derive(Debug, Clone)]
@@ -280,12 +280,12 @@ fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
 }
 
 /// Helper: Convert StyleFontStyle to text3::cache::FontStyle
-pub(crate) fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> crate::text3::cache::FontStyle {
+pub(crate) fn convert_font_style(style: azul_css::props::basic::font::StyleFontStyle) -> crate::font_traits::FontStyle {
     use azul_css::props::basic::font::StyleFontStyle;
     match style {
-        StyleFontStyle::Normal => crate::text3::cache::FontStyle::Normal,
-        StyleFontStyle::Italic => crate::text3::cache::FontStyle::Italic,
-        StyleFontStyle::Oblique => crate::text3::cache::FontStyle::Oblique,
+        StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
+        StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
+        StyleFontStyle::Oblique => crate::font_traits::FontStyle::Oblique,
     }
 }
 
@@ -398,7 +398,7 @@ fn establishes_new_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
     float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
@@ -665,7 +665,7 @@ fn position_float(
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
     float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
@@ -1492,7 +1492,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ///     - Extract the final overflow size and baseline for the IFC root itself.
 fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     tree: &mut LayoutTree<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -2504,7 +2504,7 @@ fn is_cell_empty<T: ParsedFontTrait>(
 fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -2920,7 +2920,7 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
@@ -2975,7 +2975,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
@@ -3029,7 +3029,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
@@ -3040,7 +3040,7 @@ fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn calculate_column_widths_auto_with_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
     table_width: f32,
@@ -3270,7 +3270,7 @@ fn distribute_cell_width_across_columns(
 fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     cell_index: usize,
     cell_width: f32,
     constraints: &LayoutConstraints,
@@ -3388,7 +3388,7 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     table_ctx: &mut TableLayoutContext,
     tree: &mut LayoutTree<T>,
-    text_cache: &mut text3::cache::LayoutCache<T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
     ctx: &mut LayoutContext<T, Q>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
@@ -4703,12 +4703,12 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
     let pattern = FcPattern {
         name: Some(base_style.font_selector.family.clone()),
         weight: base_style.font_selector.weight,
-        italic: if base_style.font_selector.style == crate::text3::cache::FontStyle::Italic {
+        italic: if base_style.font_selector.style == crate::font_traits::FontStyle::Italic {
             PatternMatch::True
         } else {
             PatternMatch::DontCare
         },
-        oblique: if base_style.font_selector.style == crate::text3::cache::FontStyle::Oblique {
+        oblique: if base_style.font_selector.style == crate::font_traits::FontStyle::Oblique {
             PatternMatch::True
         } else {
             PatternMatch::DontCare

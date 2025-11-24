@@ -25,43 +25,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text3::script::{script_to_language, Script};
 
+// Re-export traits for backwards compatibility
+pub use crate::font_traits::{ShallowClone, ParsedFontTrait, FontLoaderTrait, FontProviderTrait};
+
 // --- Core Data Structures for the New Architecture ---
-
-/// Trait for types that support cheap, shallow cloning (e.g., reference-counted types).
-/// This is used to allow UnifiedLayout to store fonts without wrapping them in Arc.
-pub trait ShallowClone {
-    /// Create a shallow clone (increment reference count, don't copy data)
-    fn shallow_clone(&self) -> Self;
-}
-
-pub trait ParsedFontTrait: Send + Clone + ShallowClone {
-    fn shape_text(
-        &self,
-        text: &str,
-        script: Script,
-        language: Language,
-        direction: Direction,
-        style: &StyleProperties,
-    ) -> Result<Vec<Glyph<Self>>, LayoutError>;
-    /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
-    fn get_hash(&self) -> u64;
-    fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize>;
-    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
-    fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
-    fn has_glyph(&self, codepoint: u32) -> bool;
-    fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics>;
-    fn get_font_metrics(&self) -> LayoutFontMetrics;
-    fn num_glyphs(&self) -> u16;
-}
-
-pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
-    fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
-}
-
-// Font loading and management
-pub trait FontProviderTrait<T: ParsedFontTrait> {
-    fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError>; // Changed from Arc<T>
-}
 
 #[derive(Debug)]
 pub struct FontManager<T, Q> {

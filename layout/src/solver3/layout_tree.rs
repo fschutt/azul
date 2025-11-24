@@ -27,14 +27,17 @@ use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
 use crate::{
     font::parsed::ParsedFont,
+    font_traits::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{get_float, get_overflow_x, get_overflow_y, get_position},
         scrollbar::ScrollbarInfo,
         LayoutContext, Result,
     },
-    text3::cache::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
 };
+
+#[cfg(feature = "text_layout")]
+use crate::text3;
 
 /// Represents the invalidation state of a layout node.
 ///

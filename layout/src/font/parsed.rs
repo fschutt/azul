@@ -1469,11 +1469,11 @@ impl crate::text3::cache::ParsedFontTrait for ParsedFont {
     fn shape_text(
         &self,
         text: &str,
-        script: crate::text3::script::Script,
-        language: hyphenation::Language,
-        direction: crate::text3::cache::Direction,
-        style: &crate::text3::cache::StyleProperties,
-    ) -> Result<Vec<crate::text3::cache::Glyph<Self>>, crate::text3::cache::LayoutError> {
+        script: crate::font_traits::Script,
+        language: crate::font_traits::Language,
+        direction: crate::font_traits::Direction,
+        style: &crate::font_traits::StyleProperties,
+    ) -> Result<Vec<crate::font_traits::Glyph<Self>>, crate::font_traits::LayoutError> {
         // Call the existing shape_text_for_parsed_font method (defined in default.rs)
         crate::text3::default::shape_text_for_parsed_font(
             self,

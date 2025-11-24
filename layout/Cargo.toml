@@ -16,13 +16,14 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2021"
+resolver = "2"
 autoexamples = true
 
 [dependencies]
 azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
-image                   = { version = "0.25", default-features = false }
-rust-fontconfig         = { version = "1.0.3", features = ["parsing", "std"], default-features = false }
+image                   = { version = "0.25", default-features = false, optional = true }
+rust-fontconfig         = { version = "1.0.4", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
@@ -49,22 +50,66 @@ taffy = { version = "0.9.1", default-features = false, features = ["std", "flexb
 base64 = "0.22.1"
 
 [features]
-default = ["std", "text_layout", "font_loading", "svg", "xml", "cpurender", "accessibility"]
+# Default: Full layout engine with text, fonts, SVG, images, accessibility
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading", "svg", "image_decoding", "cpurender", "accessibility"]
+
+# Standard library support
 std = ["azul-core/std"]
-cpurender = ["tiny-skia", "allsorts", "gl-context-loader"]
-text_layout = ["unicode-normalization", "allsorts", "tinyvec", "unicode-segmentation", "unicode-bidi", "hyphenation"]
-accessibility = ["accesskit"]
+
+# Basic text shaping (unicode support, allsorts font parsing)
+# Does NOT include hyphenation (saves ~25 dependencies)
+text_layout = [
+    "dep:unicode-normalization",
+    "dep:allsorts",
+    "dep:tinyvec",
+    "dep:unicode-segmentation",
+    "dep:unicode-bidi"
+]
+
+# Automatic hyphenation (adds ~25 deps: bincode, fst, hyphenation_commons, pocket-resources)
+text_layout_hyphenation = ["text_layout", "dep:hyphenation"]
+
+# PDF text operations (requires text_layout)
 pdf = ["text_layout"]
-gif = ["image/gif"]
-jpeg = ["image/jpeg"]
-png = ["image/png"]
-tiff = ["image/tiff"]
-bmp = ["image/bmp"]
-ico = ["image/ico"]
-tga = ["image/tga"]
-hdr = ["image/hdr"]
-webp = ["image/webp"]
-pnm = ["image/pnm"]
-font_loading = []
-xml = ["roxmltree", "xmlwriter", "xmlparser"]
-svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml", "geo-booleanop", "geo", "gl-context-loader"]
+
+# System font discovery (rust-fontconfig minimal, no parsing)
+font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std"]
+
+# Font introspection (adds allsorts via rust-fontconfig/parsing)
+font_parsing = ["font_loading", "rust-fontconfig/parsing"]
+
+# Image decoding support (image crate)
+image_decoding = ["dep:image"]
+
+# Individual image format features (require image_decoding)
+gif = ["image_decoding", "image/gif"]
+jpeg = ["image_decoding", "image/jpeg"]
+png = ["image_decoding", "image/png"]
+tiff = ["image_decoding", "image/tiff"]
+bmp = ["image_decoding", "image/bmp"]
+ico = ["image_decoding", "image/ico"]
+tga = ["image_decoding", "image/tga"]
+hdr = ["image_decoding", "image/hdr"]
+webp = ["image_decoding", "image/webp"]
+pnm = ["image_decoding", "image/pnm"]
+
+# XML parsing support (for SVG and font configs)
+xml = ["dep:roxmltree", "dep:xmlwriter", "dep:xmlparser"]
+
+# SVG rendering support (lyon, usvg can convert text to outlines)
+svg = [
+    "dep:lyon",
+    "dep:tiny-skia",
+    "dep:usvg",
+    "dep:resvg",
+    "xml",
+    "dep:geo-booleanop",
+    "dep:geo",
+    "dep:gl-context-loader"
+]
+
+# CPU-based rendering (tiny-skia, requires allsorts for text)
+cpurender = ["dep:tiny-skia", "dep:allsorts", "dep:gl-context-loader"]
+
+# Accessibility support (accesskit)
+accessibility = ["dep:accesskit"]
