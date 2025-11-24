@@ -119,7 +119,7 @@ impl ParsedFontTrait for FontRef {
         &self,
         text: &str,
         script: Script,
-        language: hyphenation::Language,
+        language: crate::text3::script::Language,
         direction: Direction,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<Self>>, LayoutError> {
@@ -172,13 +172,16 @@ impl ParsedFont {
         font_ref: &FontRef,
         text: &str,
         script: Script,
-        language: hyphenation::Language,
+        language: crate::text3::script::Language,
         direction: Direction,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph<FontRef>>, LayoutError> {
         // 1. Convert layout engine enums to OpenType tags for allsorts.
         let script_tag = to_opentype_script_tag(script);
+        #[cfg(feature = "text_layout_hyphenation")]
         let lang_tag = to_opentype_lang_tag(language);
+        #[cfg(not(feature = "text_layout_hyphenation"))]
+        let lang_tag = 0u32;
 
         // 2. Build a list of user-specified features.
         // For now, these are only passed to the GPOS stage. GSUB uses a default set.
@@ -615,6 +618,7 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
 }
 
 /// Maps the `hyphenation::Language` enum to an OpenType language tag `u32`.
+#[cfg(feature = "text_layout_hyphenation")]
 fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     use hyphenation::Language::*;
     // A complete list of language tags can be found at:
@@ -710,13 +714,16 @@ pub fn shape_text_for_parsed_font(
     parsed_font: &ParsedFont,
     text: &str,
     script: Script,
-    language: hyphenation::Language,
+    language: crate::text3::script::Language,
     direction: Direction,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph<ParsedFont>>, LayoutError> {
     // Use the same shaping logic as shape_text_for_font_ref, but return ParsedFont instead
     let script_tag = to_opentype_script_tag(script);
+    #[cfg(feature = "text_layout_hyphenation")]
     let lang_tag = to_opentype_lang_tag(language);
+    #[cfg(not(feature = "text_layout_hyphenation"))]
+    let lang_tag = 0u32;
 
     let mut user_features: Vec<FeatureInfo> = style
         .font_features

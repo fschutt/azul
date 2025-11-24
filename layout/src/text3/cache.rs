@@ -18,7 +18,10 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
+#[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language, Load, Standard};
+#[cfg(not(feature = "text_layout_hyphenation"))]
+use crate::text3::script::Language;
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
@@ -4140,7 +4143,7 @@ fn is_hanging_punctuation<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
 fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
-    language: hyphenation::Language,
+    language: crate::text3::script::Language,
     direction: Direction,
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{

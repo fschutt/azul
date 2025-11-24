@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator as _, Language, Load as _, Standard};
 use lru::LruCache;
 use rust_fontconfig::{

@@ -35,7 +35,7 @@ pub use font::parsed::{
 #[cfg(feature = "font_loading")]
 pub use allsorts::subset::CmapTarget;
 // Re-export hyphenation for external crates (like printpdf)
-#[cfg(feature = "text_layout")]
+#[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;

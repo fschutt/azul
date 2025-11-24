@@ -1961,20 +1961,27 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
         .get_hyphenation_language(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .and_then(|hl| {
-            use hyphenation::{Language, Load};
-            // Parse BCP 47 language code to hyphenation::Language
-            match hl.inner.as_str() {
-                "en-US" | "en" => Some(Language::EnglishUS),
-                "de-DE" | "de" => Some(Language::German1996),
-                "fr-FR" | "fr" => Some(Language::French),
-                "es-ES" | "es" => Some(Language::Spanish),
-                "it-IT" | "it" => Some(Language::Italian),
-                "pt-PT" | "pt" => Some(Language::Portuguese),
-                "nl-NL" | "nl" => Some(Language::Dutch),
-                "pl-PL" | "pl" => Some(Language::Polish),
-                "ru-RU" | "ru" => Some(Language::Russian),
-                "zh-CN" | "zh" => Some(Language::Chinese),
-                _ => None, // Unsupported language
+            #[cfg(feature = "text_layout_hyphenation")]
+            {
+                use hyphenation::{Language, Load};
+                // Parse BCP 47 language code to hyphenation::Language
+                match hl.inner.as_str() {
+                    "en-US" | "en" => Some(Language::EnglishUS),
+                    "de-DE" | "de" => Some(Language::German1996),
+                    "fr-FR" | "fr" => Some(Language::French),
+                    "es-ES" | "es" => Some(Language::Spanish),
+                    "it-IT" | "it" => Some(Language::Italian),
+                    "pt-PT" | "pt" => Some(Language::Portuguese),
+                    "nl-NL" | "nl" => Some(Language::Dutch),
+                    "pl-PL" | "pl" => Some(Language::Polish),
+                    "ru-RU" | "ru" => Some(Language::Russian),
+                    "zh-CN" | "zh" => Some(Language::Chinese),
+                    _ => None, // Unsupported language
+                }
+            }
+            #[cfg(not(feature = "text_layout_hyphenation"))]
+            {
+                None::<crate::text3::script::Language>
             }
         });
 
