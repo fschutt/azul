@@ -126,6 +126,10 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     pub scrollbar_info: Option<ScrollbarInfo>,
+    /// Page index for CSS Paged Media (PDF generation)
+    /// Indicates which page/fragmentainer this node belongs to (0-indexed)
+    #[cfg(feature = "pdf")]
+    pub page_index: usize,
 }
 
 /// CSS pseudo-elements that can be generated
@@ -295,20 +299,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
-        eprintln!(
-            "DEBUG process_node: dom_id={:?}, node_type={:?}, parent_idx={:?}",
-            dom_id,
-            node_data.get_node_type(),
-            parent_idx
-        );
-
         let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
         let display_type = get_display_type(styled_dom, dom_id);
-
-        eprintln!(
-            "DEBUG process_node: created layout_node at index={}, display_type={:?}",
-            node_idx, display_type
-        );
 
         // If this is a list-item, inject a ::marker pseudo-element as its first child
         // Per CSS spec, the ::marker is generated as the first child of the list-item
@@ -432,7 +424,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             // "Remove all irrelevant boxes. These are boxes that do not contain table-related 
             // boxes and do not themselves have 'display' set to a table-related value."
             if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                eprintln!("  DEBUG: Skipping whitespace-only text node in table structure");
                 continue;
             }
             
@@ -452,8 +443,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                         AnonymousBoxType::TableRow,
                         FormattingContext::TableRow,
                     );
-                    eprintln!("  DEBUG: Created anonymous table-row at index {} for {} cells", 
-                             anon_row_idx, row_children.len());
                     
                     for cell_id in row_children.drain(..) {
                         self.process_node(styled_dom, cell_id, Some(anon_row_idx), debug_messages)?;
@@ -473,9 +462,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                 AnonymousBoxType::TableRow,
                 FormattingContext::TableRow,
             );
-            eprintln!("  DEBUG: Created anonymous table-row at index {} for {} trailing cells", 
-                     anon_row_idx, row_children.len());
-            
+
             for cell_id in row_children {
                 self.process_node(styled_dom, cell_id, Some(anon_row_idx), debug_messages)?;
             }
@@ -523,7 +510,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
             // CSS 2.2 Section 17.2.1, Stage 1: Skip whitespace-only text nodes
             if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                eprintln!("  DEBUG: Skipping whitespace-only text node in table-row");
                 continue;
             }
             
@@ -545,8 +531,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
                         establishes_new_context: true,
                     },
                 );
-                eprintln!("  DEBUG: Created anonymous table-cell at index {} for non-cell child", 
-                         anon_cell_idx);
                 
                 self.process_node(styled_dom, child_id, Some(anon_cell_idx), debug_messages)?;
             }
@@ -568,10 +552,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         fc: FormattingContext,
     ) -> usize {
         let index = self.nodes.len();
-        
-        eprintln!("  DEBUG: Creating anonymous box type {:?} at index {} with parent {}", 
-                 anon_type, index, parent);
-        
+                
         // CSS 2.2 Section 17.2.1: Anonymous boxes inherit properties from their 
         // enclosing non-anonymous box
         let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context.clone());
@@ -597,6 +578,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            #[cfg(feature = "pdf")]
+            page_index: 0,
         });
         
         self.nodes[parent].children.push(index);
@@ -618,9 +601,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         list_item_idx: usize,
     ) -> usize {
         let index = self.nodes.len();
-        
-        eprintln!("  DEBUG: Creating ::marker pseudo-element at index {} for list-item (parent {})", 
-                 index, list_item_idx);
         
         // The marker references the same DOM node as the list-item
         // This is important for style resolution (the marker inherits from the list-item)
@@ -647,6 +627,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            #[cfg(feature = "pdf")]
+            page_index: 0,
         });
         
         // Insert as FIRST child (per spec)
@@ -667,7 +649,6 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
     ) -> Result<usize> {
         let index = self.nodes.len();
         let parent_fc = parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
-        eprintln!("[create_node_from_dom] dom_id={:?}, parent={:?}, parent_fc={:?}", dom_id, parent, parent_fc);
         self.nodes.push(LayoutNode {
             dom_node_id: Some(dom_id),
             pseudo_element: None,
@@ -690,6 +671,8 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            #[cfg(feature = "pdf")]
+            page_index: 0,
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
@@ -773,7 +756,6 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let node_hier = match hierarchy.get(node_id) {
         Some(n) => n,
         None => {
-            eprintln!("[has_only_inline_children] NodeId({:?}) not found in hierarchy", node_id);
             return false;
         }
     };
@@ -783,21 +765,15 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
     // If there are no children, it's not an IFC (it's empty)
     if current_child.is_none() {
-        eprintln!("[has_only_inline_children] NodeId({:?}) has no children", node_id);
         return false;
     }
-
-    eprintln!("[has_only_inline_children] Checking NodeId({:?})", node_id);
 
     // Check all children
     while let Some(child_id) = current_child {
         let is_inline = is_inline_level(styled_dom, child_id);
-        eprintln!("  Child NodeId({:?}): is_inline={}", child_id, is_inline);
         
         if !is_inline {
             // Found a block-level child
-            eprintln!("[has_only_inline_children] NodeId({:?}) has block-level child NodeId({:?}) -> BLOCK FC", 
-                node_id, child_id);
             return false;
         }
 
@@ -810,7 +786,6 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     }
 
     // All children are inline-level
-    eprintln!("[has_only_inline_children] NodeId({:?}) has only inline children -> INLINE FC", node_id);
     true
 }
 
@@ -1033,9 +1008,6 @@ fn needs_table_parent_wrapper(
 ) -> Option<AnonymousBoxType> {
     let child_display = get_display_type(styled_dom, node_id);
     
-    eprintln!("  [needs_table_parent_wrapper] child={:?}, parent={:?}", 
-             child_display, parent_display);
-    
     // CSS 2.2 Section 17.2.1, Stage 3:
     // If we have a table-cell but parent is not a table-row, need anonymous row
     if child_display == LayoutDisplay::TableCell {
@@ -1048,7 +1020,6 @@ fn needs_table_parent_wrapper(
                 None
             }
             _ => {
-                eprintln!("  [needs_table_parent_wrapper] table-cell needs anonymous row wrapper");
                 Some(AnonymousBoxType::TableRow)
             }
         }
@@ -1063,7 +1034,6 @@ fn needs_table_parent_wrapper(
                 None // Parent is correct
             }
             _ => {
-                eprintln!("  [needs_table_parent_wrapper] table-row needs anonymous table wrapper");
                 Some(AnonymousBoxType::TableWrapper)
             }
         }
@@ -1078,7 +1048,6 @@ fn needs_table_parent_wrapper(
         match parent_display {
             LayoutDisplay::Table => None,
             _ => {
-                eprintln!("  [needs_table_parent_wrapper] row-group needs anonymous table wrapper");
                 Some(AnonymousBoxType::TableWrapper)
             }
         }
@@ -1169,17 +1138,13 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     // They participate in their parent's inline formatting context.
     use azul_core::dom::NodeType;
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
-    eprintln!("[determine_formatting_context] NodeId({:?}), node_type={:?}", node_id, node_data.get_node_type());
-    
+        
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
         // Text nodes are inline-level content within their parent's IFC
-        eprintln!("  -> TEXT NODE, returning Inline FC");
         return FormattingContext::Inline;
     }
 
     let display_type = get_display_type(styled_dom, node_id);
-    eprintln!("  display_type={:?}", display_type);
 
     match display_type {
         LayoutDisplay::Inline => FormattingContext::Inline,
@@ -1190,11 +1155,9 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
         LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
             if has_only_inline_children(styled_dom, node_id) {
                 // This block container should establish an IFC for its inline children
-                eprintln!("  -> BLOCK/ListItem with only inline children, returning Inline FC");
                 FormattingContext::Inline
             } else {
                 // Normal BFC
-                eprintln!("  -> BLOCK/ListItem with block-level children, returning Block FC");
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,

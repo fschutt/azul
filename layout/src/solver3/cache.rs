@@ -374,14 +374,6 @@ pub fn reconcile_recursive<T: ParsedFontTrait>(
     use azul_core::dom::NodeType;
 
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
-    eprintln!(
-        "DEBUG reconcile_recursive: new_dom_id={:?}, node_type={:?}, old_tree_idx={:?}, \
-         new_parent_idx={:?}",
-        new_dom_id,
-        node_data.get_node_type(),
-        old_tree_idx,
-        new_parent_idx
-    );
 
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
     let new_node_data_hash = hash_styled_node_data(styled_dom, new_dom_id);
@@ -391,17 +383,10 @@ pub fn reconcile_recursive<T: ParsedFontTrait>(
     let is_dirty = old_node.map_or(true, |n| new_node_data_hash != n.node_data_hash);
 
     let new_node_idx = if is_dirty {
-        eprintln!("DEBUG reconcile_recursive: Node is DIRTY, creating new node");
         new_tree_builder.create_node_from_dom(styled_dom, new_dom_id, new_parent_idx, debug_messages)?
     } else {
-        eprintln!("DEBUG reconcile_recursive: Node is CLEAN, cloning from old");
         new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx)
     };
-
-    eprintln!(
-        "DEBUG reconcile_recursive: Created layout node at index {}",
-        new_node_idx
-    );
 
     // CRITICAL: For list-items, create a ::marker pseudo-element as the first child
     // This must be done after the node is created but before processing children
@@ -561,34 +546,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // Height is auto - use containing block size as available size
             let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
             
-            // Debug nodes with margins (likely body)
-            let has_margin = node.box_props.margin.left > 0.0 || node.box_props.margin.right > 0.0 
-                || node.box_props.margin.top > 0.0 || node.box_props.margin.bottom > 0.0;
-            if has_margin {
-                eprintln!("\n========== NODE {} WITH MARGINS SIZING DEBUG ==========", node_index);
-                eprintln!("  containing_block_size: {:?}", containing_block_size);
-                eprintln!("  final_used_size (border-box): {:?}", final_used_size);
-                eprintln!("  margins: left={}, right={}, top={}, bottom={}", 
-                    node.box_props.margin.left,
-                    node.box_props.margin.right,
-                    node.box_props.margin.top,
-                    node.box_props.margin.bottom);
-                eprintln!("  padding: left={}, right={}, top={}, bottom={}", 
-                    node.box_props.padding.left,
-                    node.box_props.padding.right,
-                    node.box_props.padding.top,
-                    node.box_props.padding.bottom);
-                eprintln!("  border: left={}, right={}, top={}, bottom={}", 
-                    node.box_props.border.left,
-                    node.box_props.border.right,
-                    node.box_props.border.top,
-                    node.box_props.border.bottom);
-                eprintln!("  inner_size (content-box): {:?}", inner_size);
-                eprintln!("  available_size_for_children will be: width={}, height={}", 
-                    inner_size.width, containing_block_size.height);
-                eprintln!("======================================================\n");
-            }
-            
             LogicalSize {
                 width: inner_size.width,
                 height: containing_block_size.height, // Use containing block height!
@@ -611,12 +568,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             containing_block_size,
         };
 
-        eprintln!(
-            "DEBUG calculate_layout_for_subtree: node_index={}, final_used_size={:?}, \
-             constraints.available_size={:?}, containing_block_size={:?}",
-            node_index, final_used_size, constraints.available_size, containing_block_size
-        );
-
         (
             constraints,
             dom_id,
@@ -632,9 +583,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Note: escaped_top_margin is handled by the PARENT when positioning this node,
     // not by adjusting our own content-box position. The content-box is always at
     // (border+padding) offset from the margin-box, regardless of escaped margins.
-    if let Some(escaped_margin) = layout_result.escaped_top_margin {
-        eprintln!("[calculate_layout_for_subtree] Node {} has escaped_top_margin={} (will be handled by parent)", node_index, escaped_margin);
-    }
 
     // --- Phase 2.5: Resolve 'auto' main-axis size ---
 
@@ -704,14 +652,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     // Only set used_size if it hasn't been set yet, or if this is not a table cell.
     let is_table_cell = matches!(current_node.formatting_context, FormattingContext::TableCell);
     if !is_table_cell || current_node.used_size.is_none() {
-        if is_table_cell {
-            println!("[cache] Cell {}: BEFORE overwrite check: used_size={:?}, final_used_size={:?}", 
-                node_index, current_node.used_size, final_used_size);
-        }
         current_node.used_size = Some(final_used_size);
-    } else if is_table_cell {
-        println!("[cache] Cell {}: SKIPPED overwrite: keeping used_size={:?}, would have set to {:?}", 
-            node_index, current_node.used_size, final_used_size);
     }
     
     current_node.scrollbar_info = Some(scrollbar_info); // Store scrollbar info
@@ -840,9 +781,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // This is where the element would appear if it were in normal flow
                 calculated_positions.insert(child_index, self_content_box_pos);
                 
-                eprintln!("[cache] Set static position for out-of-flow child {} at {:?}", 
-                    child_index, self_content_box_pos);
-                
                 // Recursively set static positions for nested out-of-flow descendants
                 // but DON'T do full layout (that happens in position_out_of_flow_elements)
                 set_static_positions_recursive(
@@ -889,9 +827,6 @@ fn set_static_positions_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if position_type == azul_css::props::layout::LayoutPosition::Absolute 
                 || position_type == azul_css::props::layout::LayoutPosition::Fixed {
                 calculated_positions.insert(child_index, parent_content_box_pos);
-                
-                eprintln!("[cache] Set static position for nested out-of-flow child {} at {:?}", 
-                    child_index, parent_content_box_pos);
                 
                 // Continue recursively
                 set_static_positions_recursive(
@@ -968,13 +903,6 @@ fn apply_content_based_height<T: ParsedFontTrait>(
     let final_main_size = old_main_size.max(new_main_size);
     
     used_size = used_size.with_main(writing_mode, final_main_size);
-
-    eprintln!(
-        "[apply_content_based_height] node={}: old_main={:.2} (Phase 1 with min-height), \
-         content={:.2}, padding+border={:.2}, new_content={:.2}, final={:.2}",
-        node_index, old_main_size, content_size.main(writing_mode), 
-        main_axis_padding_border, new_main_size, final_main_size
-    );
 
     used_size
 }
@@ -1109,8 +1037,6 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
                 let counter_name = counter_name_str.to_string();
                 let reset_value = counter_reset.value;
                 
-                eprintln!("[compute_counters] Resetting counter '{}' to {} at node_idx={}", counter_name, reset_value, node_idx);
-                
                 // Reset the counter by pushing a new scope
                 counter_stacks
                     .entry(counter_name.clone())
@@ -1145,7 +1071,6 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
     
     // CSS Lists §3: display: list-item automatically increments "list-item" counter
     if is_list_item {
-        eprintln!("[compute_counters] ✓ Found list-item at node_idx={}, auto-incrementing counter", node_idx);
         let counter_name = "list-item".to_string();
         let stack = counter_stacks.entry(counter_name.clone()).or_default();
         if stack.is_empty() {
@@ -1161,7 +1086,6 @@ fn compute_counters_recursive<T: ParsedFontTrait>(
     // Store the current counter values for this node
     for (counter_name, stack) in counter_stacks.iter() {
         if let Some(&value) = stack.last() {
-            eprintln!("[compute_counters] Storing counter '{}' = {} for node_idx={}", counter_name, value, node_idx);
             counters.insert((node_idx, counter_name.clone()), value);
         }
     }

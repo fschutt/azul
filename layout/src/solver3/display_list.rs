@@ -1099,12 +1099,8 @@ where
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
         
-        // DEBUG: Log for table cells
+        // DEBUG: Log for table cells removed for performance
         use azul_core::dom::FormattingContext;
-        if matches!(node.formatting_context, FormattingContext::TableCell) {
-            println!("[get_paint_rect] Cell {}: used_size={:?}, size={}x{}", 
-                node_index, node.used_size, size.width, size.height);
-        }
 
         if let Some(parent_idx) = node.parent {
             if let Some(parent_dom_id) = self
@@ -1240,14 +1236,6 @@ where
             return Ok(());
         };
 
-        eprintln!("\n========== TABLE PAINT DEBUG ==========");
-        eprintln!("[TABLE PAINT] Table node: {}", table_index);
-        eprintln!("[TABLE PAINT] Paint rect: {:.2} x {:.2} @ ({:.2}, {:.2})", 
-            table_paint_rect.size.width, table_paint_rect.size.height,
-            table_paint_rect.origin.x, table_paint_rect.origin.y);
-        eprintln!("[TABLE PAINT] Table used_size: {:?}", table_node.used_size);
-        eprintln!("========================================\n");
-
         // Layer 1: Table background
         if let Some(dom_id) = table_node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
@@ -1321,7 +1309,6 @@ where
         builder: &mut DisplayListBuilder,
         row_idx: usize,
     ) -> Result<()> {
-        println!("[paint_table_row_and_cells] ✓✓✓ CALLED for row at node {}", row_idx);
         
         // Layer 5: Paint row background
         self.paint_element_background(builder, row_idx)?;
@@ -1503,15 +1490,6 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout<T>,
     ) -> Result<()> {
-        eprintln!(
-            "[paint_inline_content] CALLED with container_rect: {:?}",
-            container_rect
-        );
-        eprintln!(
-            "[paint_inline_content] layout.items.len() = {}",
-            layout.items.len()
-        );
-
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
@@ -1530,22 +1508,7 @@ where
         
         let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
 
-        eprintln!(
-            "[paint_inline_content] Generated {} glyph runs",
-            glyph_runs.len()
-        );
-
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
-            eprintln!(
-                "[paint_inline_content] GlyphRun #{}: {} glyphs, font_hash={}, font_size={}px, \
-                 color={:?}",
-                idx,
-                glyph_run.glyphs.len(),
-                glyph_run.font_hash,
-                glyph_run.font_size_px,
-                glyph_run.color
-            );
-
             let clip_rect = container_rect; // Clip to the container rect
                                             // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
@@ -1555,8 +1518,6 @@ where
                 glyph_run.color,
                 clip_rect,
             );
-
-            eprintln!("[paint_inline_content] ✓ Pushed text run to display list");
 
             // Render text decorations if present OR if this is IME composition preview
             let needs_underline = glyph_run.text_decoration.underline || glyph_run.is_ime_preview;
@@ -1589,11 +1550,6 @@ where
                             LogicalSize::new(decoration_width, thickness),
                         );
                         builder.push_underline(underline_bounds, glyph_run.color, thickness);
-                        if glyph_run.is_ime_preview {
-                            eprintln!("[paint_inline_content] ✓ Pushed IME composition underline");
-                        } else {
-                            eprintln!("[paint_inline_content] ✓ Pushed underline decoration");
-                        }
                     }
 
                     if needs_strikethrough {
@@ -1608,7 +1564,6 @@ where
                             glyph_run.color,
                             thickness,
                         );
-                        eprintln!("[paint_inline_content] ✓ Pushed strikethrough decoration");
                     }
 
                     if needs_overline {
@@ -1619,7 +1574,6 @@ where
                             LogicalSize::new(decoration_width, thickness),
                         );
                         builder.push_overline(overline_bounds, glyph_run.color, thickness);
-                        eprintln!("[paint_inline_content] ✓ Pushed overline decoration");
                     }
                 }
             }
@@ -1643,19 +1597,12 @@ where
                         LogicalSize::new(bounds.width, bounds.height),
                     );
                     
-                    eprintln!(
-                        "[paint_inline_content] Object at position ({}, {}), bounds={}x{}, baseline_offset={}",
-                        positioned_item.position.x, positioned_item.position.y,
-                        bounds.width, bounds.height, baseline_offset
-                    );
-                    
                     match content {
                         InlineContent::Image(image) => {
                             if let Some(image_key) =
                                 get_image_key_for_image_source(&image.source, self.id_namespace)
                             {
                                 builder.push_image(object_bounds, image_key);
-                                eprintln!("[paint_inline_content] ✓ Pushed image to display list");
                             }
                         }
                         InlineContent::Shape(shape) => {
@@ -1684,13 +1631,6 @@ where
                                     );
                                     
                                     builder.push_rect(object_bounds, bg_color, border_radius);
-                                    
-                                    eprintln!(
-                                        "[paint_inline_content] ✓ Rendered inline-block: {}x{} @ ({}, {}), color={:?}",
-                                        bounds.width, bounds.height,
-                                        positioned_item.position.x, positioned_item.position.y,
-                                        bg_color
-                                    );
                                 }
                             }
                         }

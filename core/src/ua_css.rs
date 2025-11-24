@@ -738,14 +738,5 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         _ => None,
     };
     
-    // Debug output for Body and H1 elements
-    if matches!(node_type, NT::Body | NT::H1) {
-        println!("[UA_CSS] get_ua_property({:?}, {:?}) -> {:?}", 
-            node_type, property_type, result.is_some());
-        if let Some(prop) = result {
-            println!("[UA_CSS]   Value: {:?}", prop);
-        }
-    }
-    
     result
 }

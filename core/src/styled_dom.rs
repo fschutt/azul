@@ -206,7 +206,7 @@ fn test_it() {
     ";
 
     let css = azul_css::parser2::new_from_str(s);
-    let dom = Dom::body()
+    lDom::body()
         .with_children(
             vec![Dom::div()
                 .with_ids_and_classes(
@@ -215,13 +215,7 @@ fn test_it() {
                 .with_children(vec![Dom::div()].into())]
             .into(),
         )
-        .style(CssApiWrapper { css: css.0 });
-    println!(
-        "styled dom: {:#?}",
-        dom.get_html_string("", "", false)
-            .lines()
-            .collect::<Vec<_>>()
-    );
+        .style(CssApiWrapper { css: css.0 })
 }
 
 /// Calculated hash of a font-family

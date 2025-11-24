@@ -156,7 +156,6 @@ pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
             image.height as u32,
             translate_rawimage_colortype(image.data_format).into(),
         ) {
-            println!("{:?}", e);
             return ResultU8VecEncodeImageError::Err(translate_image_error_encode(e));
         }
     }
@@ -189,7 +188,6 @@ pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError
             image.height as u32,
             translate_rawimage_colortype(image.data_format).into(),
         ) {
-            println!("{:?}", e);
             return ResultU8VecEncodeImageError::Err(translate_image_error_encode(e));
         }
     }

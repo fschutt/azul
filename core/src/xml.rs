@@ -1539,18 +1539,6 @@ pub fn str_to_dom<'a>(
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        println!("[CSS_PARSE] Found <head> node with {} children", head_node.children.as_ref().len());
-        for (i, child) in head_node.children.as_ref().iter().enumerate() {
-            match child {
-                XmlNodeChild::Element(node) => {
-                    println!("[CSS_PARSE]   Child {}: node_type={}", i, node.node_type.as_str());
-                }
-                XmlNodeChild::Text(text) => {
-                    println!("[CSS_PARSE]   Child {}: text='{}'", i, text.as_str());
-                }
-            }
-        }
-        
         // parse all dynamic XML components from the head node
         for child in head_node.children.as_ref() {
             if let XmlNodeChild::Element(node) = child {
@@ -1572,21 +1560,12 @@ pub fn str_to_dom<'a>(
 
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            println!("[CSS_PARSE] Found <style> node");
             let text = style_node.get_text_content();
             if !text.is_empty() {
-                println!("[CSS_PARSE] Parsing CSS ({} bytes): {}", text.len(), &text[..text.len().min(100)]);
                 let parsed_css = CssApiWrapper::from_string(text.into());
-                println!("[CSS_PARSE] Parsed {} stylesheets", parsed_css.css.stylesheets.as_ref().len());
                 global_style = Some(parsed_css);
-            } else {
-                println!("[CSS_PARSE] <style> node has no text content");
             }
-        } else {
-            println!("[CSS_PARSE] No <style> node found in <head>");
         }
-    } else {
-        println!("[CSS_PARSE] No <head> node found in HTML");
     }
 
     render_dom_from_body_node(&body_node, global_style, component_map, max_width)
@@ -1605,15 +1584,6 @@ pub fn str_to_rust_code<'a>(
     let mut global_style = Css::empty();
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        println!("[CSS_PARSE] Found <head> node with {} children", head_node.children.as_ref().len());
-        for (i, child) in head_node.children.as_ref().iter().enumerate() {
-            if let XmlNodeChild::Element(node) = child {
-                println!("[CSS_PARSE]   Child {}: node_type={}", i, node.node_type);
-            } else {
-                println!("[CSS_PARSE]   Child {}: text node", i);
-            }
-        }
-        
         for child in head_node.children.as_ref() {
             if let XmlNodeChild::Element(node) = child {
                 match DynamicXmlComponent::new(node) {
@@ -1835,9 +1805,7 @@ pub fn render_dom_from_body_node<'a>(
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
-) -> Result<StyledDom, RenderDomError> {
-    println!("[render_dom_from_body_node] body_node attributes: {:?}", body_node.attributes);
-    
+) -> Result<StyledDom, RenderDomError> {    
     // Render the body node itself (which will render its children)
     let mut body_styled = render_dom_from_body_node_inner(
         body_node,
@@ -1983,8 +1951,6 @@ pub fn set_attributes(
     };
     let node_data = &mut dom.node_data.as_container_mut()[dom_root];
     
-    println!("[SET_ATTRIBUTES] Element: {:?}", node_data.node_type);
-
     if let Some(ids) = xml_attributes.get_key("id") {
         for id in ids.split_whitespace() {
             ids_and_classes.push(Id(
@@ -2027,7 +1993,6 @@ pub fn set_attributes(
     }
 
     if let Some(style) = xml_attributes.get_key("style") {
-        println!("[INLINE_STYLE] Found style attribute: {:?}", style);
         let css_key_map = azul_css::props::property::get_css_key_map();
         let mut attributes = Vec::new();
         for s in style.as_str().split(";") {
@@ -2040,7 +2005,6 @@ pub fn set_attributes(
                 Some(s) => s,
                 None => continue,
             };
-            println!("[INLINE_STYLE] Parsing: {}:{}", key.trim(), value.trim());
             azul_css::parser2::parse_css_declaration(
                 key.trim(),
                 value.trim(),
@@ -2050,8 +2014,6 @@ pub fn set_attributes(
                 &mut attributes,
             );
         }
-
-        println!("[INLINE_STYLE] Parsed {} declarations", attributes.len());
 
         let props = attributes
             .into_iter()
@@ -2064,10 +2026,7 @@ pub fn set_attributes(
             })
             .collect::<Vec<_>>();
 
-        println!("[INLINE_STYLE] Setting {} inline CSS props", props.len());
         node_data.set_inline_css_props(props.into());
-    } else {
-        println!("[INLINE_STYLE] No style attribute found");
     }
 }
 
@@ -3279,7 +3238,7 @@ mod tests {
         // Verify the span has 1 child (the text node)
         assert_eq!(expected_dom.children.as_ref()[1].children.as_ref().len(), 1);
         
-        println!("✓ Test passed: Inline span parsing structure is correct");
+        println!("Test passed: Inline span parsing structure is correct");
     }
     
     #[test]
@@ -3314,6 +3273,6 @@ mod tests {
         assert_eq!(span.children.as_ref().len(), 1);
         assert_eq!(span.children.as_ref()[0].as_text(), Some("inline"));
         
-        println!("✓ Test passed: XmlNode structure preserves text nodes correctly");
+        println!("Test passed: XmlNode structure preserves text nodes correctly");
     }
 }

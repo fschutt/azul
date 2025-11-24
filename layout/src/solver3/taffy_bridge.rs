@@ -359,10 +359,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         taffy_style.display = layout_display_to_taffy(
             CssPropertyValue::Exact(get_display_type(styled_dom, id))
         );
-        
-        if matches!(id.index(), 2 | 3 | 5 | 7) {
-            println!("[TRANSLATE_STYLE] Node {:?}: display={:?}", id, taffy_style.display);
-        }
 
         // Position
         taffy_style.position = from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
@@ -382,9 +378,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let taffy_width = from_layout_width(width.unwrap_or_default());
         let taffy_height = from_layout_height(height.unwrap_or_default());
         
-        println!("[TRANSLATE_STYLE] Node {:?}: css_width={:?} -> taffy={:?}, css_height={:?} -> taffy={:?}", 
-            id, width, taffy_width, height, taffy_height);
-
         taffy_style.size = taffy::Size {
             width: taffy_width,
             height: taffy_height,
@@ -417,11 +410,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let margin_right_css = get_css_margin_right(styled_dom, id, node_state);
         let margin_top_css = get_css_margin_top(styled_dom, id, node_state);
         let margin_bottom_css = get_css_margin_bottom(styled_dom, id, node_state);
-        
-        if matches!(id.index(), 3 | 5 | 7) {
-            eprintln!("[MARGIN_DEBUG] Node {:?}: left={:?}, right={:?}, top={:?}, bottom={:?}", 
-                id, margin_left_css, margin_right_css, margin_top_css, margin_bottom_css);
-        }
         
         taffy_style.margin = taffy::Rect {
             left: multi_value_to_lpa_margin(margin_left_css),
@@ -608,9 +596,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             .and_then(|p| {
                 if let CssProperty::FlexGrow(v) = p {
                     let value = v.get_property_or_default().unwrap_or_default().inner.get();
-                    if value > 0.0 {
-                        println!("[TAFFY_BRIDGE] Node {:?} has flex-grow: {}", id, value);
-                    }
                     Some(value)
                 } else {
                     None
@@ -640,12 +625,10 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                                 .unwrap_or_else(taffy::Dimension::auto)
                         }
                     };
-                    println!("[TAFFY_BRIDGE] Node {:?} has flex-basis: {:?}", id, basis);
                     
                     // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis take precedence
                     // This is a workaround for Taffy not properly prioritizing flex-basis over width
                     if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
-                        println!("[TAFFY_BRIDGE] Node {:?}: Clearing width because flex-basis is set", id);
                         taffy_style.size.width = taffy::Dimension::auto();
                     }
                     
@@ -704,18 +687,11 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
             return (false, false);
         };
         
-        if let Some(dom_id) = node.dom_node_id {
-            println!("[SUPPRESS_CHECK] Node {:?} (DOM {:?}): checking stretch suppression", node_idx, dom_id);
-        }
-        
         // Check if parent is a flex or grid container
         let Some(ref parent_fc) = node.parent_formatting_context else {
-            println!("[SUPPRESS_CHECK]   No parent_formatting_context");
             return (false, false);
         };
-        
-        println!("[SUPPRESS_CHECK]   parent_fc={:?}", parent_fc);
-        
+                
         match parent_fc {
             FormattingContext::Flex => {
                 // Get parent node to check its flex-direction and align-items
@@ -729,22 +705,15 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                     parent_style.flex_direction,
                     taffy::FlexDirection::Row | taffy::FlexDirection::RowReverse
                 );
-                
-                println!("[SUPPRESS_CHECK]   flex_direction={:?}, is_row={}", parent_style.flex_direction, is_row);
-                
+                                
                 // Get effective align value for this item
                 // align-self overrides parent's align-items
                 let align = style.align_self
                     .or(parent_style.align_items)
                     .unwrap_or(taffy::AlignSelf::Stretch);
-                
-                println!("[SUPPRESS_CHECK]   align_self={:?}, parent_align_items={:?}, effective={:?}", 
-                    style.align_self, parent_style.align_items, align);
-                
+                                
                 let should_stretch = matches!(align, taffy::AlignSelf::Stretch);
-                
-                println!("[SUPPRESS_CHECK]   should_stretch={}", should_stretch);
-                
+                                
                 if !should_stretch {
                     return (false, false);
                 }
@@ -757,10 +726,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                 } else {
                     style.size.width == taffy::Dimension::auto()
                 };
-                
-                println!("[SUPPRESS_CHECK]   size.width={:?}, size.height={:?}, cross_size_is_auto={}", 
-                    style.size.width, style.size.height, cross_size_is_auto);
-                
+                                
                 if !cross_size_is_auto {
                     return (false, false);
                 }
@@ -771,7 +737,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
                 } else {
                     (true, false)  // Suppress width for column flex
                 };
-                println!("[SUPPRESS_CHECK]   Result: suppress_width={}, suppress_height={}", result.0, result.1);
+
                 result
             }
             FormattingContext::Grid => {
@@ -791,10 +757,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
         let Some(node) = self.tree.get(node_idx) else {
             return Vec::new();
         };
-        
-        if node_idx == 2 {
-            println!("[get_layout_children] Node 2 has {} children: {:?}", node.children.len(), node.children);
-        }
         
         node.children
             .iter()
@@ -837,35 +799,9 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     node_idx: usize,
     inputs: LayoutInput,
 ) -> LayoutOutput {
-    println!("[LAYOUT_TAFFY] Container node_idx={}, formatting_context={:?}", node_idx, tree.get(node_idx).unwrap().formatting_context);
-    println!("[LAYOUT_TAFFY]   inputs.known_dimensions={:?}", inputs.known_dimensions);
-    println!("[LAYOUT_TAFFY]   inputs.parent_size={:?}", inputs.parent_size);
-    println!("[LAYOUT_TAFFY]   inputs.available_space={:?}", inputs.available_space);
-    println!("[LAYOUT_TAFFY]   inputs.sizing_mode={:?}", inputs.sizing_mode);
-    println!("[LAYOUT_TAFFY]   inputs.run_mode={:?}", inputs.run_mode);
-    
-    use std::io::Write;
-    let _ = writeln!(std::io::stderr(), "[XYZTEST] About to get children for node {}", node_idx);
-    let _ = std::io::stderr().flush();
-    
-    // DEBUG: Print children
+
     let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
-    
-    let _ = writeln!(std::io::stderr(), "[XYZTEST] Got children vector of length {}", children.len());
-    let _ = std::io::stderr().flush();
-    
-    eprintln!("[LAYOUT_TAFFY]   Container has {} children: {:?}", children.len(), children);
-    // DEBUG: Print children
-    let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
-    eprintln!("[LAYOUT_TAFFY]   Got children vector");
-    eprintln!("[LAYOUT_TAFFY]   Container has {} children: {:?}", children.len(), children);
-    for &child_idx in &children {
-        if let Some(child) = tree.get(child_idx) {
-            println!("[LAYOUT_TAFFY]     Child {}: dom_id={:?}, fc={:?}, has_used_size={}", 
-                child_idx, child.dom_node_id, child.formatting_context, child.used_size.is_some());
-        }
-    }
-    
+   
     // Clear cache to force re-measure
     for &child_idx in &children {
         if let Some(child) = tree.get_mut(child_idx) {
@@ -881,7 +817,6 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         _ => LayoutOutput::HIDDEN,
     };
     
-    println!("[LAYOUT_TAFFY] Container node_idx={}, output.size={:?}", node_idx, output.size);
     output
 }
 
@@ -898,7 +833,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
     fn child_ids(&self, node_id: taffy::NodeId) -> Self::ChildIter<'_> {
         let node_idx: usize = node_id.into();
         let children = self.get_layout_children(node_idx);
-        println!("[child_ids] Node {:?} has {} children: {:?}", node_idx, children.len(), children);
         children
             .into_iter()
             .map(|id| id.into())
@@ -909,9 +843,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
     fn child_count(&self, node_id: taffy::NodeId) -> usize {
         let node_idx: usize = node_id.into();
         let count = self.get_layout_children(node_idx).len();
-        if node_idx == 2 {
-            println!("[child_count] Node 2 has {} children", count);
-        }
         count
     }
 
@@ -940,16 +871,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
         if let Some(node) = self.tree.get_mut(node_idx) {
             let size = translate_taffy_size_back(layout.size);
             let pos = translate_taffy_point_back(layout.location);
-            
-            println!("[SET_LAYOUT] Node {:?}, size={:?}x{:?}", node_idx, size.width, size.height);
-            
-            if let Some(dom_id) = node.dom_node_id {
-                if matches!(dom_id.index(), 2 | 3 | 5 | 7) {
-                    println!("[SET_LAYOUT]   DOM {:?}, taffy_layout.size={:?}", 
-                        dom_id, layout.size);
-                }
-            }
-            
             node.used_size = Some(size);
             node.relative_position = Some(pos);
         }
@@ -962,13 +883,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
     ) -> LayoutOutput {
         let node_idx: usize = node_id.into();
         
-        if let Some(node) = self.tree.get(node_idx) {
-            if let Some(dom_id) = node.dom_node_id {
-                println!("[COMPUTE_CHILD_LAYOUT] Node {:?}: inputs.known_dimensions={:?}, fc={:?}", 
-                    dom_id, inputs.known_dimensions, node.formatting_context);
-            }
-        }
-        
         let result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
@@ -979,23 +893,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
 
             match fc {
                 FormattingContext::Flex => {
-                    if let Some(node) = tree.tree.get(node_idx) {
-                        if let Some(dom_id) = node.dom_node_id {
-                            println!("[FLEXBOX_INPUT] Container {:?}: inputs.known_dimensions={:?}", 
-                                dom_id, inputs.known_dimensions);
-                        }
-                    }
-                    
-                    let result = compute_flexbox_layout(tree, node_id, inputs);
-                    
-                    if let Some(node) = tree.tree.get(node_idx) {
-                        if let Some(dom_id) = node.dom_node_id {
-                            println!("[FLEXBOX_RESULT] Container {:?}: result.size={:?}", 
-                                dom_id, result.size);
-                        }
-                    }
-                    
-                    result
+                    compute_flexbox_layout(tree, node_id, inputs)
                 },
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 _ => {
@@ -1009,25 +907,13 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
                         && (node.intrinsic_sizes.unwrap().max_content_width > 0.0 
                             || node.intrinsic_sizes.unwrap().max_content_height > 0.0);
                     
-                    if let Some(dom_id) = node.dom_node_id {
-                        if matches!(dom_id.index(), 3 | 5 | 7) {
-                            println!("[LEAF_LAYOUT] Node {:?}, fc={:?}, parent_fc={:?}, has_children={}, has_intrinsic={}", 
-                                dom_id, node.formatting_context, node.parent_formatting_context, 
-                                has_children, has_intrinsic_content);
-                        }
-                    }
-                    
                     // CRITICAL FIX: Empty containers (no children, no intrinsic content) should return 
                     // an empty layout and let Taffy's stretch algorithm handle sizing.
                     // This is how TaffyTree's default behavior works for .new_with_children(&[])
                     if !has_children && !has_intrinsic_content {
                         // Empty container - return minimal layout
+                        // 
                         // Taffy will apply stretch sizing externally
-                        if let Some(dom_id) = node.dom_node_id {
-                            if matches!(dom_id.index(), 3 | 5 | 7) {
-                                println!("[EMPTY_CONTAINER] Node {:?}: Returning empty layout, Taffy will apply stretch", dom_id);
-                            }
-                        }
                         
                         return LayoutOutput {
                             size: Size {
@@ -1056,15 +942,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
                         |known_dimensions, _available_space| {
                             let intrinsic = node.intrinsic_sizes.unwrap_or_default();
                             
-                            if let Some(dom_id) = node.dom_node_id {
-                                if matches!(dom_id.index(), 3 | 5 | 7) {
-                                    println!("[MEASURE] Node {:?}: known_dimensions={:?}, intrinsic={:?}", 
-                                        dom_id, known_dimensions, intrinsic);
-                                    println!("[MEASURE]   suppress_width={}, suppress_height={}", 
-                                        suppress_width, suppress_height);
-                                }
-                            }
-                            
                             let result = Size {
                                 width: known_dimensions.width.unwrap_or(
                                     if suppress_width { 
@@ -1082,12 +959,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
                                 ),
                             };
                             
-                            if let Some(dom_id) = node.dom_node_id {
-                                if matches!(dom_id.index(), 3 | 5 | 7) {
-                                    println!("[MEASURE]   result={:?}", result);
-                                }
-                            }
-                            
                             result
                         },
                     )
@@ -1102,13 +973,6 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
             if matches!(node.formatting_context, FormattingContext::Flex | FormattingContext::Grid) {
                 let size = translate_taffy_size_back(result.size);
                 node.used_size = Some(size);
-                
-                if let Some(dom_id) = node.dom_node_id {
-                    if matches!(dom_id.index(), 2) {
-                        println!("[STORE_CONTAINER_LAYOUT] Container {:?}: stored size={:?}x{:?}", 
-                            dom_id, size.width, size.height);
-                    }
-                }
             }
         }
         
@@ -1170,46 +1034,11 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutFlexboxContainer
         &self,
         node_id: taffy::NodeId,
     ) -> Self::FlexboxContainerStyle<'_> {
-        let style = self.get_core_container_style(node_id);
-        
-        let node_idx: usize = node_id.into();
-        if let Some(node) = self.tree.get(node_idx) {
-            if let Some(dom_id) = node.dom_node_id {
-                // Check if height is auto
-                use taffy::Dimension;
-                let is_auto = style.size.height == Dimension::auto();
-                println!("[get_flexbox_container_style] Container {:?}:", dom_id);
-                println!("  size.height is auto: {}", is_auto);
-                println!("  size.height = {:?}", style.size.height);
-                println!("  size.width = {:?}", style.size.width);
-            }
-        }
-        
-        style
+        self.get_core_container_style(node_id)
     }
 
-    fn get_flexbox_child_style(&self, child_node_id: taffy::NodeId) -> Self::FlexboxItemStyle<'_> {
-        use taffy::Dimension;
-        
-        let style = self.get_core_container_style(child_node_id);
-        
-        let node_idx: usize = child_node_id.into();
-        if let Some(node) = self.tree.get(node_idx) {
-            if let Some(dom_id) = node.dom_node_id {
-                if matches!(dom_id.index(), 3 | 5 | 7) {
-                    println!("[get_flexbox_child_style] Node {:?}:", dom_id);
-                    println!("  size.width is auto: {}", style.size.width == Dimension::auto());
-                    println!("  size.height is auto: {}", style.size.height == Dimension::auto());
-                    println!("  min_size.width is auto: {}", style.min_size.width == Dimension::auto());
-                    println!("  min_size.height is auto: {}", style.min_size.height == Dimension::auto());
-                    println!("  max_size.width is auto: {}", style.max_size.width == Dimension::auto());
-                    println!("  max_size.height is auto: {}", style.max_size.height == Dimension::auto());
-                    println!("  align_self={:?}, flex_grow={}", style.align_self, style.flex_grow);
-                }
-            }
-        }
-        
-        style
+    fn get_flexbox_child_style(&self, child_node_id: taffy::NodeId) -> Self::FlexboxItemStyle<'_> {        
+        self.get_core_container_style(child_node_id)
     }
 }
 

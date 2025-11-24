@@ -224,6 +224,9 @@ pub struct CallbackChangeResult {
 /// - Handle window resizes efficiently
 /// - Manage multiple DOMs (for IFrames)
 pub struct LayoutWindow {
+    /// Fragmentation context for this window (continuous for screen, paged for print)
+    #[cfg(feature = "pdf")]
+    pub fragmentation_context: crate::paged::FragmentationContext,
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
     pub layout_cache: Solver3LayoutCache<FontRef>,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
@@ -309,6 +312,75 @@ impl LayoutWindow {
     /// For full initialization with WindowInternal compatibility, use `new_full()`.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
+            #[cfg(feature = "pdf")]
+            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0), // Default width, will be updated on first layout
+            layout_cache: Solver3LayoutCache {
+                tree: None,
+                calculated_positions: BTreeMap::new(),
+                viewport: None,
+                scroll_ids: BTreeMap::new(),
+                scroll_id_to_node_id: BTreeMap::new(),
+                counters: BTreeMap::new(),
+                float_cache: BTreeMap::new(),
+            },
+            text_cache: TextLayoutCache::new(),
+            font_manager: FontManager::new(fc_cache)?,
+            image_cache: ImageCache::default(),
+            layout_results: BTreeMap::new(),
+            scroll_manager: ScrollManager::new(),
+            gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
+            focus_manager: crate::managers::focus_cursor::FocusManager::new(),
+            cursor_manager: crate::managers::cursor::CursorManager::new(),
+            file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
+            selection_manager: crate::managers::selection::SelectionManager::new(),
+            clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
+            drag_drop_manager: crate::managers::drag_drop::DragDropManager::new(),
+            hover_manager: crate::managers::hover::HoverManager::new(),
+            iframe_manager: IFrameManager::new(),
+            gpu_state_manager: GpuStateManager::new(
+                default_duration_500ms(),
+                default_duration_200ms(),
+            ),
+            a11y_manager: crate::managers::a11y::A11yManager::new(),
+            timers: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            renderer_resources: RendererResources::default(),
+            renderer_type: None,
+            previous_window_state: None,
+            current_window_state: FullWindowState::default(),
+            document_id: new_document_id(),
+            id_namespace: new_id_namespace(),
+            epoch: Epoch::new(),
+            gl_texture_cache: GlTextureCache::default(),
+            currently_dragging_thumb: None,
+            text_input_manager: crate::managers::text_input::TextInputManager::new(),
+            undo_redo_manager: crate::managers::undo_redo::UndoRedoManager::new(),
+            text_constraints_cache: TextConstraintsCache {
+                constraints: BTreeMap::new(),
+            },
+            pending_iframe_updates: BTreeMap::new(),
+        })
+    }
+
+    /// Create a new layout window for paged media (PDF generation).
+    ///
+    /// This constructor initializes the layout window with a paged fragmentation context,
+    /// which will cause content to flow across multiple pages instead of a single continuous
+    /// scrollable container.
+    ///
+    /// # Arguments
+    /// - `fc_cache`: Font configuration cache for font loading
+    /// - `page_size`: The logical size of each page
+    ///
+    /// # Returns
+    /// A new `LayoutWindow` configured for paged output, or an error if initialization fails.
+    #[cfg(feature = "pdf")]
+    pub fn new_paged(
+        fc_cache: FcFontCache,
+        page_size: LogicalSize,
+    ) -> Result<Self, crate::solver3::LayoutError> {
+        Ok(Self {
+            fragmentation_context: crate::paged::FragmentationContext::new_paged(page_size),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 calculated_positions: BTreeMap::new(),
@@ -639,31 +711,47 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<DomId> {
-        eprintln!(
-            "DEBUG: invoke_iframe_callback called for node {:?}",
-            node_id
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "invoke_iframe_callback called for node {:?}",
+                node_id
+            )));
+        }
 
         // Get the layout result for the parent DOM to access its styled_dom
         let layout_result = self.layout_results.get(&parent_dom_id)?;
-        eprintln!(
-            "DEBUG: Got layout result for parent DOM {:?}",
-            parent_dom_id
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "Got layout result for parent DOM {:?}",
+                parent_dom_id
+            )));
+        }
 
         // Get the node data for the IFrame element
         let node_data_container = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_container.get(node_id)?;
-        eprintln!("DEBUG: Got node data at index {}", node_id.index());
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "Got node data at index {}",
+                node_id.index()
+            )));
+        }
 
         // Extract the IFrame node, cloning it to avoid borrow checker issues
         let iframe_node = match node_data.get_node_type() {
             NodeType::IFrame(iframe) => {
-                eprintln!("DEBUG: Node is IFrame type");
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("Node is IFrame type".to_string()));
+                }
                 iframe.clone()
             }
             other => {
-                eprintln!("DEBUG: Node is NOT IFrame, type = {:?}", other);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "Node is NOT IFrame, type = {:?}",
+                        other
+                    )));
+                }
                 return None;
             }
         };
@@ -732,10 +820,12 @@ impl LayoutWindow {
             }
         };
 
-        eprintln!(
-            "DEBUG: IFrame ({:?}, {:?}) - Reason: {:?}",
-            parent_dom_id, node_id, reason
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "IFrame ({:?}, {:?}) - Reason: {:?}",
+                parent_dom_id, node_id, reason
+            )));
+        }
 
         let scroll_offset = self
             .scroll_manager
@@ -4023,8 +4113,6 @@ impl LayoutWindow {
                 let layout_result = match self.layout_results.get(&dom_id) {
                     Some(lr) => lr,
                     None => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[a11y] ShowContextMenu - DOM not found");
                         return affected_nodes;
                     }
                 };
@@ -4038,8 +4126,6 @@ impl LayoutWindow {
                 {
                     Some(node) => node,
                     None => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[a11y] ShowContextMenu - Node not found");
                         return affected_nodes;
                     }
                 };

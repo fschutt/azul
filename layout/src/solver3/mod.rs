@@ -9,6 +9,8 @@ pub mod fc;
 pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
+#[cfg(feature = "pdf")]
+pub mod paged_layout;
 pub mod positioning;
 pub mod scrollbar;
 pub mod sizing;
@@ -70,6 +72,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut BTreeMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
+    /// Fragmentation context for CSS Paged Media (PDF generation)
+    /// When Some, layout respects page boundaries and generates one DisplayList per page
+    #[cfg(feature = "pdf")]
+    pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
 }
 
 impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
@@ -163,6 +169,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        #[cfg(feature = "pdf")]
+        fragmentation_context: None,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -189,6 +197,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        #[cfg(feature = "pdf")]
+        fragmentation_context: None,
     };
 
     // --- Step 1.5: Early Exit Optimization ---
@@ -386,12 +396,6 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
                 pos.y + parent_node.box_props.border.top + parent_node.box_props.padding.top,
             );
 
-            eprintln!("[get_CB] node {} has parent {}: parent margin-box pos=({:.2}, {:.2}), border=({:.2},{:.2}), padding=({:.2},{:.2}), content_pos=({:.2}, {:.2})",
-                node_idx, parent_idx, pos.x, pos.y,
-                parent_node.box_props.border.left, parent_node.box_props.border.top,
-                parent_node.box_props.padding.left, parent_node.box_props.padding.top,
-                content_pos.x, content_pos.y);
-
             if let Some(dom_id) = parent_node.dom_node_id {
                 let styled_node_state = &styled_dom
                     .styled_nodes
@@ -408,8 +412,6 @@ fn get_containing_block_for_node<T: ParsedFontTrait>(
             return (content_pos, size);
         }
     }
-    eprintln!("[get_CB] node {} is ROOT, using viewport origin=({:.2}, {:.2}), size=({:.2}x{:.2})",
-        node_idx, viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height);
     (viewport.origin, viewport.size)
 }
 

@@ -2520,11 +2520,6 @@ pub fn add_resources(
                 renderer_resources
                     .font_hash_map
                     .insert(font_ref.get_hash(), fk);
-                eprintln!(
-                    "[add_resources] Registered font_hash {} -> FontKey {:?}",
-                    font_ref.get_hash(),
-                    fk
-                );
             }
             Instance(fi, size) => {
                 if let Some((_, instances)) = renderer_resources

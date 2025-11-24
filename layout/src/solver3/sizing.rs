@@ -345,6 +345,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             &[],
             &min_fragments,
             self.ctx.font_manager,
+            self.ctx.debug_messages,
         ) {
             Ok(layout) => layout,
             Err(e) => {
@@ -381,6 +382,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             &[],
             &max_fragments,
             self.ctx.font_manager,
+            self.ctx.debug_messages,
         ) {
             Ok(layout) => layout,
             Err(e) => {
@@ -671,10 +673,6 @@ pub fn calculate_used_size_for_node(
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
-    eprintln!(
-        "[calculate_used_size_for_node] dom_id={:?}, containing_block_size={:?}",
-        dom_id, containing_block_size
-    );
 
     let Some(id) = dom_id else {
         return Ok(LogicalSize::new(
@@ -688,20 +686,7 @@ pub fn calculate_used_size_for_node(
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
     let display = get_display_property(styled_dom, Some(id));
-
-    eprintln!(
-        "[calculate_used_size_for_node] css_width={:?}, css_height={:?}, display={:?}",
-        css_width, css_height, display
-    );
     
-    // Debug: Extra logging for inline-blocks with explicit dimensions
-    if display.unwrap_or_default() == LayoutDisplay::InlineBlock {
-        eprintln!(
-            "[calculate_used_size_for_node] !!! INLINE-BLOCK detected: NodeId={:?}, css_width={:?}, css_height={:?}, intrinsic.max_content_width={}, intrinsic.max_content_height={}",
-            id, css_width, css_height, intrinsic.max_content_width, intrinsic.max_content_height
-        );
-    }
-
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width.unwrap_or_default() {
@@ -720,13 +705,6 @@ pub fn calculate_used_size_for_node(
                         - _box_props.border.right
                         - _box_props.padding.left
                         - _box_props.padding.right;
-                    
-                    eprintln!("[calculate_used_size_for_node] Auto width for block/list-item: containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), available_width={}", 
-                        containing_block_size.width, 
-                        _box_props.margin.left, _box_props.margin.right,
-                        _box_props.border.left, _box_props.border.right,
-                        _box_props.padding.left, _box_props.padding.right,
-                        available_width);
                     
                     available_width.max(0.0)
                 },
@@ -765,14 +743,6 @@ pub fn calculate_used_size_for_node(
                             (_box_props.padding.left, _box_props.padding.right),
                         );
                         
-                        eprintln!("[calculate_used_size_for_node] Percentage width: {}%, containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), result={}", 
-                            p.get(), 
-                            containing_block_size.width, 
-                            _box_props.margin.left, _box_props.margin.right,
-                            _box_props.border.left, _box_props.border.right,
-                            _box_props.padding.left, _box_props.padding.right,
-                            result);
-                        
                         result
                     },
                     None => intrinsic.max_content_width,
@@ -810,23 +780,13 @@ pub fn calculate_used_size_for_node(
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
                     Some(p) => {
-                        let result = resolve_percentage_with_box_model(
+                        resolve_percentage_with_box_model(
                             containing_block_size.height,
                             p.get(),
                             (_box_props.margin.top, _box_props.margin.bottom),
                             (_box_props.border.top, _box_props.border.bottom),
                             (_box_props.padding.top, _box_props.padding.bottom),
-                        );
-                        
-                        eprintln!("[calculate_used_size_for_node] Percentage height: {}%, containing_block={}, margins=({},{}), border=({},{}), padding=({},{}), result={}", 
-                            p.get(), 
-                            containing_block_size.height, 
-                            _box_props.margin.top, _box_props.margin.bottom,
-                            _box_props.border.top, _box_props.border.bottom,
-                            _box_props.padding.top, _box_props.padding.bottom,
-                            result);
-                        
-                        result
+                        )
                     },
                     None => intrinsic.max_content_height,
                 },
@@ -869,11 +829,6 @@ pub fn calculate_used_size_for_node(
 
     // Step 6: Construct the final LogicalSize from the logical dimensions.
     let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
-
-    eprintln!(
-        "[calculate_used_size_for_node] RESULT: {:?} (content: w={}, h={}, border-box: w={}, h={})",
-        result, constrained_width, constrained_height, border_box_width, border_box_height
-    );
 
     Ok(result)
 }
@@ -967,10 +922,7 @@ fn apply_width_constraints(
     }
     
     result = result.max(min_width);
-    
-    eprintln!("[apply_width_constraints] tentative={}, min={}, max={:?}, result={}", 
-        tentative_width, min_width, max_width, result);
-    
+
     result
 }
 
@@ -1063,9 +1015,6 @@ fn apply_height_constraints(
     }
     
     result = result.max(min_height);
-    
-    eprintln!("[apply_height_constraints] tentative={}, min={}, max={:?}, result={}", 
-        tentative_height, min_height, max_height, result);
     
     result
 }

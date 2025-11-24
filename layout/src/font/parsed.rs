@@ -601,20 +601,12 @@ impl ParsedFont {
         };
 
         // Calculate space width
-        println!("[ParsedFont::from_bytes] About to calculate space_width...");
         let space_width = font.get_space_width_internal();
-        println!("[ParsedFont::from_bytes] Calculated space_width: {:?}", space_width);
-        println!("[ParsedFont::from_bytes] Total glyph_records_decoded: {}", font.glyph_records_decoded.len());
-        
+
         // Ensure space glyph is in glyph_records_decoded
         // Space glyphs often don't have outlines, so they may not be loaded by default
         if let Some(space_gid) = font.lookup_glyph_index(' ' as u32) {
-            println!("[ParsedFont::from_bytes] Space glyph ID: {}", space_gid);
-            if let Some(space_record) = font.glyph_records_decoded.get(&space_gid) {
-                println!("[ParsedFont::from_bytes] Space glyph record found: horz_advance={}", space_record.horz_advance);
-            } else {
-                println!("[ParsedFont::from_bytes] WARNING: Space glyph ID {} NOT found in glyph_records_decoded!", space_gid);
-                
+            if font.glyph_records_decoded.get(&space_gid).is_none() {                
                 // Add a minimal space glyph record with the calculated advance width
                 if let Some(space_width_val) = space_width {
                     let space_record = OwnedGlyph {
@@ -632,8 +624,6 @@ impl ParsedFont {
                     font.glyph_records_decoded.insert(space_gid, space_record);
                 }
             }
-        } else {
-            println!("[ParsedFont::from_bytes] WARNING: Cannot map space char to glyph ID!");
         }
         
         font.space_width = space_width;
@@ -711,7 +701,6 @@ impl ParsedFont {
             return mock.space_width;
         }
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        println!("[get_space_width_internal] Space char maps to glyph_index: {}", glyph_index);
         
         let advance_result = allsorts::glyph_info::advance(
             &self.maxp_table,
@@ -720,14 +709,7 @@ impl ParsedFont {
             glyph_index,
         );
         
-        match &advance_result {
-            Ok(adv) => println!("[get_space_width_internal] allsorts returned advance: {} font units", adv),
-            Err(e) => println!("[get_space_width_internal] allsorts ERROR: {:?}", e),
-        }
-        
-        let width = advance_result.ok().map(|s| s as usize);
-        println!("[get_space_width_internal] Final space_width: {:?}", width);
-        width
+        advance_result.ok().map(|s| s as usize)
     }
 
     /// Look up the glyph index for a Unicode codepoint
@@ -744,18 +726,10 @@ impl ParsedFont {
         if let Some(mock) = self.mock.as_ref() {
             return mock.glyph_advances.get(&glyph_index).copied().unwrap_or(0);
         }
-        let advance = self.glyph_records_decoded
+        self.glyph_records_decoded
             .get(&glyph_index)
             .map(|gi| gi.horz_advance)
-            .unwrap_or_default();
-        
-        // Debug: log for space glyph (gid usually 3)
-        if glyph_index == 3 {
-            println!("[get_horizontal_advance] glyph_index={}, advance={}, glyph_records contains key: {}",
-                glyph_index, advance, self.glyph_records_decoded.contains_key(&glyph_index));
-        }
-        
-        advance
+            .unwrap_or_default()
     }
 
     /// Get the number of glyphs in this font

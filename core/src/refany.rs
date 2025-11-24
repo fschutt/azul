@@ -515,10 +515,6 @@ impl RefAny {
 
         let type_name = ::core::any::type_name::<T>();
         let type_id = Self::get_type_id_static::<T>();
-        eprintln!(
-            "[RefAny::new] Creating RefAny for type: {} with type_id: {}",
-            type_name, type_id
-        );
 
         let st = AzString::from_const_str(type_name);
         let s = Self::new_c(
@@ -704,27 +700,17 @@ impl RefAny {
         let is_same_type = stored_type_id == target_type_id;
 
         if !is_same_type {
-            eprintln!(
-                "[RefAny::downcast_ref] Type mismatch! Stored type: {} (id: {}), Target type: {} \
-                 (id: {})",
-                self.get_type_name(),
-                stored_type_id,
-                core::any::type_name::<U>(),
-                target_type_id
-            );
             return None;
         }
 
         // Runtime borrow check: ensure no mutable borrows exist
         let can_be_shared = self.sharing_info.can_be_shared();
         if !can_be_shared {
-            eprintln!("[RefAny::downcast_ref] Borrow check failed - cannot be shared");
             return None;
         }
 
         // Null check: ZSTs or uninitialized
         if self._internal_ptr.is_null() {
-            eprintln!("[RefAny::downcast_ref] Pointer is null");
             return None;
         }
 

@@ -20,7 +20,7 @@ fn test_inherit_keyword_exists() {
         panic!("Wrong property type");
     }
     
-    println!("✓ Inherit keyword can be created for FontSize");
+    println!("Inherit keyword can be created for FontSize");
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_initial_keyword_exists() {
         panic!("Wrong property type");
     }
     
-    println!("✓ Initial keyword can be created for Display");
+    println!("Initial keyword can be created for Display");
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn test_revert_keyword_exists() {
         panic!("Wrong property type");
     }
     
-    println!("✓ Revert keyword can be created for MarginTop");
+    println!("Revert keyword can be created for MarginTop");
 }
 
 #[test]

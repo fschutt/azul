@@ -40,7 +40,7 @@ use crate::{
         positioning::get_position_type,
         scrollbar::ScrollbarInfo,
         sizing::extract_text_from_node,
-        taffy_bridge, LayoutContext, LayoutError, Result,
+        taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
 };
 
@@ -506,7 +506,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 vertical_margins_are_collapsible: Line::FALSE,
             };
 
-            println!("CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}", node_index);
+            ctx.debug_info(format!("CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}", node_index));
             let taffy_output =
                 taffy_bridge::layout_taffy_subtree(ctx, tree, node_index, taffy_inputs);
 
@@ -677,8 +677,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
     
-    eprintln!("\n[layout_bfc] ENTERED for node_index={}, children.len()={}, incoming_bfc_state={}", 
-        node_index, node.children.len(), constraints.bfc_state.is_some());
+    ctx.debug_info(format!("\n[layout_bfc] ENTERED for node_index={}, children.len()={}, incoming_bfc_state={}", 
+        node_index, node.children.len(), constraints.bfc_state.is_some()));
     
     // Initialize FloatingContext for this BFC
     // We always recalculate float positions in this pass, but we'll store them in the cache
@@ -769,10 +769,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // include it in the Y position calculation for this float.
                 let float_y = main_pen + last_margin_bottom;
                 
-                eprintln!(
+                ctx.debug_info(format!(
                     "[layout_bfc] Positioning float: index={}, type={:?}, size={:?}, at Y={} (main_pen={} + last_margin={})",
                     child_index, float_type, float_size, float_y, main_pen, last_margin_bottom
-                );
+                ));
                 
                 // Position the float at the CURRENT main_pen + last margin (respects DOM order!)
                 let float_rect = position_float(
@@ -785,7 +785,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     writing_mode,
                 );
                 
-                eprintln!("[layout_bfc] Float positioned at: {:?}", float_rect);
+                ctx.debug_info(format!("[layout_bfc] Float positioned at: {:?}", float_rect));
                 
                 // Add to float context BEFORE positioning next element
                 float_context.add_float(float_type, float_rect, *float_margin);
@@ -793,7 +793,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // Store position in output
                 output.positions.insert(child_index, float_rect.origin);
                 
-                eprintln!("[layout_bfc] *** FLOAT POSITIONED: child={}, main_pen={} (unchanged - floats don't advance pen)", child_index, main_pen);
+                ctx.debug_info(format!("[layout_bfc] *** FLOAT POSITIONED: child={}, main_pen={} (unchanged - floats don't advance pen)", child_index, main_pen));
                 
                 // Floats are taken out of normal flow - DON'T advance main_pen
                 // Continue to next child
@@ -820,8 +820,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_size = child_node.used_size.unwrap_or_default();
         let child_margin = &child_node.box_props.margin;
         
-        eprintln!("[layout_bfc] Child {} margin from box_props: top={}, right={}, bottom={}, left={}",
-            child_index, child_margin.top, child_margin.right, child_margin.bottom, child_margin.left);
+        ctx.debug_info(format!("[layout_bfc] Child {} margin from box_props: top={}, right={}, bottom={}, left={}",
+            child_index, child_margin.top, child_margin.right, child_margin.bottom, child_margin.left));
         
         // IMPORTANT: Use the ACTUAL margins from box_props, NOT escaped margins!
         // Escaped margins are only relevant for the parent-child relationship WITHIN a node's
@@ -834,8 +834,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let child_margin_top = child_margin.main_start(writing_mode);
         let child_margin_bottom = child_margin.main_end(writing_mode);
         
-        eprintln!("[layout_bfc] Child {} final margins: margin_top={}, margin_bottom={}",
-            child_index, child_margin_top, child_margin_bottom);
+        ctx.debug_info(format!("[layout_bfc] Child {} final margins: margin_top={}, margin_bottom={}",
+            child_index, child_margin_top, child_margin_bottom));
         
         // Check if this child has border/padding that prevents margin collapsing
         let child_has_top_blocker = has_margin_collapse_blocker(&child_node.box_props, writing_mode, true);
@@ -849,7 +849,7 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         } else {
             LayoutClear::None
         };
-        eprintln!("[layout_bfc] Child {} clear property: {:?}", child_index, child_clear);
+        ctx.debug_info(format!("[layout_bfc] Child {} clear property: {:?}", child_index, child_clear));
         
         // PHASE 1: Empty Block Detection & Self-Collapse
         let is_empty = is_empty_block(child_node);
@@ -896,8 +896,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 main_pen,
                 writing_mode,
             );
-            eprintln!("[layout_bfc] Child {} clearance check: cleared_offset={}, main_pen={}", 
-                child_index, cleared_offset, main_pen);
+            ctx.debug_info(format!("[layout_bfc] Child {} clearance check: cleared_offset={}, main_pen={}", 
+                child_index, cleared_offset, main_pen));
             if cleared_offset > main_pen {
                 ctx.debug_info(format!(
                     "[layout_bfc] Applying clearance: child={}, clear={:?}, old_pen={}, new_pen={}",
@@ -926,8 +926,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 // CSS 2.2 § 8.3.1: Parent's margin was already handled by parent's parent BFC
                 // We only add child's margin in our content-box coordinate space
                 main_pen += child_margin_top;
-                eprintln!("[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
-                    child_index, child_margin_top, main_pen);
+                ctx.debug_info(format!("[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
+                    child_index, child_margin_top, main_pen));
             } else if !parent_has_top_blocker {
                 // ========== MARGIN ESCAPE CASE ==========
                 // CSS 2.2 § 8.3.1: "The top margin of an in-flow block element collapses with
@@ -969,8 +969,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 total_escaped_top_margin = accumulated_top_margin;
                 
                 // Position child at pen (no margin applied - it escaped!)
-                eprintln!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}, total_escaped={}",
-                    child_index, parent_margin_top, child_margin_top, accumulated_top_margin, total_escaped_top_margin);
+                ctx.debug_info(format!("[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}, total_escaped={}",
+                    child_index, parent_margin_top, child_margin_top, accumulated_top_margin, total_escaped_top_margin));
             } else {
                 // ========== MARGIN BLOCKED CASE ==========
                 // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse.
@@ -1009,8 +1009,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 //   The parent's margin is irrelevant to us - it's outside our scope.
                 
                 main_pen += child_margin_top;
-                eprintln!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by child_margin={}, main_pen={}",
-                    child_index, parent_has_top_blocker, child_margin_top, main_pen);
+                ctx.debug_info(format!("[layout_bfc] First child {} BLOCKED: parent_has_blocker={}, advanced by child_margin={}, main_pen={}",
+                    child_index, parent_has_top_blocker, child_margin_top, main_pen));
             }
         } else {
             // Not first child: handle sibling collapse
@@ -1021,14 +1021,14 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             if !top_margin_resolved {
                 main_pen += accumulated_top_margin;
                 top_margin_resolved = true;
-                eprintln!("[layout_bfc] RESOLVED top margin for node {} at sibling {}: accumulated={}, main_pen={}", node_index, child_index, accumulated_top_margin, main_pen);
+                ctx.debug_info(format!("[layout_bfc] RESOLVED top margin for node {} at sibling {}: accumulated={}, main_pen={}", node_index, child_index, accumulated_top_margin, main_pen));
             }
             
             if clearance_applied {
                 // Clearance inhibits collapsing - add full margin
                 main_pen += child_margin_top;
-                eprintln!("[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, child_margin_top={}, main_pen={}",
-                    child_index, child_margin_top, main_pen);
+                ctx.debug_info(format!("[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, child_margin_top={}, main_pen={}",
+                    child_index, child_margin_top, main_pen));
             } else {
                 // ========== SIBLING MARGIN COLLAPSE ==========
                 // CSS 2.2 § 8.3.1: "Vertical margins of adjacent block boxes in the normal
@@ -1055,8 +1055,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
                 main_pen += collapsed;
                 total_sibling_margins += collapsed;
-                eprintln!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}, total_sibling_margins={}",
-                    child_index, last_margin_bottom, child_margin_top, collapsed, main_pen, total_sibling_margins);
+                ctx.debug_info(format!("[layout_bfc] Sibling collapse for child {}: last_margin_bottom={}, child_margin_top={}, collapsed={}, main_pen={}, total_sibling_margins={}",
+                    child_index, last_margin_bottom, child_margin_top, collapsed, main_pen, total_sibling_margins));
             }
         }
 
@@ -1138,20 +1138,20 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         if child_escaped_margin > 0.0 && is_first_in_flow_child {
             child_main_pos += child_escaped_margin;
             total_escaped_top_margin += child_escaped_margin;
-            eprintln!("[layout_bfc] FIRST child {} has escaped_top_margin={}, adjusting position from {} to {}, total_escaped={}",
-                child_index, child_escaped_margin, main_pen, child_main_pos, total_escaped_top_margin);
+            ctx.debug_info(format!("[layout_bfc] FIRST child {} has escaped_top_margin={}, adjusting position from {} to {}, total_escaped={}",
+                child_index, child_escaped_margin, main_pen, child_main_pos, total_escaped_top_margin));
         } else if child_escaped_margin > 0.0 {
-            eprintln!("[layout_bfc] NON-FIRST child {} has escaped_top_margin={} but NOT adjusting position (sibling margin collapse handles this)",
-                child_index, child_escaped_margin);
+            ctx.debug_info(format!("[layout_bfc] NON-FIRST child {} has escaped_top_margin={} but NOT adjusting position (sibling margin collapse handles this)",
+                child_index, child_escaped_margin));
         }
 
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
         
-        eprintln!(
+        ctx.debug_info(format!(
             "[layout_bfc] *** NORMAL FLOW BLOCK POSITIONED: child={}, final_pos={:?}, main_pen={}, establishes_bfc={}",
             child_index, final_pos, main_pen, establishes_bfc
-        );
+        ));
         
         // Re-layout IFC children with float context for correct text wrapping
         // Normal flow blocks WITH inline content need float context propagated
@@ -1160,15 +1160,15 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // otherwise use the floats positioned in this pass
             let floats_for_ifc = float_cache.get(&node_index).unwrap_or(&float_context);
             
-            eprintln!(
+            ctx.debug_info(format!(
                 "[layout_bfc] Re-layouting IFC child {} (normal flow) with parent's float context at Y={}, child_cross_pos={}",
                 child_index, main_pen, child_cross_pos
-            );
-            eprintln!(
+            ));
+            ctx.debug_info(format!(
                 "[layout_bfc]   Using {} floats (from cache: {})",
                 floats_for_ifc.floats.len(),
                 float_cache.contains_key(&node_index)
-            );
+            ));
             
             // Translate float coordinates from BFC-relative to IFC-relative
             // The IFC child is positioned at (child_cross_pos, main_pen) in BFC coordinates
@@ -1183,11 +1183,11 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             let content_box_cross = child_cross_pos + padding_border_cross;
             let content_box_main = main_pen + padding_border_main;
             
-            eprintln!(
+            ctx.debug_info(format!(
                 "[layout_bfc]   Border-box at ({}, {}), Content-box at ({}, {}), padding+border=({}, {})",
                 child_cross_pos, main_pen, content_box_cross, content_box_main,
                 padding_border_cross, padding_border_main
-            );
+            ));
             
             let mut ifc_floats = FloatingContext::default();
             for float_box in &floats_for_ifc.floats {
@@ -1200,10 +1200,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                     size: float_box.rect.size,
                 };
                 
-                eprintln!(
+                ctx.debug_info(format!(
                     "[layout_bfc] Float {:?}: BFC coords = {:?}, IFC-content-relative = {:?}",
                     float_box.kind, float_box.rect, float_rel_to_ifc
-                );
+                ));
                 
                 ifc_floats.add_float(float_box.kind, float_rel_to_ifc, float_box.margin);
             }
@@ -1215,19 +1215,19 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 margins: MarginCollapseContext::default(),
             };
             
-            eprintln!(
+            ctx.debug_info(format!(
                 "[layout_bfc]   Created IFC-relative FloatingContext with {} floats",
                 ifc_floats.floats.len()
-            );
+            ));
             
             // Get the IFC child's content-box size (after padding/border)
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_content_size = child_node.box_props.inner_size(child_size, writing_mode);
             
-            eprintln!(
+            ctx.debug_info(format!(
                 "[layout_bfc]   IFC child size: border-box={:?}, content-box={:?}",
                 child_size, child_content_size
-            );
+            ));
             
             // Create new constraints with float context
             // IMPORTANT: Use the child's CONTENT-BOX width, not the BFC width!
@@ -1253,10 +1253,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // DON'T update used_size - the box keeps its full width!
             // Only the text layout inside changes to wrap around floats
             
-            eprintln!(
+            ctx.debug_info(format!(
                 "[layout_bfc] IFC child {} re-layouted with float context (text will wrap, box stays full width)",
                 child_index
-            );
+            ));
             
             // Merge positions from IFC output (inline-block children, etc.)
             for (idx, pos) in ifc_result.output.positions {
@@ -1273,8 +1273,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         // For NON-FIRST children: escaped margins are internal to that child, don't affect our pen
         if is_first_in_flow_child && child_escaped_margin > 0.0 {
             main_pen += child_size.main(writing_mode) + child_escaped_margin;
-            eprintln!("[layout_bfc] Advanced main_pen by child_size={} + escaped={} = {} total",
-                child_size.main(writing_mode), child_escaped_margin, main_pen);
+            ctx.debug_info(format!("[layout_bfc] Advanced main_pen by child_size={} + escaped={} = {} total",
+                child_size.main(writing_mode), child_escaped_margin, main_pen));
         } else {
             main_pen += child_size.main(writing_mode);
         }
@@ -1291,8 +1291,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             last_margin_bottom = child_margin_bottom;
         }
         
-        eprintln!("[layout_bfc] Child {} positioned at final_pos={:?}, size={:?}, advanced main_pen to {}, last_margin_bottom={}, clearance_applied={}",
-            child_index, final_pos, child_size, main_pen, last_margin_bottom, clearance_applied);
+        ctx.debug_info(format!("[layout_bfc] Child {} positioned at final_pos={:?}, size={:?}, advanced main_pen to {}, last_margin_bottom={}, clearance_applied={}",
+            child_index, final_pos, child_size, main_pen, last_margin_bottom, clearance_applied));
 
         // Track the maximum cross-axis size to determine the BFC's overflow size.
         let child_cross_extent =
@@ -1302,8 +1302,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     
     // Store the float context in cache for future layout passes
     // This happens after ALL children (floats and normal) have been positioned
-    eprintln!("[layout_bfc] Storing {} floats in cache for node {}", 
-        float_context.floats.len(), node_index);
+    ctx.debug_info(format!("[layout_bfc] Storing {} floats in cache for node {}", 
+        float_context.floats.len(), node_index));
     float_cache.insert(node_index, float_context.clone());
     
     // PHASE 3: Parent-Child Bottom Margin Escape
@@ -1314,17 +1314,17 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     if top_margin_escaped {
         // First child's margin escaped through parent
         escaped_top_margin = Some(accumulated_top_margin);
-        eprintln!("[layout_bfc] Returning escaped top margin: accumulated={}, node={}", accumulated_top_margin, node_index);
+        ctx.debug_info(format!("[layout_bfc] Returning escaped top margin: accumulated={}, node={}", accumulated_top_margin, node_index));
     } else if !top_margin_resolved && accumulated_top_margin > 0.0 {
         // No content was positioned, all margins accumulated (empty blocks)
         escaped_top_margin = Some(accumulated_top_margin);
-        eprintln!("[layout_bfc] Escaping top margin (no content): accumulated={}, node={}", accumulated_top_margin, node_index);
+        ctx.debug_info(format!("[layout_bfc] Escaping top margin (no content): accumulated={}, node={}", accumulated_top_margin, node_index));
     } else if !top_margin_resolved {
         // Unusual case: no content, zero margin
         escaped_top_margin = Some(accumulated_top_margin);
-        eprintln!("[layout_bfc] Escaping top margin (zero, no content): accumulated={}, node={}", accumulated_top_margin, node_index);
+        ctx.debug_info(format!("[layout_bfc] Escaping top margin (zero, no content): accumulated={}, node={}", accumulated_top_margin, node_index));
     } else {
-        eprintln!("[layout_bfc] NOT escaping top margin: top_margin_resolved={}, escaped={}, accumulated={}, node={}", top_margin_resolved, top_margin_escaped, accumulated_top_margin, node_index);
+        ctx.debug_info(format!("[layout_bfc] NOT escaping top margin: top_margin_resolved={}, escaped={}, accumulated={}, node={}", top_margin_resolved, top_margin_escaped, accumulated_top_margin, node_index));
     }
     
     // Handle bottom margin escape
@@ -1332,14 +1332,14 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let last_child = tree.get(last_idx).ok_or(LayoutError::InvalidTree)?;
         let last_has_bottom_blocker = has_margin_collapse_blocker(&last_child.box_props, writing_mode, false);
         
-        eprintln!("[layout_bfc] Bottom margin for node {}: parent_has_bottom_blocker={}, last_has_bottom_blocker={}, last_margin_bottom={}, main_pen_before={}", 
-            node_index, parent_has_bottom_blocker, last_has_bottom_blocker, last_margin_bottom, main_pen);
+        ctx.debug_info(format!("[layout_bfc] Bottom margin for node {}: parent_has_bottom_blocker={}, last_has_bottom_blocker={}, last_margin_bottom={}, main_pen_before={}", 
+            node_index, parent_has_bottom_blocker, last_has_bottom_blocker, last_margin_bottom, main_pen));
         
         if !parent_has_bottom_blocker && !last_has_bottom_blocker && has_content {
             // Last child's bottom margin can escape
             let collapsed_bottom = collapse_margins(parent_margin_bottom, last_margin_bottom);
             escaped_bottom_margin = Some(collapsed_bottom);
-            eprintln!("[layout_bfc] Bottom margin ESCAPED for node {}: collapsed={}", node_index, collapsed_bottom);
+            ctx.debug_info(format!("[layout_bfc] Bottom margin ESCAPED for node {}: collapsed={}", node_index, collapsed_bottom));
             // Don't add last_margin_bottom to pen (it escaped)
         } else {
             // Can't escape: add to pen
@@ -1347,8 +1347,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             // NOTE: We do NOT add parent_margin_bottom to main_pen here!
             // parent_margin_bottom is added OUTSIDE the content-box (in the margin-box)
             // The content-box height should only include children's content and margins
-            eprintln!("[layout_bfc] Bottom margin BLOCKED for node {}: added last_margin_bottom={}, main_pen_after={}", 
-                node_index, last_margin_bottom, main_pen);
+            ctx.debug_info(format!("[layout_bfc] Bottom margin BLOCKED for node {}: added last_margin_bottom={}, main_pen_after={}", 
+                node_index, last_margin_bottom, main_pen));
         }
     } else {
         // No children: just use parent's margins
@@ -1442,8 +1442,8 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let content_box_height = main_pen - total_escaped_top_margin;
     output.overflow_size = LogicalSize::from_main_cross(content_box_height, max_cross_size, writing_mode);
     
-    eprintln!("[layout_bfc] FINAL for node {}: main_pen={}, total_escaped_top={}, total_sibling_margins={}, content_box_height={}", 
-        node_index, main_pen, total_escaped_top_margin, total_sibling_margins, content_box_height);
+    ctx.debug_info(format!("[layout_bfc] FINAL for node {}: main_pen={}, total_escaped_top={}, total_sibling_margins={}, content_box_height={}", 
+        node_index, main_pen, total_escaped_top_margin, total_sibling_margins, content_box_height));
 
     // Baseline calculation would happen here in a full implementation.
     output.baseline = None;
@@ -1498,8 +1498,8 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
     let float_count = constraints.bfc_state.as_ref().map(|s| s.floats.floats.len()).unwrap_or(0);
-    eprintln!("[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}", 
-              node_index, constraints.bfc_state.is_some(), float_count);
+    ctx.debug_info(format!("[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}", 
+              node_index, constraints.bfc_state.is_some(), float_count));
     ctx.debug_ifc_layout(format!("CALLED for node_index={}", node_index));
 
     let ifc_root_dom_id = tree
@@ -1513,14 +1513,14 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
 
-    eprintln!("[layout_ifc] Collected {} inline content items for node {}", inline_content.len(), node_index);
+    ctx.debug_info(format!("[layout_ifc] Collected {} inline content items for node {}", inline_content.len(), node_index));
     for (i, item) in inline_content.iter().enumerate() {
         match item {
-            InlineContent::Text(run) => eprintln!("  [{}] Text: '{}'", i, run.text),
-            InlineContent::Marker { run, position_outside } => eprintln!("  [{}] Marker: '{}' (outside={})", i, run.text, position_outside),
-            InlineContent::Shape(_) => eprintln!("  [{}] Shape", i),
-            InlineContent::Image(_) => eprintln!("  [{}] Image", i),
-            _ => eprintln!("  [{}] Other", i),
+            InlineContent::Text(run) => ctx.debug_info(format!("  [{}] Text: '{}'", i, run.text)),
+            InlineContent::Marker { run, position_outside } => ctx.debug_info(format!("  [{}] Marker: '{}' (outside={})", i, run.text, position_outside)),
+            InlineContent::Shape(_) => ctx.debug_info(format!("  [{}] Shape", i)),
+            InlineContent::Image(_) => ctx.debug_info(format!("  [{}] Image", i)),
+            _ => ctx.debug_info(format!("  [{}] Other", i)),
         }
     }
     
@@ -1535,8 +1535,8 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     let text3_constraints =
         translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
     
-    eprintln!("[layout_ifc] CALLING text_cache.layout_flow for node {} with {} exclusions", 
-              node_index, text3_constraints.shape_exclusions.len());
+    ctx.debug_info(format!("[layout_ifc] CALLING text_cache.layout_flow for node {} with {} exclusions", 
+              node_index, text3_constraints.shape_exclusions.len()));
     
     let fragments = vec![LayoutFragment {
         id: "main".to_string(),
@@ -1545,7 +1545,7 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
     // Phase 3: Invoke the text layout engine.
     let text_layout_result =
-        match text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager) {
+        match text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager, ctx.debug_messages) {
             Ok(result) => result,
             Err(e) => {
                 // Font errors should not stop layout of other elements.
@@ -1589,12 +1589,12 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let should_store = has_floats || node.inline_layout_result.is_none();
         
         if should_store {
-            eprintln!("[layout_ifc] Storing inline_layout_result for node {} (has_floats={}, is_new={})",
-                      node_index, has_floats, node.inline_layout_result.is_none());
+            ctx.debug_info(format!("[layout_ifc] Storing inline_layout_result for node {} (has_floats={}, is_new={})",
+                      node_index, has_floats, node.inline_layout_result.is_none()));
             node.inline_layout_result = Some(main_frag.clone());
         } else {
-            eprintln!("[layout_ifc] SKIPPING inline_layout_result for node {} (no floats, result exists)",
-                      node_index);
+            ctx.debug_info(format!("[layout_ifc] SKIPPING inline_layout_result for node {} (no floats, result exists)",
+                      node_index));
         }
 
         // Extract the overall size and baseline for the IFC root.
@@ -1630,10 +1630,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
     // Convert floats into exclusion zones for text3 to flow around.
     let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
-        eprintln!(
+        ctx.debug_info(format!(
             "[translate_to_text3] dom_id={:?}, converting {} floats to exclusions",
             dom_id, bfc_state.floats.floats.len()
-        );
+        ));
         bfc_state
             .floats
             .floats
@@ -1646,22 +1646,22 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                     width: float_box.rect.size.width,
                     height: float_box.rect.size.height,
                 };
-                eprintln!(
+                ctx.debug_info(format!(
                     "[translate_to_text3]   Exclusion #{}: {:?} at ({}, {}) size {}x{}",
                     i, float_box.kind, rect.x, rect.y, rect.width, rect.height
-                );
+                ));
                 ShapeBoundary::Rectangle(rect)
             })
             .collect()
     } else {
-        eprintln!("[translate_to_text3] dom_id={:?}, NO bfc_state - no float exclusions", dom_id);
+        ctx.debug_info(format!("[translate_to_text3] dom_id={:?}, NO bfc_state - no float exclusions", dom_id));
         Vec::new()
     };
     
-    eprintln!(
+    ctx.debug_info(format!(
         "[translate_to_text3] dom_id={:?}, available_size={}x{}, shape_exclusions.len()={}",
         dom_id, constraints.available_size.width, constraints.available_size.height, shape_exclusions.len()
-    );
+    ));
 
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
@@ -1724,7 +1724,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             ctx.debug_info(format!("shape-inside property: {:?}", shape_inside));
             if let azul_css::props::layout::ShapeInside::Shape(css_shape) = shape_inside {
                 ctx.debug_info(format!("Converting CSS shape to ShapeBoundary: {:?}", css_shape));
-                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
+                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
                 ctx.debug_info(format!("Created ShapeBoundary: {:?}", boundary));
                 Some(vec![boundary])
             } else {
@@ -1748,7 +1748,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             ctx.debug_info(format!("shape-outside property: {:?}", shape_outside));
             if let azul_css::props::layout::ShapeOutside::Shape(css_shape) = shape_outside {
                 ctx.debug_info(format!("Converting CSS shape-outside to ShapeBoundary: {:?}", css_shape));
-                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box);
+                let boundary = ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
                 ctx.debug_info(format!("Created ShapeBoundary (exclusion): {:?}", boundary));
                 shape_exclusions.push(boundary);
             }
@@ -3593,11 +3593,11 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         
         // Calculate cell size (sum of spanned columns/rows)
         let mut width = 0.0;
-        println!("[position_table_cells] Cell {}: calculating width from cols {}..{}", 
-            cell_info.node_index, cell_info.column, cell_info.column + cell_info.colspan);
+        ctx.debug_info(format!("[position_table_cells] Cell {}: calculating width from cols {}..{}", 
+            cell_info.node_index, cell_info.column, cell_info.column + cell_info.colspan));
         for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
             if let Some(col) = table_ctx.columns.get(col_idx) {
-                println!("[position_table_cells]   Col {}: computed_width={:?}", col_idx, col.computed_width);
+                ctx.debug_info(format!("[position_table_cells]   Col {}: computed_width={:?}", col_idx, col.computed_width));
                 if let Some(col_width) = col.computed_width {
                     width += col_width;
                     // Add spacing between spanned columns (but not after the last one)
@@ -3605,10 +3605,10 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                         width += h_spacing;
                     }
                 } else {
-                    println!("[position_table_cells]   ⚠️  Col {} has NO computed_width!", col_idx);
+                    ctx.debug_info(format!("[position_table_cells]   ⚠️  Col {} has NO computed_width!", col_idx));
                 }
             } else {
-                println!("[position_table_cells]   ⚠️  Col {} not found in table_ctx.columns!", col_idx);
+                ctx.debug_info(format!("[position_table_cells]   ⚠️  Col {} not found in table_ctx.columns!", col_idx));
             }
         }
         
@@ -3628,16 +3628,16 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         let writing_mode = constraints.writing_mode;
         // Table layout works in main/cross axes, must convert back to logical width/height
         
-        println!("[position_table_cells] Cell {}: BEFORE from_main_cross: width={}, height={}, writing_mode={:?}", 
-            cell_info.node_index, width, height, writing_mode);
+        ctx.debug_info(format!("[position_table_cells] Cell {}: BEFORE from_main_cross: width={}, height={}, writing_mode={:?}", 
+            cell_info.node_index, width, height, writing_mode));
         
         cell_node.used_size = Some(LogicalSize::from_main_cross(height, width, writing_mode));
         
-        println!("[position_table_cells] Cell {}: AFTER from_main_cross: used_size={:?}", 
-            cell_info.node_index, cell_node.used_size);
+        ctx.debug_info(format!("[position_table_cells] Cell {}: AFTER from_main_cross: used_size={:?}", 
+            cell_info.node_index, cell_node.used_size));
         
-        println!("[position_table_cells] Cell {}: setting used_size to {}x{} (row_heights={:?})", 
-            cell_info.node_index, width, height, table_ctx.row_heights);
+        ctx.debug_info(format!("[position_table_cells] Cell {}: setting used_size to {}x{} (row_heights={:?})", 
+            cell_info.node_index, width, height, table_ctx.row_heights));
         
         // Apply vertical-align to cell content if it has inline layout
         if let Some(ref inline_result) = cell_node.inline_layout_result {
@@ -3681,8 +3681,8 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             };
             let y_offset = (content_box_height - content_height) * align_factor;
             
-            println!("[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, content_box_height={}, content_height={}, y_offset={}", 
-                cell_info.node_index, vertical_align, height, content_box_height, content_height, y_offset);
+            ctx.debug_info(format!("[position_table_cells] Cell {}: vertical-align={:?}, border_box_height={}, content_box_height={}, content_height={}, y_offset={}", 
+                cell_info.node_index, vertical_align, height, content_box_height, content_height, y_offset));
             
             // Create new layout with adjusted positions
             if y_offset.abs() > 0.01 { // Only adjust if offset is significant
@@ -3844,6 +3844,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                     ctx.counters,
                     &ctx.font_manager.fc_cache,
                     base_style,
+                    ctx.debug_messages,
                 );
                 
                 ctx.debug_ifc_layout(format!("Generated {} list marker segments", marker_segments.len()));
@@ -3871,21 +3872,21 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
     // Debug: Check what the node_hierarchy says about this node
     let node_hier_item = &ctx.styled_dom.node_hierarchy.as_container()[ifc_root_dom_id];
-    eprintln!(
+    ctx.debug_info(format!(
         "[collect_and_measure_inline_content] DEBUG: node_hier_item.first_child={:?}, \
          last_child={:?}",
         node_hier_item.first_child_id(ifc_root_dom_id),
         node_hier_item.last_child_id()
-    );
+    ));
 
     let dom_children: Vec<NodeId> = ifc_root_dom_id
         .az_children(&ctx.styled_dom.node_hierarchy.as_container())
         .collect();
 
-    eprintln!(
+    ctx.debug_info(format!(
         "[collect_and_measure_inline_content] IFC root has {} DOM children",
         dom_children.len()
-    );
+    ));
 
     for (item_idx, &dom_child_id) in dom_children.iter().enumerate() {
         let content_index = ContentIndex {
@@ -3897,11 +3898,11 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
-            eprintln!(
+            ctx.debug_info(format!(
                 "[collect_and_measure_inline_content] ✓ Found text node (DOM child {:?}): '{}'",
                 dom_child_id,
                 text_content.as_str()
-            );
+            ));
             // For text nodes, inherit style from the IFC root (their parent in the layout tree)
             content.push(InlineContent::Text(StyledRun {
                 text: text_content.to_string(),
@@ -3924,10 +3925,10 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             .copied();
 
         let Some(child_index) = child_index else {
-            eprintln!(
+            ctx.debug_info(format!(
                 "[collect_and_measure_inline_content] WARNING: DOM child {:?} has no layout node",
                 dom_child_id
-            );
+            ));
             continue;
         };
 
@@ -3976,8 +3977,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 _ => intrinsic_size.max_content_width, // Auto or other - use intrinsic
             };
             
-            eprintln!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): intrinsic_width={}, css_width={:?}, final_width={}", 
-                dom_id, intrinsic_size.max_content_width, css_width, width);
+            ctx.debug_info(format!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): intrinsic_width={}, css_width={:?}, final_width={}", 
+                dom_id, intrinsic_size.max_content_width, css_width, width));
 
             // To find its height and baseline, we must lay out its contents.
             let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -4014,8 +4015,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 };
             }
             
-            eprintln!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): layout_height={}, css_height={:?}, final_height={}", 
-                dom_id, layout_result.output.overflow_size.height, css_height, final_height);
+            ctx.debug_info(format!("[collect_and_measure_inline_content] Inline-block NodeId({:?}): layout_height={}, css_height={:?}, final_height={}", 
+                dom_id, layout_result.output.overflow_size.height, css_height, final_height));
             
             let final_size = LogicalSize::new(width, final_height);
 
@@ -4070,10 +4071,10 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
             // According to CSS Inline-3 spec §2, inline boxes are "transparent" wrappers
             // We must recursively collect their text children with inherited style
-            eprintln!(
+            ctx.debug_info(format!(
                 "[collect_and_measure_inline_content] Found inline span (DOM {:?}), recursing",
                 dom_id
-            );
+            ));
             
             let span_style = get_style_properties(ctx.styled_dom, dom_id);
             collect_inline_span_recursive(
@@ -4112,24 +4113,24 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     parent_children: &[usize], // Layout tree children of parent IFC
     constraints: &LayoutConstraints,
 ) -> Result<()> {
-    eprintln!("[collect_inline_span_recursive] Processing inline span {:?}", span_dom_id);
+    ctx.debug_info(format!("[collect_inline_span_recursive] Processing inline span {:?}", span_dom_id));
     
     // Get DOM children of this span
     let span_dom_children: Vec<NodeId> = span_dom_id
         .az_children(&ctx.styled_dom.node_hierarchy.as_container())
         .collect();
     
-    eprintln!("[collect_inline_span_recursive] Span has {} DOM children", span_dom_children.len());
+    ctx.debug_info(format!("[collect_inline_span_recursive] Span has {} DOM children", span_dom_children.len()));
     
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
         
         // CASE 1: Text node - collect with span's style
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
-            eprintln!(
+            ctx.debug_info(format!(
                 "[collect_inline_span_recursive] ✓ Found text in span: '{}'",
                 text_content.as_str()
-            );
+            ));
             content.push(InlineContent::Text(StyledRun {
                 text: text_content.to_string(),
                 style: Arc::new(span_style.clone()),
@@ -4156,7 +4157,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         match child_display {
             LayoutDisplay::Inline => {
                 // Nested inline span - recurse with child's style
-                eprintln!("[collect_inline_span_recursive] Found nested inline span {:?}", child_dom_id);
+                ctx.debug_info(format!("[collect_inline_span_recursive] Found nested inline span {:?}", child_dom_id));
                 let child_style = get_style_properties(ctx.styled_dom, child_dom_id);
                 collect_inline_span_recursive(
                     ctx,
@@ -4172,7 +4173,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
             LayoutDisplay::InlineBlock => {
                 // Inline-block inside span - measure and add as shape
                 let Some(child_index) = child_index else {
-                    eprintln!("[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout node", child_dom_id);
+                    ctx.debug_info(format!("[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout node", child_dom_id));
                     continue;
                 };
                 
@@ -4221,11 +4222,11 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 }));
                 
                 // Note: We don't add to child_map here because this is inside a span
-                eprintln!("[collect_inline_span_recursive] Added inline-block shape {}x{}", width, final_height);
+                ctx.debug_info(format!("[collect_inline_span_recursive] Added inline-block shape {}x{}", width, final_height));
             }
             _ => {
                 // Other display types inside span (shouldn't normally happen)
-                eprintln!("[collect_inline_span_recursive] WARNING: Unsupported display type {:?} inside inline span", child_display);
+                ctx.debug_info(format!("[collect_inline_span_recursive] WARNING: Unsupported display type {:?} inside inline span", child_display));
             }
         }
     }
@@ -4526,19 +4527,11 @@ fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::Layout
     
     // Check if node has children
     if !node.children.is_empty() {
-        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-            println!("[is_empty_block] Node {:?} has {} children → NOT EMPTY", 
-                     node.dom_node_id, node.children.len());
-        }
         return false;
     }
     
     // Check if node has inline content (text)
     if node.inline_layout_result.is_some() {
-        if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-            println!("[is_empty_block] Node {:?} has inline content → NOT EMPTY", 
-                     node.dom_node_id);
-        }
         return false;
     }
     
@@ -4546,18 +4539,11 @@ fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::Layout
     // CSS 2.2 § 8.3.1: Elements with explicit height are NOT empty
     if let Some(size) = node.used_size {
         if size.height > 0.0 {
-            if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-                println!("[is_empty_block] Node {:?} has explicit height={} → NOT EMPTY", 
-                         node.dom_node_id, size.height);
-            }
             return false;
         }
     }
     
     // Empty block: no children, no inline content, no height
-    if std::env::var("DEBUG_MARGIN_COLLAPSE").is_ok() {
-        println!("[is_empty_block] Node {:?} IS EMPTY ✓", node.dom_node_id);
-    }
     true
 }
 
@@ -4574,6 +4560,7 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     marker_index: usize,
     counters: &BTreeMap<(usize, String), i32>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> String {
     use crate::solver3::{counters::format_counter, getters::get_list_style_type};
     use azul_css::props::style::lists::StyleListStyleType;
@@ -4587,8 +4574,10 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     // Verify this is actually a ::marker pseudo-element
     // Per spec, markers must be pseudo-elements, not anonymous boxes
     if marker_node.pseudo_element != Some(crate::solver3::layout_tree::PseudoElement::Marker) {
-        eprintln!("[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element (pseudo={:?}, anonymous_type={:?})", 
-                 marker_index, marker_node.pseudo_element, marker_node.anonymous_type);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::warning(format!("[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element (pseudo={:?}, anonymous_type={:?})", 
+                 marker_index, marker_node.pseudo_element, marker_node.anonymous_type)));
+        }
         // Fallback for old-style anonymous markers during transition
         if marker_node.anonymous_type != Some(crate::solver3::layout_tree::AnonymousBoxType::ListItemMarker) {
             return String::new();
@@ -4599,7 +4588,9 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     let list_item_index = match marker_node.parent {
         Some(p) => p,
         None => {
-            eprintln!("[generate_list_marker_text] ERROR: Marker has no parent");
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::error("[generate_list_marker_text] ERROR: Marker has no parent".to_string()));
+            }
             return String::new();
         }
     };
@@ -4612,13 +4603,17 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     let list_item_dom_id = match list_item_node.dom_node_id {
         Some(id) => id,
         None => {
-            eprintln!("[generate_list_marker_text] ERROR: List-item has no DOM ID");
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::error("[generate_list_marker_text] ERROR: List-item has no DOM ID".to_string()));
+            }
             return String::new();
         }
     };
     
-    eprintln!("[generate_list_marker_text] marker_index={}, list_item_index={}, list_item_dom_id={:?}", 
-             marker_index, list_item_index, list_item_dom_id);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("[generate_list_marker_text] marker_index={}, list_item_index={}, list_item_dom_id={:?}", 
+             marker_index, list_item_index, list_item_dom_id)));
+    }
     
     // Get list-style-type from the list-item or its container
     let list_container_dom_id = if let Some(grandparent_index) = list_item_node.parent {
@@ -4650,11 +4645,15 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
         .get(&(list_item_index, "list-item".to_string()))
         .copied()
         .unwrap_or_else(|| {
-            eprintln!("[generate_list_marker_text] WARNING: No counter found for list-item at index {}, defaulting to 1", list_item_index);
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::warning(format!("[generate_list_marker_text] WARNING: No counter found for list-item at index {}, defaulting to 1", list_item_index)));
+            }
             1
         });
     
-    eprintln!("[generate_list_marker_text] counter_value={} for list_item_index={}", counter_value, list_item_index);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("[generate_list_marker_text] counter_value={} for list_item_index={}", counter_value, list_item_index)));
+    }
     
     // Format the counter according to the list-style-type
     let marker_text = format_counter(counter_value, list_style_type);
@@ -4696,12 +4695,13 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
     counters: &BTreeMap<(usize, String), i32>,
     fc_cache: &rust_fontconfig::FcFontCache,
     base_style: Arc<StyleProperties>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<StyledRun> {
     use unicode_segmentation::UnicodeSegmentation;
     use rust_fontconfig::{FcPattern, PatternMatch};
     
     // Generate the marker text
-    let marker_text = generate_list_marker_text(tree, styled_dom, marker_index, counters);
+    let marker_text = generate_list_marker_text(tree, styled_dom, marker_index, counters, debug_messages);
     if marker_text.is_empty() {
         return Vec::new();
     }
@@ -4728,10 +4728,12 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
     
     // If no fonts found, return a single segment with the original style
     if font_matches.is_empty() {
-        eprintln!(
-            "[generate_list_marker_segments] WARNING: No fonts found for marker text '{}', using base style",
-            marker_text
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::warning(format!(
+                "[generate_list_marker_segments] WARNING: No fonts found for marker text '{}', using base style",
+                marker_text
+            )));
+        }
         return vec![StyledRun {
             text: marker_text,
             style: base_style,
@@ -4739,12 +4741,14 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
         }];
     }
     
-    eprintln!(
-        "[generate_list_marker_segments] Found {} font matches for marker '{}': {:?}",
-        font_matches.len(),
-        marker_text,
-        font_matches.iter().map(|m| fc_cache.get_metadata_by_id(&m.id).and_then(|p| p.name.as_ref())).collect::<Vec<_>>()
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[generate_list_marker_segments] Found {} font matches for marker '{}': {:?}",
+            font_matches.len(),
+            marker_text,
+            font_matches.iter().map(|m| fc_cache.get_metadata_by_id(&m.id).and_then(|p| p.name.as_ref())).collect::<Vec<_>>()
+        )));
+    }
     
     // Step 2: Build font metadata list for glyph coverage checking
     let font_stack: Vec<(usize, Option<String>)> = font_matches
@@ -4811,11 +4815,13 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
                     base_style.clone()
                 };
                 
-                eprintln!(
-                    "[generate_list_marker_segments] Segment: '{}' with font '{}'",
-                    segment_text,
-                    segment_style.font_selector.family
-                );
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[generate_list_marker_segments] Segment: '{}' with font '{}'",
+                        segment_text,
+                        segment_style.font_selector.family
+                    )));
+                }
                 
                 segments.push(StyledRun {
                     text: segment_text.to_string(),
@@ -4846,11 +4852,13 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
             base_style.clone()
         };
         
-        eprintln!(
-            "[generate_list_marker_segments] Final segment: '{}' with font '{}'",
-            segment_text,
-            segment_style.font_selector.family
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[generate_list_marker_segments] Final segment: '{}' with font '{}'",
+                segment_text,
+                segment_style.font_selector.family
+            )));
+        }
         
         segments.push(StyledRun {
             text: segment_text.to_string(),
@@ -4861,9 +4869,11 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
     
     // If no segments were created (shouldn't happen), return single segment
     if segments.is_empty() {
-        eprintln!(
-            "[generate_list_marker_segments] WARNING: No segments created, returning full text"
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::warning(
+                "[generate_list_marker_segments] WARNING: No segments created, returning full text".to_string()
+            ));
+        }
         segments.push(StyledRun {
             text: marker_text,
             style: base_style,

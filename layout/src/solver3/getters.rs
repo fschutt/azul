@@ -1209,3 +1209,126 @@ get_css_property_pixel!(get_css_border_left_width, get_border_left_width, azul_c
 get_css_property_pixel!(get_css_border_right_width, get_border_right_width, azul_css::props::property::CssPropertyType::BorderRightWidth);
 get_css_property_pixel!(get_css_border_top_width, get_border_top_width, azul_css::props::property::CssPropertyType::BorderTopWidth);
 get_css_property_pixel!(get_css_border_bottom_width, get_border_bottom_width, azul_css::props::property::CssPropertyType::BorderBottomWidth);
+
+// ============================================================================
+// Fragmentation (page breaking) properties
+// ============================================================================
+
+use azul_css::props::layout::{PageBreak, BreakInside, Orphans, Widows, BoxDecorationBreak};
+
+/// Get break-before property for paged media
+pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+    let Some(id) = dom_id else {
+        return PageBreak::Auto;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_break_before(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .unwrap_or(PageBreak::Auto)
+}
+
+/// Get break-after property for paged media
+pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+    let Some(id) = dom_id else {
+        return PageBreak::Auto;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_break_after(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .unwrap_or(PageBreak::Auto)
+}
+
+/// Get break-inside property for paged media
+pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
+    let Some(id) = dom_id else {
+        return BreakInside::Auto;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_break_inside(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .unwrap_or(BreakInside::Auto)
+}
+
+/// Get orphans property (minimum lines at bottom of page)
+pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+    let Some(id) = dom_id else {
+        return 2; // Default value
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_orphans(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|o| o.inner)
+        .unwrap_or(2)
+}
+
+/// Get widows property (minimum lines at top of page)
+pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+    let Some(id) = dom_id else {
+        return 2; // Default value
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_widows(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|w| w.inner)
+        .unwrap_or(2)
+}
+
+/// Get box-decoration-break property
+pub fn get_box_decoration_break(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BoxDecorationBreak {
+    let Some(id) = dom_id else {
+        return BoxDecorationBreak::Slice;
+    };
+    let node_data = &styled_dom.node_data.as_container()[id];
+    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_box_decoration_break(node_data, &id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .unwrap_or(BoxDecorationBreak::Slice)
+}
+
+// ============================================================================
+// Helper functions for break properties
+// ============================================================================
+
+/// Check if a PageBreak value forces a break
+pub fn is_forced_page_break(page_break: &PageBreak) -> bool {
+    matches!(
+        page_break,
+        PageBreak::Always | PageBreak::Page | PageBreak::Left | PageBreak::Right | PageBreak::Recto | PageBreak::Verso
+    )
+}
+
+/// Check if a PageBreak value is avoid
+pub fn is_avoid_page_break(page_break: &PageBreak) -> bool {
+    matches!(page_break, PageBreak::Avoid | PageBreak::AvoidPage)
+}
+
+/// Check if a BreakInside value prevents breaks
+pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
+    matches!(
+        break_inside,
+        BreakInside::Avoid | BreakInside::AvoidPage | BreakInside::AvoidColumn
+    )
+}

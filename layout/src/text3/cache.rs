@@ -27,6 +27,7 @@ use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text3::script::{script_to_language, Script};
+use azul_css::corety::LayoutDebugMessage;
 
 // Re-export traits for backwards compatibility
 pub use crate::font_traits::{ShallowClone, ParsedFontTrait, FontLoaderTrait, FontProviderTrait};
@@ -184,20 +185,14 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
                     // Cache this mapping
                     let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
                     ref_cache.insert(font_selector.clone(), fallback_id.clone());
-                    eprintln!(
-                        "[FontManager] Using system fallback for '{}': {:?}",
-                        font_selector.family, fallback_id
-                    );
+                    // Using system fallback (debug info suppressed)
                     return Ok(font.shallow_clone());
                 }
             }
 
             // Ultimate fallback: use ANY available font
             if let Some((_, any_font_id)) = fallbacks.iter().next() {
-                eprintln!(
-                    "[FontManager] Using ultimate fallback font for '{}'",
-                    font_selector.family
-                );
+                // Using ultimate fallback font (debug info suppressed)
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(any_font_id) {
                     let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
@@ -1544,11 +1539,17 @@ impl ShapeBoundary {
     /// 
     /// # Returns
     /// A ShapeBoundary ready for use in the text layout engine
-    pub fn from_css_shape(css_shape: &azul_css::shape::Shape, reference_box: Rect) -> Self {
+    pub fn from_css_shape(
+        css_shape: &azul_css::shape::Shape,
+        reference_box: Rect,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Self {
         use azul_css::shape::Shape as CssShape;
         
-        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Input CSS shape: {:?}", css_shape);
-        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Reference box: {:?}", reference_box);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Input CSS shape: {:?}", css_shape)));
+            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Reference box: {:?}", reference_box)));
+        }
         
         let result = match css_shape {
             CssShape::Circle(circle) => {
@@ -1556,10 +1557,12 @@ impl ShapeBoundary {
                     x: reference_box.x + circle.center.x,
                     y: reference_box.y + circle.center.y,
                 };
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}", 
-                    circle.center.x, circle.center.y, circle.radius);
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), radius: {}", 
-                    center.x, center.y, circle.radius);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}", 
+                        circle.center.x, circle.center.y, circle.radius)));
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), radius: {}", 
+                        center.x, center.y, circle.radius)));
+                }
                 ShapeBoundary::Circle {
                     center,
                     radius: circle.radius,
@@ -1575,8 +1578,10 @@ impl ShapeBoundary {
                     width: ellipse.radius_x,
                     height: ellipse.radius_y,
                 };
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, {})", 
-                    center.x, center.y, radii.width, radii.height);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, {})", 
+                        center.x, center.y, radii.width, radii.height)));
+                }
                 ShapeBoundary::Ellipse { center, radii }
             }
             
@@ -1588,7 +1593,9 @@ impl ShapeBoundary {
                         y: reference_box.y + pt.y,
                     })
                     .collect();
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Polygon - {} points", polygon.points.as_ref().len());
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Polygon - {} points", polygon.points.as_ref().len())));
+                }
                 ShapeBoundary::Polygon { points }
             }
             
@@ -1599,10 +1606,12 @@ impl ShapeBoundary {
                 let width = reference_box.width - inset.left - inset.right;
                 let height = reference_box.height - inset.top - inset.bottom;
                 
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})", 
-                    inset.top, inset.right, inset.bottom, inset.left);
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, w={}, h={}", 
-                    x, y, width, height);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})", 
+                        inset.top, inset.right, inset.bottom, inset.left)));
+                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, w={}, h={}", 
+                        x, y, width, height)));
+                }
                 
                 ShapeBoundary::Rectangle(Rect {
                     x,
@@ -1613,14 +1622,18 @@ impl ShapeBoundary {
             }
             
             CssShape::Path(path) => {
-                eprintln!("[DEBUG ShapeBoundary::from_css_shape] Path - fallback to rectangle");
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("[ShapeBoundary::from_css_shape] Path - fallback to rectangle".to_string()));
+                }
                 // TODO: Parse SVG path data into PathSegments
                 // For now, fall back to rectangle
                 ShapeBoundary::Rectangle(reference_box)
             }
         };
         
-        eprintln!("[DEBUG ShapeBoundary::from_css_shape] Result: {:?}", result);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Result: {:?}", result)));
+        }
         result
     }
 }
@@ -3559,6 +3572,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         style_overrides: &[StyleOverride],
         flow_chain: &[LayoutFragment],
         font_manager: &P,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<FlowLayout<T>, LayoutError> {
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
@@ -3569,7 +3583,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
-            .or_insert_with(|| Arc::new(create_logical_items(content, style_overrides)))
+            .or_insert_with(|| Arc::new(create_logical_items(content, style_overrides, debug_messages)))
             .clone();
 
         // Get the first fragment's constraints to extract the CSS direction property.
@@ -3596,7 +3610,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
             .visual_items
             .entry(visual_items_id)
             .or_insert_with(|| {
-                Arc::new(reorder_logical_items(&logical_items, base_direction).unwrap())
+                Arc::new(reorder_logical_items(&logical_items, base_direction, debug_messages).unwrap())
             })
             .clone();
 
@@ -3606,7 +3620,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
             Some(cached) => cached.clone(),
             None => {
-                let items = Arc::new(shape_visual_items(&visual_items, font_manager)?);
+                let items = Arc::new(shape_visual_items(&visual_items, font_manager, debug_messages)?);
                 self.shaped_items.insert(shaped_items_id, items.clone());
                 items
             }
@@ -3629,7 +3643,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
             let fragment_layout =
-                perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints)?;
+                perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints, debug_messages)?;
 
             fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
             if cursor.is_done() {
@@ -3648,10 +3662,13 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
 pub fn create_logical_items(
     content: &[InlineContent],
     style_overrides: &[StyleOverride],
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<LogicalItem> {
-    println!("\n--- [DEBUG] Entering create_logical_items (Refactored) ---");
-    println!("Input content length: {}", content.len());
-    println!("Input overrides length: {}", style_overrides.len());
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("\n--- Entering create_logical_items (Refactored) ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(format!("Input content length: {}", content.len())));
+        msgs.push(LayoutDebugMessage::info(format!("Input overrides length: {}", style_overrides.len())));
+    }
 
     let mut items = Vec::new();
     let mut style_cache: HashMap<u64, Arc<StyleProperties>> = HashMap::new();
@@ -3666,7 +3683,9 @@ pub fn create_logical_items(
     }
 
     for (run_idx, inline_item) in content.iter().enumerate() {
-        println!("Processing content run #{}", run_idx);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("Processing content run #{}", run_idx)));
+        }
         
         // Extract marker information if this is a marker
         let marker_position_outside = match inline_item {
@@ -3678,10 +3697,14 @@ pub fn create_logical_items(
             InlineContent::Text(run) | InlineContent::Marker { run, .. } => {
                 let text = &run.text;
                 if text.is_empty() {
-                    println!("  Run is empty, skipping.");
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info("  Run is empty, skipping.".to_string()));
+                    }
                     continue;
                 }
-                println!("  Run text: '{}'", text);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("  Run text: '{}'", text)));
+                }
 
                 let current_run_overrides = run_overrides.get(&(run_idx as u32));
                 let mut boundaries = BTreeSet::new();
@@ -3743,7 +3766,9 @@ pub fn create_logical_items(
                     scan_cursor += current_char.len_utf8();
                 }
 
-                println!("  Boundaries: {:?}", boundaries);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("  Boundaries: {:?}", boundaries)));
+                }
 
                 // --- Chunk Processing ---
                 for (start, end) in boundaries.iter().zip(boundaries.iter().skip(1)) {
@@ -3753,15 +3778,19 @@ pub fn create_logical_items(
                     }
 
                     let text_slice = &text[start..end];
-                    println!(
-                        "  Processing chunk from {} to {}: '{}'",
-                        start, end, text_slice
-                    );
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "  Processing chunk from {} to {}: '{}'",
+                            start, end, text_slice
+                        )));
+                    }
 
                     let style_to_use = if let Some(partial_style) =
                         current_run_overrides.and_then(|o| o.get(&(start as u32)))
                     {
-                        println!("  -> Applying override at byte {}", start);
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!("  -> Applying override at byte {}", start)));
+                        }
                         let mut hasher = DefaultHasher::new();
                         Arc::as_ptr(&run.style).hash(&mut hasher);
                         partial_style.hash(&mut hasher);
@@ -3808,7 +3837,9 @@ pub fn create_logical_items(
             }
             // Other cases...
             _ => {
-                println!("  Run is not text, creating generic LogicalItem.");
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("  Run is not text, creating generic LogicalItem.".to_string()));
+                }
                 items.push(LogicalItem::Object {
                     source: ContentIndex {
                         run_index: run_idx as u32,
@@ -3819,10 +3850,12 @@ pub fn create_logical_items(
             }
         }
     }
-    println!(
-        "--- [DEBUG] Exiting create_logical_items, created {} items ---",
-        items.len()
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Exiting create_logical_items, created {} items ---",
+            items.len()
+        )));
+    }
     items
 }
 
@@ -3846,10 +3879,13 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> Directi
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
     base_direction: Direction,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<VisualItem>, LayoutError> {
-    println!("\n--- [DEBUG] Entering reorder_logical_items ---");
-    println!("Input logical items count: {}", logical_items.len());
-    println!("Base direction: {:?}", base_direction);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("\n--- Entering reorder_logical_items ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(format!("Input logical items count: {}", logical_items.len())));
+        msgs.push(LayoutDebugMessage::info(format!("Base direction: {:?}", base_direction)));
+    }
 
     let mut bidi_str = String::new();
     let mut item_map = Vec::new();
@@ -3867,10 +3903,14 @@ pub fn reorder_logical_items(
     }
 
     if bidi_str.is_empty() {
-        println!("Bidi string is empty, returning.");
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info("Bidi string is empty, returning.".to_string()));
+        }
         return Ok(Vec::new());
     }
-    println!("Constructed bidi string: '{}'", bidi_str);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("Constructed bidi string: '{}'", bidi_str)));
+    }
 
     let bidi_level = if base_direction == Direction::Rtl {
         Some(Level::rtl())
@@ -3881,14 +3921,16 @@ pub fn reorder_logical_items(
     let para = &bidi_info.paragraphs[0];
     let (levels, visual_runs) = bidi_info.visual_runs(para, para.range.clone());
 
-    println!("Bidi visual runs generated:");
-    for (i, run_range) in visual_runs.iter().enumerate() {
-        let level = levels[run_range.start].number();
-        let slice = &bidi_str[run_range.start..run_range.end];
-        println!(
-            "  Run {}: range={:?}, level={}, text='{}'",
-            i, run_range, level, slice
-        );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("Bidi visual runs generated:".to_string()));
+        for (i, run_range) in visual_runs.iter().enumerate() {
+            let level = levels[run_range.start].number();
+            let slice = &bidi_str[run_range.start..run_range.end];
+            msgs.push(LayoutDebugMessage::info(format!(
+                "  Run {}: range={:?}, level={}, text='{}'",
+                i, run_range, level, slice
+            )));
+        }
     }
 
     let mut visual_items = Vec::new();
@@ -3923,16 +3965,18 @@ pub fn reorder_logical_items(
         });
     }
 
-    println!("Final visual items produced:");
-    for (i, item) in visual_items.iter().enumerate() {
-        println!(
-            "  Item {}: level={}, text='{}'",
-            i,
-            item.bidi_level.level(),
-            item.text
-        );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("Final visual items produced:".to_string()));
+        for (i, item) in visual_items.iter().enumerate() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "  Item {}: level={}, text='{}'",
+                i,
+                item.bidi_level.level(),
+                item.text
+            )));
+        }
+        msgs.push(LayoutDebugMessage::info("--- Exiting reorder_logical_items ---".to_string()));
     }
-    println!("--- [DEBUG] Exiting reorder_logical_items ---");
     Ok(visual_items)
 }
 
@@ -3941,6 +3985,7 @@ pub fn reorder_logical_items(
 pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
     visual_items: &[VisualItem],
     font_provider: &P,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<ShapedItem<T>>, LayoutError> {
     let mut shaped = Vec::new();
 
@@ -3968,10 +4013,12 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                                 unicode_ranges: vec![],
                             };
                             if let Ok(f) = font_provider.load_font(&fallback_selector) {
-                                eprintln!(
-                                    "[TextLayout] Using fallback font '{}' for '{}'",
-                                    fallback, style.font_selector.family
-                                );
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::info(format!(
+                                        "[TextLayout] Using fallback font '{}' for '{}'",
+                                        fallback, style.font_selector.family
+                                    )));
+                                }
                                 loaded_font = Some(f);
                                 break;
                             }
@@ -3979,10 +4026,12 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
 
                         // If no fallback available, skip this text item with warning
                         if loaded_font.is_none() {
-                            eprintln!(
-                                "[TextLayout] No font available for '{}', skipping text",
-                                style.font_selector.family
-                            );
+                            if let Some(msgs) = debug_messages {
+                                msgs.push(LayoutDebugMessage::warning(format!(
+                                    "[TextLayout] No font available for '{}', skipping text",
+                                    style.font_selector.family
+                                )));
+                            }
                             continue;
                         }
                         loaded_font.unwrap()
@@ -4484,14 +4533,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     cursor: &mut BreakCursor<T>,
     logical_items: &[LogicalItem],
     fragment_constraints: &UnifiedConstraints,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<UnifiedLayout<T>, LayoutError> {
-    println!("\n--- [DEBUG] Entering perform_fragment_layout ---");
-    println!(
-        "Constraints: available_width={}, available_height={:?}, columns={}",
-        fragment_constraints.available_width,
-        fragment_constraints.available_height,
-        fragment_constraints.columns
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("\n--- Entering perform_fragment_layout ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Constraints: available_width={}, available_height={:?}, columns={}",
+            fragment_constraints.available_width,
+            fragment_constraints.available_height,
+            fragment_constraints.columns
+        )));
+    }
 
     let hyphenator = if fragment_constraints.hyphenation {
         fragment_constraints
@@ -4522,20 +4574,26 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         (fragment_constraints.available_width - total_column_gap) / num_columns as f32
     };
     let mut current_column = 0;
-    println!("Column width calculated: {}", column_width);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("Column width calculated: {}", column_width)));
+    }
 
     // Use the CSS direction from constraints instead of auto-detecting from text
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
     // correct paragraph-level direction for alignment purposes
     let base_direction = fragment_constraints.direction.unwrap_or(Direction::Ltr);
     
-    println!(
-        "[PFLayout] Base direction: {:?} (from CSS), Text align: {:?}",
-        base_direction, fragment_constraints.text_align
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[PFLayout] Base direction: {:?} (from CSS), Text align: {:?}",
+            base_direction, fragment_constraints.text_align
+        )));
+    }
 
     'column_loop: while current_column < num_columns {
-        println!("\n-- Starting Column {} --", current_column);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("\n-- Starting Column {} --", current_column)));
+        }
         let column_start_x =
             (column_width + fragment_constraints.column_gap) * current_column as f32;
         let mut line_top_y = 0.0;
@@ -4546,10 +4604,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         while !cursor.is_done() {
             if let Some(max_height) = fragment_constraints.available_height {
                 if line_top_y >= max_height {
-                    println!(
-                        "  Column full (pen {} >= height {}), breaking to next column.",
-                        line_top_y, max_height
-                    );
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "  Column full (pen {} >= height {}), breaking to next column.",
+                            line_top_y, max_height
+                        )));
+                    }
                     break;
                 }
             }
@@ -4567,20 +4627,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 line_top_y,
                 fragment_constraints.line_height,
                 &column_constraints,
+                debug_messages,
             );
 
             if line_constraints.segments.is_empty() {
                 empty_segment_count += 1;
-                println!(
-                    "  No available segments at y={}, skipping to next line. (empty count: {}/{})",
-                    line_top_y, empty_segment_count, MAX_EMPTY_SEGMENTS
-                );
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "  No available segments at y={}, skipping to next line. (empty count: {}/{})",
+                        line_top_y, empty_segment_count, MAX_EMPTY_SEGMENTS
+                    )));
+                }
                 
                 // Failsafe: If we've skipped too many lines without content, break out
                 if empty_segment_count >= MAX_EMPTY_SEGMENTS {
-                    println!("  ⚠️ WARNING: Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS);
-                    println!("  This likely means the shape constraints are too restrictive or positioned incorrectly.");
-                    println!("  Current y={}, shape boundaries might be outside this range.", line_top_y);
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::warning(format!("  ⚠️ WARNING: Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS)));
+                        msgs.push(LayoutDebugMessage::warning("  This likely means the shape constraints are too restrictive or positioned incorrectly.".to_string()));
+                        msgs.push(LayoutDebugMessage::warning(format!("  Current y={}, shape boundaries might be outside this range.", line_top_y)));
+                    }
                     break;
                 }
                 
@@ -4603,8 +4668,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                         .fold(0.0, f32::max);
                     
                     if line_top_y > max_shape_y + 100.0 {
-                        println!("  ⚠️ INFO: Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y);
-                        println!("  Shape boundaries exist but no segments available - text cannot fit in shape.");
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!("  ⚠️ INFO: Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y)));
+                            msgs.push(LayoutDebugMessage::info("  Shape boundaries exist but no segments available - text cannot fit in shape.".to_string()));
+                        }
                         break;
                     }
                 }
@@ -4623,7 +4690,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             let (mut line_items, was_hyphenated) =
                 break_one_line(cursor, &line_constraints, false, hyphenator.as_ref());
             if line_items.is_empty() {
-                println!("  Break returned no items. Ending column.");
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("  Break returned no items. Ending column.".to_string()));
+                }
                 break;
             }
 
@@ -4632,11 +4701,13 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 .filter_map(|i| i.as_cluster())
                 .map(|c| c.text.as_str())
                 .collect();
-            println!(
-                // FIX: The log message was misleading. Items are in visual order.
-                "[PFLayout] Line items from breaker (visual order): [{}]",
-                line_text_before_rev
-            );
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    // FIX: The log message was misleading. Items are in visual order.
+                    "[PFLayout] Line items from breaker (visual order): [{}]",
+                    line_text_before_rev
+                )));
+            }
 
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
@@ -4647,6 +4718,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 base_direction,
                 cursor.is_done() && !was_hyphenated,
                 fragment_constraints,
+                debug_messages,
             );
 
             for item in &mut line_pos_items {
@@ -4660,10 +4732,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         current_column += 1;
     }
 
-    println!(
-        "--- [DEBUG] Exiting perform_fragment_layout, positioned {} items ---",
-        positioned_items.len()
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Exiting perform_fragment_layout, positioned {} items ---",
+            positioned_items.len()
+        )));
+    }
     
     let mut layout = UnifiedLayout {
         items: positioned_items,
@@ -4673,10 +4747,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // Calculate bounds on demand via the bounds() method
     let calculated_bounds = layout.bounds();
-    println!(
-        "--- [DEBUG] Calculated bounds: width={}, height={} ---",
-        calculated_bounds.width, calculated_bounds.height
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Calculated bounds: width={}, height={} ---",
+            calculated_bounds.width, calculated_bounds.height
+        )));
+    }
 
     // Collect all fonts used in this layout
     layout.collect_used_fonts();
@@ -5054,16 +5130,19 @@ pub fn position_one_line<T: ParsedFontTrait>(
     base_direction: Direction,
     is_last_line: bool,
     constraints: &UnifiedConstraints,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> (Vec<PositionedItem<T>>, f32) {
     let line_text: String = line_items
         .iter()
         .filter_map(|i| i.as_cluster())
         .map(|c| c.text.as_str())
         .collect();
-    println!(
-        "\n--- [DEBUG] Entering position_one_line for line: [{}] ---",
-        line_text
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "\n--- Entering position_one_line for line: [{}] ---",
+            line_text
+        )));
+    }
     // NEW: Resolve the final physical alignment here, inside the function.
     let physical_align = match (text_align, base_direction) {
         (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
@@ -5073,7 +5152,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // Physical alignments are returned as-is, regardless of direction.
         (other, _) => other,
     };
-    println!("[Pos1Line] Physical align: {:?}", physical_align);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Physical align: {:?}", physical_align)));
+    }
 
     if line_items.is_empty() {
         return (Vec::new(), 0.0);
@@ -5144,7 +5225,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 segments: vec![segment.clone()],
                 total_available: segment.width,
             };
-            justify_kashida_and_rebuild(segment_items, &segment_line_constraints, is_vertical)
+            justify_kashida_and_rebuild(segment_items, &segment_line_constraints, is_vertical, debug_messages)
         } else {
             segment_items
         };
@@ -5172,10 +5253,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
         
         let mut main_axis_pen = segment.start_x + alignment_offset;
-        println!(
-            "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: {}",
-            segment.width, final_segment_width, remaining_space, main_axis_pen
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: {}",
+                segment.width, final_segment_width, remaining_space, main_axis_pen
+            )));
+        }
 
         // Apply text-indent only to the very first segment of the first line.
         if is_first_line_of_para && segment_idx == 0 {
@@ -5204,8 +5287,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     y: main_axis_pen,
                 }
             } else {
-                println!("[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, item_ascent={}", 
-                    main_axis_pen, item_baseline_pos, item_ascent);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, item_ascent={}", 
+                        main_axis_pen, item_baseline_pos, item_ascent)));
+                }
                 
                 // Check if this is an outside marker - if so, position it in the padding gutter
                 let x_position = if let ShapedItem::Cluster(cluster) = &item {
@@ -5214,8 +5299,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
                         // The marker width + some spacing should fit in the container's padding-left (40px by default)
                         let marker_width = item_measure;
                         let spacing = 4.0; // Small gap between marker and content
-                        println!("[Pos1Line] Outside marker detected! width={}, positioning at x={}", 
-                                 marker_width, -(marker_width + spacing));
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Outside marker detected! width={}, positioning at x={}", 
+                                     marker_width, -(marker_width + spacing))));
+                        }
                         -(marker_width + spacing)
                     } else {
                         main_axis_pen
@@ -5235,10 +5322,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 .as_cluster()
                 .map(|c| c.text.as_str())
                 .unwrap_or("[OBJ]");
-            println!(
-                "[Pos1Line] Positioning item '{}' at pen_x={}",
-                item_text, main_axis_pen
-            );
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[Pos1Line] Positioning item '{}' at pen_x={}",
+                    item_text, main_axis_pen
+                )));
+            }
             positioned.push(PositionedItem {
                 item: item.clone(),
                 position,
@@ -5390,25 +5479,34 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     items: Vec<ShapedItem<T>>,
     line_constraints: &LineConstraints,
     is_vertical: bool,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<ShapedItem<T>> {
-    println!("\n--- [DEBUG] Entering justify_kashida_and_rebuild ---");
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info("\n--- Entering justify_kashida_and_rebuild ---".to_string()));
+    }
     let total_width: f32 = items
         .iter()
         .map(|item| get_item_measure(item, is_vertical))
         .sum();
     let available_width = line_constraints.total_available;
-    println!(
-        "Total item width: {}, Available width: {}",
-        total_width, available_width
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Total item width: {}, Available width: {}",
+            total_width, available_width
+        )));
+    }
 
     if total_width >= available_width || available_width <= 0.0 {
-        println!("No justification needed (line is full or invalid).");
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info("No justification needed (line is full or invalid).".to_string()));
+        }
         return items;
     }
 
     let extra_space = available_width - total_width;
-    println!("Extra space to fill: {}", extra_space);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("Extra space to fill: {}", extra_space)));
+    }
 
     let font_info = items.iter().find_map(|item| {
         if let ShapedItem::Cluster(c) = item {
@@ -5423,11 +5521,15 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
 
     let (font, style) = match font_info {
         Some(info) => {
-            println!("Found Arabic font for kashida.");
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info("Found Arabic font for kashida.".to_string()));
+            }
             info
         }
         None => {
-            println!("No Arabic font found on line. Cannot insert kashidas.");
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info("No Arabic font found on line. Cannot insert kashidas.".to_string()));
+            }
             return items;
         }
     };
@@ -5435,11 +5537,15 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let (kashida_glyph_id, kashida_advance) =
         match font.get_kashida_glyph_and_advance(style.font_size_px) {
             Some((id, adv)) if adv > 0.0 => {
-                println!("Font provides kashida glyph with advance {}", adv);
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!("Font provides kashida glyph with advance {}", adv)));
+                }
                 (id, adv)
             }
             _ => {
-                println!("Font does not support kashida justification.");
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("Font does not support kashida justification.".to_string()));
+                }
                 return items;
             }
         };
@@ -5461,22 +5567,28 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
         })
         .collect();
 
-    println!(
-        "Found {} kashida insertion opportunities at indices: {:?}",
-        opportunity_indices.len(),
-        opportunity_indices
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Found {} kashida insertion opportunities at indices: {:?}",
+            opportunity_indices.len(),
+            opportunity_indices
+        )));
+    }
 
     if opportunity_indices.is_empty() {
-        println!("No opportunities found. Exiting.");
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info("No opportunities found. Exiting.".to_string()));
+        }
         return items;
     }
 
     let num_kashidas_to_insert = (extra_space / kashida_advance).floor() as usize;
-    println!(
-        "Calculated number of kashidas to insert: {}",
-        num_kashidas_to_insert
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Calculated number of kashidas to insert: {}",
+            num_kashidas_to_insert
+        )));
+    }
 
     if num_kashidas_to_insert == 0 {
         return items;
@@ -5484,10 +5596,12 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
 
     let kashidas_per_point = num_kashidas_to_insert / opportunity_indices.len();
     let mut remainder = num_kashidas_to_insert % opportunity_indices.len();
-    println!(
-        "Distributing kashidas: {} per point, with {} remainder.",
-        kashidas_per_point, remainder
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Distributing kashidas: {} per point, with {} remainder.",
+            kashidas_per_point, remainder
+        )));
+    }
 
     let kashida_item = {
         /* ... as before ... */
@@ -5540,10 +5654,12 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     }
     new_items.extend_from_slice(&items[last_copy_idx..]);
 
-    println!(
-        "--- [DEBUG] Exiting justify_kashida_and_rebuild, new item count: {} ---",
-        new_items.len()
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Exiting justify_kashida_and_rebuild, new item count: {} ---",
+            new_items.len()
+        )));
+    }
     new_items
 }
 
@@ -5637,11 +5753,14 @@ fn get_line_constraints(
     line_y: f32,
     line_height: f32,
     constraints: &UnifiedConstraints,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LineConstraints {
-    println!(
-        "\n--- [DEBUG] Entering get_line_constraints for y={} ---",
-        line_y
-    );
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "\n--- Entering get_line_constraints for y={} ---",
+            line_y
+        )));
+    }
 
     let mut available_segments = Vec::new();
     if constraints.shape_boundaries.is_empty() {
@@ -5654,13 +5773,19 @@ fn get_line_constraints(
         // ... complex boundary logic ...
     }
 
-    println!("Initial available segments: {:?}", available_segments);
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!("Initial available segments: {:?}", available_segments)));
+    }
 
     for (idx, exclusion) in constraints.shape_exclusions.iter().enumerate() {
-        println!("Applying exclusion #{}: {:?}", idx, exclusion);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("Applying exclusion #{}: {:?}", idx, exclusion)));
+        }
         let exclusion_spans =
             get_shape_horizontal_spans(exclusion, line_y, line_height).unwrap_or_default();
-        println!("  Exclusion spans at y={}: {:?}", line_y, exclusion_spans);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!("  Exclusion spans at y={}: {:?}", line_y, exclusion_spans)));
+        }
 
         if exclusion_spans.is_empty() {
             continue;
@@ -5697,18 +5822,22 @@ fn get_line_constraints(
             available_segments = merge_segments(next_segments);
             next_segments = Vec::new();
         }
-        println!(
-            "  Segments after exclusion #{}: {:?}",
-            idx, available_segments
-        );
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "  Segments after exclusion #{}: {:?}",
+                idx, available_segments
+            )));
+        }
     }
 
     let total_width = available_segments.iter().map(|s| s.width).sum();
-    println!(
-        "Final segments: {:?}, total available width: {}",
-        available_segments, total_width
-    );
-    println!("--- [DEBUG] Exiting get_line_constraints ---");
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Final segments: {:?}, total available width: {}",
+            available_segments, total_width
+        )));
+        msgs.push(LayoutDebugMessage::info("--- Exiting get_line_constraints ---".to_string()));
+    }
 
     LineConstraints {
         segments: available_segments,
