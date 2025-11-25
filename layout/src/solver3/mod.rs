@@ -236,10 +236,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
     let mut loop_count = 0;
     loop {
         loop_count += 1;
-        eprintln!("[DEBUG] Loop iteration {}", loop_count);
         if loop_count > 10 {
             // Safety limit to prevent infinite loops
-            eprintln!("[DEBUG] ERROR: Too many iterations!");
             break;
         }
         
