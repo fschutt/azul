@@ -106,13 +106,19 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         xml = &xml[(pos + 2)..];
     }
 
-    // Delete <!doctype if necessary
+    // Delete <!DOCTYPE ...> if necessary (case-insensitive)
     let mut xml = xml.trim();
-    if xml.starts_with("<!") {
+    if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
         let pos = xml
             .find(">")
-            .ok_or(XmlError::MalformedHierarchy("<!doctype".into(), ">".into()))?;
+            .ok_or(XmlError::MalformedHierarchy("<!DOCTYPE".into(), ">".into()))?;
         xml = &xml[(pos + 1)..];
+    } else if xml.starts_with("<!--") {
+        // Skip HTML comments at the start
+        if let Some(end) = xml.find("-->") {
+            xml = &xml[(end + 3)..];
+            xml = xml.trim();
+        }
     }
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());

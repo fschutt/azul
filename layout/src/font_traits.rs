@@ -70,6 +70,10 @@ pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
 /// Trait for loading fonts by selector (font family, weight, etc.)
 pub trait FontProviderTrait<T: ParsedFontTrait> {
     fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError>;
+    
+    /// Load font from a stack of selectors, trying each until successful
+    /// Unicode ranges are extracted from the text to help choose appropriate fallbacks
+    fn load_font_from_stack(&self, font_stack: &[FontSelector], text: &str) -> Result<T, LayoutError>;
 }
 
 // When text_layout is disabled, provide minimal stub types

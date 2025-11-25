@@ -1020,11 +1020,17 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
     let cache = &styled_dom.css_property_cache.ptr;
 
-    let font_family_name = cache
-        .get_font_family(node_data, &dom_id, node_state)
+    // NEW: Get ALL fonts from CSS font-family, not just first
+    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
+    
+    let font_families = cache.get_font_family(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
-        .and_then(|v| v.get(0).map(|f| f.as_string()))
-        .unwrap_or_else(|| "serif".to_string());
+        .unwrap_or_else(|| {
+            // Default to serif (same as browser default)
+            StyleFontFamilyVec::from_vec(vec![
+                StyleFontFamily::System("serif".into())
+            ])
+        });
 
     // Get parent's font-size for proper em resolution in font-size property
     let parent_font_size = styled_dom
@@ -1093,13 +1099,33 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
     let fc_weight = super::fc::convert_font_weight(font_weight);
     let fc_style = super::fc::convert_font_style(font_style);
 
-    let properties = StyleProperties {
-        font_selector: crate::text3::cache::FontSelector {
-            family: font_family_name,
+    // Build font stack from all font families
+    let mut font_stack = Vec::with_capacity(font_families.len() + 3);
+    
+    for i in 0..font_families.len() {
+        font_stack.push(crate::text3::cache::FontSelector {
+            family: font_families.get(i).unwrap().as_string(),
             weight: fc_weight,
             style: fc_style,
             unicode_ranges: Vec::new(),
-        },
+        });
+    }
+    
+    // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)
+    let generic_fallbacks = ["sans-serif", "serif", "monospace"];
+    for fallback in &generic_fallbacks {
+        if !font_stack.iter().any(|f| f.family.to_lowercase() == fallback.to_lowercase()) {
+            font_stack.push(crate::text3::cache::FontSelector {
+                family: fallback.to_string(),
+                weight: rust_fontconfig::FcWeight::Normal,
+                style: crate::text3::cache::FontStyle::Normal,
+                unicode_ranges: Vec::new(),
+            });
+        }
+    }
+
+    let properties = StyleProperties {
+        font_stack,
         font_size_px: font_size,
         color,
         line_height,

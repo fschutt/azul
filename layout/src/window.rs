@@ -836,7 +836,7 @@ impl LayoutWindow {
         // Create IFrameCallbackInfo with the most up-to-date state
         let mut callback_info = azul_core::callbacks::IFrameCallbackInfo::new(
             reason,
-            &self.font_manager.fc_cache,
+            &*self.font_manager.fc_cache,
             &self.image_cache,
             window_state.theme,
             azul_core::callbacks::HidpiAdjustedBounds {
@@ -5412,17 +5412,19 @@ impl LayoutWindow {
                                 if let Some(first_glyph) = cluster.glyphs.first() {
                                     let style = &first_glyph.style;
 
-                                    // Extract font family from font selector
-                                    let font_family = Some(style.font_selector.family.clone());
+                                    // Extract font family from font selector (use first from stack)
+                                    let default_font = crate::text3::cache::FontSelector::default();
+                                    let first_font = style.font_stack.first().unwrap_or(&default_font);
+                                    let font_family = Some(first_font.family.clone());
 
                                     // Check if bold/italic from font selector
                                     use rust_fontconfig::FcWeight;
                                     let is_bold = matches!(
-                                        style.font_selector.weight,
+                                        first_font.weight,
                                         FcWeight::Bold | FcWeight::ExtraBold | FcWeight::Black
                                     );
                                     let is_italic = matches!(
-                                        style.font_selector.style,
+                                        first_font.style,
                                         crate::text3::cache::FontStyle::Italic
                                             | crate::text3::cache::FontStyle::Oblique
                                     );

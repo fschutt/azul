@@ -34,16 +34,29 @@ pub use crate::font_traits::{ShallowClone, ParsedFontTrait, FontLoaderTrait, Fon
 
 // --- Core Data Structures for the New Architecture ---
 
+/// Key for caching font chains - based only on CSS properties, not text content
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FontChainKey {
+    pub font_families: Vec<String>,
+    pub weight: FcWeight,
+    pub italic: bool,
+    pub oblique: bool,
+}
+
 #[derive(Debug)]
 pub struct FontManager<T, Q> {
     pub fc_cache: Arc<FcFontCache>,
     pub parsed_fonts: Mutex<HashMap<FontId, T>>, // Changed from Arc<T>
     pub font_selector_to_id_cache: Mutex<HashMap<FontSelector, FontId>>,
+    // Cache for failed font lookups to avoid repeated fontconfig queries
+    pub failed_font_lookups: Mutex<std::collections::HashSet<FontSelector>>,
     // Default: System font loader
     // (loads fonts from file - can be intercepted for mocking in tests)
     pub font_loader: Arc<Q>,
     // System font fallbacks (loaded at initialization)
     pub system_font_fallbacks: Mutex<HashMap<String, FontId>>,
+    // Cache for font chains - key is (font_families, weight, style), NOT including text
+    pub font_chain_cache: Mutex<HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>>,
 }
 
 impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
@@ -53,7 +66,9 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
             parsed_fonts: Mutex::new(HashMap::new()),
             font_loader: loader,
             font_selector_to_id_cache: Mutex::new(HashMap::new()),
+            failed_font_lookups: Mutex::new(std::collections::HashSet::new()),
             system_font_fallbacks: Mutex::new(HashMap::new()),
+            font_chain_cache: Mutex::new(HashMap::new()),
         };
 
         // Initialize system font fallbacks
@@ -145,19 +160,70 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
 // FontManager with proper rust-fontconfig fallback
 impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontManager<T, Q> {
     fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static QUERY_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        
+        // Check if this font selector has already failed before (FIRST!)
+        // This must come before any other checks to prevent infinite loops
+        if let Ok(failed) = self.failed_font_lookups.lock() {
+            if failed.contains(font_selector) {
+                // We already know this font doesn't exist, fail fast
+                return Err(LayoutError::FontNotFound(font_selector.clone()));
+            }
+        }
+        
+        let query_count = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        if query_count < 10 {
+            println!("[FontManager #{:03}] load_font requested: family='{}', weight={:?}, style={:?}, unicode_ranges={}",
+                query_count, font_selector.family, font_selector.weight, font_selector.style, font_selector.unicode_ranges.len());
+        } else if query_count == 10 {
+            println!("[FontManager] ... (suppressing further load_font messages, count: {})", query_count);
+        }
+        
+        if query_count > 200 {
+            eprintln!("[FontManager] ERROR: load_font called {} times! Infinite loop detected!", query_count);
+            eprintln!("[FontManager] Last request: family='{}'", font_selector.family);
+            eprintln!("[FontManager] Returning emergency fallback font to break loop");
+            
+            // Cache this failed lookup BEFORE returning emergency fallback
+            if let Ok(mut failed) = self.failed_font_lookups.lock() {
+                failed.insert(font_selector.clone());
+            }
+            
+            // DON'T return an error - that triggers more fallback attempts!
+            // Instead, return ANY available font to break the loop
+            let fallbacks = self.system_font_fallbacks.lock().unwrap();
+            if let Some((_, any_font_id)) = fallbacks.iter().next() {
+                let fonts = self.parsed_fonts.lock().unwrap();
+                if let Some(font) = fonts.get(any_font_id) {
+                    return Ok(font.shallow_clone());
+                }
+            }
+            
+            // If we really have no fonts at all, then fail
+            return Err(LayoutError::FontNotFound(font_selector.clone()));
+        }
+        
         // Check cache first
         if let Ok(c) = self.font_selector_to_id_cache.lock() {
             if let Some(cached_id) = c.get(font_selector) {
                 let fonts = self.parsed_fonts.lock().unwrap();
                 if let Some(font) = fonts.get(cached_id) {
+                    if query_count < 10 {
+                        println!("[FontManager #{:03}] -> Cache HIT, returning cached font", query_count);
+                    }
                     return Ok(font.shallow_clone());
                 }
             }
         }
 
-        // Query fontconfig
+        // Query fontconfig with Unicode ranges if specified
         let pattern = FcPattern {
-            name: Some(font_selector.family.clone()),
+            name: if font_selector.family.is_empty() {
+                None // Empty family = wildcard search (match any font)
+            } else {
+                Some(font_selector.family.clone())
+            },
             weight: font_selector.weight,
             italic: if font_selector.style == FontStyle::Italic {
                 PatternMatch::True
@@ -169,41 +235,26 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
             } else {
                 PatternMatch::DontCare
             },
+            unicode_ranges: font_selector.unicode_ranges.clone(),
             ..Default::default()
         };
 
         let mut trace = Vec::new();
         let fc_match = self.fc_cache.query(&pattern, &mut trace);
 
-        // If fontconfig query fails, try system font fallbacks
-        let fc_match = if fc_match.is_none() {
-            // Try to use system font fallback
-            let fallbacks = self.system_font_fallbacks.lock().unwrap();
-            if let Some(fallback_id) = fallbacks.get(&font_selector.family.to_lowercase()) {
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(fallback_id) {
-                    // Cache this mapping
-                    let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
-                    ref_cache.insert(font_selector.clone(), fallback_id.clone());
-                    // Using system fallback (debug info suppressed)
-                    return Ok(font.shallow_clone());
+        // If fontconfig query fails, cache the failure and return FontNotFound immediately
+        // This prevents repeatedly trying to load non-existent fonts
+        let fc_match = match fc_match {
+            Some(m) => m,
+            None => {
+                // Cache this failed lookup to avoid retrying
+                if let Ok(mut failed) = self.failed_font_lookups.lock() {
+                    failed.insert(font_selector.clone());
                 }
+                
+                // Font not found by fontconfig
+                return Err(LayoutError::FontNotFound(font_selector.clone()));
             }
-
-            // Ultimate fallback: use ANY available font
-            if let Some((_, any_font_id)) = fallbacks.iter().next() {
-                // Using ultimate fallback font (debug info suppressed)
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(any_font_id) {
-                    let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
-                    ref_cache.insert(font_selector.clone(), any_font_id.clone());
-                    return Ok(font.shallow_clone());
-                }
-            }
-
-            return Err(LayoutError::FontNotFound(font_selector.clone()));
-        } else {
-            fc_match.unwrap()
         };
 
         // Load font if not cached
@@ -240,7 +291,187 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontMan
         let fonts = self.parsed_fonts.lock().unwrap();
         Ok(fonts.get(&fc_match.id).unwrap().shallow_clone()) // Use shallow_clone
     }
+    
+    /// Load font from a stack of font selectors, trying each one until successful
+    /// Uses the new rust-fontconfig resolve_font_chain API for efficient multilingual font resolution
+    /// 
+    /// IMPORTANT: This function now caches font chains based on (font_families, weight, style)
+    /// and uses resolve_char() to find the right font for each character. This avoids
+    /// creating a new cache entry for each unique text string.
+    fn load_font_from_stack(&self, font_stack: &[FontSelector], text: &str) -> Result<T, LayoutError> {
+        if font_stack.is_empty() {
+            return Err(LayoutError::FontNotFound(FontSelector::default()));
+        }
+        
+        // Build font families list
+        let font_families: Vec<String> = font_stack.iter()
+            .map(|s| s.family.clone())
+            .filter(|f| !f.is_empty())
+            .collect();
+        
+        // If we have no font families, use system defaults
+        let font_families = if font_families.is_empty() {
+            vec!["sans-serif".to_string()]
+        } else {
+            font_families
+        };
+        
+        // Extract weight and style from first selector
+        let weight = font_stack[0].weight;
+        let is_italic = font_stack[0].style == FontStyle::Italic;
+        let is_oblique = font_stack[0].style == FontStyle::Oblique;
+        
+        // Create cache key based only on CSS properties, NOT text content
+        let cache_key = FontChainKey {
+            font_families: font_families.clone(),
+            weight,
+            italic: is_italic,
+            oblique: is_oblique,
+        };
+        
+        // Check our local cache first (this avoids the unicode_ranges issue in rust-fontconfig)
+        let font_chain = {
+            let cache = self.font_chain_cache.lock().unwrap();
+            cache.get(&cache_key).cloned()
+        };
+        
+        let font_chain = match font_chain {
+            Some(chain) => chain,
+            None => {
+                // Not in our cache - call rust-fontconfig
+                // We pass an empty string to avoid the per-text caching issue
+                let italic = if is_italic { PatternMatch::True } else { PatternMatch::DontCare };
+                let oblique = if is_oblique { PatternMatch::True } else { PatternMatch::DontCare };
+                
+                let mut trace = Vec::new();
+                // Use a representative sample text that covers common Unicode ranges
+                // This ensures the font chain includes fonts for Latin, CJK, etc.
+                let sample_text = "AaBbCc 你好 こんにちは";
+                let chain = self.fc_cache.resolve_font_chain(
+                    &font_families,
+                    sample_text,
+                    weight,
+                    italic,
+                    oblique,
+                    &mut trace,
+                );
+                
+                // Cache it
+                let mut cache = self.font_chain_cache.lock().unwrap();
+                cache.insert(cache_key, chain.clone());
+                chain
+            }
+        };
+        
+        // Now use resolve_char to find the right font for the first character
+        // (we assume text is relatively homogeneous - for mixed scripts, 
+        // the text should already be segmented by script)
+        let first_char = text.chars().next().unwrap_or('A');
+        
+        // Try to find a font that can render this character
+        if let Some((font_id, _css_source)) = font_chain.resolve_char(&self.fc_cache, first_char) {
+            // Check if font is already loaded
+            {
+                let fonts = self.parsed_fonts.lock().unwrap();
+                if let Some(font) = fonts.get(&font_id) {
+                    return Ok(font.shallow_clone());
+                }
+            }
+            
+            // Load the font
+            if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_id) {
+                let font_index = self.fc_cache.get_font_by_id(&font_id)
+                    .and_then(|source| match source {
+                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
+                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+                    })
+                    .unwrap_or(0);
+                
+                if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
+                    let mut fonts = self.parsed_fonts.lock().unwrap();
+                    fonts.insert(font_id.clone(), parsed.shallow_clone());
+                    return Ok(parsed);
+                }
+            }
+        }
+        
+        // Fallback: try all fonts in the chain (original behavior)
+        for group in &font_chain.css_fallbacks {
+            for font_match in &group.fonts {
+                // Check if font is already loaded
+                {
+                    let fonts = self.parsed_fonts.lock().unwrap();
+                    if let Some(font) = fonts.get(&font_match.id) {
+                        return Ok(font.shallow_clone());
+                    }
+                }
+                
+                // Try to load the font
+                if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_match.id) {
+                    let font_index = self.fc_cache.get_font_by_id(&font_match.id)
+                        .and_then(|source| match source {
+                            rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
+                            rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+                        })
+                        .unwrap_or(0);
+                    
+                    if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
+                        let mut fonts = self.parsed_fonts.lock().unwrap();
+                        fonts.insert(font_match.id.clone(), parsed.shallow_clone());
+                        return Ok(parsed);
+                    }
+                }
+            }
+        }
+        
+        // If CSS fallbacks didn't work, try Unicode fallbacks
+        for font_match in &font_chain.unicode_fallbacks {
+            // Check if font is already loaded
+            {
+                let fonts = self.parsed_fonts.lock().unwrap();
+                if let Some(font) = fonts.get(&font_match.id) {
+                    return Ok(font.shallow_clone());
+                }
+            }
+            
+            // Try to load the font
+            if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_match.id) {
+                let font_index = self.fc_cache.get_font_by_id(&font_match.id)
+                    .and_then(|source| match source {
+                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
+                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+                    })
+                    .unwrap_or(0);
+                
+                if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
+                    let mut fonts = self.parsed_fonts.lock().unwrap();
+                    fonts.insert(font_match.id.clone(), parsed.shallow_clone());
+                    return Ok(parsed);
+                }
+            }
+        }
+        
+        // If font chain didn't find anything, fall back to system fonts
+        let fallbacks = self.system_font_fallbacks.lock().unwrap();
+        if let Some(font_id) = fallbacks.get("sans-serif") {
+            let fonts = self.parsed_fonts.lock().unwrap();
+            if let Some(font) = fonts.get(font_id) {
+                return Ok(font.shallow_clone());
+            }
+        }
+        
+        // Last resort: return any available font
+        {
+            let fonts = self.parsed_fonts.lock().unwrap();
+            if let Some((_, font)) = fonts.iter().next() {
+                return Ok(font.shallow_clone());
+            }
+        }
+        
+        Err(LayoutError::FontNotFound(font_stack[0].clone()))
+    }
 }
+
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -1792,7 +2023,9 @@ impl Default for FontHash {
 /// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
-    pub font_selector: FontSelector,
+    /// Font stack for fallback support (priority order)
+    /// First font is primary, rest are fallbacks
+    pub font_stack: Vec<FontSelector>,
     pub font_size_px: f32,
     pub color: ColorU,
     pub letter_spacing: Spacing,
@@ -1828,7 +2061,7 @@ impl Default for StyleProperties {
         const FONT_SIZE: f32 = 16.0;
         const TAB_SIZE: f32 = 8.0;
         Self {
-            font_selector: FontSelector::default(),
+            font_stack: vec![FontSelector::default()],
             font_size_px: FONT_SIZE,
             color: ColorU::default(),
             letter_spacing: Spacing::default(), // Px(0)
@@ -1852,7 +2085,7 @@ impl Default for StyleProperties {
 
 impl Hash for StyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font_selector.hash(state);
+        self.font_stack.hash(state);
         self.color.hash(state);
         self.text_decoration.hash(state);
         self.font_features.hash(state);
@@ -1997,7 +2230,7 @@ pub struct StyleOverride {
 
 #[derive(Debug, Clone, Default)]
 pub struct PartialStyleProperties {
-    pub font_selector: Option<FontSelector>,
+    pub font_stack: Option<Vec<FontSelector>>,
     pub font_size_px: Option<f32>,
     pub color: Option<ColorU>,
     pub letter_spacing: Option<Spacing>,
@@ -2019,7 +2252,7 @@ pub struct PartialStyleProperties {
 
 impl Hash for PartialStyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.font_selector.hash(state);
+        self.font_stack.hash(state);
         self.font_size_px.map(|f| f.to_bits()).hash(state);
         self.color.hash(state);
         self.letter_spacing.hash(state);
@@ -2050,7 +2283,7 @@ impl Hash for PartialStyleProperties {
 
 impl PartialEq for PartialStyleProperties {
     fn eq(&self, other: &Self) -> bool {
-        self.font_selector == other.font_selector &&
+        self.font_stack == other.font_stack &&
         self.font_size_px.map(|f| f.to_bits()) == other.font_size_px.map(|f| f.to_bits()) &&
         self.color == other.color &&
         self.letter_spacing == other.letter_spacing &&
@@ -2076,8 +2309,8 @@ impl Eq for PartialStyleProperties {}
 impl StyleProperties {
     fn apply_override(&self, partial: &PartialStyleProperties) -> Self {
         let mut new_style = self.clone();
-        if let Some(val) = &partial.font_selector {
-            new_style.font_selector = val.clone();
+        if let Some(val) = &partial.font_stack {
+            new_style.font_stack = val.clone();
         }
         if let Some(val) = partial.font_size_px {
             new_style.font_size_px = val;
@@ -3998,45 +4231,37 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                     Direction::Ltr
                 };
 
-                // Try to load the requested font, fall back to default if not found
-                let font = match font_provider.load_font(&style.font_selector) {
+                // Load font using the entire font stack with Unicode ranges from text
+                let font = match font_provider.load_font_from_stack(&style.font_stack, &item.text) {
                     Ok(f) => f,
                     Err(LayoutError::FontNotFound(_)) => {
-                        // Try generic fallbacks
-                        let fallback_fonts = ["sans-serif", "serif", "monospace", "system-ui"];
-                        let mut loaded_font = None;
-                        for fallback in &fallback_fonts {
-                            let fallback_selector = FontSelector {
-                                family: fallback.to_string(),
-                                weight: rust_fontconfig::FcWeight::Normal,
-                                style: FontStyle::Normal,
-                                unicode_ranges: vec![],
+                        if let Some(msgs) = debug_messages {
+                            // Truncate text to 50 characters (not bytes) to avoid cutting mid-character
+                            let truncated_text = item.text.chars()
+                                .take(50)
+                                .collect::<String>();
+                            let display_text = if item.text.chars().count() > 50 {
+                                format!("{}...", truncated_text)
+                            } else {
+                                truncated_text
                             };
-                            if let Ok(f) = font_provider.load_font(&fallback_selector) {
-                                if let Some(msgs) = debug_messages {
-                                    msgs.push(LayoutDebugMessage::info(format!(
-                                        "[TextLayout] Using fallback font '{}' for '{}'",
-                                        fallback, style.font_selector.family
-                                    )));
-                                }
-                                loaded_font = Some(f);
-                                break;
-                            }
+                            
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] No font in stack could render text: '{}'",
+                                display_text
+                            )));
                         }
-
-                        // If no fallback available, skip this text item with warning
-                        if loaded_font.is_none() {
-                            if let Some(msgs) = debug_messages {
-                                msgs.push(LayoutDebugMessage::warning(format!(
-                                    "[TextLayout] No font available for '{}', skipping text",
-                                    style.font_selector.family
-                                )));
-                            }
-                            continue;
-                        }
-                        loaded_font.unwrap()
+                        continue;
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => {
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::error(format!(
+                                "[TextLayout] Font loading error: {:?}",
+                                e
+                            )));
+                        }
+                        return Err(e);
+                    }
                 };
                 let language = script_to_language(item.script, &item.text);
 
@@ -4112,7 +4337,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 source,
                 text,
             } => {
-                let font: T = font_provider.load_font(&style.font_selector)?; // Changed from Arc<T>
+                let font: T = font_provider.load_font(style.font_stack.first().unwrap_or(&FontSelector::default()))?; // Changed from Arc<T>
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -6188,7 +6413,7 @@ fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
     let mut all_shaped_glyphs = Vec::new();
 
     for run in visual_runs {
-        let font = font_provider.load_font(&run.style.font_selector)?;
+        let font = font_provider.load_font(run.style.font_stack.first().unwrap_or(&FontSelector::default()))?;
 
         let direction = if run.bidi_level.is_rtl() {
             Direction::Rtl

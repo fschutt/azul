@@ -85,10 +85,25 @@ impl FontLoaderTrait<FontRef> for PathLoader {
     ///
     /// This implementation parses the bytes into a ParsedFont and wraps it in a FontRef.
     fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<FontRef, LayoutError> {
-        println!(
-            "[PathLoader] Parsing font from byte stream (font index: {})",
-            font_index
-        );
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LOAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        
+        let count = LOAD_COUNTER.fetch_add(1, Ordering::SeqCst);
+        if count < 5 {
+            println!(
+                "[PathLoader #{:03}] Parsing font from byte stream (font index: {}, bytes: {})",
+                count, font_index, font_bytes.len()
+            );
+        } else if count == 5 {
+            println!("[PathLoader] ... (suppressing further messages, call count: {})", count);
+        }
+        
+        // Guard against infinite loops - if we've loaded more than 100 fonts, something is wrong
+        if count > 100 {
+            eprintln!("[PathLoader] ERROR: load_font called {} times! Infinite loop detected!", count);
+            eprintln!("[PathLoader] Stack trace hint: font_index={}, font_bytes.len()={}", font_index, font_bytes.len());
+            return Err(LayoutError::ShapingError("Too many font loads - infinite loop detected".to_string()));
+        }
 
         // Parse the font bytes and wrap in FontRef
         // NOTE: Outlines are always parsed (parse_outlines = true)

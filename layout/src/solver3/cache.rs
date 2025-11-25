@@ -608,41 +608,80 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
-
-    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
-    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
-
-    let scrollbar_info = fc::check_scrollbar_necessity(
-        content_size,
-        box_props.inner_size(final_used_size, writing_mode),
-        to_overflow_behavior(overflow_x),
-        to_overflow_behavior(overflow_y),
-    );
+    // IMPORTANT: Skip scrollbar handling for paged media (PDF) - scrollbars don't exist in print
+    #[cfg(feature = "pdf")]
+    let skip_scrollbar_check = ctx.fragmentation_context.is_some();
+    #[cfg(not(feature = "pdf"))]
+    let skip_scrollbar_check = false;
+    
+    let scrollbar_info = if skip_scrollbar_check {
+        // For PDF/paged media, never add scrollbars
+        crate::solver3::scrollbar::ScrollbarInfo {
+            needs_horizontal: false,
+            needs_vertical: false,
+            scrollbar_width: 0.0,
+            scrollbar_height: 0.0,
+        }
+    } else {
+        let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
+        
+        fc::check_scrollbar_necessity(
+            content_size,
+            box_props.inner_size(final_used_size, writing_mode),
+            to_overflow_behavior(overflow_x),
+            to_overflow_behavior(overflow_y),
+        )
+    };
 
     // Check if scrollbar situation changed compared to previous layout
-    let scrollbar_changed = {
+    // IMPORTANT: To prevent oscillation, we only trigger reflow when scrollbars
+    // are ADDED, never when they would be REMOVED. This is because:
+    // 1. Adding scrollbars reduces available space → content reflows → may fit
+    // 2. Removing scrollbars increases space → content reflows → may overflow again
+    // This creates an infinite loop. By only allowing transitions TO scrollbars,
+    // we reach a stable state where scrollbars are present if ever needed.
+    let scrollbar_changed = if skip_scrollbar_check {
+        false // Never trigger reflow for scrollbars in paged media
+    } else {
         let current_node = tree.get(node_index).unwrap();
         match &current_node.scrollbar_info {
-            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will */
-            // reduce size
+            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will reduce size */
             Some(old_info) => {
-                // Compare if scrollbar necessity changed
-                old_info.needs_horizontal != scrollbar_info.needs_horizontal
-                    || old_info.needs_vertical != scrollbar_info.needs_vertical
+                // Only trigger reflow if scrollbars are being ADDED, not removed
+                // This prevents the classic scrollbar oscillation problem
+                let adding_horizontal = !old_info.needs_horizontal && scrollbar_info.needs_horizontal;
+                let adding_vertical = !old_info.needs_vertical && scrollbar_info.needs_vertical;
+                adding_horizontal || adding_vertical
             }
         }
     };
 
+    // Mark that a reflow is needed, but DON'T return early - continue processing
+    // children so that ALL nodes get their scrollbar_info set in a single pass.
+    // This ensures we only need one reflow iteration instead of multiple.
     if scrollbar_changed {
         *reflow_needed_for_scrollbars = true;
-        // Store the new scrollbar info before returning
-        let current_node = tree.get_mut(node_index).unwrap();
-        current_node.scrollbar_info = Some(scrollbar_info);
-        return Ok(());
     }
 
+    // IMPORTANT: Merge scrollbar info - once scrollbars are needed, keep them.
+    // This prevents the oscillation problem where content reflows to fit without
+    // scrollbars, but then overflows again when scrollbars are removed.
+    let merged_scrollbar_info = {
+        let current_node = tree.get(node_index).unwrap();
+        match &current_node.scrollbar_info {
+            Some(old) => crate::solver3::scrollbar::ScrollbarInfo {
+                needs_horizontal: old.needs_horizontal || scrollbar_info.needs_horizontal,
+                needs_vertical: old.needs_vertical || scrollbar_info.needs_vertical,
+                scrollbar_width: if old.needs_vertical || scrollbar_info.needs_vertical { 16.0 } else { 0.0 },
+                scrollbar_height: if old.needs_horizontal || scrollbar_info.needs_horizontal { 16.0 } else { 0.0 },
+            },
+            None => scrollbar_info.clone(),
+        }
+    };
+
     let content_box_size = box_props.inner_size(final_used_size, writing_mode);
-    let inner_size_after_scrollbars = scrollbar_info.shrink_size(content_box_size);
+    let inner_size_after_scrollbars = merged_scrollbar_info.shrink_size(content_box_size);
 
     // --- Phase 4: Update self and recurse to children ---
     let current_node = tree.get_mut(node_index).unwrap();
@@ -655,7 +694,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
         current_node.used_size = Some(final_used_size);
     }
     
-    current_node.scrollbar_info = Some(scrollbar_info); // Store scrollbar info
+    current_node.scrollbar_info = Some(merged_scrollbar_info);
 
     // The absolute position of this node's content-box for its children.
     // containing_block_pos is the absolute position of this node's margin-box.

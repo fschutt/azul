@@ -4707,15 +4707,17 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
     }
     
     // Step 1: Pre-Query Fonts - get font stack from fontconfig
+    let default_font = crate::text3::cache::FontSelector::default();
+    let first_font = base_style.font_stack.first().unwrap_or(&default_font);
     let pattern = FcPattern {
-        name: Some(base_style.font_selector.family.clone()),
-        weight: base_style.font_selector.weight,
-        italic: if base_style.font_selector.style == crate::font_traits::FontStyle::Italic {
+        name: Some(first_font.family.clone()),
+        weight: first_font.weight,
+        italic: if first_font.style == crate::font_traits::FontStyle::Italic {
             PatternMatch::True
         } else {
             PatternMatch::DontCare
         },
-        oblique: if base_style.font_selector.style == crate::font_traits::FontStyle::Oblique {
+        oblique: if first_font.style == crate::font_traits::FontStyle::Oblique {
             PatternMatch::True
         } else {
             PatternMatch::DontCare
@@ -4806,7 +4808,9 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
                 let segment_style = if let Some(font_idx) = current_font_idx {
                     if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
                         let mut new_style = (*base_style).clone();
-                        new_style.font_selector.family = font_name.clone();
+                        if let Some(font) = new_style.font_stack.get_mut(0) {
+                            font.family = font_name.clone();
+                        }
                         Arc::new(new_style)
                     } else {
                         base_style.clone()
@@ -4819,7 +4823,7 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[generate_list_marker_segments] Segment: '{}' with font '{}'",
                         segment_text,
-                        segment_style.font_selector.family
+                        segment_style.font_stack.first().map(|f| f.family.as_str()).unwrap_or("default")
                     )));
                 }
                 
@@ -4843,7 +4847,9 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
         let segment_style = if let Some(font_idx) = current_font_idx {
             if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
                 let mut new_style = (*base_style).clone();
-                new_style.font_selector.family = font_name.clone();
+                if let Some(font) = new_style.font_stack.get_mut(0) {
+                    font.family = font_name.clone();
+                }
                 Arc::new(new_style)
             } else {
                 base_style.clone()
@@ -4856,7 +4862,7 @@ fn generate_list_marker_segments<T: ParsedFontTrait>(
             msgs.push(LayoutDebugMessage::info(format!(
                 "[generate_list_marker_segments] Final segment: '{}' with font '{}'",
                 segment_text,
-                segment_style.font_selector.family
+                segment_style.font_stack.first().map(|f| f.family.as_str()).unwrap_or("default")
             )));
         }
         

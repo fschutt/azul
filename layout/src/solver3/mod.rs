@@ -232,12 +232,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
-    let mut calculated_positions;
+    let mut calculated_positions = cache.calculated_positions.clone();
+    let mut loop_count = 0;
     loop {
+        loop_count += 1;
+        eprintln!("[DEBUG] Loop iteration {}", loop_count);
+        if loop_count > 10 {
+            // Safety limit to prevent infinite loops
+            eprintln!("[DEBUG] ERROR: Too many iterations!");
+            break;
+        }
+        
         calculated_positions = cache.calculated_positions.clone();
         let mut reflow_needed_for_scrollbars = false;
 
-        // ... (Passes 2a, 2b, 2c remain the same)
         calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
 
         for &root_idx in &recon_result.layout_roots {
