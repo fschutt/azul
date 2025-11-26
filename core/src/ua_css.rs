@@ -96,7 +96,7 @@ use crate::dom::NodeType;
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::{length::PercentageValue, pixel::PixelValue, StyleFontSize, font::StyleFontWeight},
+        basic::{length::PercentageValue, pixel::PixelValue, StyleFontSize, font::StyleFontWeight, ColorU},
         layout::{
             display::LayoutDisplay,
             dimensions::{LayoutWidth, LayoutHeight},
@@ -107,7 +107,10 @@ use azul_css::{
             },
             fragmentation::{BreakInside, PageBreak},
         },
-        style::{StyleTextAlign, StyleVerticalAlign, content::CounterReset, lists::StyleListStyleType},
+        style::{
+            StyleTextAlign, StyleVerticalAlign, content::CounterReset, lists::StyleListStyleType,
+            border::{BorderStyle, StyleBorderTopStyle, StyleBorderTopColor, LayoutBorderTopWidth},
+        },
         property::{CssProperty, CssPropertyType},
     },
 };
@@ -426,6 +429,49 @@ static LIST_STYLE_TYPE_DECIMAL: CssProperty = CssProperty::ListStyleType(CssProp
     StyleListStyleType::Decimal,
 ));
 
+// --- HR Element Defaults ---
+// Per HTML spec, <hr> renders as a horizontal line with inset border style
+
+/// margin-top: 0.5em (for hr)
+static MARGIN_TOP_0_5EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
+    LayoutMarginTop {
+        inner: PixelValue::const_em_fractional(0, 5),
+    },
+));
+
+/// margin-bottom: 0.5em (for hr)
+static MARGIN_BOTTOM_0_5EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
+    LayoutMarginBottom {
+        inner: PixelValue::const_em_fractional(0, 5),
+    },
+));
+
+/// border-top-style: inset (for hr - default browser style)
+static BORDER_TOP_STYLE_INSET: CssProperty = CssProperty::BorderTopStyle(CssPropertyValue::Exact(
+    StyleBorderTopStyle {
+        inner: BorderStyle::Inset,
+    },
+));
+
+/// border-top-width: 1px (for hr)
+static BORDER_TOP_WIDTH_1PX: CssProperty = CssProperty::BorderTopWidth(CssPropertyValue::Exact(
+    LayoutBorderTopWidth {
+        inner: PixelValue::const_px(1),
+    },
+));
+
+/// border-top-color: gray (for hr - default visible color)
+static BORDER_TOP_COLOR_GRAY: CssProperty = CssProperty::BorderTopColor(CssPropertyValue::Exact(
+    StyleBorderTopColor {
+        inner: ColorU { r: 128, g: 128, b: 128, a: 255 },
+    },
+));
+
+/// height: 0 (for hr - the line comes from the border, not height)
+static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(
+    LayoutHeight::Px(PixelValue::const_px(0)),
+));
+
 /// counter-reset: list-item 0 (default for <ul>, <ol>)
 /// Per CSS Lists Module Level 3, list containers automatically reset the list-item counter
 static COUNTER_RESET_LIST_ITEM: CssProperty = CssProperty::CounterReset(CssPropertyValue::Exact(
@@ -659,6 +705,12 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::BlockQuote, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Hr, PT::Height) => Some(&HEIGHT_ZERO),
+        (NT::Hr, PT::MarginTop) => Some(&MARGIN_TOP_0_5EM),
+        (NT::Hr, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_5EM),
+        (NT::Hr, PT::BorderTopStyle) => Some(&BORDER_TOP_STYLE_INSET),
+        (NT::Hr, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
+        (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY),
 
         // Table Elements
         // Per CSS Fragmentation Level 3: tables and table header groups should avoid breaks inside
