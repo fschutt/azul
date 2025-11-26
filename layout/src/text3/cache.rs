@@ -29,6 +29,78 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::text3::script::{script_to_language, Script};
 use azul_css::corety::LayoutDebugMessage;
 
+/// Available space for layout, similar to Taffy's AvailableSpace.
+/// 
+/// This type explicitly represents the three possible states for available space:
+/// - `Definite(f32)`: A specific pixel width is available
+/// - `MinContent`: Layout should use minimum content width (shrink-wrap)
+/// - `MaxContent`: Layout should use maximum content width (no line breaks unless necessary)
+/// 
+/// This is critical for proper handling of intrinsic sizing in Flexbox/Grid
+/// where the available space may be indefinite during the measure phase.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AvailableSpace {
+    /// A specific amount of space is available (in pixels)
+    Definite(f32),
+    /// The node should be laid out under a min-content constraint
+    MinContent,
+    /// The node should be laid out under a max-content constraint  
+    MaxContent,
+}
+
+impl Default for AvailableSpace {
+    fn default() -> Self {
+        AvailableSpace::Definite(0.0)
+    }
+}
+
+impl AvailableSpace {
+    /// Returns true if this is a definite (finite, known) amount of space
+    pub fn is_definite(&self) -> bool {
+        matches!(self, AvailableSpace::Definite(_))
+    }
+    
+    /// Returns true if this is an indefinite (min-content or max-content) constraint
+    pub fn is_indefinite(&self) -> bool {
+        !self.is_definite()
+    }
+    
+    /// Returns the definite value if available, or a fallback for indefinite constraints
+    pub fn unwrap_or(self, fallback: f32) -> f32 {
+        match self {
+            AvailableSpace::Definite(v) => v,
+            _ => fallback,
+        }
+    }
+    
+    /// Returns the definite value, or 0.0 for min-content, or f32::MAX for max-content
+    pub fn to_f32_for_layout(self) -> f32 {
+        match self {
+            AvailableSpace::Definite(v) => v,
+            AvailableSpace::MinContent => 0.0,
+            AvailableSpace::MaxContent => f32::MAX,
+        }
+    }
+    
+    /// Create from a potentially infinite f32 value (for backwards compatibility)
+    pub fn from_f32(value: f32) -> Self {
+        if value.is_infinite() {
+            AvailableSpace::MaxContent
+        } else {
+            AvailableSpace::Definite(value)
+        }
+    }
+}
+
+impl Hash for AvailableSpace {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let AvailableSpace::Definite(v) = self {
+            (v.round() as usize).hash(state);
+        }
+    }
+}
+
 // Re-export traits for backwards compatibility
 pub use crate::font_traits::{ShallowClone, ParsedFontTrait};
 
@@ -357,17 +429,17 @@ pub struct CursorBoundsError {
 /// - `column_gap`: \u2705 Gap between columns
 ///
 /// # Known Issues:
-/// 1. \u26a0\ufe0f available_width defaults to 0.0 instead of containing block width
-/// 2. \u26a0\ufe0f vertical_align only supports baseline
-/// 3. \u274c initial-letter (drop caps) not implemented
+/// 1. ⚠️ available_width defaults to Definite(0.0) instead of containing block width
+/// 2. ⚠️ vertical_align only supports baseline
+/// 3. ❌ initial-letter (drop caps) not implemented
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
     pub shape_boundaries: Vec<ShapeBoundary>,
     pub shape_exclusions: Vec<ShapeBoundary>,
 
-    // Basic layout
-    pub available_width: f32, // For simple rectangular layouts
+    // Basic layout - using AvailableSpace for proper indefinite handling
+    pub available_width: AvailableSpace,
     pub available_height: Option<f32>,
 
     // Text layout
@@ -404,11 +476,11 @@ impl Default for UnifiedConstraints {
         Self {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
-            // \u26a0\ufe0f CRITICAL BUG: This should be set to the containing block's inner width
-            // per CSS Inline-3 \u00a7 2.1, but defaults to 0.0 which causes immediate line breaking.
+            // ⚠️ CRITICAL: This should be set to the containing block's inner width
+            // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line breaking.
             // This value should be passed from the box layout solver (fc.rs) when creating
             // UnifiedConstraints for text layout.
-            available_width: 0.0,
+            available_width: AvailableSpace::Definite(0.0),
             available_height: None,
             writing_mode: None,
             direction: None, // Will default to LTR if not specified
@@ -439,7 +511,7 @@ impl Hash for UnifiedConstraints {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.shape_boundaries.hash(state);
         self.shape_exclusions.hash(state);
-        (self.available_width.round() as usize).hash(state);
+        self.available_width.hash(state);
         self.available_height
             .map(|h| h.round() as usize)
             .hash(state);
@@ -465,7 +537,7 @@ impl PartialEq for UnifiedConstraints {
     fn eq(&self, other: &Self) -> bool {
         self.shape_boundaries == other.shape_boundaries
             && self.shape_exclusions == other.shape_exclusions
-            && round_eq(self.available_width, other.available_width)
+            && self.available_width == other.available_width
             && match (self.available_height, other.available_height) {
                 (None, None) => true,
                 (Some(h1), Some(h2)) => round_eq(h1, h2),
@@ -4640,7 +4712,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info("\n--- Entering perform_fragment_layout ---".to_string()));
         msgs.push(LayoutDebugMessage::info(format!(
-            "Constraints: available_width={}, available_height={:?}, columns={}",
+            "Constraints: available_width={:?}, available_height={:?}, columns={}",
             fragment_constraints.available_width,
             fragment_constraints.available_height,
             fragment_constraints.columns
@@ -4663,17 +4735,24 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     
     // CSS Inline Layout § 2.1: "the logical width of a line box is equal to the inner
     // logical width of its containing block"
-    // ⚠️ CRITICAL BUG: If fragment_constraints.available_width is 0.0 (from default),
-    // column_width will be 0.0, causing all text to break immediately!
-    // This should be set to the containing block's content box width.
     //
-    // Handle infinite available_width (used for intrinsic sizing / max-content measurement).
-    // With infinite width, column_width would be INFINITY, which causes NaN when multiplied
-    // by 0 for the first column. Instead, treat as effectively unbounded (very large).
-    let column_width = if fragment_constraints.available_width.is_infinite() {
-        f32::MAX / 2.0  // Large but safe value that won't overflow when multiplied
-    } else {
-        (fragment_constraints.available_width - total_column_gap) / num_columns as f32
+    // Handle the different available space modes:
+    // - Definite(width): Use the specified width for column calculation
+    // - MinContent: Use 0.0 to force line breaks at every opportunity
+    // - MaxContent: Use a large value to allow content to expand naturally
+    let column_width = match fragment_constraints.available_width {
+        AvailableSpace::Definite(width) => {
+            (width - total_column_gap) / num_columns as f32
+        }
+        AvailableSpace::MinContent => {
+            // Min-content: effectively 0 width forces immediate line breaks
+            0.0
+        }
+        AvailableSpace::MaxContent => {
+            // Max-content: very large width allows content to expand
+            // Using f32::MAX / 2.0 to avoid overflow issues
+            f32::MAX / 2.0
+        }
     };
     let mut current_column = 0;
     if let Some(msgs) = debug_messages {
@@ -4724,7 +4803,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
             // Create constraints specific to the current column for the line breaker.
             let mut column_constraints = fragment_constraints.clone();
-            column_constraints.available_width = column_width;
+            column_constraints.available_width = AvailableSpace::Definite(column_width);
             let line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.line_height,
@@ -5363,11 +5442,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - final_segment_width;
         
-        // Handle infinite width: when available_width is infinite (for intrinsic sizing),
-        // alignment calculations would produce infinite offsets. In this case, treat as
-        // left-aligned (offset = 0) since we're measuring natural content width.
-        let alignment_offset = if segment.width.is_infinite() {
-            0.0  // No alignment offset for infinite width
+        // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic sizing),
+        // segment.width will be f32::MAX / 2.0. Alignment calculations would produce huge offsets.
+        // In this case, treat as left-aligned (offset = 0) since we're measuring natural content width.
+        // We check for both infinite AND very large values (> 1e30) to catch the MaxContent case.
+        let is_indefinite_width = segment.width.is_infinite() || segment.width > 1e30;
+        let alignment_offset = if is_indefinite_width {
+            0.0  // No alignment offset for indefinite width
         } else {
             match physical_align {
                 TextAlign::Center => remaining_space / 2.0,
@@ -5938,9 +6019,17 @@ fn get_line_constraints(
 
     let mut available_segments = Vec::new();
     if constraints.shape_boundaries.is_empty() {
+        // For MaxContent, use a very large width but NOT infinite
+        // For MinContent, use 0.0 (will cause immediate line breaks)
+        // For Definite, use the specified width
+        let segment_width = match constraints.available_width {
+            AvailableSpace::Definite(w) => w,
+            AvailableSpace::MaxContent => f32::MAX / 2.0,
+            AvailableSpace::MinContent => 0.0,
+        };
         available_segments.push(LineSegment {
             start_x: 0.0,
-            width: constraints.available_width,
+            width: segment_width,
             priority: 0,
         });
     } else {

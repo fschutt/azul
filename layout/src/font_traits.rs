@@ -8,7 +8,7 @@ use azul_core::geom::LogicalSize;
 #[cfg(feature = "text_layout")]
 pub use crate::text3::{
     cache::{
-        ContentIndex, Direction, FontHash, FontManager, FontSelector, FontStyle, Glyph, ImageSource,
+        AvailableSpace, ContentIndex, Direction, FontHash, FontManager, FontSelector, FontStyle, Glyph, ImageSource,
         InlineContent, InlineImage, InlineShape, LayoutCache, LayoutError, LayoutFontMetrics,
         LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary, ShapeDefinition, ShapedItem,
         Size, StyleProperties, StyledRun, UnifiedConstraints, UnifiedLayout, VerticalMetrics,

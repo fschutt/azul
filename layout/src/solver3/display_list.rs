@@ -502,6 +502,23 @@ impl DisplayListBuilder {
         font_size_px: f32,
         color: ColorU,
     ) {
+        // DEBUG: Check if layout contains "$287"
+        if let Some(unified_layout) = layout.downcast_ref::<UnifiedLayout>() {
+            let texts: Vec<_> = unified_layout.items.iter().filter_map(|item| {
+                if let ShapedItem::Cluster(cluster) = &item.item {
+                    Some(cluster.text.as_str())
+                } else {
+                    None
+                }
+            }).collect();
+            let all_text = texts.join("");
+            if !all_text.is_empty() {
+                eprintln!("[TEXTLAYOUT] bounds {:?}: \"{}\"", bounds, all_text.chars().take(100).collect::<String>());
+            }
+        } else {
+            eprintln!("[TEXTLAYOUT] downcast_ref failed! type_id={:?}", layout.as_ref().type_id());
+        }
+        
         if color.a > 0 {
             self.push_item(DisplayListItem::TextLayout {
                 layout,
@@ -1117,6 +1134,12 @@ where
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
         
+        // DEBUG: Check for (0,0) positions
+        if pos.x == 0.0 && pos.y == 0.0 && node.inline_layout_result.is_some() {
+            eprintln!("[PAINT DEBUG] Node {} has inline_layout_result but pos=(0,0)! size={:?}", 
+                node_index, size);
+        }
+        
         // DEBUG: Log for table cells removed for performance
         use azul_core::dom::FormattingContext;
 
@@ -1514,6 +1537,7 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout,
     ) -> Result<()> {
+        eprintln!("[PAINT] paint_inline_content at {:?}, {} items", container_rect, layout.items.len());
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)

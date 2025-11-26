@@ -6,7 +6,7 @@ use std::sync::Arc;
 use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{
-    get_base_direction_from_logical, get_item_measure, is_word_separator, Direction, GlyphKind,
+    get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace, Direction, GlyphKind,
     JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
     Rect, ShapedCluster, ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
@@ -201,7 +201,14 @@ fn find_optimal_breakpoints(
     nodes: &[LayoutNode],
     constraints: &UnifiedConstraints,
 ) -> Vec<usize> {
-    let line_width = constraints.available_width;
+    // For Knuth-Plass, we need a definite line width.
+    // For MaxContent, use a very large value (no line breaks unless forced).
+    // For MinContent, use 0.0 (break at every opportunity).
+    let line_width = match constraints.available_width {
+        AvailableSpace::Definite(w) => w,
+        AvailableSpace::MaxContent => f32::MAX / 2.0,
+        AvailableSpace::MinContent => 0.0,
+    };
     let mut breakpoints = vec![
         Breakpoint {
             demerit: INFINITY_BADNESS,
@@ -340,8 +347,15 @@ fn position_lines_from_breaks(
         let should_justify = constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll);
 
+        // Get the available width as f32 for calculations
+        let available_width_f32 = match constraints.available_width {
+            AvailableSpace::Definite(w) => w,
+            AvailableSpace::MaxContent => f32::MAX / 2.0,
+            AvailableSpace::MinContent => 0.0,
+        };
+        
         if should_justify {
-            let space_to_add = constraints.available_width - line_width;
+            let space_to_add = available_width_f32 - line_width;
             if space_to_add > 0.0 {
                 let space_count = line_items
                     .iter()
@@ -358,13 +372,20 @@ fn position_lines_from_breaks(
             .iter()
             .map(|item| get_item_measure(item, false))
             .sum();
-        let remaining_space = constraints.available_width
+            
+        // For MaxContent, don't apply alignment (treat as left-aligned)
+        let is_indefinite = matches!(constraints.available_width, AvailableSpace::MaxContent | AvailableSpace::MinContent);
+        let remaining_space = if is_indefinite {
+            0.0
+        } else {
+            available_width_f32
             - (total_width
                 + extra_per_space
                     * line_items
                         .iter()
                         .filter(|item| is_word_separator(item))
-                        .count() as f32);
+                        .count() as f32)
+        };
 
         // NEW: Resolve the physical alignment here, inside the function, just like in
         // position_one_line.

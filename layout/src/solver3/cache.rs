@@ -785,7 +785,36 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         //
         // For other formatting contexts (Block, Inline, Table), we need to recurse
         // to lay out the children's subtrees.
-        if !is_flex_or_grid {
+        //
+        // HOWEVER: For Flex/Grid, we still need to process the GRANDCHILDREN!
+        // Taffy only sets positions on direct children. If those children have their
+        // own children (e.g., a Block child with text), we need to position them too.
+        if is_flex_or_grid {
+            // For Flex/Grid children: recurse to position their descendants
+            // Get the child's content-box position (child_absolute_pos is margin-box)
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_content_box_pos = LogicalPosition::new(
+                child_absolute_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
+                child_absolute_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+            );
+            let child_inner_size = child_node.box_props.inner_size(
+                child_node.used_size.unwrap_or_default(),
+                writing_mode
+            );
+            
+            // Recursively process the grandchildren
+            position_flex_child_descendants(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                child_content_box_pos,
+                child_inner_size,
+                calculated_positions,
+                reflow_needed_for_scrollbars,
+                float_cache,
+            )?;
+        } else {
             // CRITICAL: Pass child_absolute_pos as containing_block_pos for the recursive call.
             // The recursive function interprets containing_block_pos as the absolute position
             // of the current node (which will add padding to get content-box position for its
@@ -848,6 +877,97 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 }
 
 /// Recursively set static positions for out-of-flow descendants without doing layout
+/// Recursively positions descendants of Flex/Grid children.
+/// 
+/// When a Flex container lays out its children via Taffy, the children have their
+/// used_size and relative_position set, but their GRANDCHILDREN don't have positions
+/// in calculated_positions yet. This function traverses down the tree and positions
+/// all descendants properly.
+fn position_flex_child_descendants<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    node_index: usize,
+    content_box_pos: LogicalPosition,
+    available_size: LogicalSize,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    reflow_needed_for_scrollbars: &mut bool,
+    float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
+) -> Result<()> {
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let children: Vec<usize> = node.children.clone();
+    let fc = node.formatting_context.clone();
+    
+    // If this node is itself a Flex/Grid container, its children were laid out by Taffy
+    // and already have relative_position set. We just need to convert to absolute and recurse.
+    if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
+        for &child_index in &children {
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_rel_pos = child_node.relative_position.unwrap_or_default();
+            let child_abs_pos = LogicalPosition::new(
+                content_box_pos.x + child_rel_pos.x,
+                content_box_pos.y + child_rel_pos.y,
+            );
+            
+            // Insert position
+            calculated_positions.insert(child_index, child_abs_pos);
+            
+            // Get child's content box for recursion
+            let child_content_box = LogicalPosition::new(
+                child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
+                child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+            );
+            let child_inner_size = child_node.box_props.inner_size(
+                child_node.used_size.unwrap_or_default(),
+                azul_css::props::layout::LayoutWritingMode::HorizontalTb,
+            );
+            
+            // Recurse
+            position_flex_child_descendants(
+                ctx, tree, text_cache, child_index,
+                child_content_box, child_inner_size,
+                calculated_positions, reflow_needed_for_scrollbars, float_cache,
+            )?;
+        }
+    } else {
+        // For Block/Inline/Table children, their descendants need proper layout calculation
+        // Use the output.positions from their own layout
+        let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+        let children: Vec<usize> = node.children.clone();
+        
+        for &child_index in &children {
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_rel_pos = child_node.relative_position.unwrap_or_default();
+            let child_abs_pos = LogicalPosition::new(
+                content_box_pos.x + child_rel_pos.x,
+                content_box_pos.y + child_rel_pos.y,
+            );
+            
+            // Insert position
+            calculated_positions.insert(child_index, child_abs_pos);
+            
+            // Get child's content box for recursion
+            let child_content_box = LogicalPosition::new(
+                child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
+                child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+            );
+            let child_inner_size = child_node.box_props.inner_size(
+                child_node.used_size.unwrap_or_default(),
+                azul_css::props::layout::LayoutWritingMode::HorizontalTb,
+            );
+            
+            // Recurse
+            position_flex_child_descendants(
+                ctx, tree, text_cache, child_index,
+                child_content_box, child_inner_size,
+                calculated_positions, reflow_needed_for_scrollbars, float_cache,
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
 fn set_static_positions_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

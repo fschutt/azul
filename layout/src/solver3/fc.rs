@@ -507,16 +507,19 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             };
 
             ctx.debug_info(format!("CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}", node_index));
+            // Pass text_cache to Taffy bridge so IFC layout happens inline during measure
             let taffy_output =
-                taffy_bridge::layout_taffy_subtree(ctx, tree, node_index, taffy_inputs);
+                taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
 
             // The bridge has already updated the positions and sizes of the children in the tree.
-            // We just need to construct the LayoutOutput for the parent.
+            // IFC layout is now done inline during Taffy's compute_child_layout callbacks,
+            // so no post-processing is needed.
             let mut output = LayoutOutput::default();
             output.overflow_size = translate_taffy_size_back(taffy_output.size);
 
             // Taffy's results are stored directly on the nodes, so we read them back here.
-            for &child_idx in &tree.get(node_index).unwrap().children {
+            let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
+            for &child_idx in &children {
                 if let Some(child_node) = tree.get(child_idx) {
                     if let Some(pos) = child_node.relative_position {
                         output.positions.insert(child_idx, pos);
@@ -1497,6 +1500,19 @@ fn layout_ifc<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
+    layout_ifc_impl(ctx, text_cache, tree, node_index, constraints)
+}
+
+/// Internal IFC layout implementation.
+fn layout_ifc_impl<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    tree: &mut LayoutTree,
+    node_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<LayoutOutput> {
+    eprintln!("[IFC] layout_ifc_impl called for node_index={}, available_size={:?}", 
+        node_index, constraints.available_size);
     let float_count = constraints.bfc_state.as_ref().map(|s| s.floats.floats.len()).unwrap_or(0);
     ctx.debug_info(format!("[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}", 
               node_index, constraints.bfc_state.is_some(), float_count));
@@ -1599,10 +1615,13 @@ fn layout_ifc<T: ParsedFontTrait>(
         let should_store = has_floats || node.inline_layout_result.is_none();
         
         if should_store {
+            eprintln!("[IFC] STORING inline_layout_result for node {} with {} items, bounds={:?}", 
+                node_index, main_frag.items.len(), frag_bounds);
             ctx.debug_info(format!("[layout_ifc] Storing inline_layout_result for node {} (has_floats={}, is_new={})",
                       node_index, has_floats, node.inline_layout_result.is_none()));
             node.inline_layout_result = Some(main_frag.clone());
         } else {
+            eprintln!("[IFC] SKIPPING store for node {} (already exists)", node_index);
             ctx.debug_info(format!("[layout_ifc] SKIPPING inline_layout_result for node {} (no floats, result exists)",
                       node_index));
         }
@@ -2013,7 +2032,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutOverflow::Scroll => text3::cache::OverflowBehavior::Scroll,
             LayoutOverflow::Auto => text3::cache::OverflowBehavior::Auto,
         },
-        available_width: constraints.available_size.width,
+        available_width: text3::cache::AvailableSpace::from_f32(constraints.available_size.width),
         available_height: Some(constraints.available_size.height),
         shape_boundaries, // CSS shape-inside: text flows within shape
         shape_exclusions, // CSS shape-outside + floats: text wraps around shapes

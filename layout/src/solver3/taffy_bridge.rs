@@ -336,11 +336,19 @@ fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
 struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     tree: &'a mut LayoutTree,
+    /// Raw pointer to text cache - needed because we can't have multiple &mut references
+    /// SAFETY: This pointer is only valid for the lifetime of the TaffyBridge
+    /// and must only be used within compute_child_layout callbacks
+    text_cache: *mut crate::font_traits::TextLayoutCache,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
-    fn new(ctx: &'a mut LayoutContext<'b, T>, tree: &'a mut LayoutTree) -> Self {
-        Self { ctx, tree }
+    fn new(
+        ctx: &'a mut LayoutContext<'b, T>,
+        tree: &'a mut LayoutTree,
+        text_cache: *mut crate::font_traits::TextLayoutCache,
+    ) -> Self {
+        Self { ctx, tree, text_cache }
     }
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
@@ -793,9 +801,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 }
 
 /// Main entry point for laying out a Flexbox or Grid container using Taffy.
+/// 
+/// This function now accepts a text_cache parameter so that IFC layout can be
+/// performed inline during Taffy's measure callbacks, rather than as a post-processing step.
 pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     node_idx: usize,
     inputs: LayoutInput,
 ) -> LayoutOutput {
@@ -809,7 +821,12 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
         }
     }
     
-    let mut bridge = TaffyBridge::new(ctx, tree);
+    // SAFETY: We pass text_cache as a raw pointer because TaffyBridge needs to call
+    // layout_ifc from within compute_child_layout, but we already have &mut ctx and &mut tree.
+    // The pointer is only valid for the duration of this function call.
+    let text_cache_ptr = text_cache as *mut crate::font_traits::TextLayoutCache;
+    
+    let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
     let node = bridge.tree.get(node_idx).unwrap();
     let output = match node.formatting_context {
         FormattingContext::Flex => compute_flexbox_layout(&mut bridge, node_idx.into(), inputs),
@@ -883,6 +900,12 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree
     ) -> LayoutOutput {
         let node_idx: usize = node_id.into();
         
+        // Get formatting context
+        let fc = self.tree
+            .get(node_idx)
+            .map(|s| s.formatting_context.clone())
+            .unwrap_or_default();
+        
         let result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
@@ -895,88 +918,130 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree
                 FormattingContext::Flex => {
                     compute_flexbox_layout(tree, node_id, inputs)
                 },
-                FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
+                FormattingContext::Grid => {
+                    compute_grid_layout(tree, node_id, inputs)
+                },
+                // For Block, Inline, Table, InlineBlock - delegate to layout_formatting_context
+                // This ensures proper recursive layout of all formatting contexts
                 _ => {
-                    let node = tree.tree.get(node_idx).unwrap();
-                    
-                    // Check if this node has any children
-                    let has_children = tree.child_count(node_id) > 0;
-                    
-                    // Check if this node has intrinsic content (text, images, etc.)
-                    let has_intrinsic_content = node.intrinsic_sizes.is_some() 
-                        && (node.intrinsic_sizes.unwrap().max_content_width > 0.0 
-                            || node.intrinsic_sizes.unwrap().max_content_height > 0.0);
-                    
-                    // CRITICAL FIX: Empty containers (no children, no intrinsic content) should return 
-                    // an empty layout and let Taffy's stretch algorithm handle sizing.
-                    // This is how TaffyTree's default behavior works for .new_with_children(&[])
-                    if !has_children && !has_intrinsic_content {
-                        // Empty container - return minimal layout
-                        // 
-                        // Taffy will apply stretch sizing externally
-                        
-                        return LayoutOutput {
-                            size: Size {
-                                width: inputs.known_dimensions.width.unwrap_or(0.0),
-                                height: inputs.known_dimensions.height.unwrap_or(0.0),
-                            },
-                            content_size: Size {
-                                width: inputs.known_dimensions.width.unwrap_or(0.0),
-                                height: inputs.known_dimensions.height.unwrap_or(0.0),
-                            },
-                            first_baselines: taffy::Point { x: None, y: None },
-                            top_margin: taffy::CollapsibleMarginSet::ZERO,
-                            bottom_margin: taffy::CollapsibleMarginSet::ZERO,
-                            margins_can_collapse_through: false,
-                        };
-                    }
-                    
-                    // Has content - use measure function
-                    let style = tree.get_taffy_style(node_idx);
-                    let (suppress_width, suppress_height) = tree.should_suppress_cross_intrinsic(node_idx, &style);
-                    
-                    compute_leaf_layout(
-                        inputs,
-                        &style,
-                        |_, _| 0.0,
-                        |known_dimensions, _available_space| {
-                            let intrinsic = node.intrinsic_sizes.unwrap_or_default();
-                            
-                            let result = Size {
-                                width: known_dimensions.width.unwrap_or(
-                                    if suppress_width { 
-                                        0.0  // Signal no intrinsic width constraint
-                                    } else { 
-                                        intrinsic.max_content_width 
-                                    }
-                                ),
-                                height: known_dimensions.height.unwrap_or(
-                                    if suppress_height { 
-                                        0.0  // Signal no intrinsic height constraint
-                                    } else { 
-                                        intrinsic.max_content_height 
-                                    }
-                                ),
-                            };
-                            
-                            result
-                        },
-                    )
+                    tree.compute_non_flex_layout(node_idx, inputs)
                 }
             }
         });
         
-        // CRITICAL FIX: Store layout for container nodes!
-        // Taffy only calls set_unrounded_layout for leaf nodes,
-        // so we must manually store the layout for containers.
+        // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
         if let Some(node) = self.tree.get_mut(node_idx) {
-            if matches!(node.formatting_context, FormattingContext::Flex | FormattingContext::Grid) {
-                let size = translate_taffy_size_back(result.size);
-                node.used_size = Some(size);
-            }
+            let size = translate_taffy_size_back(result.size);
+            node.used_size = Some(size);
         }
         
         result
+    }
+}
+
+impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
+    /// Compute layout for non-flex/grid nodes by delegating to layout_formatting_context.
+    /// This handles Block, Inline, Table, InlineBlock formatting contexts recursively.
+    fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
+        use crate::solver3::fc::{LayoutConstraints, TextAlign as FcTextAlign, FloatingContext};
+        use azul_css::props::layout::LayoutWritingMode;
+        use azul_core::geom::LogicalSize;
+        
+        // Determine available size from Taffy's inputs
+        let available_width = inputs.known_dimensions.width
+            .or_else(|| match inputs.available_space.width {
+                AvailableSpace::Definite(w) => Some(w),
+                _ => None,
+            })
+            .unwrap_or(f32::INFINITY);
+        
+        let available_height = inputs.known_dimensions.height
+            .or_else(|| match inputs.available_space.height {
+                AvailableSpace::Definite(h) => Some(h),
+                _ => None,
+            })
+            .unwrap_or(f32::INFINITY);
+        
+        let available_size = LogicalSize {
+            width: available_width,
+            height: available_height,
+        };
+        
+        // SAFETY: text_cache pointer is valid for the lifetime of TaffyBridge
+        let text_cache = unsafe { &mut *self.text_cache };
+        
+        let constraints = LayoutConstraints {
+            available_size,
+            writing_mode: LayoutWritingMode::HorizontalTb,
+            bfc_state: None,
+            text_align: FcTextAlign::Start,
+            containing_block_size: available_size,
+        };
+        
+        // Use a temporary float cache for this subtree
+        let mut float_cache = std::collections::BTreeMap::new();
+        
+        // Call layout_formatting_context - this handles ALL formatting context types
+        // including nested flex/grid, tables, BFC, and IFC
+        let fc_result = crate::solver3::fc::layout_formatting_context(
+            self.ctx,
+            self.tree,
+            text_cache,
+            node_idx,
+            &constraints,
+            &mut float_cache,
+        );
+        
+        match fc_result {
+            Ok(bfc_result) => {
+                let output = bfc_result.output;
+                let content_width = output.overflow_size.width;
+                let content_height = output.overflow_size.height;
+                
+                // Use known_dimensions if provided, otherwise use content size
+                let final_width = inputs.known_dimensions.width.unwrap_or(content_width);
+                let final_height = inputs.known_dimensions.height.unwrap_or(content_height);
+                
+                // Store the computed size on the node
+                if let Some(node) = self.tree.get_mut(node_idx) {
+                    node.used_size = Some(LogicalSize {
+                        width: final_width,
+                        height: final_height,
+                    });
+                }
+                
+                LayoutOutput {
+                    size: Size { width: final_width, height: final_height },
+                    content_size: Size { width: content_width, height: content_height },
+                    first_baselines: taffy::Point { 
+                        x: None, 
+                        y: output.baseline 
+                    },
+                    top_margin: taffy::CollapsibleMarginSet::ZERO,
+                    bottom_margin: taffy::CollapsibleMarginSet::ZERO,
+                    margins_can_collapse_through: false,
+                }
+            }
+            Err(_e) => {
+                // Fallback to intrinsic sizes if layout fails
+                let node = self.tree.get(node_idx);
+                let intrinsic = node
+                    .and_then(|n| n.intrinsic_sizes)
+                    .unwrap_or_default();
+                
+                let width = inputs.known_dimensions.width.unwrap_or(intrinsic.max_content_width);
+                let height = inputs.known_dimensions.height.unwrap_or(intrinsic.max_content_height);
+                
+                LayoutOutput {
+                    size: Size { width, height },
+                    content_size: Size { width, height },
+                    first_baselines: taffy::Point { x: None, y: None },
+                    top_margin: taffy::CollapsibleMarginSet::ZERO,
+                    bottom_margin: taffy::CollapsibleMarginSet::ZERO,
+                    margins_can_collapse_through: false,
+                }
+            }
+        }
     }
 }
 

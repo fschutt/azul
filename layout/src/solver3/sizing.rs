@@ -27,7 +27,7 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     font::parsed::ParsedFont,
     font_traits::{
-        FontLoaderTrait, FontManager, ImageSource, InlineContent, InlineImage,
+        AvailableSpace, FontLoaderTrait, FontManager, ImageSource, InlineContent, InlineImage,
         InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
         StyleProperties, StyledRun, UnifiedConstraints,
     },
@@ -340,7 +340,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let min_fragments = vec![LayoutFragment {
             id: "min".to_string(),
             constraints: UnifiedConstraints {
-                available_width: 0.0,
+                available_width: AvailableSpace::MinContent,
                 ..Default::default()
             },
         }];
@@ -382,7 +382,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let max_fragments = vec![LayoutFragment {
             id: "max".to_string(),
             constraints: UnifiedConstraints {
-                available_width: f32::INFINITY,
+                available_width: AvailableSpace::MaxContent,
                 ..Default::default()
             },
         }];
