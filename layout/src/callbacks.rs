@@ -1057,7 +1057,7 @@ impl CallbackInfo {
 
         // Get the layout node and its inline layout result
         let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node.inline_layout_result.as_ref()
+        layout_node.inline_layout_result.as_ref().map(|c| c.get_layout())
     }
 
     // ===== Public query API =====

@@ -1083,11 +1083,24 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| v.inner.normalized() * font_size)
         .unwrap_or(font_size * 1.2);
 
-    // Get background color for inline elements
-    let background_color = {
+    // Get background color for INLINE elements only
+    // CSS background-color is NOT inherited. For block-level elements (th, td, div, etc.),
+    // the background is painted separately by paint_element_background() in display_list.rs.
+    // Only inline elements (span, em, strong, a, etc.) should have their background color
+    // propagated through StyleProperties for the text rendering pipeline.
+    use azul_css::props::layout::LayoutDisplay;
+    let display = cache
+        .get_display(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .unwrap_or(LayoutDisplay::Inline);
+    
+    let background_color = if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock) {
         let bg = get_background_color(styled_dom, dom_id, node_state);
         // Only set if not fully transparent
         if bg.a > 0 { Some(bg) } else { None }
+    } else {
+        // Block-level elements: background is painted by display_list.rs, not text renderer
+        None
     };
 
     // Query font-weight from CSS cache

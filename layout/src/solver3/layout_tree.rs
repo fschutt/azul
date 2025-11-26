@@ -34,6 +34,7 @@ use crate::{
         scrollbar::ScrollbarInfo,
         LayoutContext, Result,
     },
+    text3::cache::AvailableSpace,
 };
 
 #[cfg(feature = "text_layout")]
@@ -67,6 +68,114 @@ pub enum DirtyFlag {
 /// purposes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct SubtreeHash(pub u64);
+
+/// Cached inline layout result with the constraints used to compute it.
+/// 
+/// This structure solves a fundamental architectural problem: inline layouts
+/// (text wrapping, inline-block positioning) depend on the available width.
+/// Different layout phases may compute the layout with different widths:
+/// 
+/// 1. **Min-content measurement**: width = MinContent (effectively 0)
+/// 2. **Max-content measurement**: width = MaxContent (effectively infinite)  
+/// 3. **Final layout**: width = Definite(actual_column_width)
+/// 
+/// Without tracking which constraints were used, a cached result from phase 1
+/// would incorrectly be reused in phase 3, causing text to wrap at the wrong
+/// positions (the root cause of table cell width bugs).
+/// 
+/// By storing the constraints alongside the result, we can:
+/// - Invalidate the cache when constraints change
+/// - Keep multiple cached results for different constraint types if needed
+/// - Ensure the final render always uses a layout computed with correct widths
+#[derive(Debug, Clone)]
+pub struct CachedInlineLayout {
+    /// The computed inline layout
+    pub layout: Arc<UnifiedLayout>,
+    /// The available width constraint used to compute this layout.
+    /// This is the key for cache validity checking.
+    pub available_width: AvailableSpace,
+    /// Whether this layout was computed with float exclusions.
+    /// Float-aware layouts should not be overwritten by non-float layouts.
+    pub has_floats: bool,
+}
+
+impl CachedInlineLayout {
+    /// Creates a new cached inline layout.
+    pub fn new(layout: Arc<UnifiedLayout>, available_width: AvailableSpace, has_floats: bool) -> Self {
+        Self {
+            layout,
+            available_width,
+            has_floats,
+        }
+    }
+    
+    /// Checks if this cached layout is valid for the given constraints.
+    /// 
+    /// A cached layout is valid if:
+    /// 1. The available width matches (definite widths must be equal, or both are the same indefinite type)
+    /// 2. OR the new request doesn't have floats but the cached one does (keep float-aware layout)
+    /// 
+    /// The second condition preserves float-aware layouts, which are more "correct" than
+    /// non-float layouts and shouldn't be overwritten.
+    pub fn is_valid_for(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+        // If we have a float-aware layout and the new request doesn't have floats,
+        // keep the float-aware layout (it's more accurate)
+        if self.has_floats && !new_has_floats {
+            // But only if the width constraint type matches
+            return self.width_constraint_matches(new_width);
+        }
+        
+        // Otherwise, require exact width match
+        self.width_constraint_matches(new_width)
+    }
+    
+    /// Checks if the width constraint matches.
+    fn width_constraint_matches(&self, new_width: AvailableSpace) -> bool {
+        match (self.available_width, new_width) {
+            // Definite widths must match within a small epsilon
+            (AvailableSpace::Definite(old), AvailableSpace::Definite(new)) => {
+                (old - new).abs() < 0.1
+            }
+            // MinContent matches MinContent
+            (AvailableSpace::MinContent, AvailableSpace::MinContent) => true,
+            // MaxContent matches MaxContent
+            (AvailableSpace::MaxContent, AvailableSpace::MaxContent) => true,
+            // Different constraint types don't match
+            _ => false,
+        }
+    }
+    
+    /// Determines if this cached layout should be replaced by a new layout.
+    /// 
+    /// Returns true if the new layout should replace this one.
+    pub fn should_replace_with(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+        // Always replace if we gain float information
+        if new_has_floats && !self.has_floats {
+            return true;
+        }
+        
+        // Replace if width constraint changed
+        !self.width_constraint_matches(new_width)
+    }
+    
+    /// Returns a reference to the inner UnifiedLayout.
+    /// 
+    /// This is a convenience method for code that only needs the layout data
+    /// and doesn't care about the caching metadata.
+    #[inline]
+    pub fn get_layout(&self) -> &Arc<UnifiedLayout> {
+        &self.layout
+    }
+    
+    /// Returns a clone of the inner Arc<UnifiedLayout>.
+    /// 
+    /// This is useful for APIs that need to return an owned reference
+    /// to the layout without exposing the caching metadata.
+    #[inline]
+    pub fn clone_layout(&self) -> Arc<UnifiedLayout> {
+        self.layout.clone()
+    }
+}
 
 /// A layout tree node representing the CSS box model
 ///
@@ -113,8 +222,17 @@ pub struct LayoutNode {
     pub relative_position: Option<LogicalPosition>,
     /// The baseline of this box, if applicable, measured from its content-box top edge.
     pub baseline: Option<f32>,
-    /// Optional layouted text that this layout node carries
-    pub inline_layout_result: Option<Arc<UnifiedLayout>>,
+    /// Cached inline layout result with the constraints used to compute it.
+    /// 
+    /// This field stores both the computed layout AND the constraints (available width,
+    /// float state) under which it was computed. This is essential for correctness:
+    /// - Table cells are measured multiple times with different widths
+    /// - Min-content/max-content intrinsic sizing uses special constraint values
+    /// - The final layout must use the actual available width, not a measurement width
+    /// 
+    /// By tracking the constraints, we avoid the bug where a min-content measurement
+    /// (with width=0) would be incorrectly reused for final rendering.
+    pub inline_layout_result: Option<CachedInlineLayout>,
     /// Escaped top margin (CSS 2.1 margin collapsing)
     /// If this BFC's first child's top margin "escaped" the BFC, this contains
     /// the collapsed margin that should be applied by the parent.

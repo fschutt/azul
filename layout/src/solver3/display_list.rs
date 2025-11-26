@@ -502,23 +502,6 @@ impl DisplayListBuilder {
         font_size_px: f32,
         color: ColorU,
     ) {
-        // DEBUG: Check if layout contains "$287"
-        if let Some(unified_layout) = layout.downcast_ref::<UnifiedLayout>() {
-            let texts: Vec<_> = unified_layout.items.iter().filter_map(|item| {
-                if let ShapedItem::Cluster(cluster) = &item.item {
-                    Some(cluster.text.as_str())
-                } else {
-                    None
-                }
-            }).collect();
-            let all_text = texts.join("");
-            if !all_text.is_empty() {
-                eprintln!("[TEXTLAYOUT] bounds {:?}: \"{}\"", bounds, all_text.chars().take(100).collect::<String>());
-            }
-        } else {
-            eprintln!("[TEXTLAYOUT] downcast_ref failed! type_id={:?}", layout.as_ref().type_id());
-        }
-        
         if color.a > 0 {
             self.push_item(DisplayListItem::TextLayout {
                 layout,
@@ -684,9 +667,10 @@ where
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
-        let Some(layout) = &node.inline_layout_result else {
+        let Some(cached_layout) = &node.inline_layout_result else {
             return Ok(());
         };
+        let layout = &cached_layout.layout;
 
         // Get the selection state for this DOM
         let Some(selection_state) = self.ctx.selections.get(&self.ctx.styled_dom.dom_id) else {
@@ -1133,15 +1117,6 @@ where
             .copied()
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
-        
-        // DEBUG: Check for (0,0) positions
-        if pos.x == 0.0 && pos.y == 0.0 && node.inline_layout_result.is_some() {
-            eprintln!("[PAINT DEBUG] Node {} has inline_layout_result but pos=(0,0)! size={:?}", 
-                node_index, size);
-        }
-        
-        // DEBUG: Log for table cells removed for performance
-        use azul_core::dom::FormattingContext;
 
         if let Some(parent_idx) = node.parent {
             if let Some(parent_dom_id) = self
@@ -1426,7 +1401,8 @@ where
         }
 
         // Paint the node's visible content.
-        if let Some(inline_layout) = &node.inline_layout_result {
+        if let Some(cached_layout) = &node.inline_layout_result {
+            let inline_layout = &cached_layout.layout;
             if let Some(dom_id) = node.dom_node_id {
                 let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                 self.ctx.debug_info(&format!(
@@ -1443,7 +1419,7 @@ where
             let border_box = BorderBoxRect(paint_rect);
             let content_box = border_box.to_content_box(&node.box_props.padding, &node.box_props.border);
             
-            self.paint_inline_content(builder, content_box.rect(), inline_layout)?;
+            self.paint_inline_content(builder, content_box.rect(), inline_layout)?;;
         } else if let Some(dom_id) = node.dom_node_id {
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -1537,7 +1513,6 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout,
     ) -> Result<()> {
-        eprintln!("[PAINT] paint_inline_content at {:?}, {} items", container_rect, layout.items.len());
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
@@ -1800,7 +1775,8 @@ fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
     let mut content_size = node.used_size.unwrap_or_default();
 
     // If this node has text layout, calculate the bounds of all text items
-    if let Some(ref text_layout) = node.inline_layout_result {
+    if let Some(ref cached_layout) = node.inline_layout_result {
+        let text_layout = &cached_layout.layout;
         // Find the maximum extent of all positioned items
         let mut max_x: f32 = 0.0;
         let mut max_y: f32 = 0.0;

@@ -36,12 +36,13 @@ use crate::{
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{get_display_property, get_style_properties, get_writing_mode},
-        layout_tree::{LayoutNode, LayoutTree},
+        layout_tree::{CachedInlineLayout, LayoutNode, LayoutTree},
         positioning::get_position_type,
         scrollbar::ScrollbarInfo,
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
+    text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
 #[cfg(feature = "text_layout")]
@@ -107,6 +108,17 @@ pub struct LayoutConstraints<'a> {
     /// The size of the containing block (parent's content box).
     /// This is used for resolving percentage-based sizes and as parent_size for Taffy.
     pub containing_block_size: LogicalSize,
+    /// The semantic type of the available width constraint.
+    /// 
+    /// This field is crucial for correct inline layout caching:
+    /// - `Definite(w)`: Normal layout with a specific available width
+    /// - `MinContent`: Intrinsic minimum width measurement (maximum wrapping)
+    /// - `MaxContent`: Intrinsic maximum width measurement (no wrapping)
+    /// 
+    /// When caching inline layouts, we must track which constraint type was used
+    /// to compute the cached result. A layout computed with `MinContent` (width=0)
+    /// must not be reused when the actual available width is known.
+    pub available_width_type: Text3AvailableSpace,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -1240,6 +1252,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 writing_mode,
                 text_align: constraints.text_align,
                 containing_block_size: constraints.containing_block_size,
+                available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
             };
             
             // Re-layout the IFC with float awareness
@@ -1511,8 +1524,6 @@ fn layout_ifc_impl<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    eprintln!("[IFC] layout_ifc_impl called for node_index={}, available_size={:?}", 
-        node_index, constraints.available_size);
     let float_count = constraints.bfc_state.as_ref().map(|s| s.floats.floats.len()).unwrap_or(0);
     ctx.debug_info(format!("[layout_ifc] ENTRY: node_index={}, has_bfc_state={}, float_count={}", 
               node_index, constraints.bfc_state.is_some(), float_count));
@@ -1607,23 +1618,53 @@ fn layout_ifc_impl<T: ParsedFontTrait>(
             node_index
         ));
 
-        // Store the detailed result for the display list generator.
-        // IMPORTANT: Only overwrite the result if we have float exclusions OR if there's no result yet.
-        // This ensures that the final, float-aware layout is preserved even if there are
-        // subsequent layout passes without floats (e.g., for auto-sizing).
-        let has_floats = constraints.bfc_state.as_ref().map(|s| !s.floats.floats.is_empty()).unwrap_or(false);
-        let should_store = has_floats || node.inline_layout_result.is_none();
+        // Determine if we should store this layout result using the new CachedInlineLayout system.
+        // 
+        // The key insight is that inline layouts depend on available width:
+        // - Min-content measurement uses width ≈ 0 (maximum line wrapping)
+        // - Max-content measurement uses width = ∞ (no line wrapping)
+        // - Final layout uses the actual column/container width
+        //
+        // We must track which constraint type was used, otherwise a min-content
+        // measurement would incorrectly be reused for final rendering.
+        let has_floats = constraints.bfc_state.as_ref()
+            .map(|s| !s.floats.floats.is_empty())
+            .unwrap_or(false);
+        let current_width_type = constraints.available_width_type;
+        
+        let should_store = match &node.inline_layout_result {
+            None => {
+                // No cached result - always store
+                ctx.debug_info(format!(
+                    "[layout_ifc] Storing NEW inline_layout_result for node {} (width_type={:?}, has_floats={})",
+                    node_index, current_width_type, has_floats
+                ));
+                true
+            }
+            Some(cached) => {
+                // Check if the new result should replace the cached one
+                if cached.should_replace_with(current_width_type, has_floats) {
+                    ctx.debug_info(format!(
+                        "[layout_ifc] REPLACING inline_layout_result for node {} (old: width={:?}, floats={}) with (new: width={:?}, floats={})",
+                        node_index, cached.available_width, cached.has_floats, current_width_type, has_floats
+                    ));
+                    true
+                } else {
+                    ctx.debug_info(format!(
+                        "[layout_ifc] KEEPING cached inline_layout_result for node {} (cached: width={:?}, floats={}, new: width={:?}, floats={})",
+                        node_index, cached.available_width, cached.has_floats, current_width_type, has_floats
+                    ));
+                    false
+                }
+            }
+        };
         
         if should_store {
-            eprintln!("[IFC] STORING inline_layout_result for node {} with {} items, bounds={:?}", 
-                node_index, main_frag.items.len(), frag_bounds);
-            ctx.debug_info(format!("[layout_ifc] Storing inline_layout_result for node {} (has_floats={}, is_new={})",
-                      node_index, has_floats, node.inline_layout_result.is_none()));
-            node.inline_layout_result = Some(main_frag.clone());
-        } else {
-            eprintln!("[IFC] SKIPPING store for node {} (already exists)", node_index);
-            ctx.debug_info(format!("[layout_ifc] SKIPPING inline_layout_result for node {} (no floats, result exists)",
-                      node_index));
+            node.inline_layout_result = Some(CachedInlineLayout::new(
+                main_frag.clone(),
+                current_width_type,
+                has_floats,
+            ));
         }
 
         // Extract the overall size and baseline for the IFC root.
@@ -2521,11 +2562,11 @@ fn is_cell_empty(
     }
     
     // If cell has an inline layout result, check if it's empty
-    if let Some(ref inline_result) = cell_node.inline_layout_result {
+    if let Some(ref cached_layout) = cell_node.inline_layout_result {
         // Check if inline layout has any rendered content
         // Empty inline layouts have no items (glyphs/fragments)
         // Note: This is a heuristic - full detection requires text content analysis
-        return inline_result.items.is_empty();
+        return cached_layout.layout.items.is_empty();
     }
     
     // Check if all children have no content
@@ -2705,6 +2746,7 @@ fn layout_table_fc<T: ParsedFontTrait>(
             bfc_state: None, // Caption creates its own BFC
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
+            available_width_type: Text3AvailableSpace::Definite(table_width),
         };
         
         // Layout the caption node
@@ -2960,18 +3002,22 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // For intrinsic sizing in auto table layout, we need to measure content width,
-    // not percentage-based widths. Use table's available width as the containing block.
     // CSS 2.2 Section 17.5.2.2: "Calculate the minimum content width (MCW) of each cell"
+    // Min-content width is the width with maximum wrapping.
+    // Use AvailableSpace::MinContent to signal intrinsic min-content sizing to the text layout engine.
+    use crate::text3::cache::AvailableSpace;
     let min_constraints = LayoutConstraints {
         available_size: LogicalSize {
-            width: constraints.available_size.width, // Use table's available width as containing block
+            width: AvailableSpace::MinContent.to_f32_for_layout(),
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
         bfc_state: None, // Don't propagate BFC state for measurement
         text_align: constraints.text_align,
         containing_block_size: constraints.containing_block_size,
+        // CRITICAL: Mark this as min-content measurement, not definite width!
+        // This ensures the cached layout won't be incorrectly reused for final rendering.
+        available_width_type: Text3AvailableSpace::MinContent,
     };
     
     let mut temp_positions = BTreeMap::new();
@@ -3015,17 +3061,22 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
-    // For intrinsic sizing in auto table layout, use the table's available width as containing block.
     // CSS 2.2 Section 17.5.2.2: "Calculate the maximum content width (MCW) of each cell"
+    // Max-content width is the width without any wrapping.
+    // Use AvailableSpace::MaxContent to signal intrinsic max-content sizing to the text layout engine.
+    use crate::text3::cache::AvailableSpace;
     let max_constraints = LayoutConstraints {
         available_size: LogicalSize {
-            width: constraints.available_size.width, // Use table's available width as containing block
+            width: AvailableSpace::MaxContent.to_f32_for_layout(),
             height: f32::INFINITY,
         },
         writing_mode: constraints.writing_mode,
         bfc_state: None, // Don't propagate BFC state for measurement
         text_align: constraints.text_align,
         containing_block_size: constraints.containing_block_size,
+        // CRITICAL: Mark this as max-content measurement, not definite width!
+        // This ensures the cached layout won't be incorrectly reused for final rendering.
+        available_width_type: Text3AvailableSpace::MaxContent,
     };
     
     let mut temp_positions = BTreeMap::new();
@@ -3358,6 +3409,9 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
+            // CRITICAL: Use Definite width for final cell layout!
+            // This replaces any previous MinContent/MaxContent measurement.
+            available_width_type: Text3AvailableSpace::Definite(content_width),
         };
         
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
@@ -3378,6 +3432,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
+            // CRITICAL: Use Definite width for final cell layout!
+            available_width_type: Text3AvailableSpace::Definite(content_width),
         };
         
         let mut temp_positions = BTreeMap::new();
@@ -3669,7 +3725,8 @@ fn position_table_cells<T: ParsedFontTrait>(
             cell_info.node_index, width, height, table_ctx.row_heights));
         
         // Apply vertical-align to cell content if it has inline layout
-        if let Some(ref inline_result) = cell_node.inline_layout_result {
+        if let Some(ref cached_layout) = cell_node.inline_layout_result {
+            let inline_result = &cached_layout.layout;
             use azul_css::props::style::StyleVerticalAlign;
             use azul_core::styled_dom::StyledNodeState;
             
@@ -3734,7 +3791,12 @@ fn position_table_cells<T: ParsedFontTrait>(
                     overflow: inline_result.overflow.clone(),
                 };
                 
-                cell_node.inline_layout_result = Some(Arc::new(adjusted_layout));
+                // Keep the same constraint type from the cached layout
+                cell_node.inline_layout_result = Some(CachedInlineLayout::new(
+                    Arc::new(adjusted_layout),
+                    cached_layout.available_width,
+                    cached_layout.has_floats,
+                ));
             }
         }
         
@@ -4015,6 +4077,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 bfc_state: None, // Inline-blocks establish a new BFC, so no state is passed in.
                 text_align: TextAlign::Start, // Does not affect size/baseline of the container.
                 containing_block_size: constraints.containing_block_size,
+                available_width_type: Text3AvailableSpace::Definite(width),
             };
 
             // Drop the immutable borrow before calling layout_formatting_context
@@ -4222,6 +4285,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     bfc_state: None,
                     text_align: TextAlign::Start,
                     containing_block_size: constraints.containing_block_size,
+                    available_width_type: Text3AvailableSpace::Definite(width),
                 };
                 
                 drop(child_node);

@@ -82,10 +82,22 @@ impl AvailableSpace {
         }
     }
     
-    /// Create from a potentially infinite f32 value (for backwards compatibility)
+    /// Create from an f32 value, recognizing special sentinel values.
+    /// 
+    /// This function provides backwards compatibility with code that uses f32 for constraints:
+    /// - `f32::INFINITY` or `f32::MAX` → `MaxContent` (no line wrapping)
+    /// - `0.0` → `MinContent` (maximum line wrapping, return longest word width)
+    /// - Other values → `Definite(value)`
+    /// 
+    /// Note: Using sentinel values like 0.0 for MinContent is fragile. Prefer using
+    /// `AvailableSpace::MinContent` directly when possible.
     pub fn from_f32(value: f32) -> Self {
-        if value.is_infinite() {
+        if value.is_infinite() || value >= f32::MAX / 2.0 {
+            // Treat very large values (including f32::MAX) as MaxContent
             AvailableSpace::MaxContent
+        } else if value <= 0.0 {
+            // Treat zero or negative as MinContent (shrink-wrap)
+            AvailableSpace::MinContent
         } else {
             AvailableSpace::Definite(value)
         }

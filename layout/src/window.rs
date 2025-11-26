@@ -1596,7 +1596,7 @@ impl LayoutWindow {
         let layout_index = *layout_indices.first()?;
 
         let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node.inline_layout_result.as_ref()
+        layout_node.inline_layout_result.as_ref().map(|c| c.get_layout())
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
@@ -2075,7 +2075,8 @@ impl LayoutWindow {
         let layout_node = layout_tree.nodes.get(layout_idx)?;
 
         // Get the text layout result for this node
-        let inline_layout = layout_node.inline_layout_result.as_ref()?;
+        let cached_layout = layout_node.inline_layout_result.as_ref()?;
+        let inline_layout = &cached_layout.layout;
 
         // Get the cursor rect in node-relative coordinates
         let mut cursor_rect = inline_layout.get_cursor_rect(cursor)?;
@@ -5081,7 +5082,7 @@ impl LayoutWindow {
             .find(|node| node.dom_node_id == Some(node_id))?;
 
         // Return the inline layout result
-        layout_node.inline_layout_result.clone()
+        layout_node.inline_layout_result.as_ref().map(|c| c.clone_layout())
     }
 
     /// Sync cursor from CursorManager to SelectionManager for rendering

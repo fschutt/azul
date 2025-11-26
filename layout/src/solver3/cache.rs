@@ -46,6 +46,7 @@ use crate::{
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         LayoutContext, LayoutError, LayoutTree, Result,
     },
+    text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
 /// Convert LayoutOverflow to OverflowBehavior
@@ -566,6 +567,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                 StyleTextAlign::Justify => fc::TextAlign::Justify,
             },
             containing_block_size,
+            available_width_type: Text3AvailableSpace::Definite(available_size_for_children.width),
         };
 
         (

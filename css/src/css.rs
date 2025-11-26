@@ -547,10 +547,147 @@ impl NodeTypeTagParseErrorOwned {
 impl NodeTypeTag {
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError> {
         match css_key {
+            // Document structure
+            "html" => Ok(NodeTypeTag::Html),
+            "head" => Ok(NodeTypeTag::Head),
             "body" => Ok(NodeTypeTag::Body),
+
+            // Block-level elements
             "div" => Ok(NodeTypeTag::Div),
             "p" => Ok(NodeTypeTag::P),
+            "article" => Ok(NodeTypeTag::Article),
+            "section" => Ok(NodeTypeTag::Section),
+            "nav" => Ok(NodeTypeTag::Nav),
+            "aside" => Ok(NodeTypeTag::Aside),
+            "header" => Ok(NodeTypeTag::Header),
+            "footer" => Ok(NodeTypeTag::Footer),
+            "main" => Ok(NodeTypeTag::Main),
+            "figure" => Ok(NodeTypeTag::Figure),
+            "figcaption" => Ok(NodeTypeTag::FigCaption),
+
+            // Headings
+            "h1" => Ok(NodeTypeTag::H1),
+            "h2" => Ok(NodeTypeTag::H2),
+            "h3" => Ok(NodeTypeTag::H3),
+            "h4" => Ok(NodeTypeTag::H4),
+            "h5" => Ok(NodeTypeTag::H5),
+            "h6" => Ok(NodeTypeTag::H6),
+
+            // Inline text
+            "br" => Ok(NodeTypeTag::Br),
+            "hr" => Ok(NodeTypeTag::Hr),
+            "pre" => Ok(NodeTypeTag::Pre),
+            "blockquote" => Ok(NodeTypeTag::BlockQuote),
+            "address" => Ok(NodeTypeTag::Address),
+            "details" => Ok(NodeTypeTag::Details),
+            "summary" => Ok(NodeTypeTag::Summary),
+            "dialog" => Ok(NodeTypeTag::Dialog),
+
+            // Lists
+            "ul" => Ok(NodeTypeTag::Ul),
+            "ol" => Ok(NodeTypeTag::Ol),
+            "li" => Ok(NodeTypeTag::Li),
+            "dl" => Ok(NodeTypeTag::Dl),
+            "dt" => Ok(NodeTypeTag::Dt),
+            "dd" => Ok(NodeTypeTag::Dd),
+            "menu" => Ok(NodeTypeTag::Menu),
+            "menuitem" => Ok(NodeTypeTag::MenuItem),
+            "dir" => Ok(NodeTypeTag::Dir),
+
+            // Tables
+            "table" => Ok(NodeTypeTag::Table),
+            "caption" => Ok(NodeTypeTag::Caption),
+            "thead" => Ok(NodeTypeTag::THead),
+            "tbody" => Ok(NodeTypeTag::TBody),
+            "tfoot" => Ok(NodeTypeTag::TFoot),
+            "tr" => Ok(NodeTypeTag::Tr),
+            "th" => Ok(NodeTypeTag::Th),
+            "td" => Ok(NodeTypeTag::Td),
+            "colgroup" => Ok(NodeTypeTag::ColGroup),
+            "col" => Ok(NodeTypeTag::Col),
+
+            // Forms
+            "form" => Ok(NodeTypeTag::Form),
+            "fieldset" => Ok(NodeTypeTag::FieldSet),
+            "legend" => Ok(NodeTypeTag::Legend),
+            "label" => Ok(NodeTypeTag::Label),
+            "input" => Ok(NodeTypeTag::Input),
+            "button" => Ok(NodeTypeTag::Button),
+            "select" => Ok(NodeTypeTag::Select),
+            "optgroup" => Ok(NodeTypeTag::OptGroup),
+            "option" => Ok(NodeTypeTag::SelectOption),
+            "textarea" => Ok(NodeTypeTag::TextArea),
+            "output" => Ok(NodeTypeTag::Output),
+            "progress" => Ok(NodeTypeTag::Progress),
+            "meter" => Ok(NodeTypeTag::Meter),
+            "datalist" => Ok(NodeTypeTag::DataList),
+
+            // Inline elements
+            "span" => Ok(NodeTypeTag::Span),
+            "a" => Ok(NodeTypeTag::A),
+            "em" => Ok(NodeTypeTag::Em),
+            "strong" => Ok(NodeTypeTag::Strong),
+            "b" => Ok(NodeTypeTag::B),
+            "i" => Ok(NodeTypeTag::I),
+            "u" => Ok(NodeTypeTag::U),
+            "s" => Ok(NodeTypeTag::S),
+            "mark" => Ok(NodeTypeTag::Mark),
+            "del" => Ok(NodeTypeTag::Del),
+            "ins" => Ok(NodeTypeTag::Ins),
+            "code" => Ok(NodeTypeTag::Code),
+            "samp" => Ok(NodeTypeTag::Samp),
+            "kbd" => Ok(NodeTypeTag::Kbd),
+            "var" => Ok(NodeTypeTag::Var),
+            "cite" => Ok(NodeTypeTag::Cite),
+            "dfn" => Ok(NodeTypeTag::Dfn),
+            "abbr" => Ok(NodeTypeTag::Abbr),
+            "acronym" => Ok(NodeTypeTag::Acronym),
+            "q" => Ok(NodeTypeTag::Q),
+            "time" => Ok(NodeTypeTag::Time),
+            "sub" => Ok(NodeTypeTag::Sub),
+            "sup" => Ok(NodeTypeTag::Sup),
+            "small" => Ok(NodeTypeTag::Small),
+            "big" => Ok(NodeTypeTag::Big),
+            "bdo" => Ok(NodeTypeTag::Bdo),
+            "bdi" => Ok(NodeTypeTag::Bdi),
+            "wbr" => Ok(NodeTypeTag::Wbr),
+            "ruby" => Ok(NodeTypeTag::Ruby),
+            "rt" => Ok(NodeTypeTag::Rt),
+            "rtc" => Ok(NodeTypeTag::Rtc),
+            "rp" => Ok(NodeTypeTag::Rp),
+            "data" => Ok(NodeTypeTag::Data),
+
+            // Embedded content
+            "canvas" => Ok(NodeTypeTag::Canvas),
+            "object" => Ok(NodeTypeTag::Object),
+            "param" => Ok(NodeTypeTag::Param),
+            "embed" => Ok(NodeTypeTag::Embed),
+            "audio" => Ok(NodeTypeTag::Audio),
+            "video" => Ok(NodeTypeTag::Video),
+            "source" => Ok(NodeTypeTag::Source),
+            "track" => Ok(NodeTypeTag::Track),
+            "map" => Ok(NodeTypeTag::Map),
+            "area" => Ok(NodeTypeTag::Area),
+            "svg" => Ok(NodeTypeTag::Svg),
+
+            // Metadata
+            "title" => Ok(NodeTypeTag::Title),
+            "meta" => Ok(NodeTypeTag::Meta),
+            "link" => Ok(NodeTypeTag::Link),
+            "script" => Ok(NodeTypeTag::Script),
+            "style" => Ok(NodeTypeTag::Style),
+            "base" => Ok(NodeTypeTag::Base),
+
+            // Special
             "img" => Ok(NodeTypeTag::Img),
+            "iframe" => Ok(NodeTypeTag::IFrame),
+
+            // Pseudo-elements (usually prefixed with ::)
+            "before" | "::before" => Ok(NodeTypeTag::Before),
+            "after" | "::after" => Ok(NodeTypeTag::After),
+            "marker" | "::marker" => Ok(NodeTypeTag::Marker),
+            "placeholder" | "::placeholder" => Ok(NodeTypeTag::Placeholder),
+
             other => Err(NodeTypeTagParseError::Invalid(other)),
         }
     }

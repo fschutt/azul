@@ -967,6 +967,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             height: available_height,
         };
         
+        // Convert Taffy's AvailableSpace to our Text3AvailableSpace for caching
+        let available_width_type = match inputs.available_space.width {
+            AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),
+            AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
+            AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
+        };
+        
         // SAFETY: text_cache pointer is valid for the lifetime of TaffyBridge
         let text_cache = unsafe { &mut *self.text_cache };
         
@@ -976,6 +983,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             bfc_state: None,
             text_align: FcTextAlign::Start,
             containing_block_size: available_size,
+            available_width_type,
         };
         
         // Use a temporary float cache for this subtree

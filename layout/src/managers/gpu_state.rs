@@ -97,7 +97,7 @@ impl GpuStateManager {
                 .inline_layout_result
                 .as_ref()
                 .map(|l| {
-                    let bounds = l.bounds();
+                    let bounds = l.layout.bounds();
                     LogicalSize {
                         width: bounds.width,
                         height: bounds.height,
