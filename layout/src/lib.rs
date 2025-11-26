@@ -41,6 +41,8 @@ pub use hyphenation;
 pub mod hit_test;
 #[cfg(feature = "pdf")]
 pub mod paged;
+#[cfg(feature = "pdf")]
+pub mod fragmentation;
 #[cfg(feature = "text_layout")]
 pub mod text3;
 #[cfg(feature = "text_layout")]
@@ -61,6 +63,12 @@ pub mod xml;
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
 #[cfg(feature = "pdf")]
 pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page};
+#[cfg(feature = "pdf")]
+pub use fragmentation::{
+    FragmentationLayoutContext, FragmentationDefaults, PageTemplate, PageCounter,
+    PageMargins, PageSlot, PageSlotContent, PageSlotPosition, PageNumberStyle,
+    BoxBreakBehavior, KeepTogetherPriority, BreakDecision, PageFragment,
+};
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]

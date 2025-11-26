@@ -687,7 +687,7 @@ impl LayoutWindow {
         self.layout_results
             .get_mut(&dom_id)
             .map(|result| {
-                std::mem::replace(&mut result.display_list, DisplayList { items: Vec::new() })
+                std::mem::replace(&mut result.display_list, DisplayList::default())
             })
             .ok_or(solver3::LayoutError::InvalidTree)
     }

@@ -166,6 +166,10 @@ impl ContentBoxRect {
 #[derive(Debug, Default)]
 pub struct DisplayList {
     pub items: Vec<DisplayListItem>,
+    /// Optional mapping from item index to the DOM NodeId that generated it.
+    /// Used for pagination to look up CSS break properties.
+    /// Not all items have a source node (e.g., synthesized decorations).
+    pub node_mapping: Vec<Option<azul_core::dom::NodeId>>,
 }
 
 /// A command in the display list. Can be either a drawing primitive or a
@@ -327,19 +331,36 @@ pub type TagId = u64;
 #[derive(Debug, Default)]
 struct DisplayListBuilder {
     items: Vec<DisplayListItem>,
+    node_mapping: Vec<Option<azul_core::dom::NodeId>>,
+    /// Current node being processed (set by generator)
+    current_node: Option<azul_core::dom::NodeId>,
 }
 
 impl DisplayListBuilder {
     pub fn new() -> Self {
         Self::default()
     }
+    
+    /// Set the current node context for subsequent push operations
+    pub fn set_current_node(&mut self, node_id: Option<azul_core::dom::NodeId>) {
+        self.current_node = node_id;
+    }
+    
+    /// Push an item and record its node mapping
+    fn push_item(&mut self, item: DisplayListItem) {
+        self.items.push(item);
+        self.node_mapping.push(self.current_node);
+    }
+    
     pub fn build(self) -> DisplayList {
-        DisplayList { items: self.items }
+        DisplayList { 
+            items: self.items,
+            node_mapping: self.node_mapping,
+        }
     }
 
     pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: TagId) {
-        self.items
-            .push(DisplayListItem::HitTestArea { bounds, tag });
+        self.push_item(DisplayListItem::HitTestArea { bounds, tag });
     }
     pub fn push_scrollbar(
         &mut self,
@@ -351,7 +372,7 @@ impl DisplayListBuilder {
     ) {
         if color.a > 0 || opacity_key.is_some() {
             // Optimization: Don't draw fully transparent items without opacity keys.
-            self.items.push(DisplayListItem::ScrollBar {
+            self.push_item(DisplayListItem::ScrollBar {
                 bounds,
                 color,
                 orientation,
@@ -363,7 +384,7 @@ impl DisplayListBuilder {
     pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
-            self.items.push(DisplayListItem::Rect {
+            self.push_item(DisplayListItem::Rect {
                 bounds,
                 color,
                 border_radius,
@@ -377,7 +398,7 @@ impl DisplayListBuilder {
         border_radius: BorderRadius,
     ) {
         if color.a > 0 {
-            self.items.push(DisplayListItem::SelectionRect {
+            self.push_item(DisplayListItem::SelectionRect {
                 bounds,
                 color,
                 border_radius,
@@ -387,18 +408,17 @@ impl DisplayListBuilder {
 
     pub fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
         if color.a > 0 {
-            self.items
-                .push(DisplayListItem::CursorRect { bounds, color });
+            self.push_item(DisplayListItem::CursorRect { bounds, color });
         }
     }
     pub fn push_clip(&mut self, bounds: LogicalRect, border_radius: BorderRadius) {
-        self.items.push(DisplayListItem::PushClip {
+        self.push_item(DisplayListItem::PushClip {
             bounds,
             border_radius,
         });
     }
     pub fn pop_clip(&mut self) {
-        self.items.push(DisplayListItem::PopClip);
+        self.push_item(DisplayListItem::PopClip);
     }
     pub fn push_scroll_frame(
         &mut self,
@@ -406,14 +426,14 @@ impl DisplayListBuilder {
         content_size: LogicalSize,
         scroll_id: ExternalScrollId,
     ) {
-        self.items.push(DisplayListItem::PushScrollFrame {
+        self.push_item(DisplayListItem::PushScrollFrame {
             clip_bounds,
             content_size,
             scroll_id,
         });
     }
     pub fn pop_scroll_frame(&mut self) {
-        self.items.push(DisplayListItem::PopScrollFrame);
+        self.push_item(DisplayListItem::PopScrollFrame);
     }
     pub fn push_border(
         &mut self,
@@ -437,7 +457,7 @@ impl DisplayListBuilder {
         };
 
         if has_visible_border {
-            self.items.push(DisplayListItem::Border {
+            self.push_item(DisplayListItem::Border {
                 bounds,
                 widths,
                 colors,
@@ -448,12 +468,11 @@ impl DisplayListBuilder {
     }
 
     pub fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
-        self.items
-            .push(DisplayListItem::PushStackingContext { z_index, bounds });
+        self.push_item(DisplayListItem::PushStackingContext { z_index, bounds });
     }
 
     pub fn pop_stacking_context(&mut self) {
-        self.items.push(DisplayListItem::PopStackingContext);
+        self.push_item(DisplayListItem::PopStackingContext);
     }
 
     pub fn push_text_run(
@@ -465,7 +484,7 @@ impl DisplayListBuilder {
         clip_rect: LogicalRect,
     ) {
         if !glyphs.is_empty() && color.a > 0 {
-            self.items.push(DisplayListItem::Text {
+            self.push_item(DisplayListItem::Text {
                 glyphs,
                 font_hash,
                 font_size_px,
@@ -484,7 +503,7 @@ impl DisplayListBuilder {
         color: ColorU,
     ) {
         if color.a > 0 {
-            self.items.push(DisplayListItem::TextLayout {
+            self.push_item(DisplayListItem::TextLayout {
                 layout,
                 bounds,
                 font_hash,
@@ -496,7 +515,7 @@ impl DisplayListBuilder {
 
     pub fn push_underline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
-            self.items.push(DisplayListItem::Underline {
+            self.push_item(DisplayListItem::Underline {
                 bounds,
                 color,
                 thickness,
@@ -506,7 +525,7 @@ impl DisplayListBuilder {
 
     pub fn push_strikethrough(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
-            self.items.push(DisplayListItem::Strikethrough {
+            self.push_item(DisplayListItem::Strikethrough {
                 bounds,
                 color,
                 thickness,
@@ -516,7 +535,7 @@ impl DisplayListBuilder {
 
     pub fn push_overline(&mut self, bounds: LogicalRect, color: ColorU, thickness: f32) {
         if color.a > 0 && thickness > 0.0 {
-            self.items.push(DisplayListItem::Overline {
+            self.push_item(DisplayListItem::Overline {
                 bounds,
                 color,
                 thickness,
@@ -525,7 +544,7 @@ impl DisplayListBuilder {
     }
 
     pub fn push_image(&mut self, bounds: LogicalRect, key: ImageKey) {
-        self.items.push(DisplayListItem::Image { bounds, key });
+        self.push_item(DisplayListItem::Image { bounds, key });
     }
 }
 
@@ -1132,6 +1151,9 @@ where
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
 
+        // Set current node for node mapping (for pagination break properties)
+        builder.set_current_node(node.dom_node_id);
+
         // Skip inline-blocks - they are rendered by text3 in paint_inline_content
         // Inline-blocks participate in inline formatting context and their backgrounds
         // must be positioned by the text layout engine, not the block layout engine
@@ -1367,6 +1389,9 @@ where
             .tree
             .get(node_index)
             .ok_or(LayoutError::InvalidTree)?;
+
+        // Set current node for node mapping (for pagination break properties)
+        builder.set_current_node(node.dom_node_id);
 
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return Ok(());

@@ -105,6 +105,7 @@ use azul_css::{
                 LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
                 LayoutPaddingInlineStart, LayoutPaddingInlineEnd,
             },
+            fragmentation::{BreakInside, PageBreak},
         },
         style::{StyleTextAlign, StyleVerticalAlign, content::CounterReset, lists::StyleListStyleType},
         property::{CssProperty, CssPropertyType},
@@ -431,6 +432,31 @@ static COUNTER_RESET_LIST_ITEM: CssProperty = CssProperty::CounterReset(CssPrope
     CounterReset::list_item(),
 ));
 
+// === CSS Fragmentation (Page Breaking) Properties ===
+// Per CSS Fragmentation Level 3 and paged media best practices,
+// certain elements should avoid page breaks inside them
+
+/// break-inside: avoid
+/// Used for elements that should not be split across page boundaries
+/// Applied to: h1-h6, table, thead, tbody, tfoot, figure, figcaption
+static BREAK_INSIDE_AVOID: CssProperty = CssProperty::break_inside(BreakInside::Avoid);
+
+/// break-before: page
+/// Forces a page break before the element
+static BREAK_BEFORE_PAGE: CssProperty = CssProperty::break_before(PageBreak::Page);
+
+/// break-after: page
+/// Forces a page break after the element
+static BREAK_AFTER_PAGE: CssProperty = CssProperty::break_after(PageBreak::Page);
+
+/// break-before: avoid
+/// Avoids a page break before the element
+static BREAK_BEFORE_AVOID: CssProperty = CssProperty::break_before(PageBreak::Avoid);
+
+/// break-after: avoid
+/// Avoids a page break after the element (useful for headings)
+static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoid);
+
 /// padding-inline-start: 40px (default for <li>)
 /// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
 /// padding-inline-start: 40px for list items per CSS Lists Module Level 3
@@ -532,12 +558,16 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Headings - Chrome UA CSS values
+        // Per CSS Fragmentation Level 3: headings should avoid page breaks inside
+        // and after them (to keep heading with following content)
         (NT::H1, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H1, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
         (NT::H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H1, PT::MarginTop) => Some(&MARGIN_TOP_0_67EM),
         (NT::H1, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_67EM),
+        (NT::H1, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H1, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H2, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H2, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -545,6 +575,8 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H2, PT::MarginTop) => Some(&MARGIN_TOP_0_83EM),
         (NT::H2, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_83EM),
+        (NT::H2, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H2, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H3, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H3, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -552,6 +584,8 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H3, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
         (NT::H3, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::H3, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H3, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H4, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H4, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -559,6 +593,8 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H4, PT::MarginTop) => Some(&MARGIN_TOP_1_33EM),
         (NT::H4, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_33EM),
+        (NT::H4, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H4, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H5, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H5, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -566,6 +602,8 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H5, PT::MarginTop) => Some(&MARGIN_TOP_1_67EM),
         (NT::H5, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1_67EM),
+        (NT::H5, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H5, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H6, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H6, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -573,6 +611,8 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
         (NT::H6, PT::MarginBottom) => Some(&MARGIN_BOTTOM_2_33EM),
+        (NT::H6, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::H6, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         // Lists - padding on container creates gutter for markers
         (NT::Ul, PT::Display) => Some(&DISPLAY_BLOCK),
@@ -621,16 +661,22 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Table Elements
+        // Per CSS Fragmentation Level 3: tables and table header groups should avoid breaks inside
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
         (NT::Table, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Table, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
         (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::THead, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
         (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::TBody, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
         (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::TFoot, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
         (NT::Tr, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::Tr, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
         (NT::Th, PT::TextAlign) => Some(&TEXT_ALIGN_CENTER),
         (NT::Th, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
@@ -700,12 +746,15 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Ruby, PT::Display) => Some(&DISPLAY_INLINE),
         
         // Block Container Elements
+        // Per CSS Fragmentation Level 3: figures should avoid page breaks inside
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::FieldSet, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::Figure, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::FigCaption, PT::Width) => Some(&WIDTH_100_PERCENT),
+        (NT::FigCaption, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Details, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Details, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Summary, PT::Display) => Some(&DISPLAY_BLOCK),
