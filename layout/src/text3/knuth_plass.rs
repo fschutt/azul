@@ -45,7 +45,21 @@ struct Breakpoint {
 }
 
 /// Main entry point for the Knuth-Plass layout algorithm.
-pub(super) fn kp_layout<T: ParsedFontTrait>(
+/// 
+/// This implements optimal line-breaking as described in "Breaking Paragraphs into Lines" 
+/// (Knuth & Plass, 1981). Unlike greedy algorithms, it considers the entire paragraph 
+/// to find globally optimal break points.
+/// 
+/// # Use Cases
+/// - `text-wrap: balance` - CSS property for balanced line lengths
+/// - High-quality typesetting where line consistency matters
+/// - Multi-line headings that should appear visually balanced
+/// 
+/// # Limitations
+/// - Only supports horizontal text (vertical writing modes use greedy algorithm)
+/// - Higher computational cost than greedy breaking
+/// - May produce different results than browsers for edge cases
+pub(crate) fn kp_layout<T: ParsedFontTrait>(
     items: &[ShapedItem],
     logical_items: &[LogicalItem],
     constraints: &UnifiedConstraints,

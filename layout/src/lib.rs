@@ -59,7 +59,7 @@ pub mod xml;
 // Export the main layout function and window management
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
-pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page, FragmentationState};
+pub use paged::FragmentationState;
 pub use fragmentation::{
     FragmentationLayoutContext, FragmentationDefaults, PageTemplate, PageCounter,
     PageMargins, PageSlot, PageSlotContent, PageSlotPosition, PageNumberStyle,

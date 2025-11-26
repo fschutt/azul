@@ -418,12 +418,7 @@ fn render_text(
     let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
         Some(k) => k,
         None => {
-            // Font not found - this can happen if the font wasn't properly registered
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[cpurender] Font hash {} not found in renderer resources",
-                font_hash.font_hash
-            );
+            // Font not found - skip rendering this glyph run
             return Ok(());
         }
     };
@@ -432,11 +427,7 @@ fn render_text(
     let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
         Some((font_ref, _instances)) => font_ref,
         None => {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[cpurender] FontKey {:?} not found in registered fonts",
-                font_key
-            );
+            // Font not registered - skip rendering
             return Ok(());
         }
     };
@@ -624,12 +615,8 @@ fn render_image(
     let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
         Some(img) => img,
         None => {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[cpurender] Image {:?} not found in renderer_resources",
-                key
-            );
-            return Ok(()); // Skip rendering this image
+            // Image not found - skip rendering
+            return Ok(());
         }
     };
 

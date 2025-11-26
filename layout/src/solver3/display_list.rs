@@ -1,6 +1,10 @@
 //! solver3/display_list.rs
 //!
 //! Pass 4: Generate a renderer-agnostic display list from a laid-out tree.
+//!
+//! NOTE: This file uses deprecated ctx.debug_*() methods.
+//! TODO: Migrate to debug_*!() macros for lazy evaluation.
+//!
 //! The translation layer to WebRender would look something like this (in pseudocode):
 //!
 //! ```rust,no_run,ignore
@@ -35,6 +39,9 @@
 //!     }
 //! }
 //! ```
+
+#![allow(deprecated)]
+
 use std::collections::BTreeMap;
 
 use allsorts::glyph_position;

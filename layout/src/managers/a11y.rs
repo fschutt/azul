@@ -86,23 +86,8 @@
 //!
 //! ## TODO List
 //!
-//! ### High Priority (1.0 Blockers)
-//! - [x] Implement CursorManager with TextCursor state per DOM (EXISTS in FocusManager!)
-//! - [ ] Add automatic cursor initialization in FocusManager::set_focused_node()
-//! - [ ] Implement get_text_before_textinput() with text_cache lookup
-//! - [x] Add has_contenteditable() helper (implemented inline in apply_text_changeset)
-//! - [ ] Generate synthetic events for Default/Increment/Decrement/Collapse/Expand
-//!
-//! ### Medium Priority (Post-1.0)
-//! - [ ] Add cursor movement functions using text3 utilities
-//! - [ ] Implement SetTextSelection action
-//! - [ ] Add text cursor visualization in renderer
-//! - [ ] Handle multi-cursor scenarios
-//!
-//! ### Low Priority (Future)
-//! - [ ] Custom action handlers
-//! - [ ] Tooltip actions (ShowTooltip/HideTooltip)
-//! - [ ] ARIA live region announcements
+//! See GitHub issues for remaining accessibility work items.
+//! Search for label:accessibility in the issue tracker.
 //!
 //! ## Implementation Status Notes
 //!

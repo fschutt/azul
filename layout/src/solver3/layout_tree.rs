@@ -1,6 +1,11 @@
 //! solver3/layout_tree.rs
 //!
 //! Layout tree generation and anonymous box handling
+//!
+//! NOTE: This file uses deprecated ctx.debug_*() methods.
+//! TODO: Migrate to debug_*!() macros for lazy evaluation.
+
+#![allow(deprecated)]
 
 use std::{
     collections::BTreeMap,

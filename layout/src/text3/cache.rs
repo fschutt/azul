@@ -441,9 +441,9 @@ pub struct CursorBoundsError {
 /// - `column_gap`: \u2705 Gap between columns
 ///
 /// # Known Issues:
-/// 1. ⚠️ available_width defaults to Definite(0.0) instead of containing block width
-/// 2. ⚠️ vertical_align only supports baseline
-/// 3. ❌ initial-letter (drop caps) not implemented
+/// 1. [ISSUE] available_width defaults to Definite(0.0) instead of containing block width
+/// 2. [ISSUE] vertical_align only supports baseline
+/// 3. [TODO] initial-letter (drop caps) not implemented
 #[derive(Debug, Clone)]
 pub struct UnifiedConstraints {
     // Shape definition
@@ -488,7 +488,7 @@ impl Default for UnifiedConstraints {
         Self {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
-            // ⚠️ CRITICAL: This should be set to the containing block's inner width
+            // [IMPORTANT] CRITICAL: This should be set to the containing block's inner width
             // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line breaking.
             // This value should be passed from the box layout solver (fc.rs) when creating
             // UnifiedConstraints for text layout.
@@ -4698,7 +4698,7 @@ fn calculate_line_metrics(items: &[ShapedItem]) -> (f32, f32) {
 /// containing block, and thus the logical width of a line box is equal to the inner
 /// logical width of its containing block."
 ///
-/// ⚠️ ISSUE: available_width should be set to the containing block's inner width,
+/// [ISSUE] available_width should be set to the containing block's inner width,
 /// but is currently defaulting to 0.0 in UnifiedConstraints::default().
 /// This causes premature line breaking.
 ///
@@ -4724,11 +4724,40 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info("\n--- Entering perform_fragment_layout ---".to_string()));
         msgs.push(LayoutDebugMessage::info(format!(
-            "Constraints: available_width={:?}, available_height={:?}, columns={}",
+            "Constraints: available_width={:?}, available_height={:?}, columns={}, text_wrap={:?}",
             fragment_constraints.available_width,
             fragment_constraints.available_height,
-            fragment_constraints.columns
+            fragment_constraints.columns,
+            fragment_constraints.text_wrap
         )));
+    }
+
+    // For TextWrap::Balance, use Knuth-Plass algorithm for optimal line breaking
+    // This produces more visually balanced lines at the cost of more computation
+    if fragment_constraints.text_wrap == TextWrap::Balance {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info("Using Knuth-Plass algorithm for text-wrap: balance".to_string()));
+        }
+        
+        // Get the shaped items from the cursor
+        let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
+        
+        let hyphenator = if fragment_constraints.hyphenation {
+            fragment_constraints
+                .hyphenation_language
+                .and_then(|lang| get_hyphenator(lang).ok())
+        } else {
+            None
+        };
+        
+        // Use the Knuth-Plass algorithm for optimal line breaking
+        return crate::text3::knuth_plass::kp_layout(
+            &shaped_items,
+            logical_items,
+            fragment_constraints,
+            hyphenator.as_ref(),
+            fonts,
+        );
     }
 
     let hyphenator = if fragment_constraints.hyphenation {
@@ -4835,7 +4864,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 // Failsafe: If we've skipped too many lines without content, break out
                 if empty_segment_count >= MAX_EMPTY_SEGMENTS {
                     if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::warning(format!("  ⚠️ WARNING: Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS)));
+                        msgs.push(LayoutDebugMessage::warning(format!("  [WARN] Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS)));
                         msgs.push(LayoutDebugMessage::warning("  This likely means the shape constraints are too restrictive or positioned incorrectly.".to_string()));
                         msgs.push(LayoutDebugMessage::warning(format!("  Current y={}, shape boundaries might be outside this range.", line_top_y)));
                     }
@@ -4862,7 +4891,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     
                     if line_top_y > max_shape_y + 100.0 {
                         if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!("  ⚠️ INFO: Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y)));
+                            msgs.push(LayoutDebugMessage::info(format!("  [INFO] Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y)));
                             msgs.push(LayoutDebugMessage::info("  Shape boundaries exist but no segments available - text cannot fit in shape.".to_string()));
                         }
                         break;

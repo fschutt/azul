@@ -15,6 +15,106 @@ pub mod scrollbar;
 pub mod sizing;
 pub mod taffy_bridge;
 
+/// Lazy debug_info macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_info {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_info_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_warning macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_warning {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_warning_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_error macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_error {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_error_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_log macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_log {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_log_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_box_props macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_box_props {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_box_props_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_css_getter macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_css_getter {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_css_getter_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_bfc_layout macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_bfc_layout {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_bfc_layout_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_ifc_layout macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_ifc_layout {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_ifc_layout_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_table_layout macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_table_layout {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_table_layout_inner(format!($($arg)*));
+        }
+    };
+}
+
+/// Lazy debug_display_type macro - only evaluates format args when debug_messages is Some
+#[macro_export]
+macro_rules! debug_display_type {
+    ($ctx:expr, $($arg:tt)*) => {
+        if $ctx.debug_messages.is_some() {
+            $ctx.debug_display_type_inner(format!($($arg)*));
+        }
+    };
+}
+
 // Test modules commented out until they are implemented
 // #[cfg(test)]
 // mod tests;
@@ -77,7 +177,15 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
-    pub fn debug_log(&mut self, message: &str) {
+    /// Check if debug messages are enabled (for use with lazy macros)
+    #[inline]
+    pub fn has_debug(&self) -> bool {
+        self.debug_messages.is_some()
+    }
+    
+    /// Internal method - called by debug_log! macro after checking has_debug()
+    #[inline]
+    pub fn debug_log_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage {
                 message: message.into(),
@@ -87,58 +195,149 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
     
-    pub fn debug_info(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_info! macro after checking has_debug()
+    #[inline]
+    pub fn debug_info_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::info(message));
         }
     }
     
-    pub fn debug_warning(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_warning! macro after checking has_debug()
+    #[inline]
+    pub fn debug_warning_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::warning(message));
         }
     }
     
-    pub fn debug_error(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_error! macro after checking has_debug()
+    #[inline]
+    pub fn debug_error_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::error(message));
         }
     }
     
-    pub fn debug_box_props(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_box_props! macro after checking has_debug()
+    #[inline]
+    pub fn debug_box_props_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::box_props(message));
         }
     }
     
-    pub fn debug_css_getter(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_css_getter! macro after checking has_debug()
+    #[inline]
+    pub fn debug_css_getter_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::css_getter(message));
         }
     }
     
-    pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_bfc_layout! macro after checking has_debug()
+    #[inline]
+    pub fn debug_bfc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::bfc_layout(message));
         }
     }
     
-    pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_ifc_layout! macro after checking has_debug()
+    #[inline]
+    pub fn debug_ifc_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::ifc_layout(message));
         }
     }
     
-    pub fn debug_table_layout(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_table_layout! macro after checking has_debug()
+    #[inline]
+    pub fn debug_table_layout_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::table_layout(message));
         }
     }
     
-    pub fn debug_display_type(&mut self, message: impl Into<String>) {
+    /// Internal method - called by debug_display_type! macro after checking has_debug()
+    #[inline]
+    pub fn debug_display_type_inner(&mut self, message: String) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage::display_type(message));
         }
+    }
+    
+    // DEPRECATED: Use debug_*!() macros instead for lazy evaluation
+    // These methods always evaluate format!() arguments even when debug is disabled
+    
+    #[inline]
+    #[deprecated(note = "Use debug_info! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_info(&mut self, message: impl Into<String>) {
+        self.debug_info_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_warning! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_warning(&mut self, message: impl Into<String>) {
+        self.debug_warning_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_error! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_error(&mut self, message: impl Into<String>) {
+        self.debug_error_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_log! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_log(&mut self, message: &str) {
+        self.debug_log_inner(message.to_string());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_box_props! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_box_props(&mut self, message: impl Into<String>) {
+        self.debug_box_props_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_css_getter! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_css_getter(&mut self, message: impl Into<String>) {
+        self.debug_css_getter_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_bfc_layout! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
+        self.debug_bfc_layout_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_ifc_layout! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
+        self.debug_ifc_layout_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_table_layout! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_table_layout(&mut self, message: impl Into<String>) {
+        self.debug_table_layout_inner(message.into());
+    }
+    
+    #[inline]
+    #[deprecated(note = "Use debug_display_type! macro for lazy evaluation")]
+    #[allow(deprecated)]
+    pub fn debug_display_type(&mut self, message: impl Into<String>) {
+        self.debug_display_type_inner(message.into());
     }
 }
 

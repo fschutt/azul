@@ -4184,15 +4184,8 @@ impl LayoutWindow {
                 if has_context_menu {
                     // TODO: Generate synthetic right-click event to trigger context menu
                     // This requires access to the event system which is not available here
-                    // For now, just log that we found a context menu
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[a11y] ShowContextMenu - found context menu, would trigger synthetic \
-                         right-click"
-                    );
                 } else {
-                    #[cfg(debug_assertions)]
-                    eprintln!("[a11y] ShowContextMenu - no context menu attached to node");
+                    // No context menu attached to node - silently ignore
                 }
             }
 
@@ -4273,28 +4266,20 @@ impl LayoutWindow {
                             self.cursor_manager.move_cursor_to(start, dom_id, node_id);
                         }
                     } else {
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "[a11y] SetTextSelection: Could not convert byte offsets to cursors"
-                        );
+                        // Could not convert byte offsets to cursors - silently ignore
                     }
                 } else {
-                    #[cfg(debug_assertions)]
-                    eprintln!("[a11y] SetTextSelection: No text layout available for node");
+                    // No text layout available for node - silently ignore
                 }
             }
 
             // Tooltip actions
             AccessibilityAction::ShowTooltip | AccessibilityAction::HideTooltip => {
                 // TODO: Integrate with tooltip manager when implemented
-                #[cfg(debug_assertions)]
-                eprintln!("[a11y] Tooltip actions not yet fully implemented");
             }
 
             AccessibilityAction::CustomAction(_id) => {
                 // TODO: Allow custom action handlers
-                #[cfg(debug_assertions)]
-                eprintln!("[a11y] Custom actions not yet fully implemented");
             }
         }
 
@@ -4426,8 +4411,6 @@ impl LayoutWindow {
             .any(|attr| matches!(attr, azul_core::dom::AttributeType::ContentEditable(_)));
 
         if !is_contenteditable {
-            #[cfg(debug_assertions)]
-            eprintln!("[text] Node {:?} is not contenteditable", node_id);
             self.text_input_manager.clear_changeset();
             return Vec::new();
         }
@@ -4485,15 +4468,6 @@ impl LayoutWindow {
         if let Some(azul_core::selection::Selection::Cursor(new_cursor)) = new_selections.first() {
             self.cursor_manager
                 .move_cursor_to(new_cursor.clone(), dom_id, node_id);
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            eprintln!("[text] Applied text changeset to node {:?}", node_id);
-            eprintln!("  Old content: {} items", content.len());
-            eprintln!("  New content: {} items", new_content.len());
-            eprintln!("  Old cursor: {:?}", current_selection.first());
-            eprintln!("  New cursor: {:?}", new_selections.first());
         }
 
         // Update the text cache with the new inline content
@@ -4796,9 +4770,6 @@ impl LayoutWindow {
         // 4. The next layout pass will re-run the 4-stage pipeline
 
         let _ = (dom_id, node_id, new_inline_content);
-
-        #[cfg(debug_assertions)]
-        eprintln!("[text] Text cache updated for node {:?}", node_id);
     }
 
     /// Helper to get node used_size for accessibility actions

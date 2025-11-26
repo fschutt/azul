@@ -357,28 +357,7 @@ impl FragmentationState {
     }
 }
 
-// Legacy API - keeping for backward compatibility during transition
 
-use std::sync::Arc;
-use crate::text3::cache::{ParsedFontTrait, UnifiedLayout};
-
-#[derive(Debug, Clone)]
-pub struct Page {
-    pub layout: Arc<UnifiedLayout>,
-    pub page_number: usize,
-    pub page_size: LogicalSize,
-}
-
-#[allow(unused_variables)]
-pub fn layout_to_pages(page_size: LogicalSize) -> Vec<Page> {
-    Vec::new()
-}
-
-pub fn generate_display_lists_from_paged_layout(
-    pages: &[Page],
-) -> Vec<DisplayList> {
-    pages.iter().map(|_| DisplayList::default()).collect()
-}
 
 #[cfg(test)]
 mod tests {
