@@ -9,7 +9,6 @@ pub mod fc;
 pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
-#[cfg(feature = "pdf")]
 pub mod paged_layout;
 pub mod positioning;
 pub mod scrollbar;
@@ -38,7 +37,7 @@ use azul_css::{
 };
 
 use self::{
-    display_list::generate_display_list,
+    display_list::{generate_display_list, generate_display_lists_paged},
     geometry::IntrinsicSizes,
     getters::get_writing_mode,
     layout_tree::{generate_layout_tree, LayoutTree},
@@ -74,7 +73,6 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub viewport_size: LogicalSize,
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one DisplayList per page
-    #[cfg(feature = "pdf")]
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
 }
 
@@ -169,7 +167,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
-        #[cfg(feature = "pdf")]
         fragmentation_context: None,
     };
 
@@ -197,7 +194,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
-        #[cfg(feature = "pdf")]
         fragmentation_context: None,
     };
 

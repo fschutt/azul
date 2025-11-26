@@ -128,7 +128,6 @@ pub struct LayoutNode {
     pub scrollbar_info: Option<ScrollbarInfo>,
     /// Page index for CSS Paged Media (PDF generation)
     /// Indicates which page/fragmentainer this node belongs to (0-indexed)
-    #[cfg(feature = "pdf")]
     pub page_index: usize,
 }
 
@@ -578,7 +577,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            #[cfg(feature = "pdf")]
             page_index: 0,
         });
         
@@ -627,7 +625,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            #[cfg(feature = "pdf")]
             page_index: 0,
         });
         
@@ -671,7 +668,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            #[cfg(feature = "pdf")]
             page_index: 0,
         });
         if let Some(p) = parent {

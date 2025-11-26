@@ -609,10 +609,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
     // --- Phase 3: Check for scrollbars and potential reflow ---
     // IMPORTANT: Skip scrollbar handling for paged media (PDF) - scrollbars don't exist in print
-    #[cfg(feature = "pdf")]
     let skip_scrollbar_check = ctx.fragmentation_context.is_some();
-    #[cfg(not(feature = "pdf"))]
-    let skip_scrollbar_check = false;
     
     let scrollbar_info = if skip_scrollbar_check {
         // For PDF/paged media, never add scrollbars
@@ -767,6 +764,19 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         }
         
         calculated_positions.insert(child_index, child_absolute_pos);
+        
+        // === PHASE 2: Assign page_index based on absolute Y position ===
+        // If we're in paged layout mode, calculate which page this node belongs to
+        if let Some(ref frag_ctx) = ctx.fragmentation_context {
+            let page_height = frag_ctx.page_content_height();
+            if page_height > 0.0 && page_height < f32::MAX {
+                let page_index = (child_absolute_pos.y / page_height).floor() as usize;
+                // Update the node's page_index
+                if let Some(child_node_mut) = tree.get_mut(child_index) {
+                    child_node_mut.page_index = page_index;
+                }
+            }
+        }
 
         // For Flex/Grid containers, Taffy has already laid out the children completely
         // (including their used_size and relative_position). We should NOT call

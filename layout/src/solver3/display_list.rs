@@ -1817,3 +1817,349 @@ fn get_image_key_for_image_source(
     // For now, inline images are not yet supported
     None
 }
+
+// ============================================================================
+// Phase 3: Per-Page Display List Generation
+// ============================================================================
+
+/// Generate display lists for paged layout, one per page.
+/// 
+/// This function groups layout nodes by their page_index and generates
+/// a separate DisplayList for each page. Items are offset to page-relative
+/// coordinates.
+/// 
+/// # Arguments
+/// * `ctx` - The layout context
+/// * `tree` - The layout tree with page_index assigned to nodes
+/// * `calculated_positions` - Absolute positions of all nodes
+/// * `page_content_height` - Height of each page's content area
+/// * Other arguments same as generate_display_list()
+/// 
+/// # Returns
+/// A vector of DisplayLists, one per page.
+pub fn generate_display_lists_paged<T: ParsedFontTrait + Sync + 'static>(
+    ctx: &mut LayoutContext<T>,
+    tree: &LayoutTree,
+    calculated_positions: &BTreeMap<usize, LogicalPosition>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    scroll_ids: &BTreeMap<usize, u64>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &azul_core::resources::RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: azul_core::dom::DomId,
+    page_content_height: f32,
+) -> Result<Vec<DisplayList>> {
+    // First, generate a single display list with all items
+    let full_display_list = generate_display_list(
+        ctx,
+        tree,
+        calculated_positions,
+        scroll_offsets,
+        scroll_ids,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+    )?;
+    
+    // If page_content_height is invalid, return single page
+    if page_content_height <= 0.0 || page_content_height >= f32::MAX {
+        return Ok(vec![full_display_list]);
+    }
+    
+    // Determine number of pages needed based on max Y position of items
+    let max_y = full_display_list.items.iter()
+        .filter_map(|item| get_display_item_bounds(item))
+        .map(|bounds| bounds.origin.y + bounds.size.height)
+        .fold(0.0f32, f32::max);
+    
+    let num_pages = ((max_y / page_content_height).ceil() as usize).max(1);
+    
+    // Generate per-page display lists by filtering and offsetting items
+    let mut pages = Vec::with_capacity(num_pages);
+    
+    for page_idx in 0..num_pages {
+        let page_top = page_idx as f32 * page_content_height;
+        let page_bottom = page_top + page_content_height;
+        
+        let page_items: Vec<DisplayListItem> = full_display_list.items.iter()
+            .filter_map(|item| clip_and_offset_display_item(item, page_top, page_bottom))
+            .collect();
+        
+        // Build node_mapping for this page's items
+        // (simplified: we lose the mapping for now, but that's okay for rendering)
+        let node_mapping = vec![None; page_items.len()];
+        
+        pages.push(DisplayList {
+            items: page_items,
+            node_mapping,
+        });
+    }
+    
+    Ok(pages)
+}
+
+/// Get the bounds of a display list item, if it has spatial extent.
+fn get_display_item_bounds(item: &DisplayListItem) -> Option<LogicalRect> {
+    match item {
+        DisplayListItem::Rect { bounds, .. } => Some(*bounds),
+        DisplayListItem::SelectionRect { bounds, .. } => Some(*bounds),
+        DisplayListItem::CursorRect { bounds, .. } => Some(*bounds),
+        DisplayListItem::Border { bounds, .. } => Some(*bounds),
+        DisplayListItem::TextLayout { bounds, .. } => Some(*bounds),
+        DisplayListItem::Text { clip_rect, .. } => Some(*clip_rect),
+        DisplayListItem::Underline { bounds, .. } => Some(*bounds),
+        DisplayListItem::Strikethrough { bounds, .. } => Some(*bounds),
+        DisplayListItem::Overline { bounds, .. } => Some(*bounds),
+        DisplayListItem::Image { bounds, .. } => Some(*bounds),
+        DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds),
+        DisplayListItem::PushClip { bounds, .. } => Some(*bounds),
+        DisplayListItem::PushScrollFrame { clip_bounds, .. } => Some(*clip_bounds),
+        DisplayListItem::HitTestArea { bounds, .. } => Some(*bounds),
+        DisplayListItem::PushStackingContext { bounds, .. } => Some(*bounds),
+        DisplayListItem::IFrame { bounds, .. } => Some(*bounds),
+        _ => None,
+    }
+}
+
+/// Clip a display list item to page bounds and offset to page-relative coordinates.
+/// Returns None if the item is completely outside the page bounds.
+fn clip_and_offset_display_item(
+    item: &DisplayListItem,
+    page_top: f32,
+    page_bottom: f32,
+) -> Option<DisplayListItem> {
+    match item {
+        DisplayListItem::Rect { bounds, color, border_radius } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::Rect {
+                    bounds: clipped,
+                    color: *color,
+                    border_radius: *border_radius,
+                }
+            })
+        }
+        
+        DisplayListItem::Border { bounds, widths, colors, styles, border_radius } => {
+            let original_bounds = *bounds;
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                let mut new_widths = *widths;
+                
+                // Hide top border if we clipped the top
+                if clipped.origin.y > 0.0 && original_bounds.origin.y < page_top {
+                    new_widths.top = None;
+                }
+                
+                // Hide bottom border if we clipped the bottom
+                let original_bottom = original_bounds.origin.y + original_bounds.size.height;
+                let clipped_bottom = clipped.origin.y + clipped.size.height;
+                if original_bottom > page_bottom && clipped_bottom >= page_bottom - page_top - 1.0 {
+                    new_widths.bottom = None;
+                }
+                
+                DisplayListItem::Border {
+                    bounds: clipped,
+                    widths: new_widths,
+                    colors: *colors,
+                    styles: *styles,
+                    border_radius: border_radius.clone(),
+                }
+            })
+        }
+        
+        DisplayListItem::SelectionRect { bounds, border_radius, color } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::SelectionRect {
+                    bounds: clipped,
+                    border_radius: *border_radius,
+                    color: *color,
+                }
+            })
+        }
+        
+        DisplayListItem::CursorRect { bounds, color } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::CursorRect {
+                    bounds: clipped,
+                    color: *color,
+                }
+            })
+        }
+        
+        DisplayListItem::Image { bounds, key } => {
+            // Images: show if they overlap the page
+            if bounds.origin.y < page_bottom && bounds.origin.y + bounds.size.height > page_top {
+                clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                    DisplayListItem::Image {
+                        bounds: clipped,
+                        key: *key,
+                    }
+                })
+            } else {
+                None
+            }
+        }
+        
+        DisplayListItem::TextLayout { layout, bounds, font_hash, font_size_px, color } => {
+            if !rect_intersects(bounds, page_top, page_bottom) {
+                return None;
+            }
+            Some(DisplayListItem::TextLayout {
+                layout: layout.clone(),
+                bounds: offset_rect_y(*bounds, -page_top),
+                font_hash: *font_hash,
+                font_size_px: *font_size_px,
+                color: *color,
+            })
+        }
+        
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect } => {
+            if !rect_intersects(clip_rect, page_top, page_bottom) {
+                return None;
+            }
+            
+            // Filter glyphs to only those visible on this page
+            let page_glyphs: Vec<_> = glyphs.iter()
+                .filter(|g| g.point.y >= page_top - 20.0 && g.point.y <= page_bottom + 20.0)
+                .map(|g| GlyphInstance {
+                    index: g.index,
+                    point: LogicalPosition {
+                        x: g.point.x,
+                        y: g.point.y - page_top,
+                    },
+                    size: g.size,
+                })
+                .collect();
+            
+            if page_glyphs.is_empty() {
+                return None;
+            }
+            
+            Some(DisplayListItem::Text {
+                glyphs: page_glyphs,
+                font_hash: *font_hash,
+                font_size_px: *font_size_px,
+                color: *color,
+                clip_rect: offset_rect_y(*clip_rect, -page_top),
+            })
+        }
+        
+        DisplayListItem::Underline { bounds, color, thickness } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::Underline {
+                    bounds: clipped,
+                    color: *color,
+                    thickness: *thickness,
+                }
+            })
+        }
+        
+        DisplayListItem::Strikethrough { bounds, color, thickness } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::Strikethrough {
+                    bounds: clipped,
+                    color: *color,
+                    thickness: *thickness,
+                }
+            })
+        }
+        
+        DisplayListItem::Overline { bounds, color, thickness } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::Overline {
+                    bounds: clipped,
+                    color: *color,
+                    thickness: *thickness,
+                }
+            })
+        }
+        
+        DisplayListItem::ScrollBar { bounds, color, orientation, opacity_key, hit_id } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::ScrollBar {
+                    bounds: clipped,
+                    color: *color,
+                    orientation: *orientation,
+                    opacity_key: *opacity_key,
+                    hit_id: *hit_id,
+                }
+            })
+        }
+        
+        DisplayListItem::HitTestArea { bounds, tag } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::HitTestArea {
+                    bounds: clipped,
+                    tag: *tag,
+                }
+            })
+        }
+        
+        // State management items - skip for now (would need proper per-page tracking)
+        DisplayListItem::PushClip { .. } |
+        DisplayListItem::PopClip |
+        DisplayListItem::PushScrollFrame { .. } |
+        DisplayListItem::PopScrollFrame |
+        DisplayListItem::PushStackingContext { .. } |
+        DisplayListItem::PopStackingContext => None,
+        
+        DisplayListItem::IFrame { child_dom_id, bounds, clip_rect } => {
+            clip_rect_bounds(*bounds, page_top, page_bottom).map(|clipped| {
+                DisplayListItem::IFrame {
+                    child_dom_id: *child_dom_id,
+                    bounds: clipped,
+                    clip_rect: offset_rect_y(*clip_rect, -page_top),
+                }
+            })
+        }
+    }
+}
+
+/// Clip a rectangle to page bounds and offset to page-relative coordinates.
+/// Returns None if the rectangle is completely outside the page.
+fn clip_rect_bounds(bounds: LogicalRect, page_top: f32, page_bottom: f32) -> Option<LogicalRect> {
+    let item_top = bounds.origin.y;
+    let item_bottom = bounds.origin.y + bounds.size.height;
+    
+    // Check if completely outside page
+    if item_bottom <= page_top || item_top >= page_bottom {
+        return None;
+    }
+    
+    // Calculate clipped bounds
+    let clipped_top = item_top.max(page_top);
+    let clipped_bottom = item_bottom.min(page_bottom);
+    let clipped_height = clipped_bottom - clipped_top;
+    
+    // Offset to page-relative coordinates
+    let page_relative_y = clipped_top - page_top;
+    
+    Some(LogicalRect {
+        origin: LogicalPosition {
+            x: bounds.origin.x,
+            y: page_relative_y,
+        },
+        size: LogicalSize {
+            width: bounds.size.width,
+            height: clipped_height,
+        },
+    })
+}
+
+/// Check if a rectangle intersects the page bounds.
+fn rect_intersects(bounds: &LogicalRect, page_top: f32, page_bottom: f32) -> bool {
+    let item_top = bounds.origin.y;
+    let item_bottom = bounds.origin.y + bounds.size.height;
+    item_bottom > page_top && item_top < page_bottom
+}
+
+/// Offset a rectangle's Y coordinate.
+fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition {
+            x: bounds.origin.x,
+            y: bounds.origin.y + offset_y,
+        },
+        size: bounds.size,
+    }
+}

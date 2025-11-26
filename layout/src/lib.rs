@@ -39,9 +39,7 @@ pub use allsorts::subset::CmapTarget;
 pub use hyphenation;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
-#[cfg(feature = "pdf")]
 pub mod paged;
-#[cfg(feature = "pdf")]
 pub mod fragmentation;
 #[cfg(feature = "text_layout")]
 pub mod text3;
@@ -61,9 +59,7 @@ pub mod xml;
 // Export the main layout function and window management
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
-#[cfg(feature = "pdf")]
-pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page};
-#[cfg(feature = "pdf")]
+pub use paged::{generate_display_lists_from_paged_layout, layout_to_pages, Page, FragmentationState};
 pub use fragmentation::{
     FragmentationLayoutContext, FragmentationDefaults, PageTemplate, PageCounter,
     PageMargins, PageSlot, PageSlotContent, PageSlotPosition, PageNumberStyle,
@@ -72,9 +68,11 @@ pub use fragmentation::{
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
-pub use solver3::display_list::DisplayList as DisplayList3;
+pub use solver3::display_list::{DisplayList as DisplayList3, generate_display_lists_paged};
 #[cfg(feature = "text_layout")]
 pub use solver3::layout_document;
+#[cfg(feature = "text_layout")]
+pub use solver3::paged_layout::layout_document_paged;
 #[cfg(feature = "text_layout")]
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
 #[cfg(feature = "text_layout")]
