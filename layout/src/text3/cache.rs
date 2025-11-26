@@ -5396,6 +5396,29 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
 
         // 4. Position the items belonging to this segment.
+        //
+        // VERTICAL ALIGNMENT POSITIONING (CSS vertical-align)
+        // ====================================================
+        // Currently, we use `constraints.vertical_align` for ALL items on the line.
+        // This is the GLOBAL vertical alignment set on the containing block.
+        //
+        // KNOWN LIMITATION / TODO:
+        // Per-item vertical-align (stored in `InlineImage.alignment`) is NOT used here.
+        // According to CSS, each inline element can have its own vertical-align value:
+        //   <img style="vertical-align: top"> would align to line top
+        //   <img style="vertical-align: middle"> would center in line box
+        //   <img style="vertical-align: bottom"> would align to line bottom
+        //
+        // To fix this, we would need to:
+        // 1. Add a helper function `get_item_vertical_align(&item)` that extracts
+        //    the alignment from ShapedItem::Object -> InlineContent::Image -> alignment
+        // 2. Use that alignment instead of `constraints.vertical_align` for Objects
+        //
+        // For now, all items use the global alignment which works correctly for
+        // text-only content or when all images have the same alignment.
+        //
+        // Reference: CSS Inline Layout Level 3 § 4 Baseline Alignment
+        // https://www.w3.org/TR/css-inline-3/#baseline-alignment
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item);
             let item_baseline_pos = match constraints.vertical_align {
