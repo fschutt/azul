@@ -809,7 +809,7 @@ pub struct BorderInfo {
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
-pub fn get_border_info<T: ParsedFontTrait>(
+pub fn get_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -980,7 +980,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 // Scrollbar Information
 
 /// Get scrollbar information from a layout node
-pub fn get_scrollbar_info_from_layout<T: ParsedFontTrait>(node: &LayoutNode<T>) -> ScrollbarInfo {
+pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarInfo {
     // Check if there's inline content that might overflow
     let has_inline_content = node.inline_layout_result.is_some();
 
@@ -1357,4 +1357,417 @@ pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
         break_inside,
         BreakInside::Avoid | BreakInside::AvoidPage | BreakInside::AvoidColumn
     )
+}
+
+// ============================================================================
+// Font Chain Resolution - Pre-Layout Font Loading
+// ============================================================================
+
+use azul_core::dom::NodeType;
+use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
+use crate::text3::cache::{FontSelector, FontStyle, FontChainKey};
+use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
+use std::collections::HashMap;
+
+/// Result of collecting font stacks from a StyledDom
+/// Contains all unique font stacks and the mapping from StyleFontFamiliesHash to FontChainKey
+#[derive(Debug, Clone)]
+pub struct CollectedFontStacks {
+    /// All unique font stacks found in the document
+    pub font_stacks: Vec<Vec<FontSelector>>,
+    /// Map from the font stack hash to the index in font_stacks
+    pub hash_to_index: HashMap<u64, usize>,
+}
+
+/// Resolved font chains ready for use in layout
+/// This is the result of resolving font stacks against FcFontCache
+#[derive(Debug, Clone)]
+pub struct ResolvedFontChains {
+    /// Map from FontChainKey to the resolved FontFallbackChain
+    pub chains: HashMap<FontChainKey, FontFallbackChain>,
+}
+
+impl ResolvedFontChains {
+    /// Get a font chain by its key
+    pub fn get(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
+        self.chains.get(key)
+    }
+    
+    /// Get a font chain for a font stack
+    pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
+        let key = FontChainKey::from_font_stack(font_stack);
+        self.chains.get(&key)
+    }
+    
+    /// Consume self and return the inner HashMap
+    /// 
+    /// This is useful for passing the resolved chains to a FontManager
+    pub fn into_inner(self) -> HashMap<FontChainKey, FontFallbackChain> {
+        self.chains
+    }
+    
+    /// Get the number of resolved chains
+    pub fn len(&self) -> usize {
+        self.chains.len()
+    }
+    
+    /// Check if there are no resolved chains
+    pub fn is_empty(&self) -> bool {
+        self.chains.is_empty()
+    }
+}
+
+/// Collect all unique font stacks from a StyledDom
+/// 
+/// This is a pure function that iterates over all nodes in the DOM and
+/// extracts the font-family property from each node that has text content.
+/// 
+/// # Arguments
+/// * `styled_dom` - The styled DOM to extract font stacks from
+/// 
+/// # Returns
+/// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
+pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedFontStacks {
+    let mut font_stacks = Vec::new();
+    let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
+    let mut seen_hashes = std::collections::HashSet::new();
+    
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_nodes_container = styled_dom.styled_nodes.as_container();
+    let cache = &styled_dom.css_property_cache.ptr;
+    
+    // Iterate over all nodes
+    for (node_idx, node_data) in node_data_container.internal.iter().enumerate() {
+        // Only process text nodes (they are the ones that need fonts)
+        if !matches!(node_data.node_type, NodeType::Text(_)) {
+            continue;
+        }
+        
+        let dom_id = match NodeId::from_usize(node_idx) {
+            Some(id) => id,
+            None => continue,
+        };
+        
+        let node_state = &styled_nodes_container[dom_id].state;
+        
+        // Get font families from CSS
+        let font_families = cache.get_font_family(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().cloned())
+            .unwrap_or_else(|| {
+                StyleFontFamilyVec::from_vec(vec![
+                    StyleFontFamily::System("serif".into())
+                ])
+            });
+        
+        // Get font weight and style
+        let font_weight = cache
+            .get_font_weight(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or(azul_css::props::basic::font::StyleFontWeight::Normal);
+        
+        let font_style = cache
+            .get_font_style(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
+        
+        // Convert to fontconfig types
+        let fc_weight = super::fc::convert_font_weight(font_weight);
+        let fc_style = super::fc::convert_font_style(font_style);
+        
+        // Build font stack
+        let mut font_stack = Vec::with_capacity(font_families.len() + 3);
+        
+        for i in 0..font_families.len() {
+            font_stack.push(FontSelector {
+                family: font_families.get(i).unwrap().as_string(),
+                weight: fc_weight,
+                style: fc_style,
+                unicode_ranges: Vec::new(),
+            });
+        }
+        
+        // Add generic fallbacks
+        let generic_fallbacks = ["sans-serif", "serif", "monospace"];
+        for fallback in &generic_fallbacks {
+            if !font_stack.iter().any(|f| f.family.to_lowercase() == fallback.to_lowercase()) {
+                font_stack.push(FontSelector {
+                    family: fallback.to_string(),
+                    weight: FcWeight::Normal,
+                    style: FontStyle::Normal,
+                    unicode_ranges: Vec::new(),
+                });
+            }
+        }
+        
+        // Compute hash for deduplication
+        let key = FontChainKey::from_font_stack(&font_stack);
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            key.hash(&mut hasher);
+            hasher.finish()
+        };
+        
+        // Only add if not seen before
+        if !seen_hashes.contains(&hash) {
+            seen_hashes.insert(hash);
+            let idx = font_stacks.len();
+            font_stacks.push(font_stack);
+            hash_to_index.insert(hash, idx);
+        }
+    }
+    
+    CollectedFontStacks {
+        font_stacks,
+        hash_to_index,
+    }
+}
+
+/// Resolve all font chains for the collected font stacks
+/// 
+/// This is a pure function that takes the collected font stacks and resolves
+/// them against the FcFontCache to produce FontFallbackChains.
+/// 
+/// # Arguments
+/// * `collected` - The collected font stacks from `collect_font_stacks_from_styled_dom`
+/// * `fc_cache` - The fontconfig cache to resolve fonts against
+/// 
+/// # Returns
+/// A `ResolvedFontChains` containing all resolved font chains
+pub fn resolve_font_chains(
+    collected: &CollectedFontStacks,
+    fc_cache: &FcFontCache,
+) -> ResolvedFontChains {
+    let mut chains = HashMap::new();
+    
+    for font_stack in &collected.font_stacks {
+        if font_stack.is_empty() {
+            continue;
+        }
+        
+        // Build font families list
+        let font_families: Vec<String> = font_stack.iter()
+            .map(|s| s.family.clone())
+            .filter(|f| !f.is_empty())
+            .collect();
+        
+        let font_families = if font_families.is_empty() {
+            vec!["sans-serif".to_string()]
+        } else {
+            font_families
+        };
+        
+        let weight = font_stack[0].weight;
+        let is_italic = font_stack[0].style == FontStyle::Italic;
+        let is_oblique = font_stack[0].style == FontStyle::Oblique;
+        
+        let cache_key = FontChainKey {
+            font_families: font_families.clone(),
+            weight,
+            italic: is_italic,
+            oblique: is_oblique,
+        };
+        
+        // Skip if already resolved
+        if chains.contains_key(&cache_key) {
+            continue;
+        }
+        
+        // Resolve the font chain
+        let italic = if is_italic { PatternMatch::True } else { PatternMatch::DontCare };
+        let oblique = if is_oblique { PatternMatch::True } else { PatternMatch::DontCare };
+        
+        let mut trace = Vec::new();
+        let chain = fc_cache.resolve_font_chain(
+            &font_families,
+            weight,
+            italic,
+            oblique,
+            &mut trace,
+        );
+        
+        chains.insert(cache_key, chain);
+    }
+    
+    ResolvedFontChains { chains }
+}
+
+/// Convenience function that collects and resolves font chains in one call
+/// 
+/// # Arguments
+/// * `styled_dom` - The styled DOM to extract font stacks from
+/// * `fc_cache` - The fontconfig cache to resolve fonts against
+/// 
+/// # Returns
+/// A `ResolvedFontChains` containing all resolved font chains
+pub fn collect_and_resolve_font_chains(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+) -> ResolvedFontChains {
+    let collected = collect_font_stacks_from_styled_dom(styled_dom);
+    resolve_font_chains(&collected, fc_cache)
+}
+
+// ============================================================================
+// Font Loading Functions
+// ============================================================================
+
+use std::collections::HashSet;
+use rust_fontconfig::FontId;
+
+/// Extract all unique FontIds from resolved font chains
+/// 
+/// This function collects all FontIds that are referenced in the font chains,
+/// which represents the complete set of fonts that may be needed for rendering.
+pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
+    let mut font_ids = HashSet::new();
+    
+    for chain in chains.chains.values() {
+        // Collect from CSS fallbacks
+        for group in &chain.css_fallbacks {
+            for font in &group.fonts {
+                font_ids.insert(font.id);
+            }
+        }
+        
+        // Collect from Unicode fallbacks
+        for font in &chain.unicode_fallbacks {
+            font_ids.insert(font.id);
+        }
+    }
+    
+    font_ids
+}
+
+/// Compute which fonts need to be loaded (diff with already loaded fonts)
+/// 
+/// # Arguments
+/// * `required_fonts` - Set of FontIds that are needed
+/// * `already_loaded` - Set of FontIds that are already loaded
+/// 
+/// # Returns
+/// Set of FontIds that need to be loaded
+pub fn compute_fonts_to_load(
+    required_fonts: &HashSet<FontId>,
+    already_loaded: &HashSet<FontId>,
+) -> HashSet<FontId> {
+    required_fonts.difference(already_loaded).cloned().collect()
+}
+
+/// Result of loading fonts
+#[derive(Debug)]
+pub struct FontLoadResult<T> {
+    /// Successfully loaded fonts
+    pub loaded: HashMap<FontId, T>,
+    /// FontIds that failed to load, with error messages
+    pub failed: Vec<(FontId, String)>,
+}
+
+/// Load fonts from disk using the provided loader function
+/// 
+/// This is a generic function that works with any font loading implementation.
+/// The `load_fn` parameter should be a function that takes font bytes and an index,
+/// and returns a parsed font or an error.
+/// 
+/// # Arguments
+/// * `font_ids` - Set of FontIds to load
+/// * `fc_cache` - The fontconfig cache to get font paths from
+/// * `load_fn` - Function to load and parse font bytes
+/// 
+/// # Returns
+/// A `FontLoadResult` containing successfully loaded fonts and any failures
+/// 
+/// # Example
+/// ```ignore
+/// use azul_layout::text3::default::PathLoader;
+/// 
+/// let loader = PathLoader::new();
+/// let result = load_fonts_from_disk(
+///     &fonts_to_load,
+///     &fc_cache,
+///     |bytes, index| loader.load_font(bytes, index),
+/// );
+/// ```
+pub fn load_fonts_from_disk<T, F>(
+    font_ids: &HashSet<FontId>,
+    fc_cache: &FcFontCache,
+    load_fn: F,
+) -> FontLoadResult<T>
+where
+    F: Fn(&[u8], usize) -> Result<T, crate::text3::cache::LayoutError>,
+{
+    let mut loaded = HashMap::new();
+    let mut failed = Vec::new();
+    
+    for font_id in font_ids {
+        // Get font bytes from fc_cache
+        let font_bytes = match fc_cache.get_font_bytes(font_id) {
+            Some(bytes) => bytes,
+            None => {
+                failed.push((*font_id, format!("Could not get font bytes for {:?}", font_id)));
+                continue;
+            }
+        };
+        
+        // Get font index (for font collections like .ttc files)
+        let font_index = fc_cache.get_font_by_id(font_id)
+            .and_then(|source| match source {
+                rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
+                rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+            })
+            .unwrap_or(0) as usize;
+        
+        // Load the font using the provided function
+        match load_fn(&font_bytes, font_index) {
+            Ok(font) => {
+                loaded.insert(*font_id, font);
+            }
+            Err(e) => {
+                failed.push((*font_id, format!("Failed to parse font {:?}: {:?}", font_id, e)));
+            }
+        }
+    }
+    
+    FontLoadResult { loaded, failed }
+}
+
+/// Convenience function to load all required fonts for a styled DOM
+/// 
+/// This function:
+/// 1. Collects all font stacks from the DOM
+/// 2. Resolves them to font chains
+/// 3. Extracts all required FontIds
+/// 4. Computes which fonts need to be loaded (diff with already loaded)
+/// 5. Loads the missing fonts
+/// 
+/// # Arguments
+/// * `styled_dom` - The styled DOM to extract font requirements from
+/// * `fc_cache` - The fontconfig cache
+/// * `already_loaded` - Set of FontIds that are already loaded
+/// * `load_fn` - Function to load and parse font bytes
+/// 
+/// # Returns
+/// A tuple of (ResolvedFontChains, FontLoadResult)
+pub fn resolve_and_load_fonts<T, F>(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+    already_loaded: &HashSet<FontId>,
+    load_fn: F,
+) -> (ResolvedFontChains, FontLoadResult<T>)
+where
+    F: Fn(&[u8], usize) -> Result<T, crate::text3::cache::LayoutError>,
+{
+    // Step 1-2: Collect and resolve font chains
+    let chains = collect_and_resolve_font_chains(styled_dom, fc_cache);
+    
+    // Step 3: Extract all required FontIds
+    let required_fonts = collect_font_ids_from_chains(&chains);
+    
+    // Step 4: Compute diff
+    let fonts_to_load = compute_fonts_to_load(&required_fonts, already_loaded);
+    
+    // Step 5: Load missing fonts
+    let load_result = load_fonts_from_disk(&fonts_to_load, fc_cache, load_fn);
+    
+    (chains, load_result)
 }

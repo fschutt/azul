@@ -262,19 +262,19 @@ use std::sync::Arc;
 use crate::text3::cache::{ParsedFontTrait, UnifiedLayout};
 
 #[derive(Debug, Clone)]
-pub struct Page<T: ParsedFontTrait> {
-    pub layout: Arc<UnifiedLayout<T>>,
+pub struct Page {
+    pub layout: Arc<UnifiedLayout>,
     pub page_number: usize,
     pub page_size: LogicalSize,
 }
 
 #[allow(unused_variables)]
-pub fn layout_to_pages<T: ParsedFontTrait + 'static>(page_size: LogicalSize) -> Vec<Page<T>> {
+pub fn layout_to_pages(page_size: LogicalSize) -> Vec<Page> {
     Vec::new()
 }
 
-pub fn generate_display_lists_from_paged_layout<T: ParsedFontTrait>(
-    pages: &[Page<T>],
+pub fn generate_display_lists_from_paged_layout(
+    pages: &[Page],
 ) -> Vec<DisplayList> {
     pages.iter().map(|_| DisplayList::default()).collect()
 }

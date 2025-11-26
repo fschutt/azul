@@ -75,7 +75,7 @@ pub struct SubtreeHash(pub u64);
 /// layout is clean (e.g., if a sibling changes size). We will calculate
 /// it in a separate map.
 #[derive(Debug, Clone)]
-pub struct LayoutNode<T: ParsedFontTrait> {
+pub struct LayoutNode {
     /// Reference back to the original DOM node (None for anonymous boxes)
     pub dom_node_id: Option<NodeId>,
     /// Pseudo-element type (::marker, ::before, ::after) if this node is a pseudo-element
@@ -114,7 +114,7 @@ pub struct LayoutNode<T: ParsedFontTrait> {
     /// The baseline of this box, if applicable, measured from its content-box top edge.
     pub baseline: Option<f32>,
     /// Optional layouted text that this layout node carries
-    pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>,
+    pub inline_layout_result: Option<Arc<UnifiedLayout>>,
     /// Escaped top margin (CSS 2.1 margin collapsing)
     /// If this BFC's first child's top margin "escaped" the BFC, this contains
     /// the collapsed margin that should be applied by the parent.
@@ -163,25 +163,25 @@ pub enum AnonymousBoxType {
 
 /// The complete layout tree structure
 #[derive(Debug, Clone)]
-pub struct LayoutTree<T: ParsedFontTrait> {
+pub struct LayoutTree {
     /// Arena-style storage for layout nodes
-    pub nodes: Vec<LayoutNode<T>>,
+    pub nodes: Vec<LayoutNode>,
     /// Root node index
     pub root: usize,
     /// Mapping from DOM node IDs to layout node indices
     pub dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
 }
 
-impl<T: ParsedFontTrait> LayoutTree<T> {
-    pub fn get(&self, index: usize) -> Option<&LayoutNode<T>> {
+impl LayoutTree {
+    pub fn get(&self, index: usize) -> Option<&LayoutNode> {
         self.nodes.get(index)
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode<T>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode> {
         self.nodes.get_mut(index)
     }
 
-    pub fn root_node(&self) -> &LayoutNode<T> {
+    pub fn root_node(&self) -> &LayoutNode {
         &self.nodes[self.root]
     }
 
@@ -247,9 +247,9 @@ impl<T: ParsedFontTrait> LayoutTree<T> {
 }
 
 /// Generate layout tree from styled DOM with proper anonymous box generation
-pub fn generate_layout_tree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-) -> Result<LayoutTree<T>> {
+pub fn generate_layout_tree<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+) -> Result<LayoutTree> {
     let mut builder = LayoutTreeBuilder::new();
     let root_id = ctx
         .styled_dom
@@ -267,12 +267,12 @@ pub fn generate_layout_tree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     Ok(layout_tree)
 }
 
-pub struct LayoutTreeBuilder<T: ParsedFontTrait> {
-    nodes: Vec<LayoutNode<T>>,
+pub struct LayoutTreeBuilder {
+    nodes: Vec<LayoutNode>,
     dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
 }
 
-impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
+impl LayoutTreeBuilder {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -280,11 +280,11 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&LayoutNode<T>> {
+    pub fn get(&self, index: usize) -> Option<&LayoutNode> {
         self.nodes.get(index)
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode<T>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut LayoutNode> {
         self.nodes.get_mut(index)
     }
 
@@ -683,7 +683,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
 
     pub fn clone_node_from_old(
         &mut self,
-        old_node: &LayoutNode<T>,
+        old_node: &LayoutNode,
         parent: Option<usize>,
     ) -> usize {
         let index = self.nodes.len();
@@ -702,7 +702,7 @@ impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
         index
     }
 
-    pub fn build(self, root_idx: usize) -> LayoutTree<T> {
+    pub fn build(self, root_idx: usize) -> LayoutTree {
         LayoutTree {
             nodes: self.nodes,
             root: root_idx,

@@ -139,9 +139,9 @@ fn resolve_position_offsets(
 
 /// After the main layout pass, this function iterates through the tree and correctly
 /// calculates the final positions of out-of-flow elements (`absolute`, `fixed`).
-pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect,
 ) -> Result<()> {
@@ -268,9 +268,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// This function now correctly resolves percentage-based offsets for `top`, `left`, etc.
 /// According to the CSS spec, for relatively positioned elements, these percentages are
 /// relative to the dimensions of the parent element's content box.
-pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+pub fn adjust_relative_positions<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) -> Result<()> {
@@ -377,8 +377,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Helper to find the containing block for an absolutely positioned element.
-fn find_absolute_containing_block_rect<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn find_absolute_containing_block_rect(
+    tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
     calculated_positions: &BTreeMap<usize, LogicalPosition>,

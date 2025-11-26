@@ -60,9 +60,9 @@ fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBeh
 
 /// The persistent cache that holds the layout state between frames.
 #[derive(Debug, Clone, Default)]
-pub struct LayoutCache<T: ParsedFontTrait> {
+pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
-    pub tree: Option<LayoutTree<T>>,
+    pub tree: Option<LayoutTree>,
     /// The final, absolute positions of all nodes from the previous frame.
     pub calculated_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport size from the last layout pass, used to detect resizes.
@@ -104,9 +104,9 @@ impl ReconciliationResult {
 /// and calling the appropriate repositioning algorithm. For complex layout modes
 /// like Flexbox or Grid, this optimization is skipped, as a full relayout is
 /// often required to correctly recalculate spacing and sizing for all siblings.
-pub fn reposition_clean_subtrees<T: ParsedFontTrait>(
+pub fn reposition_clean_subtrees(
     styled_dom: &StyledDom,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
@@ -199,11 +199,11 @@ fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool 
 /// Repositions clean children within a simple block-flow layout (like a BFC or a table-row-group).
 /// It stacks children along the main axis, preserving their previously calculated cross-axis
 /// alignment.
-fn reposition_block_flow_siblings<T: ParsedFontTrait>(
+fn reposition_block_flow_siblings(
     styled_dom: &StyledDom,
     parent_idx: usize,
-    parent_node: &LayoutNode<T>,
-    tree: &LayoutTree<T>,
+    parent_node: &LayoutNode,
+    tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
@@ -288,10 +288,10 @@ fn reposition_block_flow_siblings<T: ParsedFontTrait>(
 }
 
 /// Helper to recursively shift the absolute position of a node and all its descendants.
-pub fn shift_subtree_position<T: ParsedFontTrait>(
+pub fn shift_subtree_position(
     node_idx: usize,
     delta: LogicalPosition,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
 ) {
     if let Some(pos) = calculated_positions.get_mut(&node_idx) {
@@ -308,11 +308,11 @@ pub fn shift_subtree_position<T: ParsedFontTrait>(
 
 /// Compares the new DOM against the cached tree, creating a new tree
 /// and identifying which parts need to be re-laid out.
-pub fn reconcile_and_invalidate<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    cache: &LayoutCache<T>,
+pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    cache: &LayoutCache,
     viewport: LogicalRect,
-) -> Result<(LayoutTree<T>, ReconciliationResult)> {
+) -> Result<(LayoutTree, ReconciliationResult)> {
     let mut new_tree_builder = LayoutTreeBuilder::new();
     let mut recon_result = ReconciliationResult::default();
     let old_tree = cache.tree.as_ref();
@@ -361,13 +361,13 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
-pub fn reconcile_recursive<T: ParsedFontTrait>(
+pub fn reconcile_recursive(
     styled_dom: &StyledDom,
     new_dom_id: NodeId,
     old_tree_idx: Option<usize>,
     new_parent_idx: Option<usize>,
-    old_tree: Option<&LayoutTree<T>>,
-    new_tree_builder: &mut LayoutTreeBuilder<T>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<usize> {
@@ -494,10 +494,10 @@ pub fn reconcile_recursive<T: ParsedFontTrait>(
 
 /// Recursive, top-down pass to calculate used sizes and positions for a given subtree.
 /// This is the single, authoritative function for in-flow layout.
-pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     // The absolute position of the containing block's content-box origin.
     containing_block_pos: LogicalPosition,
@@ -838,10 +838,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Recursively set static positions for out-of-flow descendants without doing layout
-fn set_static_positions_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    _text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn set_static_positions_recursive<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    _text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     parent_content_box_pos: LogicalPosition,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
@@ -922,10 +922,10 @@ fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::La
 /// The `used_size` parameter already contains the size constrained by min-height/max-height
 /// from the initial sizing pass. We must take the maximum of this constrained size and 
 /// the new content-based size to ensure min-height is not lost.
-fn apply_content_based_height<T: ParsedFontTrait>(
+fn apply_content_based_height(
     mut used_size: LogicalSize,
     content_size: LogicalSize,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     node_index: usize,
     writing_mode: azul_css::props::layout::LayoutWritingMode,
 ) -> LogicalSize {
@@ -973,9 +973,9 @@ fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeH
 /// - `counter-reset` creates a new scope and sets the counter to a value
 /// - `counter-increment` increments the counter in the current scope
 /// - When leaving a subtree, counter scopes are popped
-pub fn compute_counters<T: ParsedFontTrait>(
+pub fn compute_counters(
     styled_dom: &StyledDom,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     counters: &mut BTreeMap<(usize, String), i32>,
 ) {
     use azul_css::props::property::CssProperty;
@@ -999,9 +999,9 @@ pub fn compute_counters<T: ParsedFontTrait>(
     );
 }
 
-fn compute_counters_recursive<T: ParsedFontTrait>(
+fn compute_counters_recursive(
     styled_dom: &StyledDom,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     node_idx: usize,
     counters: &mut BTreeMap<(usize, String), i32>,
     counter_stacks: &mut std::collections::HashMap<String, Vec<i32>>,

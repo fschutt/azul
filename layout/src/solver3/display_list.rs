@@ -198,7 +198,7 @@ pub enum DisplayListItem {
     /// This is pushed BEFORE the individual Text items and contains
     /// the original text, glyph-to-unicode mapping, and positioning info
     TextLayout {
-        layout: Arc<dyn std::any::Any + Send + Sync>, // Type-erased UnifiedLayout<T>
+        layout: Arc<dyn std::any::Any + Send + Sync>, // Type-erased UnifiedLayout
         bounds: LogicalRect,
         font_hash: FontHash,
         font_size_px: f32,
@@ -530,9 +530,9 @@ impl DisplayListBuilder {
 }
 
 /// Main entry point for generating the display list.
-pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
+    ctx: &mut LayoutContext<T>,
+    tree: &LayoutTree,
     calculated_positions: &BTreeMap<usize, LogicalPosition>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     scroll_ids: &BTreeMap<usize, u64>,
@@ -576,10 +576,10 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
 }
 
 /// A helper struct that holds all necessary state and context for the generation process.
-struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    ctx: &'a mut LayoutContext<'b, T, Q>,
+struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
+    ctx: &'a mut LayoutContext<'b, T>,
     scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
-    positioned_tree: &'a PositionedTree<'a, T>,
+    positioned_tree: &'a PositionedTree<'a>,
     scroll_ids: &'a BTreeMap<usize, u64>,
     gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
     renderer_resources: &'a azul_core::resources::RendererResources,
@@ -597,15 +597,14 @@ struct StackingContext {
     in_flow_children: Vec<usize>,
 }
 
-impl<'a, 'b, T, Q> DisplayListGenerator<'a, 'b, T, Q>
+impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
 where
     T: ParsedFontTrait + Sync + 'static,
-    Q: FontLoaderTrait<T>,
 {
     pub fn new(
-        ctx: &'a mut LayoutContext<'b, T, Q>,
+        ctx: &'a mut LayoutContext<'b, T>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
-        positioned_tree: &'a PositionedTree<'a, T>,
+        positioned_tree: &'a PositionedTree<'a>,
         scroll_ids: &'a BTreeMap<usize, u64>,
         gpu_value_cache: Option<&'a azul_core::gpu::GpuValueCache>,
         renderer_resources: &'a azul_core::resources::RendererResources,
@@ -943,7 +942,7 @@ where
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
-        node: &LayoutNode<T>,
+        node: &LayoutNode,
     ) -> Result<bool> {
         let Some(dom_id) = node.dom_node_id else {
             return Ok(false);
@@ -1016,7 +1015,7 @@ where
     }
 
     /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode<T>) -> Result<()> {
+    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNode) -> Result<()> {
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
@@ -1165,7 +1164,7 @@ where
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let border_info = get_border_info::<T>(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             self.ctx.debug_info(&format!(
@@ -1488,7 +1487,7 @@ where
         &self,
         builder: &mut DisplayListBuilder,
         container_rect: LogicalRect,
-        layout: &UnifiedLayout<T>,
+        layout: &UnifiedLayout,
     ) -> Result<()> {
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
@@ -1506,7 +1505,7 @@ where
             ColorU { r: 0, g: 0, b: 0, a: 255 }, // Default color
         );
         
-        let glyph_runs = crate::text3::glyphs::get_glyph_runs(layout);
+        let glyph_runs = crate::text3::glyphs::get_glyph_runs_simple(layout);
 
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
@@ -1700,8 +1699,8 @@ where
 }
 
 /// Helper struct to pass layout results to the generator.
-pub struct PositionedTree<'a, T: ParsedFontTrait> {
-    pub tree: &'a LayoutTree<T>,
+pub struct PositionedTree<'a> {
+    pub tree: &'a LayoutTree,
     pub calculated_positions: &'a BTreeMap<usize, LogicalPosition>,
 }
 
@@ -1730,7 +1729,7 @@ fn get_scroll_id(id: Option<NodeId>) -> ExternalScrollId {
 
 /// Calculates the actual content size of a node, including all children and text.
 /// This is used to determine if scrollbars should appear for overflow: auto.
-fn get_scroll_content_size<T: ParsedFontTrait>(node: &LayoutNode<T>) -> LogicalSize {
+fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
     // Start with the node's own size
     let mut content_size = node.used_size.unwrap_or_default();
 

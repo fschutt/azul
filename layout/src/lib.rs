@@ -28,7 +28,7 @@ pub mod font;
 #[cfg(feature = "font_loading")]
 pub use font::parsed::{
     FontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
-    PrepFont, SubsetFont,
+    SubsetFont,
 };
 
 // Re-export allsorts types needed by printpdf

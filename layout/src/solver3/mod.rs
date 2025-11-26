@@ -49,7 +49,7 @@ use self::{
 pub use crate::font_traits::TextLayoutCache;
 
 use crate::{
-    font_traits::{FontLoaderTrait, ParsedFontTrait},
+    font_traits::ParsedFontTrait,
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
@@ -62,12 +62,12 @@ use crate::{
 pub type NodeHashMap = BTreeMap<usize, u64>;
 
 /// Central context for a single layout pass.
-pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
+pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub styled_dom: &'a StyledDom,
     #[cfg(feature = "text_layout")]
-    pub font_manager: &'a crate::font_traits::FontManager<T, Q>,
+    pub font_manager: &'a crate::font_traits::FontManager<T>,
     #[cfg(not(feature = "text_layout"))]
-    pub font_manager: core::marker::PhantomData<(&'a T, &'a Q)>,
+    pub font_manager: core::marker::PhantomData<&'a T>,
     pub selections: &'a BTreeMap<DomId, SelectionState>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut BTreeMap<(usize, String), i32>,
@@ -78,7 +78,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
 }
 
-impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
+impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
     pub fn debug_log(&mut self, message: &str) {
         if let Some(messages) = self.debug_messages.as_mut() {
             messages.push(LayoutDebugMessage {
@@ -146,12 +146,12 @@ impl<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutContext<'a, T, Q> {
 
 /// Main entry point for the incremental, cached layout engine
 #[cfg(feature = "text_layout")]
-pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
-    cache: &mut LayoutCache<T>,
-    text_cache: &mut TextLayoutCache<T>,
+pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
     new_dom: StyledDom,
     viewport: LogicalRect,
-    font_manager: &crate::font_traits::FontManager<T, Q>,
+    font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -381,8 +381,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T
 }
 
 // STUB: This helper is required by the main loop
-fn get_containing_block_for_node<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn get_containing_block_for_node(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_idx: usize,
     calculated_positions: &BTreeMap<usize, LogicalPosition>,

@@ -303,7 +303,7 @@ pub fn default_style() -> Arc<StyleProperties> {
 }
 
 /// Helper function to extract the text content from a layout result.
-fn get_text_from_items<T: ParsedFontTrait>(items: &[PositionedItem<T>]) -> String {
+fn get_text_from_items(items: &[PositionedItem<T>]) -> String {
     items
         .iter()
         .map(|p_item| match &p_item.item {

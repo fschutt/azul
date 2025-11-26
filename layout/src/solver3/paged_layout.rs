@@ -17,7 +17,7 @@ use azul_core::{
 use azul_css::LayoutDebugMessage;
 
 use crate::{
-    font_traits::{FontLoaderTrait, ParsedFontTrait, TextLayoutCache},
+    font_traits::{ParsedFontTrait, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
         cache::LayoutCache,
@@ -39,13 +39,13 @@ use crate::{
 /// A vector of DisplayLists, one per page. Each DisplayList contains the
 /// elements that fit on that page, with Y-coordinates relative to the page origin.
 #[cfg(feature = "text_layout")]
-pub fn layout_document_paged<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderTrait<T>>(
-    cache: &mut LayoutCache<T>,
-    text_cache: &mut TextLayoutCache<T>,
+pub fn layout_document_paged<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
     fragmentation_context: FragmentationContext,
     new_dom: StyledDom,
     viewport: LogicalRect,
-    font_manager: &crate::font_traits::FontManager<T, Q>,
+    font_manager: &mut crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -53,7 +53,62 @@ pub fn layout_document_paged<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
     renderer_resources: &RendererResources,
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
-) -> Result<Vec<DisplayList>> {
+    font_loader: F,
+) -> Result<Vec<DisplayList>> 
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    
+    // === FONT RESOLUTION AND LOADING ===
+    // This must happen BEFORE layout_document() is called
+    {
+        use crate::solver3::getters::{
+            collect_and_resolve_font_chains, 
+            collect_font_ids_from_chains,
+            compute_fonts_to_load,
+            load_fonts_from_disk,
+        };
+        
+        // Step 1: Resolve font chains (cached by FontChainKey)
+        let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache);
+        
+        // Step 2: Get required font IDs from chains
+        let required_fonts = collect_font_ids_from_chains(&chains);
+        
+        // Step 3: Compute which fonts need to be loaded (diff with already loaded)
+        let already_loaded = font_manager.get_loaded_font_ids();
+        let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+                  already_loaded.len(), fonts_to_load.len());
+        
+        // Step 4: Load missing fonts
+        if !fonts_to_load.is_empty() {
+            let load_result = load_fonts_from_disk(
+                &fonts_to_load,
+                &font_manager.fc_cache,
+                &font_loader,
+            );
+            
+                      load_result.loaded.len(), load_result.failed.len());
+            
+            // Insert loaded fonts into the font manager
+            font_manager.insert_fonts(load_result.loaded);
+            
+            // Log any failures
+            for (font_id, error) in &load_result.failed {
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::warning(format!(
+                        "[FontLoading] Failed to load font {:?}: {}", font_id, error
+                    )));
+                }
+            }
+        }
+        
+        // Step 5: Update font chain cache
+        font_manager.set_font_chain_cache(chains.into_inner());
+    }
+
+    
     // Perform regular layout first (with infinite height to get full content)
     let display_list = super::layout_document(
         cache,
@@ -69,6 +124,7 @@ pub fn layout_document_paged<T: ParsedFontTrait + Sync + 'static, Q: FontLoaderT
         id_namespace,
         dom_id,
     )?;
+    
     
     // Split the display list into pages
     let page_height = match &fragmentation_context {

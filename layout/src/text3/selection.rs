@@ -5,16 +5,16 @@
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
 
 use crate::text3::cache::{
-    ParsedFontTrait, PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout,
+    PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout,
 };
 
 /// Select the word at the given cursor position
 ///
 /// Uses Unicode word boundaries to determine word start/end.
 /// Returns a SelectionRange covering the entire word.
-pub fn select_word_at_cursor<T: ParsedFontTrait>(
+pub fn select_word_at_cursor(
     cursor: &TextCursor,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the item containing this cursor
     let (item_idx, cluster) = find_cluster_at_cursor(cursor, layout)?;
@@ -53,9 +53,9 @@ pub fn select_word_at_cursor<T: ParsedFontTrait>(
 ///
 /// Returns a SelectionRange covering the entire line from the first
 /// to the last cluster on that line.
-pub fn select_paragraph_at_cursor<T: ParsedFontTrait>(
+pub fn select_paragraph_at_cursor(
     cursor: &TextCursor,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the item containing this cursor
     let (item_idx, _) = find_cluster_at_cursor(cursor, layout)?;
@@ -63,7 +63,7 @@ pub fn select_paragraph_at_cursor<T: ParsedFontTrait>(
     let line_index = item.line_index;
 
     // Find all items on this line
-    let line_items: Vec<(usize, &PositionedItem<T>)> = layout
+    let line_items: Vec<(usize, &PositionedItem)> = layout
         .items
         .iter()
         .enumerate()
@@ -100,10 +100,10 @@ pub fn select_paragraph_at_cursor<T: ParsedFontTrait>(
 // === Helper Functions ===
 
 /// Find the cluster containing the given cursor
-fn find_cluster_at_cursor<'a, T: ParsedFontTrait>(
+fn find_cluster_at_cursor<'a>(
     cursor: &TextCursor,
-    layout: &'a UnifiedLayout<T>,
-) -> Option<(usize, &'a ShapedCluster<T>)> {
+    layout: &'a UnifiedLayout,
+) -> Option<(usize, &'a ShapedCluster)> {
     layout.items.iter().enumerate().find_map(|(idx, item)| {
         if let ShapedItem::Cluster(cluster) = &item.item {
             if cluster.source_cluster_id == cursor.cluster_id {
@@ -115,9 +115,9 @@ fn find_cluster_at_cursor<'a, T: ParsedFontTrait>(
 }
 
 /// Extract text from all clusters on the same line as the given item
-fn extract_line_text_at_item<T: ParsedFontTrait>(
+fn extract_line_text_at_item(
     item_idx: usize,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> String {
     let line_index = layout.items[item_idx].line_index;
 

@@ -11,7 +11,7 @@ use rust_fontconfig::FcFontCache;
 // Imports from the layout engine's module
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontLoaderTrait, FontManager, FontSelector, Glyph, GlyphOrientation,
+        BidiLevel, Direction, FontManager, FontSelector, Glyph, GlyphOrientation,
         GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone,
         StyleProperties, TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics,
         WritingMode,
@@ -42,7 +42,7 @@ pub fn font_ref_from_bytes(
     // Parse the font bytes into ParsedFont
     let mut warnings = Vec::new();
     let parsed_font = ParsedFont::from_bytes(font_bytes, font_index, &mut warnings)?;
-    // TODO: Log warnings if needed
+    
     Some(crate::parsed_font_to_font_ref(parsed_font))
 }
 
@@ -61,7 +61,6 @@ impl PathLoader {
     /// A helper method to read a font from a path and delegate to the trait's `load_font`.
     /// Note: This is a convenience and not part of the `FontLoaderTrait`.
     pub fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
-        println!("[PathLoader] Accessing font file at: {:?}", path);
         let font_bytes = std::fs::read(path).map_err(|e| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
@@ -74,39 +73,18 @@ impl PathLoader {
     }
 }
 
-impl FontManager<FontRef, PathLoader> {
-    pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        FontManager::with_loader(fc_cache, Arc::new(PathLoader::new()))
+impl FontManager<FontRef> {
+    pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        FontManager::new(fc_cache)
     }
 }
 
-impl FontLoaderTrait<FontRef> for PathLoader {
+impl PathLoader {
     /// Loads a font from a byte slice.
     ///
     /// This implementation parses the bytes into a ParsedFont and wraps it in a FontRef.
-    fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<FontRef, LayoutError> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static LOAD_COUNTER: AtomicUsize = AtomicUsize::new(0);
-        
-        let count = LOAD_COUNTER.fetch_add(1, Ordering::SeqCst);
-        if count < 5 {
-            println!(
-                "[PathLoader #{:03}] Parsing font from byte stream (font index: {}, bytes: {})",
-                count, font_index, font_bytes.len()
-            );
-        } else if count == 5 {
-            println!("[PathLoader] ... (suppressing further messages, call count: {})", count);
-        }
-        
-        // Guard against infinite loops - if we've loaded more than 100 fonts, something is wrong
-        if count > 100 {
-            eprintln!("[PathLoader] ERROR: load_font called {} times! Infinite loop detected!", count);
-            eprintln!("[PathLoader] Stack trace hint: font_index={}, font_bytes.len()={}", font_index, font_bytes.len());
-            return Err(LayoutError::ShapingError("Too many font loads - infinite loop detected".to_string()));
-        }
-
+    pub fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<FontRef, LayoutError> {
         // Parse the font bytes and wrap in FontRef
-        // NOTE: Outlines are always parsed (parse_outlines = true)
         font_ref_from_bytes(font_bytes, font_index, true).ok_or_else(|| {
             LayoutError::ShapingError("Failed to parse font with allsorts".to_string())
         })
@@ -137,7 +115,7 @@ impl ParsedFontTrait for FontRef {
         language: crate::text3::script::Language,
         direction: Direction,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph<Self>>, LayoutError> {
+    ) -> Result<Vec<Glyph>, LayoutError> {
         // Delegate to the inner ParsedFont's shape_text, passing self as font_ref
         let parsed = get_parsed_font(self);
         parsed.shape_text_for_font_ref(self, text, script, language, direction, style)
@@ -178,10 +156,12 @@ impl ParsedFontTrait for FontRef {
 
 // --- ParsedFont helper method for FontRef ---
 // This allows ParsedFont to create glyphs that use FontRef
+// FontRef is just a C-style Arc wrapper around ParsedFont, so we delegate to
+// the common shaping implementation and convert the font reference type.
 
 impl ParsedFont {
-    /// Internal helper that shapes text and returns Glyph<FontRef>
-    /// Takes the FontRef to embed in the returned glyphs
+    /// Internal helper that shapes text and returns Glyph
+    /// Delegates to shape_text_internal and converts the font reference.
     fn shape_text_for_font_ref(
         &self,
         font_ref: &FontRef,
@@ -190,168 +170,40 @@ impl ParsedFont {
         language: crate::text3::script::Language,
         direction: Direction,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph<FontRef>>, LayoutError> {
-        // 1. Convert layout engine enums to OpenType tags for allsorts.
-        let script_tag = to_opentype_script_tag(script);
-        #[cfg(feature = "text_layout_hyphenation")]
-        let lang_tag = to_opentype_lang_tag(language);
-        #[cfg(not(feature = "text_layout_hyphenation"))]
-        let lang_tag = 0u32;
-
-        // 2. Build a list of user-specified features.
-        // For now, these are only passed to the GPOS stage. GSUB uses a default set.
-        let mut user_features: Vec<FeatureInfo> = style
-            .font_features
-            .iter()
-            .filter_map(|s| parse_font_feature(s))
-            .map(|(tag, value)| FeatureInfo {
-                feature_tag: tag,
-                alternate: if value > 1 {
-                    Some(value as usize)
-                } else {
-                    None
-                },
-            })
-            .collect();
-        add_variant_features(style, &mut user_features);
-
-        // 3. Perform shaping using the full allsorts pipeline.
-        let opt_gdef = self.opt_gdef_table.as_ref().map(|v| &**v);
-
-        // 3a. Map text to a `RawGlyph` buffer. We use `liga_component_pos` as a temporary
-        // store for the cluster ID (the original byte index of the character).
-        let mut raw_glyphs: Vec<allsorts::gsub::RawGlyph<()>> = text
-            .char_indices()
-            .filter_map(|(cluster, ch)| {
-                let glyph_index = self.lookup_glyph_index(ch as u32).unwrap_or(0);
-                if cluster > u16::MAX as usize {
-                    // This is a limitation of using liga_component_pos to store the cluster ID.
-                    // The text needs to be shaped in smaller chunks.
-                    None
-                } else {
-                    Some(allsorts::gsub::RawGlyph {
-                        unicodes: tinyvec::tiny_vec![[char; 1] => ch],
-                        glyph_index,
-                        liga_component_pos: cluster as u16, // Store cluster, may truncate
-                        glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
-                        flags: allsorts::gsub::RawGlyphFlags::empty(),
-                        extra_data: (),
-                        variation: None,
-                    })
-                }
-            })
-            .collect();
-
-        // 3b. Apply GSUB substitutions with appropriate features for the script.
-        if let Some(gsub) = self.gsub_cache.as_ref() {
-            // Build feature set: use custom features if specified, otherwise build
-            // appropriate features for the script
-            let features = if user_features.is_empty() {
-                // Use script-specific feature mask for proper shaping
-                Features::Mask(build_feature_mask_for_script(script))
-            } else {
-                // User specified custom features, use those instead
-                Features::Custom(user_features.clone())
-            };
-            
-            let dotted_circle_index = self
-                .lookup_glyph_index(allsorts::DOTTED_CIRCLE as u32)
-                .unwrap_or(0);
-            gsub::apply(
-                dotted_circle_index,
-                gsub,
-                opt_gdef,
-                script_tag,
-                Some(lang_tag),
-                &features,
-                None, // No variations tuple for now
-                self.num_glyphs(),
-                &mut raw_glyphs,
-            )
-            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
-        }
-
-        // 3c. Convert the `RawGlyph` buffer to a `gpos::Info` buffer for positioning.
-        // The cluster ID we stored in `liga_component_pos` is preserved inside `info.glyph`.
-        let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
-
-        // 3d. Apply GPOS positioning.
-        if let Some(gpos) = self.gpos_cache.as_ref() {
-            let kern_table = self.opt_kern_table.as_ref().map(|kt| kt.as_borrowed());
-            let apply_kerning = kern_table.is_some();
-            // The modern `gpos::apply` takes a GlyphDirection enum and an iterator of features.
-            gpos::apply(
-                gpos,
-                opt_gdef,
-                kern_table,
-                apply_kerning,
-                &Features::Custom(user_features),
-                None,
-                script_tag,
-                Some(lang_tag), // Note: &Vec can be used to create an iterator
-                &mut infos,
-            )
-            .map_err(|e| LayoutError::ShapingError(e.to_string()))?;
-        }
-
-        // 4. Translate the allsorts output into the layout engine's `Glyph` format.
-        let font_size = style.font_size_px;
-        let scale_factor = if self.font_metrics.units_per_em > 0 {
-            font_size / (self.font_metrics.units_per_em as f32)
-        } else {
-            0.01 // Avoid division by zero
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        // Use the common shaping implementation
+        let shaped = shape_text_internal(self, text, script, language, direction, style)?;
+        
+        // Convert Glyph - now using font_hash and font_metrics instead of font reference
+        let font_hash = font_ref.get_hash();
+        let font_metrics = LayoutFontMetrics {
+            ascent: self.font_metrics.ascent,
+            descent: self.font_metrics.descent,
+            line_gap: self.font_metrics.line_gap,
+            units_per_em: self.font_metrics.units_per_em,
         };
-
-        let mut shaped_glyphs = Vec::new();
-        for info in infos.iter() {
-            // Retrieve the cluster ID from the field we used to store it.
-            let cluster = info.glyph.liga_component_pos as u32;
-
-            let source_char = text
-                .get(cluster as usize..)
-                .and_then(|s| s.chars().next())
-                .unwrap_or('\u{FFFD}');
-
-            let base_advance = self.get_horizontal_advance(info.glyph.glyph_index);
-            let advance = base_advance as f32 * scale_factor;
-            let kerning = info.kerning as f32 * scale_factor;
-
-            let (offset_x_units, offset_y_units) =
-                if let allsorts::gpos::Placement::Distance(x, y) = info.placement {
-                    (x, y)
-                } else {
-                    (0, 0)
-                };
-            let offset_x = offset_x_units as f32 * scale_factor;
-            let offset_y = offset_y_units as f32 * scale_factor;
-
-            let glyph = Glyph {
-                glyph_id: info.glyph.glyph_index,
-                codepoint: source_char,
-                font: font_ref.shallow_clone(), // Use the passed FontRef
-                style: Arc::new(style.clone()),
-                source: GlyphSource::Char,
-                logical_byte_index: cluster as usize,
-                logical_byte_len: source_char.len_utf8(),
-                content_index: 0,
-                cluster,
-                advance,
-                kerning,
-                offset: Point {
-                    x: offset_x,
-                    y: offset_y,
-                },
-                vertical_advance: 0.0,
-                vertical_origin_y: 0.0,
-                vertical_bearing: Point { x: 0.0, y: 0.0 },
-                orientation: GlyphOrientation::Horizontal,
-                script,
-                bidi_level: BidiLevel::new(if direction.is_rtl() { 1 } else { 0 }),
-            };
-            shaped_glyphs.push(glyph);
-        }
-
-        Ok(shaped_glyphs)
+        
+        Ok(shaped.into_iter().map(|g| Glyph {
+            glyph_id: g.glyph_id,
+            codepoint: g.codepoint,
+            font_hash,
+            font_metrics: font_metrics.clone(),
+            style: g.style,
+            source: g.source,
+            logical_byte_index: g.logical_byte_index,
+            logical_byte_len: g.logical_byte_len,
+            content_index: g.content_index,
+            cluster: g.cluster,
+            advance: g.advance,
+            kerning: g.kerning,
+            offset: g.offset,
+            vertical_advance: g.vertical_advance,
+            vertical_origin_y: g.vertical_origin_y,
+            vertical_bearing: g.vertical_bearing,
+            orientation: g.orientation,
+            script: g.script,
+            bidi_level: g.bidi_level,
+        }).collect())
     }
 
     fn get_hash(&self) -> u64 {
@@ -717,17 +569,16 @@ fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
-/// Public helper function to shape text for ParsedFont, returning Glyph<ParsedFont>
-/// This is used by the ParsedFontTrait implementation for ParsedFont
-pub fn shape_text_for_parsed_font(
+/// Internal shaping implementation - the single source of truth for text shaping.
+/// Both FontRef and ParsedFont use this function.
+fn shape_text_internal(
     parsed_font: &ParsedFont,
     text: &str,
     script: Script,
     language: crate::text3::script::Language,
     direction: Direction,
     style: &StyleProperties,
-) -> Result<Vec<Glyph<ParsedFont>>, LayoutError> {
-    // Use the same shaping logic as shape_text_for_font_ref, but return ParsedFont instead
+) -> Result<Vec<Glyph>, LayoutError> {
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
     let lang_tag = to_opentype_lang_tag(language);
@@ -845,7 +696,13 @@ pub fn shape_text_for_parsed_font(
         let glyph = Glyph {
             glyph_id: info.glyph.glyph_index,
             codepoint: source_char,
-            font: parsed_font.shallow_clone(), // Use ParsedFont directly
+            font_hash: parsed_font.get_hash(),
+            font_metrics: LayoutFontMetrics {
+                ascent: parsed_font.font_metrics.ascent,
+                descent: parsed_font.font_metrics.descent,
+                line_gap: parsed_font.font_metrics.line_gap,
+                units_per_em: parsed_font.font_metrics.units_per_em,
+            },
             style: Arc::new(style.clone()),
             source: GlyphSource::Char,
             logical_byte_index: cluster as usize,
@@ -869,4 +726,18 @@ pub fn shape_text_for_parsed_font(
     }
 
     Ok(shaped_glyphs)
+}
+
+/// Public helper function to shape text for ParsedFont, returning Glyph
+/// This is used by the ParsedFontTrait implementation for ParsedFont
+pub fn shape_text_for_parsed_font(
+    parsed_font: &ParsedFont,
+    text: &str,
+    script: Script,
+    language: crate::text3::script::Language,
+    direction: Direction,
+    style: &StyleProperties,
+) -> Result<Vec<Glyph>, LayoutError> {
+    // Delegate to the single internal implementation
+    shape_text_internal(parsed_font, text, script, language, direction, style)
 }

@@ -131,7 +131,7 @@ pub struct DomLayoutResult {
     /// The styled DOM that was laid out
     pub styled_dom: StyledDom,
     /// The layout tree with computed sizes and positions
-    pub layout_tree: LayoutTree<FontRef>,
+    pub layout_tree: LayoutTree,
     /// Absolute positions of all nodes
     pub calculated_positions: BTreeMap<usize, LogicalPosition>,
     /// The viewport used for this layout
@@ -228,11 +228,11 @@ pub struct LayoutWindow {
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
     /// Layout cache for solver3 (incremental layout tree) - for the root DOM
-    pub layout_cache: Solver3LayoutCache<FontRef>,
+    pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
-    pub text_cache: TextLayoutCache<FontRef>,
+    pub text_cache: TextLayoutCache,
     /// Font manager for loading and caching fonts
-    pub font_manager: FontManager<FontRef, PathLoader>,
+    pub font_manager: FontManager<FontRef>,
     /// Cache to store decoded images
     pub image_cache: ImageCache,
     /// Cached layout results for all DOMs (root + iframes)
@@ -505,6 +505,53 @@ impl LayoutWindow {
             size: window_state.size.dimensions,
         };
 
+        // === FONT RESOLUTION AND LOADING ===
+        // This must happen BEFORE layout_document() is called
+        {
+            use crate::solver3::getters::{
+                collect_and_resolve_font_chains, 
+                collect_font_ids_from_chains,
+                compute_fonts_to_load,
+                load_fonts_from_disk,
+            };
+            use crate::text3::default::PathLoader;
+            
+            // Step 1: Resolve font chains (cached by FontChainKey)
+            let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
+            
+            // Step 2: Get required font IDs from chains
+            let required_fonts = collect_font_ids_from_chains(&chains);
+            
+            // Step 3: Compute which fonts need to be loaded (diff with already loaded)
+            let already_loaded = self.font_manager.get_loaded_font_ids();
+            let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+            
+            // Step 4: Load missing fonts
+            if !fonts_to_load.is_empty() {
+                let loader = PathLoader::new();
+                let load_result = load_fonts_from_disk(
+                    &fonts_to_load,
+                    &self.font_manager.fc_cache,
+                    |bytes, index| loader.load_font(bytes, index),
+                );
+                
+                // Insert loaded fonts into the font manager
+                self.font_manager.insert_fonts(load_result.loaded);
+                
+                // Log any failures
+                for (font_id, error) in &load_result.failed {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::warning(format!(
+                            "[FontLoading] Failed to load font {:?}: {}", font_id, error
+                        )));
+                    }
+                }
+            }
+            
+            // Step 5: Update font chain cache
+            self.font_manager.set_font_chain_cache(chains.into_inner());
+        }
+
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
@@ -582,7 +629,7 @@ impl LayoutWindow {
     fn scan_for_iframes(
         &self,
         dom_id: DomId,
-        layout_tree: &LayoutTree<FontRef>,
+        layout_tree: &LayoutTree,
         calculated_positions: &BTreeMap<usize, LogicalPosition>,
     ) -> Vec<(NodeId, LogicalRect)> {
         use azul_core::dom::NodeType;
@@ -1542,7 +1589,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout<azul_css::props::basic::FontRef>>> {
+    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout>> {
         let layout_result = self.layout_results.get(&dom_id)?;
 
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
@@ -1561,7 +1608,7 @@ impl LayoutWindow {
     ) -> Option<azul_core::selection::TextCursor>
     where
         F: FnOnce(
-            &crate::text3::cache::UnifiedLayout<azul_css::props::basic::FontRef>,
+            &crate::text3::cache::UnifiedLayout,
             &azul_core::selection::TextCursor,
         ) -> azul_core::selection::TextCursor,
     {
@@ -1741,7 +1788,7 @@ impl LayoutWindow {
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
         dom_id: DomId,
-        layout_tree: &LayoutTree<FontRef>,
+        layout_tree: &LayoutTree,
         system_callbacks: &ExternalSystemCallbacks,
         fade_delay: azul_core::task::Duration,
         fade_duration: azul_core::task::Duration,
@@ -1896,8 +1943,8 @@ impl LayoutWindow {
     /// Returns:
     /// - scroll_ids: Map from layout node index -> external scroll ID
     /// - scroll_id_to_node_id: Map from scroll ID -> DOM NodeId (for hit testing)
-    pub fn compute_scroll_ids<T: crate::text3::cache::ParsedFontTrait>(
-        layout_tree: &LayoutTree<T>,
+    pub fn compute_scroll_ids(
+        layout_tree: &LayoutTree,
         styled_dom: &azul_core::styled_dom::StyledDom,
     ) -> (BTreeMap<usize, u64>, BTreeMap<u64, NodeId>) {
         use azul_css::props::layout::LayoutOverflow;
@@ -4947,7 +4994,7 @@ impl LayoutWindow {
     /// is out of bounds.
     fn byte_offset_to_cursor(
         &self,
-        text_layout: &crate::text3::cache::UnifiedLayout<FontRef>,
+        text_layout: &crate::text3::cache::UnifiedLayout,
         byte_offset: u32,
     ) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
@@ -5023,7 +5070,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<alloc::sync::Arc<crate::text3::cache::UnifiedLayout<FontRef>>> {
+    ) -> Option<alloc::sync::Arc<crate::text3::cache::UnifiedLayout>> {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
 

@@ -23,7 +23,7 @@ autoexamples = true
 azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false, optional = true }
-rust-fontconfig         = { version = "1.1.0", default-features = false, optional = true }
+rust-fontconfig         = { version = "1.2.1", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }

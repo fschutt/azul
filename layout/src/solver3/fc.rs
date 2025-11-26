@@ -318,9 +318,9 @@ pub(crate) fn convert_font_weight(weight: azul_css::props::basic::font::StyleFon
 /// Normal flow block-level boxes do NOT establish a new BFC.
 /// This is critical for correct float interaction: normal blocks should overlap floats
 /// (not shrink around them), while their inline content wraps around floats.
-fn establishes_new_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn establishes_new_bfc<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> bool {
     use crate::solver3::getters::{get_float, get_display_property, get_overflow_x, get_overflow_y};
     use azul_core::dom::FormattingContext;
@@ -395,10 +395,10 @@ fn establishes_new_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Main dispatcher for formatting context layout.
-pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+pub fn layout_formatting_context<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     constraints: &LayoutConstraints,
     float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
@@ -662,10 +662,10 @@ fn position_float(
 ///
 /// This approach is compliant with the CSS visual formatting model and works within
 /// the constraints of the existing layout engine architecture.
-fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn layout_bfc<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     constraints: &LayoutConstraints,
     float_cache: &mut std::collections::BTreeMap<usize, FloatingContext>,
@@ -1490,10 +1490,10 @@ fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ///     - Update the `positions` map for all `inline-block` children based on the positions
 ///       calculated by `text3`.
 ///     - Extract the final overflow size and baseline for the IFC root itself.
-fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
-    tree: &mut LayoutTree<T>,
+fn layout_ifc<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    tree: &mut LayoutTree,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -1544,8 +1544,18 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     }];
 
     // Phase 3: Invoke the text layout engine.
+    // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
+    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
     let text_layout_result =
-        match text_cache.layout_flow(&inline_content, &[], &fragments, ctx.font_manager, ctx.debug_messages) {
+        match text_cache.layout_flow(
+            &inline_content, 
+            &[], 
+            &fragments, 
+            &ctx.font_manager.font_chain_cache,
+            &ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            ctx.debug_messages
+        ) {
             Ok(result) => result,
             Err(e) => {
                 // Font errors should not stop layout of other elements.
@@ -1620,8 +1630,8 @@ fn layout_ifc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
-fn translate_to_text3_constraints<'a, T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
+fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -2223,9 +2233,9 @@ impl BorderInfo {
 }
 
 /// Get border information for a node
-fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn get_border_info<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
     source: BorderSource,
 ) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
     use azul_core::styled_dom::StyledNodeState;
@@ -2342,9 +2352,9 @@ fn get_border_info<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Get the table-layout property for a table node
-fn get_table_layout_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn get_table_layout_property<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> azul_css::props::layout::LayoutTableLayout {
     use azul_css::props::layout::LayoutTableLayout;
     use azul_core::styled_dom::StyledNodeState;
@@ -2364,9 +2374,9 @@ fn get_table_layout_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Get the border-collapse property for a table node
-fn get_border_collapse_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn get_border_collapse_property<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> azul_css::props::layout::StyleBorderCollapse {
     use azul_css::props::layout::StyleBorderCollapse;
     use azul_core::styled_dom::StyledNodeState;
@@ -2386,9 +2396,9 @@ fn get_border_collapse_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Get the border-spacing property for a table node
-fn get_border_spacing_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn get_border_spacing_property<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> azul_css::props::layout::LayoutBorderSpacing {
     use azul_css::props::layout::LayoutBorderSpacing;
     use azul_core::styled_dom::StyledNodeState;
@@ -2413,9 +2423,9 @@ fn get_border_spacing_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ///
 /// Get the caption-side property for a table node.
 /// Returns Top (default) or Bottom.
-fn get_caption_side_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn get_caption_side_property<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> azul_css::props::layout::StyleCaptionSide {
     use azul_css::props::layout::StyleCaptionSide;
     use azul_core::styled_dom::StyledNodeState;
@@ -2441,9 +2451,9 @@ fn get_caption_side_property<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ///
 /// Check if a node has visibility:collapse set.
 /// This is used for table rows and columns to optimize dynamic hiding.
-fn is_visibility_collapsed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &LayoutContext<T, Q>,
-    node: &LayoutNode<T>,
+fn is_visibility_collapsed<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
 ) -> bool {
     use azul_css::props::style::StyleVisibility;
     use azul_core::styled_dom::StyledNodeState;
@@ -2477,8 +2487,8 @@ fn is_visibility_collapsed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 ///
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
-fn is_cell_empty<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn is_cell_empty(
+    tree: &LayoutTree,
     cell_index: usize,
 ) -> bool {
     let cell_node = match tree.get(cell_index) {
@@ -2508,10 +2518,10 @@ fn is_cell_empty<T: ParsedFontTrait>(
     false
 }
 
-fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn layout_table_fc<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
@@ -2740,10 +2750,10 @@ fn layout_table_fc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Analyze the table structure to identify rows, cells, and columns
-fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    tree: &LayoutTree<T>,
+fn analyze_table_structure<T: ParsedFontTrait>(
+    tree: &LayoutTree,
     table_index: usize,
-    ctx: &mut LayoutContext<T, Q>,
+    ctx: &mut LayoutContext<'_, T>,
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
     
@@ -2798,11 +2808,11 @@ fn analyze_table_structure<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Analyze a table column group to identify columns and track collapsed columns
 /// CSS 2.2 Section 17.2: Column groups contain columns
 /// CSS 2.2 Section 17.6: Columns can have visibility:collapse
-fn analyze_table_colgroup<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    tree: &LayoutTree<T>,
+fn analyze_table_colgroup<T: ParsedFontTrait>(
+    tree: &LayoutTree,
     colgroup_index: usize,
     table_ctx: &mut TableLayoutContext,
-    ctx: &mut LayoutContext<T, Q>,
+    ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
     let colgroup_node = tree.get(colgroup_index).ok_or(LayoutError::InvalidTree)?;
     
@@ -2831,11 +2841,11 @@ fn analyze_table_colgroup<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Analyze a table row to identify cells and update column count
-fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    tree: &LayoutTree<T>,
+fn analyze_table_row<T: ParsedFontTrait>(
+    tree: &LayoutTree,
     row_index: usize,
     table_ctx: &mut TableLayoutContext,
-    ctx: &mut LayoutContext<T, Q>,
+    ctx: &mut LayoutContext<'_, T>,
 ) -> Result<()> {
     let row_node = tree.get(row_index).ok_or(LayoutError::InvalidTree)?;
     let row_num = table_ctx.num_rows;
@@ -2887,8 +2897,8 @@ fn analyze_table_row<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Calculate column widths using the fixed table layout algorithm
 /// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is not dependent on cell contents
 /// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded from width calculations
-fn calculate_column_widths_fixed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
+fn calculate_column_widths_fixed<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
     table_ctx: &mut TableLayoutContext,
     available_width: f32,
 ) {
@@ -2924,10 +2934,10 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Measure a cell's minimum content width (with maximum wrapping)
-fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn measure_cell_min_content_width<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
@@ -2979,10 +2989,10 @@ fn measure_cell_min_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Measure a cell's maximum content width (without wrapping)
-fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn measure_cell_max_content_width<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
@@ -3033,22 +3043,22 @@ fn measure_cell_max_content_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Calculate column widths using the auto table layout algorithm
-fn calculate_column_widths_auto<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+fn calculate_column_widths_auto<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
-    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    ctx: &mut LayoutContext<'_, T>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
     calculate_column_widths_auto_with_width(table_ctx, tree, text_cache, ctx, constraints, constraints.available_size.width)
 }
 
 /// Calculate column widths using the auto table layout algorithm with explicit table width
-fn calculate_column_widths_auto_with_width<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
-    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    ctx: &mut LayoutContext<'_, T>,
     constraints: &LayoutConstraints,
     table_width: f32,
 ) -> Result<()> {
@@ -3274,10 +3284,10 @@ fn distribute_cell_width_across_columns(
 }
 
 /// Layout a cell with its computed column width to determine its content height
-fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
+fn layout_cell_for_height<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
     cell_index: usize,
     cell_width: f32,
     constraints: &LayoutConstraints,
@@ -3392,11 +3402,11 @@ fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Calculate row heights based on cell content after column widths are determined
-fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+fn calculate_row_heights<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
-    tree: &mut LayoutTree<T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache<T>,
-    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    ctx: &mut LayoutContext<'_, T>,
     constraints: &LayoutConstraints,
 ) -> Result<()> {
     ctx.debug_table_layout(format!("calculate_row_heights: num_rows={}, available_size={:?}", 
@@ -3522,10 +3532,10 @@ fn calculate_row_heights<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 /// Position all cells in the table grid with calculated widths and heights
-fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+fn position_table_cells<T: ParsedFontTrait>(
     table_ctx: &mut TableLayoutContext,
-    tree: &mut LayoutTree<T>,
-    ctx: &mut LayoutContext<T, Q>,
+    tree: &mut LayoutTree,
+    ctx: &mut LayoutContext<'_, T>,
     table_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<BTreeMap<usize, LogicalPosition>> {
@@ -3689,7 +3699,7 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 use crate::text3::cache::{UnifiedLayout, PositionedItem};
                 use std::sync::Arc;
                 
-                let adjusted_items: Vec<PositionedItem<T>> = inline_result.items.iter().map(|item| {
+                let adjusted_items: Vec<PositionedItem> = inline_result.items.iter().map(|item| {
                     PositionedItem {
                         item: item.item.clone(),
                         position: crate::text3::cache::Point {
@@ -3703,7 +3713,6 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
                 let adjusted_layout = UnifiedLayout {
                     items: adjusted_items,
                     overflow: inline_result.overflow.clone(),
-                    used_fonts: inline_result.used_fonts.clone(),
                 };
                 
                 cell_node.inline_layout_result = Some(Arc::new(adjusted_layout));
@@ -3727,10 +3736,10 @@ fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
 /// to determine their size and baseline before passing them to the text engine.
-fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    text_cache: &mut TextLayoutCache<T>,
-    tree: &mut LayoutTree<T>,
+fn collect_and_measure_inline_content<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut TextLayoutCache,
+    tree: &mut LayoutTree,
     ifc_root_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
@@ -3835,14 +3844,13 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
                 ctx.debug_ifc_layout(format!("List marker list-style-position: {:?} (outside={})", 
                                              list_style_position, position_outside));
                 
-                // Generate marker text segments with proper Unicode font fallback
+                // Generate marker text segments - font fallback happens during shaping
                 let base_style = Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style));
                 let marker_segments = generate_list_marker_segments(
                     tree,
                     ctx.styled_dom,
                     marker_idx,  // Pass the marker index, not the list-item index
                     ctx.counters,
-                    &ctx.font_manager.fc_cache,
                     base_style,
                     ctx.debug_messages,
                 );
@@ -4103,9 +4111,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>
 /// - Text nodes: collected with the span's inherited style
 /// - Nested inline spans: recursively descended
 /// - Inline-blocks, images: measured and added as shapes
-fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+fn collect_inline_span_recursive<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
     span_dom_id: NodeId,
     span_style: StyleProperties,
     content: &mut Vec<InlineContent>,
@@ -4236,7 +4244,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 /// Positions a floated child within the BFC and updates the floating context.
 /// This function is fully writing-mode aware.
-fn position_floated_child<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
+fn position_floated_child(
     _child_index: usize,
     child_margin_box_size: LogicalSize,
     float_type: LayoutFloat,
@@ -4518,7 +4526,7 @@ fn has_margin_collapse_blocker(
 /// 
 /// # Returns
 /// `true` if the element is empty and its margins can collapse internally
-fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::LayoutNode<T>) -> bool {
+fn is_empty_block(node: &crate::solver3::layout_tree::LayoutNode) -> bool {
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
     // - Has zero computed 'min-height'
     // - Has zero or 'auto' computed 'height'  
@@ -4555,8 +4563,8 @@ fn is_empty_block<T: ParsedFontTrait>(node: &crate::solver3::layout_tree::Layout
 /// Per CSS Lists Module Level 3, the ::marker pseudo-element is the first child
 /// of the list-item, and references the same DOM node. Counter resolution happens
 /// on the list-item (parent) node.
-fn generate_list_marker_text<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn generate_list_marker_text(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     marker_index: usize,
     counters: &BTreeMap<(usize, String), i32>,
@@ -4677,215 +4685,37 @@ fn generate_list_marker_text<T: ParsedFontTrait>(
     }
 }
 
-/// Generates marker text segments with appropriate font fallback for Unicode coverage.
+/// Generates marker text segments for a list item marker.
 ///
-/// Uses FcCache.query_for_text() to find fonts that can render all characters in the marker.
-/// Returns multiple StyledRun segments if different fonts are needed for different parts.
-///
-/// This implements the architecture from fixscript.md:
-/// 1. Pre-Query Fonts: Call query_for_text() to get font stack
-/// 2. Load Font Metadata: Get character coverage info from fontconfig
-/// 3. Iterate by Grapheme: Check each grapheme cluster
-/// 4. Group and Shape: Group consecutive graphemes with same font
-/// 5. Combine Results: Return multiple StyledRuns with appropriate font families
-fn generate_list_marker_segments<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+/// Simply returns a single StyledRun with the marker text using the base_style.
+/// The font stack in base_style already includes fallbacks with 100% Unicode coverage,
+/// so font resolution happens during text shaping, not here.
+fn generate_list_marker_segments(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     marker_index: usize,
     counters: &BTreeMap<(usize, String), i32>,
-    fc_cache: &rust_fontconfig::FcFontCache,
     base_style: Arc<StyleProperties>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<StyledRun> {
-    use unicode_segmentation::UnicodeSegmentation;
-    use rust_fontconfig::{FcPattern, PatternMatch};
-    
     // Generate the marker text
     let marker_text = generate_list_marker_text(tree, styled_dom, marker_index, counters, debug_messages);
     if marker_text.is_empty() {
         return Vec::new();
     }
     
-    // Step 1: Pre-Query Fonts - get font stack from fontconfig
-    let default_font = crate::text3::cache::FontSelector::default();
-    let first_font = base_style.font_stack.first().unwrap_or(&default_font);
-    let pattern = FcPattern {
-        name: Some(first_font.family.clone()),
-        weight: first_font.weight,
-        italic: if first_font.style == crate::font_traits::FontStyle::Italic {
-            PatternMatch::True
-        } else {
-            PatternMatch::DontCare
-        },
-        oblique: if first_font.style == crate::font_traits::FontStyle::Oblique {
-            PatternMatch::True
-        } else {
-            PatternMatch::DontCare
-        },
-        ..Default::default()
-    };
-    
-    let mut trace = Vec::new();
-    let font_matches = fc_cache.query_for_text(&pattern, &marker_text, &mut trace);
-    
-    // If no fonts found, return a single segment with the original style
-    if font_matches.is_empty() {
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::warning(format!(
-                "[generate_list_marker_segments] WARNING: No fonts found for marker text '{}', using base style",
-                marker_text
-            )));
-        }
-        return vec![StyledRun {
-            text: marker_text,
-            style: base_style,
-            logical_start_byte: 0,
-        }];
-    }
-    
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[generate_list_marker_segments] Found {} font matches for marker '{}': {:?}",
-            font_matches.len(),
+            "[generate_list_marker_segments] Marker text: '{}' with font stack: {:?}",
             marker_text,
-            font_matches.iter().map(|m| fc_cache.get_metadata_by_id(&m.id).and_then(|p| p.name.as_ref())).collect::<Vec<_>>()
+            base_style.font_stack.iter().map(|f| f.family.as_str()).collect::<Vec<_>>()
         )));
     }
     
-    // Step 2: Build font metadata list for glyph coverage checking
-    let font_stack: Vec<(usize, Option<String>)> = font_matches
-        .iter()
-        .enumerate()
-        .map(|(idx, fm)| {
-            let name = fc_cache
-                .get_metadata_by_id(&fm.id)
-                .and_then(|p| p.name.clone());
-            (idx, name)
-        })
-        .collect();
-    
-    // Step 3: Iterate by Grapheme Cluster
-    // For each grapheme, find the first font in our stack that can render it
-    let graphemes: Vec<(usize, &str)> = marker_text.grapheme_indices(true).collect();
-    
-    if graphemes.is_empty() {
-        return vec![StyledRun {
-            text: marker_text,
-            style: base_style,
-            logical_start_byte: 0,
-        }];
-    }
-    
-    let mut segments = Vec::new();
-    let mut current_font_idx: Option<usize> = None;
-    let mut segment_start_byte = 0;
-    
-    for (byte_idx, grapheme) in graphemes.iter() {
-        let first_char = grapheme.chars().next().unwrap_or('\u{FFFD}');
-        
-        // Find the first font in our stack that can render this grapheme
-        let best_font_idx = font_matches
-            .iter()
-            .enumerate()
-            .find(|(_, fm)| {
-                fc_cache
-                    .get_metadata_by_id(&fm.id)
-                    .map(|metadata| metadata.contains_char(first_char))
-                    .unwrap_or(false)
-            })
-            .map(|(idx, _)| idx);
-        
-        // Check if we need to start a new segment (font change or first grapheme)
-        let should_segment = current_font_idx.is_none() 
-            || current_font_idx != best_font_idx;
-        
-        if should_segment {
-            // Flush previous segment if exists
-            if current_font_idx.is_some() && segment_start_byte < *byte_idx {
-                let segment_text = &marker_text[segment_start_byte..*byte_idx];
-                
-                // Create a style with the appropriate font family
-                let segment_style = if let Some(font_idx) = current_font_idx {
-                    if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
-                        let mut new_style = (*base_style).clone();
-                        if let Some(font) = new_style.font_stack.get_mut(0) {
-                            font.family = font_name.clone();
-                        }
-                        Arc::new(new_style)
-                    } else {
-                        base_style.clone()
-                    }
-                } else {
-                    base_style.clone()
-                };
-                
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[generate_list_marker_segments] Segment: '{}' with font '{}'",
-                        segment_text,
-                        segment_style.font_stack.first().map(|f| f.family.as_str()).unwrap_or("default")
-                    )));
-                }
-                
-                segments.push(StyledRun {
-                    text: segment_text.to_string(),
-                    style: segment_style,
-                    logical_start_byte: segment_start_byte,
-                });
-            }
-            
-            // Start new segment
-            segment_start_byte = *byte_idx;
-            current_font_idx = best_font_idx;
-        }
-    }
-    
-    // Flush final segment
-    if segment_start_byte < marker_text.len() {
-        let segment_text = &marker_text[segment_start_byte..];
-        
-        let segment_style = if let Some(font_idx) = current_font_idx {
-            if let Some((_, Some(font_name))) = font_stack.get(font_idx) {
-                let mut new_style = (*base_style).clone();
-                if let Some(font) = new_style.font_stack.get_mut(0) {
-                    font.family = font_name.clone();
-                }
-                Arc::new(new_style)
-            } else {
-                base_style.clone()
-            }
-        } else {
-            base_style.clone()
-        };
-        
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "[generate_list_marker_segments] Final segment: '{}' with font '{}'",
-                segment_text,
-                segment_style.font_stack.first().map(|f| f.family.as_str()).unwrap_or("default")
-            )));
-        }
-        
-        segments.push(StyledRun {
-            text: segment_text.to_string(),
-            style: segment_style,
-            logical_start_byte: segment_start_byte,
-        });
-    }
-    
-    // If no segments were created (shouldn't happen), return single segment
-    if segments.is_empty() {
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::warning(
-                "[generate_list_marker_segments] WARNING: No segments created, returning full text".to_string()
-            ));
-        }
-        segments.push(StyledRun {
-            text: marker_text,
-            style: base_style,
-            logical_start_byte: 0,
-        });
-    }
-    
-    segments
+    // Return single segment - font fallback happens during shaping
+    vec![StyledRun {
+        text: marker_text,
+        style: base_style,
+        logical_start_byte: 0,
+    }]
 }

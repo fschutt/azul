@@ -157,22 +157,6 @@ impl SubsetFont {
     }
 }
 
-/// Trait for PDF font preparation
-pub trait PrepFont {
-    fn lgi(&self, codepoint: u32) -> Option<u32>;
-    fn index_to_cid(&self, index: u16) -> Option<u16>;
-}
-
-impl PrepFont for ParsedFont {
-    fn lgi(&self, codepoint: u32) -> Option<u32> {
-        self.lookup_glyph_index(codepoint).map(Into::into)
-    }
-
-    fn index_to_cid(&self, index: u16) -> Option<u16> {
-        self.index_to_cid.get(&index).copied()
-    }
-}
-
 impl PartialEq for ParsedFont {
     fn eq(&self, other: &Self) -> bool {
         self.hash == other.hash
@@ -414,10 +398,18 @@ impl ParsedFont {
         let pdf_font_metrics = Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
 
         // Parse glyph outlines and metrics (always enabled for PDF generation)
-        let parse_outlines = true;
-        let glyph_records_decoded = if parse_outlines {
-            warnings.push(FontParseWarning::info("Parsing glyph outlines and metrics".to_string()));
-            // Full parsing: outlines + metrics
+        // For CFF fonts (no glyf table), we fall back to hmtx-only metrics
+        let glyf_records_count = glyf_table.records().len();
+        let use_glyf_parsing = glyf_records_count > 0;
+        
+        warnings.push(FontParseWarning::info(format!(
+            "Font has {} glyf records, {} total glyphs, use_glyf_parsing={}",
+            glyf_records_count, num_glyphs, use_glyf_parsing
+        )));
+        
+        let glyph_records_decoded = if use_glyf_parsing {
+            warnings.push(FontParseWarning::info("Parsing glyph outlines from glyf table".to_string()));
+            // Full parsing: outlines + metrics from TrueType glyf table
             // CRITICAL: Always call .parse() first to convert Present -> Parsed!
             glyf_table
                 .records_mut()
@@ -496,8 +488,12 @@ impl ParsedFont {
                 .into_iter()
                 .collect::<BTreeMap<_, _>>()
         } else {
-            // Fallback: Parse metrics only (for layout without rendering)
-            // This creates minimal OwnedGlyph records with only advance width
+            // CFF fonts or fonts without glyf table: Parse metrics only from hmtx
+            // This creates OwnedGlyph records with advance width but no outlines
+            warnings.push(FontParseWarning::info(format!(
+                "Using hmtx-only fallback for {} glyphs (CFF font or no glyf table)",
+                num_glyphs
+            )));
             (0..num_glyphs as usize)
                 .filter_map(|glyph_index| {
                     if glyph_index > u16::MAX as usize {
@@ -563,7 +559,8 @@ impl ParsedFont {
             .ok()
             .and_then(|s| Some(s?.to_owned()));
 
-        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_data = font_data_impl.cmap_subtable_data();
+        let cmap_subtable = ReadScope::new(cmap_data);
         let cmap_subtable = cmap_subtable
             .read::<CmapSubtable<'_>>()
             .ok()
@@ -714,11 +711,8 @@ impl ParsedFont {
 
     /// Look up the glyph index for a Unicode codepoint
     pub fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
-        self.cmap_subtable
-            .as_ref()?
-            .map_glyph(codepoint)
-            .ok()
-            .flatten()
+        let cmap = self.cmap_subtable.as_ref()?;
+        cmap.map_glyph(codepoint).ok().flatten()
     }
 
     /// Get the horizontal advance width for a glyph in font units
@@ -1447,7 +1441,7 @@ impl crate::text3::cache::ParsedFontTrait for ParsedFont {
         language: crate::font_traits::Language,
         direction: crate::font_traits::Direction,
         style: &crate::font_traits::StyleProperties,
-    ) -> Result<Vec<crate::font_traits::Glyph<Self>>, crate::font_traits::LayoutError> {
+    ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
         // Call the existing shape_text_for_parsed_font method (defined in default.rs)
         crate::text3::default::shape_text_for_parsed_font(
             self,

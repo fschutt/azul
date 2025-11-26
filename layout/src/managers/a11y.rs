@@ -325,9 +325,7 @@ impl A11yManager {
     /// Builds an accesskit Node from Azul's NodeData and layout information.
     fn build_node(
         node_data: &azul_core::dom::NodeData,
-        layout_node: &crate::solver3::layout_tree::LayoutNode<
-            impl crate::text3::cache::ParsedFontTrait,
-        >,
+        layout_node: &crate::solver3::layout_tree::LayoutNode,
         a11y_info: Option<&azul_core::dom::AccessibilityInfo>,
     ) -> Node {
         use azul_core::dom::NodeType;

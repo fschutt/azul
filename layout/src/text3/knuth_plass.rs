@@ -7,7 +7,7 @@ use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_word_separator, Direction, GlyphKind,
-    JustifyContent, LayoutError, LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
+    JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
     Rect, ShapedCluster, ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
@@ -15,19 +15,19 @@ const INFINITY_BADNESS: f32 = 10000.0;
 
 /// Represents the elements of a paragraph for the line-breaking algorithm.
 #[derive(Debug, Clone)]
-enum LayoutNode<T: ParsedFontTrait> {
+enum LayoutNode {
     /// A non-stretchable, non-shrinkable item (a glyph cluster or an object).
-    Box(ShapedItem<T>, f32), // Item and its width
+    Box(ShapedItem, f32), // Item and its width
     /// A flexible space.
     Glue {
-        item: ShapedItem<T>,
+        item: ShapedItem,
         width: f32,
         stretch: f32,
         shrink: f32,
     },
     /// A point where a line break is allowed, with an associated cost.
     Penalty {
-        item: Option<ShapedItem<T>>, // e.g., a hyphen glyph
+        item: Option<ShapedItem>, // e.g., a hyphen glyph
         width: f32,
         penalty: f32,
     },
@@ -46,30 +46,27 @@ struct Breakpoint {
 
 /// Main entry point for the Knuth-Plass layout algorithm.
 pub(super) fn kp_layout<T: ParsedFontTrait>(
-    items: &[ShapedItem<T>],
+    items: &[ShapedItem],
     logical_items: &[LogicalItem],
     constraints: &UnifiedConstraints,
     hyphenator: Option<&Standard>,
-) -> Result<UnifiedLayout<T>, LayoutError> {
+    fonts: &LoadedFonts<T>,
+) -> Result<UnifiedLayout, LayoutError> {
     if items.is_empty() {
         return Ok(UnifiedLayout {
             items: Vec::new(),
             overflow: OverflowInfo::default(),
-            used_fonts: std::collections::BTreeMap::new(),
         });
     }
 
     // --- Step 1: Convert ShapedItems into a sequence of Boxes, Glue, and Penalties ---
-    let nodes = convert_items_to_nodes(items, hyphenator);
+    let nodes = convert_items_to_nodes(items, hyphenator, fonts);
 
     // --- Step 2: Dynamic Programming to find optimal breakpoints ---
     let breaks = find_optimal_breakpoints(&nodes, constraints);
 
     // --- Step 3: Use breakpoints to build and position the final lines ---
-    let mut final_layout = position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
-
-    // --- Step 4: Collect all fonts used in this layout ---
-    final_layout.collect_used_fonts();
+    let final_layout: UnifiedLayout = position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
 
     Ok(final_layout)
 }
@@ -77,9 +74,10 @@ pub(super) fn kp_layout<T: ParsedFontTrait>(
 /// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
 /// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
 fn convert_items_to_nodes<T: ParsedFontTrait>(
-    items: &[ShapedItem<T>],
+    items: &[ShapedItem],
     hyphenator: Option<&Standard>,
-) -> Vec<LayoutNode<T>> {
+    fonts: &LoadedFonts<T>,
+) -> Vec<LayoutNode> {
     let mut nodes = Vec::new();
     let is_vertical = false; // Knuth-Plass is horizontal-only for now
     let mut item_iter = items.iter().peekable();
@@ -119,6 +117,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         &current_word_clusters,
                         h,
                         is_vertical,
+                        fonts,
                     )
                 });
 
@@ -198,8 +197,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 }
 
 /// Uses dynamic programming to find the optimal set of line breaks.
-fn find_optimal_breakpoints<T: ParsedFontTrait>(
-    nodes: &[LayoutNode<T>],
+fn find_optimal_breakpoints(
+    nodes: &[LayoutNode],
     constraints: &UnifiedConstraints,
 ) -> Vec<usize> {
     let line_width = constraints.available_width;
@@ -308,12 +307,12 @@ fn find_optimal_breakpoints<T: ParsedFontTrait>(
 }
 
 /// Takes the optimal break points and performs the final positioning.
-fn position_lines_from_breaks<T: ParsedFontTrait>(
-    nodes: &[LayoutNode<T>],
+fn position_lines_from_breaks(
+    nodes: &[LayoutNode],
     breaks: &[usize],
     logical_items: &[LogicalItem],
     constraints: &UnifiedConstraints,
-) -> UnifiedLayout<T> {
+) -> UnifiedLayout {
     let mut positioned_items = Vec::new();
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
@@ -325,7 +324,7 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
 
-        let line_items: Vec<ShapedItem<T>> = line_nodes
+        let line_items: Vec<ShapedItem> = line_nodes
             .iter()
             .filter_map(|node| match node {
                 LayoutNode::Box(item, _) => Some(item.clone()),
@@ -421,15 +420,14 @@ fn position_lines_from_breaks<T: ParsedFontTrait>(
     UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
-        used_fonts: std::collections::BTreeMap::new(),
     }
 }
 
 /// A helper to split a ShapedCluster at a specific glyph index for hyphenation.
-fn split_cluster_for_hyphenation<T: ParsedFontTrait>(
-    cluster: &ShapedCluster<T>,
+fn split_cluster_for_hyphenation(
+    cluster: &ShapedCluster,
     glyph_break_index: usize,
-) -> Option<(ShapedCluster<T>, ShapedCluster<T>)> {
+) -> Option<(ShapedCluster, ShapedCluster)> {
     if glyph_break_index >= cluster.glyphs.len() - 1 {
         return None;
     }

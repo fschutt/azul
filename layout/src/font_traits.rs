@@ -19,7 +19,7 @@ pub use crate::text3::{
 #[cfg(feature = "text_layout")]
 pub use crate::text3::script::Language;
 
-pub type TextLayoutCache<T> = LayoutCache<T>;
+pub type TextLayoutCache = LayoutCache;
 
 /// Trait for types that support cheap, shallow cloning (e.g., reference-counted types).
 pub trait ShallowClone {
@@ -39,7 +39,7 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
         language: Language,
         direction: Direction,
         style: &StyleProperties,
-    ) -> Result<Vec<Glyph<Self>>, LayoutError>;
+    ) -> Result<Vec<Glyph>, LayoutError>;
 
     /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
     fn get_hash(&self) -> u64;
@@ -63,17 +63,8 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
 /// 
 /// This allows different font loading strategies (e.g., allsorts, freetype, mock)
 /// to be used with the layout engine.
-pub trait FontLoaderTrait<T: ParsedFontTrait>: Send + core::fmt::Debug {
+pub trait FontLoaderTrait<T>: Send + core::fmt::Debug {
     fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
-}
-
-/// Trait for loading fonts by selector (font family, weight, etc.)
-pub trait FontProviderTrait<T: ParsedFontTrait> {
-    fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError>;
-    
-    /// Load font from a stack of selectors, trying each until successful
-    /// Unicode ranges are extracted from the text to help choose appropriate fallbacks
-    fn load_font_from_stack(&self, font_stack: &[FontSelector], text: &str) -> Result<T, LayoutError>;
 }
 
 // When text_layout is disabled, provide minimal stub types

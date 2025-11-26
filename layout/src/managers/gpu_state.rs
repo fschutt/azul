@@ -76,7 +76,7 @@ impl GpuStateManager {
         &mut self,
         dom_id: DomId,
         scroll_manager: &ScrollManager,
-        layout_tree: &LayoutTree<impl ParsedFontTrait>,
+        layout_tree: &LayoutTree,
     ) -> GpuEventChanges {
         let mut changes = GpuEventChanges::empty();
         let gpu_cache = self.get_or_create_cache(dom_id);

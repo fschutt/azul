@@ -128,11 +128,11 @@ impl CursorManager {
     ///
     /// `true` if cursor was successfully initialized, `false` if the node has no text
     /// or text layout is not available.
-    pub fn initialize_cursor_at_end<T: crate::text3::cache::ParsedFontTrait>(
+    pub fn initialize_cursor_at_end(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        text_layout: Option<&alloc::sync::Arc<crate::text3::cache::UnifiedLayout<T>>>,
+        text_layout: Option<&alloc::sync::Arc<crate::text3::cache::UnifiedLayout>>,
     ) -> bool {
         // Get the text layout for this node
         let Some(layout) = text_layout else {

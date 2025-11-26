@@ -27,7 +27,7 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     font::parsed::ParsedFont,
     font_traits::{
-        FontLoaderTrait, FontManager, FontProviderTrait, ImageSource, InlineContent, InlineImage,
+        FontLoaderTrait, FontManager, ImageSource, InlineContent, InlineImage,
         InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
         StyleProperties, StyledRun, UnifiedConstraints,
     },
@@ -116,9 +116,9 @@ pub fn resolve_percentage_with_box_model(
 }
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
-pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
 ) -> Result<()> {
     if dirty_nodes.is_empty() {
@@ -132,13 +132,13 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     Ok(())
 }
 
-struct IntrinsicSizeCalculator<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    ctx: &'a mut LayoutContext<'b, T, Q>,
-    text_cache: LayoutCache<T>,
+struct IntrinsicSizeCalculator<'a, 'b, T: ParsedFontTrait> {
+    ctx: &'a mut LayoutContext<'b, T>,
+    text_cache: LayoutCache,
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<'a, 'b, T, Q> {
-    fn new(ctx: &'a mut LayoutContext<'b, T, Q>) -> Self {
+impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
+    fn new(ctx: &'a mut LayoutContext<'b, T>) -> Self {
         Self {
             ctx,
             text_cache: LayoutCache::new(),
@@ -147,9 +147,14 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
     fn calculate_intrinsic_recursive(
         &mut self,
-        tree: &mut LayoutTree<T>,
+        tree: &mut LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 50 == 0 {
+        }
+        
         let node = tree
             .get(node_index)
             .cloned()
@@ -183,7 +188,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
     fn calculate_node_intrinsic_sizes(
         &mut self,
-        tree: &LayoutTree<T>,
+        tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
@@ -219,7 +224,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
     fn calculate_block_intrinsic_sizes(
         &mut self,
-        tree: &LayoutTree<T>,
+        tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
@@ -308,7 +313,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
     fn calculate_inline_intrinsic_sizes(
         &mut self,
-        tree: &LayoutTree<T>,
+        tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
         self.ctx.debug_log(&format!(
@@ -340,11 +345,16 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             },
         }];
 
+        // Get pre-loaded fonts from font manager
+        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        
         let min_layout = match self.text_cache.layout_flow(
             &inline_content,
             &[],
             &min_fragments,
-            self.ctx.font_manager,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
             self.ctx.debug_messages,
         ) {
             Ok(layout) => layout,
@@ -381,7 +391,9 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
             &inline_content,
             &[],
             &max_fragments,
-            self.ctx.font_manager,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
             self.ctx.debug_messages,
         ) {
             Ok(layout) => layout,
@@ -427,7 +439,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 
     fn calculate_table_intrinsic_sizes(
         &self,
-        _tree: &LayoutTree<T>,
+        _tree: &LayoutTree,
         _node_index: usize,
         _child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
     ) -> Result<IntrinsicSizes> {
@@ -450,9 +462,9 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> IntrinsicSizeCalculator<
 /// this version is used for intrinsic sizing (calculating min/max-content widths)
 /// before the actual layout pass, so it must recursively gather content from
 /// inline descendants without laying them out first.
-fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     ctx.debug_log(&format!(
@@ -484,9 +496,9 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// - Collects text from DOM children (text nodes may not be in layout tree)
 /// - Recursively collects from inline children (display: inline)
 /// - Treats non-inline children as atomic inline-level boxes
-fn collect_inline_content_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+fn collect_inline_content_recursive<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     node_index: usize,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
@@ -581,17 +593,17 @@ fn collect_inline_content_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 }
 
 // Keep old name as an alias for backward compatibility
-pub fn collect_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+pub fn collect_inline_content<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     collect_inline_content_for_sizing(ctx, tree, ifc_root_index)
 }
 
-fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+fn calculate_intrinsic_recursive<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
     node_index: usize,
 ) -> Result<IntrinsicSizes> {
     let node = tree
@@ -627,9 +639,9 @@ fn calculate_intrinsic_recursive<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 /// STUB: Calculates intrinsic sizes for a node based on its children
 /// TODO: Implement proper intrinsic size calculation logic
-fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    _ctx: &LayoutContext<T, Q>,
-    _node: &LayoutNode<T>,
+fn calculate_node_intrinsic_sizes_stub<T: ParsedFontTrait>(
+    _ctx: &LayoutContext<'_, T>,
+    _node: &LayoutNode,
     child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
 ) -> IntrinsicSizes {
     // Simple stub: aggregate children's sizes
@@ -1019,8 +1031,8 @@ fn apply_height_constraints(
     result
 }
 
-fn collect_text_recursive<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn collect_text_recursive(
+    tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
     content: &mut Vec<InlineContent>,

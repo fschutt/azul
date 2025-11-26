@@ -30,7 +30,7 @@ use crate::text3::script::{script_to_language, Script};
 use azul_css::corety::LayoutDebugMessage;
 
 // Re-export traits for backwards compatibility
-pub use crate::font_traits::{ShallowClone, ParsedFontTrait, FontLoaderTrait, FontProviderTrait};
+pub use crate::font_traits::{ShallowClone, ParsedFontTrait};
 
 // --- Core Data Structures for the New Architecture ---
 
@@ -43,101 +43,156 @@ pub struct FontChainKey {
     pub oblique: bool,
 }
 
-#[derive(Debug)]
-pub struct FontManager<T, Q> {
-    pub fc_cache: Arc<FcFontCache>,
-    pub parsed_fonts: Mutex<HashMap<FontId, T>>, // Changed from Arc<T>
-    pub font_selector_to_id_cache: Mutex<HashMap<FontSelector, FontId>>,
-    // Cache for failed font lookups to avoid repeated fontconfig queries
-    pub failed_font_lookups: Mutex<std::collections::HashSet<FontSelector>>,
-    // Default: System font loader
-    // (loads fonts from file - can be intercepted for mocking in tests)
-    pub font_loader: Arc<Q>,
-    // System font fallbacks (loaded at initialization)
-    pub system_font_fallbacks: Mutex<HashMap<String, FontId>>,
-    // Cache for font chains - key is (font_families, weight, style), NOT including text
-    pub font_chain_cache: Mutex<HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>>,
+impl FontChainKey {
+    /// Create a FontChainKey from a font stack
+    pub fn from_font_stack(font_stack: &[FontSelector]) -> Self {
+        let font_families: Vec<String> = font_stack.iter()
+            .map(|s| s.family.clone())
+            .filter(|f| !f.is_empty())
+            .collect();
+        
+        let font_families = if font_families.is_empty() {
+            vec!["serif".to_string()]
+        } else {
+            font_families
+        };
+        
+        let weight = font_stack.first().map(|s| s.weight).unwrap_or(FcWeight::Normal);
+        let is_italic = font_stack.first().map(|s| s.style == FontStyle::Italic).unwrap_or(false);
+        let is_oblique = font_stack.first().map(|s| s.style == FontStyle::Oblique).unwrap_or(false);
+        
+        FontChainKey {
+            font_families,
+            weight,
+            italic: is_italic,
+            oblique: is_oblique,
+        }
+    }
 }
 
-impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
-    pub fn with_loader(fc_cache: FcFontCache, loader: Arc<Q>) -> Result<Self, LayoutError> {
-        let manager = Self {
+/// A map of pre-loaded fonts, keyed by FontId (from rust-fontconfig)
+/// This is passed to the shaper - no font loading happens during shaping
+/// The fonts are loaded BEFORE layout based on the font chains and text content.
+/// 
+/// Provides both FontId and hash-based lookup for efficient glyph operations.
+#[derive(Debug, Clone)]
+pub struct LoadedFonts<T> {
+    /// Primary storage: FontId -> Font
+    pub fonts: HashMap<FontId, T>,
+    /// Reverse index: font_hash -> FontId for fast hash-based lookups
+    hash_to_id: HashMap<u64, FontId>,
+}
+
+impl<T: ParsedFontTrait> LoadedFonts<T> {
+    pub fn new() -> Self {
+        Self {
+            fonts: HashMap::new(),
+            hash_to_id: HashMap::new(),
+        }
+    }
+    
+    /// Insert a font with its FontId
+    pub fn insert(&mut self, font_id: FontId, font: T) {
+        let hash = font.get_hash();
+        self.hash_to_id.insert(hash, font_id.clone());
+        self.fonts.insert(font_id, font);
+    }
+    
+    /// Get a font by FontId
+    pub fn get(&self, font_id: &FontId) -> Option<&T> {
+        self.fonts.get(font_id)
+    }
+    
+    /// Get a font by its hash
+    pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
+        self.hash_to_id.get(&hash).and_then(|id| self.fonts.get(id))
+    }
+    
+    /// Get the FontId for a hash
+    pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
+        self.hash_to_id.get(&hash)
+    }
+    
+    /// Check if a FontId is present
+    pub fn contains_key(&self, font_id: &FontId) -> bool {
+        self.fonts.contains_key(font_id)
+    }
+    
+    /// Check if a hash is present
+    pub fn contains_hash(&self, hash: u64) -> bool {
+        self.hash_to_id.contains_key(&hash)
+    }
+    
+    /// Iterate over all fonts
+    pub fn iter(&self) -> impl Iterator<Item = (&FontId, &T)> {
+        self.fonts.iter()
+    }
+    
+    /// Get the number of loaded fonts
+    pub fn len(&self) -> usize {
+        self.fonts.len()
+    }
+    
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        self.fonts.is_empty()
+    }
+}
+
+impl<T: ParsedFontTrait> Default for LoadedFonts<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: ParsedFontTrait> FromIterator<(FontId, T)> for LoadedFonts<T> {
+    fn from_iter<I: IntoIterator<Item = (FontId, T)>>(iter: I) -> Self {
+        let mut loaded = LoadedFonts::new();
+        for (id, font) in iter {
+            loaded.insert(id, font);
+        }
+        loaded
+    }
+}
+
+#[derive(Debug)]
+pub struct FontManager<T> {
+    ///  Cache that holds the **file paths** of the fonts (not any font data itself)
+    pub fc_cache: Arc<FcFontCache>,
+    /// Holds the actual parsed font (usually with the font bytes attached)
+    pub parsed_fonts: Mutex<HashMap<FontId, T>>,
+    // Cache for font chains - populated by resolve_all_font_chains() before layout
+    // This is read-only during layout - no locking needed for reads
+    pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+}
+
+impl<T: ParsedFontTrait> FontManager<T> {
+    pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        Ok(Self {
             fc_cache: Arc::new(fc_cache),
             parsed_fonts: Mutex::new(HashMap::new()),
-            font_loader: loader,
-            font_selector_to_id_cache: Mutex::new(HashMap::new()),
-            failed_font_lookups: Mutex::new(std::collections::HashSet::new()),
-            system_font_fallbacks: Mutex::new(HashMap::new()),
-            font_chain_cache: Mutex::new(HashMap::new()),
-        };
-
-        // Initialize system font fallbacks
-        manager.init_system_fonts();
-
-        Ok(manager)
+            font_chain_cache: HashMap::new(), // Populated via set_font_chain_cache()
+        })
     }
-
-    /// Initialize system font fallbacks for common generic font families
-    fn init_system_fonts(&self) {
-        use crate::font::load_system_font;
-
-        let mut fallbacks = self.system_font_fallbacks.lock().unwrap();
-        let mut parsed = self.parsed_fonts.lock().unwrap();
-
-        // Try to load OS-specific system fonts first (these know the correct font names per OS)
-        if let Some((font_bytes, font_index)) = load_system_font("sans-serif", &self.fc_cache) {
-            if let Ok(font) = self
-                .font_loader
-                .load_font(font_bytes.as_slice(), font_index as usize)
-            {
-                let font_id = FontId::new();
-                parsed.insert(font_id.clone(), font);
-                fallbacks.insert("sans-serif".to_string(), font_id.clone());
-                fallbacks.insert("system-ui".to_string(), font_id.clone());
-            }
-        }
-
-        if let Some((font_bytes, font_index)) = load_system_font("serif", &self.fc_cache) {
-            if let Ok(font) = self
-                .font_loader
-                .load_font(font_bytes.as_slice(), font_index as usize)
-            {
-                let font_id = FontId::new();
-                parsed.insert(font_id.clone(), font);
-                fallbacks.insert("serif".to_string(), font_id);
-            }
-        }
-
-        if let Some((font_bytes, font_index)) = load_system_font("monospace", &self.fc_cache) {
-            if let Ok(font) = self
-                .font_loader
-                .load_font(font_bytes.as_slice(), font_index as usize)
-            {
-                let font_id = FontId::new();
-                parsed.insert(font_id.clone(), font);
-                fallbacks.insert("monospace".to_string(), font_id);
-            }
-        }
-
-        // Only if no system fonts could be loaded, fall back to first available font
-        if fallbacks.is_empty() {
-            let available_fonts = self.fc_cache.list();
-            if !available_fonts.is_empty() {
-                for (pattern, font_id) in available_fonts.iter().take(10) {
-                    if let Some(font_bytes) = self.fc_cache.get_font_bytes(font_id) {
-                        if let Ok(font) = self.font_loader.load_font(&font_bytes, 0) {
-                            let new_id = FontId::new();
-                            parsed.insert(new_id.clone(), font);
-                            fallbacks.insert("sans-serif".to_string(), new_id.clone());
-                            fallbacks.insert("serif".to_string(), new_id.clone());
-                            fallbacks.insert("monospace".to_string(), new_id.clone());
-                            fallbacks.insert("system-ui".to_string(), new_id.clone());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+    
+    /// Set the font chain cache from externally resolved chains
+    /// 
+    /// This should be called with the result of `resolve_font_chains()` or 
+    /// `collect_and_resolve_font_chains()` from `solver3::getters`.
+    pub fn set_font_chain_cache(&mut self, chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>) {
+        self.font_chain_cache = chains;
+    }
+    
+    /// Merge additional font chains into the existing cache
+    /// 
+    /// Useful when processing multiple DOMs that may have different font requirements.
+    pub fn merge_font_chain_cache(&mut self, chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>) {
+        self.font_chain_cache.extend(chains);
+    }
+    
+    /// Get a reference to the font chain cache
+    pub fn get_font_chain_cache(&self) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
+        &self.font_chain_cache
     }
 
     /// Get a font by its hash (used for WebRender registration)
@@ -155,323 +210,55 @@ impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontManager<T, Q> {
         }
         None
     }
-}
-
-// FontManager with proper rust-fontconfig fallback
-impl<T: ParsedFontTrait, Q: FontLoaderTrait<T>> FontProviderTrait<T> for FontManager<T, Q> {
-    fn load_font(&self, font_selector: &FontSelector) -> Result<T, LayoutError> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static QUERY_COUNTER: AtomicUsize = AtomicUsize::new(0);
-        
-        // Check if this font selector has already failed before (FIRST!)
-        // This must come before any other checks to prevent infinite loops
-        if let Ok(failed) = self.failed_font_lookups.lock() {
-            if failed.contains(font_selector) {
-                // We already know this font doesn't exist, fail fast
-                return Err(LayoutError::FontNotFound(font_selector.clone()));
-            }
-        }
-        
-        let query_count = QUERY_COUNTER.fetch_add(1, Ordering::SeqCst);
-        if query_count < 10 {
-            println!("[FontManager #{:03}] load_font requested: family='{}', weight={:?}, style={:?}, unicode_ranges={}",
-                query_count, font_selector.family, font_selector.weight, font_selector.style, font_selector.unicode_ranges.len());
-        } else if query_count == 10 {
-            println!("[FontManager] ... (suppressing further load_font messages, count: {})", query_count);
-        }
-        
-        if query_count > 200 {
-            eprintln!("[FontManager] ERROR: load_font called {} times! Infinite loop detected!", query_count);
-            eprintln!("[FontManager] Last request: family='{}'", font_selector.family);
-            eprintln!("[FontManager] Returning emergency fallback font to break loop");
-            
-            // Cache this failed lookup BEFORE returning emergency fallback
-            if let Ok(mut failed) = self.failed_font_lookups.lock() {
-                failed.insert(font_selector.clone());
-            }
-            
-            // DON'T return an error - that triggers more fallback attempts!
-            // Instead, return ANY available font to break the loop
-            let fallbacks = self.system_font_fallbacks.lock().unwrap();
-            if let Some((_, any_font_id)) = fallbacks.iter().next() {
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(any_font_id) {
-                    return Ok(font.shallow_clone());
-                }
-            }
-            
-            // If we really have no fonts at all, then fail
-            return Err(LayoutError::FontNotFound(font_selector.clone()));
-        }
-        
-        // Check cache first
-        if let Ok(c) = self.font_selector_to_id_cache.lock() {
-            if let Some(cached_id) = c.get(font_selector) {
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(cached_id) {
-                    if query_count < 10 {
-                        println!("[FontManager #{:03}] -> Cache HIT, returning cached font", query_count);
-                    }
-                    return Ok(font.shallow_clone());
-                }
-            }
-        }
-
-        // Query fontconfig with Unicode ranges if specified
-        let pattern = FcPattern {
-            name: if font_selector.family.is_empty() {
-                None // Empty family = wildcard search (match any font)
-            } else {
-                Some(font_selector.family.clone())
-            },
-            weight: font_selector.weight,
-            italic: if font_selector.style == FontStyle::Italic {
-                PatternMatch::True
-            } else {
-                PatternMatch::DontCare
-            },
-            oblique: if font_selector.style == FontStyle::Oblique {
-                PatternMatch::True
-            } else {
-                PatternMatch::DontCare
-            },
-            unicode_ranges: font_selector.unicode_ranges.clone(),
-            ..Default::default()
-        };
-
-        let mut trace = Vec::new();
-        let fc_match = self.fc_cache.query(&pattern, &mut trace);
-
-        // If fontconfig query fails, cache the failure and return FontNotFound immediately
-        // This prevents repeatedly trying to load non-existent fonts
-        let fc_match = match fc_match {
-            Some(m) => m,
-            None => {
-                // Cache this failed lookup to avoid retrying
-                if let Ok(mut failed) = self.failed_font_lookups.lock() {
-                    failed.insert(font_selector.clone());
-                }
-                
-                // Font not found by fontconfig
-                return Err(LayoutError::FontNotFound(font_selector.clone()));
-            }
-        };
-
-        // Load font if not cached
-        {
-            let mut fonts = self.parsed_fonts.lock().unwrap();
-            if !fonts.contains_key(&fc_match.id) {
-                let font_bytes = self
-                    .fc_cache
-                    .get_font_bytes(&fc_match.id)
-                    .ok_or_else(|| LayoutError::FontNotFound(font_selector.clone()))?;
-
-                // Get the font index from fontconfig
-                let font_index = self
-                    .fc_cache
-                    .get_font_by_id(&fc_match.id)
-                    .and_then(|source| match source {
-                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
-                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
-                    })
-                    .unwrap_or(0);
-
-                let parsed = self.font_loader.load_font(&font_bytes, font_index)?;
-
-                fonts.insert(fc_match.id.clone(), parsed);
-            }
-        }
-
-        // Update ref cache
-        {
-            let mut ref_cache = self.font_selector_to_id_cache.lock().unwrap();
-            ref_cache.insert(font_selector.clone(), fc_match.id.clone());
-        }
-
-        let fonts = self.parsed_fonts.lock().unwrap();
-        Ok(fonts.get(&fc_match.id).unwrap().shallow_clone()) // Use shallow_clone
+    
+    /// Get a snapshot of all currently loaded fonts
+    /// 
+    /// This returns a copy of all parsed fonts, which can be passed to the shaper.
+    /// No locking is required after this call - the returned HashMap is independent.
+    /// 
+    /// NOTE: This should be called AFTER loading all required fonts for a layout pass.
+    pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
+        let parsed = self.parsed_fonts.lock().unwrap();
+        parsed.iter()
+            .map(|(id, font)| (id.clone(), font.shallow_clone()))
+            .collect()
     }
     
-    /// Load font from a stack of font selectors, trying each one until successful
-    /// Uses the new rust-fontconfig resolve_font_chain API for efficient multilingual font resolution
+    /// Get the set of FontIds that are currently loaded
     /// 
-    /// IMPORTANT: This function now caches font chains based on (font_families, weight, style)
-    /// and uses resolve_char() to find the right font for each character. This avoids
-    /// creating a new cache entry for each unique text string.
-    fn load_font_from_stack(&self, font_stack: &[FontSelector], text: &str) -> Result<T, LayoutError> {
-        if font_stack.is_empty() {
-            return Err(LayoutError::FontNotFound(FontSelector::default()));
+    /// This is useful for computing which fonts need to be loaded (diff with required fonts).
+    pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
+        let parsed = self.parsed_fonts.lock().unwrap();
+        parsed.keys().cloned().collect()
+    }
+    
+    /// Insert a loaded font into the cache
+    /// 
+    /// Returns the old font if one was already present for this FontId.
+    pub fn insert_font(&self, font_id: FontId, font: T) -> Option<T> {
+        let mut parsed = self.parsed_fonts.lock().unwrap();
+        parsed.insert(font_id, font)
+    }
+    
+    /// Insert multiple loaded fonts into the cache
+    /// 
+    /// This is more efficient than calling `insert_font` multiple times
+    /// because it only acquires the lock once.
+    pub fn insert_fonts(&self, fonts: impl IntoIterator<Item = (FontId, T)>) {
+        let mut parsed = self.parsed_fonts.lock().unwrap();
+        for (font_id, font) in fonts {
+            parsed.insert(font_id, font);
         }
-        
-        // Build font families list
-        let font_families: Vec<String> = font_stack.iter()
-            .map(|s| s.family.clone())
-            .filter(|f| !f.is_empty())
-            .collect();
-        
-        // If we have no font families, use system defaults
-        let font_families = if font_families.is_empty() {
-            vec!["sans-serif".to_string()]
-        } else {
-            font_families
-        };
-        
-        // Extract weight and style from first selector
-        let weight = font_stack[0].weight;
-        let is_italic = font_stack[0].style == FontStyle::Italic;
-        let is_oblique = font_stack[0].style == FontStyle::Oblique;
-        
-        // Create cache key based only on CSS properties, NOT text content
-        let cache_key = FontChainKey {
-            font_families: font_families.clone(),
-            weight,
-            italic: is_italic,
-            oblique: is_oblique,
-        };
-        
-        // Check our local cache first (this avoids the unicode_ranges issue in rust-fontconfig)
-        let font_chain = {
-            let cache = self.font_chain_cache.lock().unwrap();
-            cache.get(&cache_key).cloned()
-        };
-        
-        let font_chain = match font_chain {
-            Some(chain) => chain,
-            None => {
-                // Not in our cache - call rust-fontconfig
-                // We pass an empty string to avoid the per-text caching issue
-                let italic = if is_italic { PatternMatch::True } else { PatternMatch::DontCare };
-                let oblique = if is_oblique { PatternMatch::True } else { PatternMatch::DontCare };
-                
-                let mut trace = Vec::new();
-                // Use a representative sample text that covers common Unicode ranges
-                // This ensures the font chain includes fonts for Latin, CJK, etc.
-                let sample_text = "AaBbCc 你好 こんにちは";
-                let chain = self.fc_cache.resolve_font_chain(
-                    &font_families,
-                    sample_text,
-                    weight,
-                    italic,
-                    oblique,
-                    &mut trace,
-                );
-                
-                // Cache it
-                let mut cache = self.font_chain_cache.lock().unwrap();
-                cache.insert(cache_key, chain.clone());
-                chain
-            }
-        };
-        
-        // Now use resolve_char to find the right font for the first character
-        // (we assume text is relatively homogeneous - for mixed scripts, 
-        // the text should already be segmented by script)
-        let first_char = text.chars().next().unwrap_or('A');
-        
-        // Try to find a font that can render this character
-        if let Some((font_id, _css_source)) = font_chain.resolve_char(&self.fc_cache, first_char) {
-            // Check if font is already loaded
-            {
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(&font_id) {
-                    return Ok(font.shallow_clone());
-                }
-            }
-            
-            // Load the font
-            if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_id) {
-                let font_index = self.fc_cache.get_font_by_id(&font_id)
-                    .and_then(|source| match source {
-                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
-                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
-                    })
-                    .unwrap_or(0);
-                
-                if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
-                    let mut fonts = self.parsed_fonts.lock().unwrap();
-                    fonts.insert(font_id.clone(), parsed.shallow_clone());
-                    return Ok(parsed);
-                }
-            }
-        }
-        
-        // Fallback: try all fonts in the chain (original behavior)
-        for group in &font_chain.css_fallbacks {
-            for font_match in &group.fonts {
-                // Check if font is already loaded
-                {
-                    let fonts = self.parsed_fonts.lock().unwrap();
-                    if let Some(font) = fonts.get(&font_match.id) {
-                        return Ok(font.shallow_clone());
-                    }
-                }
-                
-                // Try to load the font
-                if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_match.id) {
-                    let font_index = self.fc_cache.get_font_by_id(&font_match.id)
-                        .and_then(|source| match source {
-                            rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
-                            rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
-                        })
-                        .unwrap_or(0);
-                    
-                    if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
-                        let mut fonts = self.parsed_fonts.lock().unwrap();
-                        fonts.insert(font_match.id.clone(), parsed.shallow_clone());
-                        return Ok(parsed);
-                    }
-                }
-            }
-        }
-        
-        // If CSS fallbacks didn't work, try Unicode fallbacks
-        for font_match in &font_chain.unicode_fallbacks {
-            // Check if font is already loaded
-            {
-                let fonts = self.parsed_fonts.lock().unwrap();
-                if let Some(font) = fonts.get(&font_match.id) {
-                    return Ok(font.shallow_clone());
-                }
-            }
-            
-            // Try to load the font
-            if let Some(font_bytes) = self.fc_cache.get_font_bytes(&font_match.id) {
-                let font_index = self.fc_cache.get_font_by_id(&font_match.id)
-                    .and_then(|source| match source {
-                        rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
-                        rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
-                    })
-                    .unwrap_or(0);
-                
-                if let Ok(parsed) = self.font_loader.load_font(&font_bytes, font_index) {
-                    let mut fonts = self.parsed_fonts.lock().unwrap();
-                    fonts.insert(font_match.id.clone(), parsed.shallow_clone());
-                    return Ok(parsed);
-                }
-            }
-        }
-        
-        // If font chain didn't find anything, fall back to system fonts
-        let fallbacks = self.system_font_fallbacks.lock().unwrap();
-        if let Some(font_id) = fallbacks.get("sans-serif") {
-            let fonts = self.parsed_fonts.lock().unwrap();
-            if let Some(font) = fonts.get(font_id) {
-                return Ok(font.shallow_clone());
-            }
-        }
-        
-        // Last resort: return any available font
-        {
-            let fonts = self.parsed_fonts.lock().unwrap();
-            if let Some((_, font)) = fonts.iter().next() {
-                return Ok(font.shallow_clone());
-            }
-        }
-        
-        Err(LayoutError::FontNotFound(font_stack[0].clone()))
+    }
+    
+    /// Remove a font from the cache
+    /// 
+    /// Returns the removed font if it was present.
+    pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
+        let mut parsed = self.parsed_fonts.lock().unwrap();
+        parsed.remove(font_id)
     }
 }
-
 
 // Error handling
 #[derive(Debug, thiserror::Error)]
@@ -1087,11 +874,14 @@ impl Ord for InlineImage {
 
 /// Enhanced glyph with all features
 #[derive(Debug, Clone)]
-pub struct Glyph<T: ParsedFontTrait> {
+pub struct Glyph {
     // Core glyph data
     pub glyph_id: u16,
     pub codepoint: char,
-    pub font: T, // Changed from Arc<T> - T already has ShallowClone
+    /// Hash of the font - use LoadedFonts to look up the actual font when needed
+    pub font_hash: u64,
+    /// Cached font metrics to avoid font lookup for common operations
+    pub font_metrics: LayoutFontMetrics,
     pub style: Arc<StyleProperties>,
     pub source: GlyphSource,
 
@@ -1117,7 +907,7 @@ pub struct Glyph<T: ParsedFontTrait> {
     pub bidi_level: BidiLevel,
 }
 
-impl<T: ParsedFontTrait> Glyph<T> {
+impl Glyph {
     #[inline]
     fn bounds(&self) -> Rect {
         Rect {
@@ -2497,14 +2287,14 @@ pub struct VisualItem {
 // --- Stage 3: Shaped Representation ---
 
 #[derive(Debug, Clone)]
-pub enum ShapedItem<T: ParsedFontTrait> {
-    Cluster(ShapedCluster<T>),
+pub enum ShapedItem {
+    Cluster(ShapedCluster),
     /// A block of combined text (tate-chu-yoko) that is laid out 
     // as a single unbreakable object.
     CombinedBlock {
         source: ContentIndex,
         /// The glyphs to be rendered horizontally within the vertical line.
-        glyphs: Vec<ShapedGlyph<T>>,
+        glyphs: Vec<ShapedGlyph>,
         bounds: Rect,
         baseline_offset: f32,
     },
@@ -2525,8 +2315,8 @@ pub enum ShapedItem<T: ParsedFontTrait> {
     },
 }
 
-impl<T: ParsedFontTrait> ShapedItem<T> {
-    pub fn as_cluster(&self) -> Option<&ShapedCluster<T>> {
+impl ShapedItem {
+    pub fn as_cluster(&self) -> Option<&ShapedCluster> {
         match self {
             ShapedItem::Cluster(c) => Some(c),
             _ => None,
@@ -2570,7 +2360,7 @@ impl<T: ParsedFontTrait> ShapedItem<T> {
 
 /// A group of glyphs that corresponds to one or more source characters (a cluster).
 #[derive(Debug, Clone)]
-pub struct ShapedCluster<T: ParsedFontTrait> {
+pub struct ShapedCluster {
     /// The original text that this cluster was shaped from.
     /// This is crucial for correct hyphenation.
     pub text: String,
@@ -2579,7 +2369,7 @@ pub struct ShapedCluster<T: ParsedFontTrait> {
     /// The source `ContentIndex` for mapping back to logical items.
     pub source_content_index: ContentIndex,
     /// The glyphs that make up this cluster.
-    pub glyphs: Vec<ShapedGlyph<T>>,
+    pub glyphs: Vec<ShapedGlyph>,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
@@ -2594,7 +2384,7 @@ pub struct ShapedCluster<T: ParsedFontTrait> {
 
 /// A single, shaped glyph with its essential metrics.
 #[derive(Debug, Clone)]
-pub struct ShapedGlyph<T: ParsedFontTrait> {
+pub struct ShapedGlyph {
     /// The kind of glyph this is (character, hyphen, etc.).
     pub kind: GlyphKind,
     /// Glyph ID inside of the font
@@ -2615,14 +2405,21 @@ pub struct ShapedGlyph<T: ParsedFontTrait> {
     pub vertical_offset: Point,
     pub script: Script,
     pub style: Arc<StyleProperties>,
-    pub font: T, // Changed from Arc<T>
+    /// Hash of the font - use LoadedFonts to look up the actual font when needed
+    pub font_hash: u64,
+    /// Cached font metrics to avoid font lookup for common operations
+    pub font_metrics: LayoutFontMetrics,
 }
 
-impl<T: ParsedFontTrait> ShapedGlyph<T> {
-    pub fn into_glyph_instance(&self, writing_mode: WritingMode) -> GlyphInstance {
-        let size = self
-            .font
-            .get_glyph_size(self.glyph_id, self.style.font_size_px)
+impl ShapedGlyph {
+    pub fn into_glyph_instance<T: ParsedFontTrait>(
+        &self,
+        writing_mode: WritingMode,
+        loaded_fonts: &LoadedFonts<T>,
+    ) -> GlyphInstance {
+        let size = loaded_fonts
+            .get_by_hash(self.font_hash)
+            .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
             .unwrap_or_default();
 
         let position = if writing_mode.is_advance_horizontal() {
@@ -2646,14 +2443,15 @@ impl<T: ParsedFontTrait> ShapedGlyph<T> {
 
     /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
     /// This is used for display list generation where glyphs need their final page coordinates.
-    pub fn into_glyph_instance_at(
+    pub fn into_glyph_instance_at<T: ParsedFontTrait>(
         &self,
         writing_mode: WritingMode,
         absolute_position: LogicalPosition,
+        loaded_fonts: &LoadedFonts<T>,
     ) -> GlyphInstance {
-        let size = self
-            .font
-            .get_glyph_size(self.glyph_id, self.style.font_size_px)
+        let size = loaded_fonts
+            .get_by_hash(self.font_hash)
+            .and_then(|font| font.get_glyph_size(self.glyph_id, self.style.font_size_px))
             .unwrap_or_default();
 
         GlyphInstance {
@@ -2662,29 +2460,42 @@ impl<T: ParsedFontTrait> ShapedGlyph<T> {
             size,
         }
     }
+    
+    /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
+    /// This version doesn't require fonts - it uses a default size.
+    /// Use this when you don't need precise glyph bounds (e.g., display list generation).
+    pub fn into_glyph_instance_at_simple(
+        &self,
+        _writing_mode: WritingMode,
+        absolute_position: LogicalPosition,
+    ) -> GlyphInstance {
+        // Use font metrics to estimate size, or default to zero
+        // The actual rendering will use the font directly
+        GlyphInstance {
+            index: self.glyph_id as u32,
+            point: absolute_position,
+            size: LogicalSize::default(),
+        }
+    }
 }
 
 // --- Stage 4: Positioned Representation (Final Layout) ---
 
 #[derive(Debug, Clone)]
-pub struct PositionedItem<T: ParsedFontTrait> {
-    pub item: ShapedItem<T>,
+pub struct PositionedItem {
+    pub item: ShapedItem,
     pub position: Point,
     pub line_index: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct UnifiedLayout<T: ParsedFontTrait> {
-    pub items: Vec<PositionedItem<T>>,
+pub struct UnifiedLayout {
+    pub items: Vec<PositionedItem>,
     /// Information about content that did not fit.
-    pub overflow: OverflowInfo<T>,
-    /// Map of font hashes to the actual parsed fonts used in this layout.
-    /// This allows the renderer to register all fonts needed for this layout
-    /// after the layout is complete, avoiding the need to pre-register fonts.
-    pub used_fonts: std::collections::BTreeMap<u64, T>, // Changed from Arc<T>
+    pub overflow: OverflowInfo,
 }
 
-impl<T: ParsedFontTrait> UnifiedLayout<T> {
+impl UnifiedLayout {
     /// Calculate the bounding box of all positioned items.
     /// This is computed on-demand rather than cached.
     pub fn bounds(&self) -> Rect {
@@ -2815,7 +2626,7 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
     /// that cover the selected text, in the layout's coordinate space.
     pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
         // 1. Build a map from the logical cluster ID to the visual PositionedItem for fast lookups.
-        let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem<T>> = HashMap::new();
+        let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem> = HashMap::new();
         for item in &self.items {
             if let Some(cluster) = item.item.as_cluster() {
                 cluster_map.insert(cluster.source_cluster_id, item);
@@ -2843,7 +2654,7 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         let mut rects = Vec::new();
 
         // Helper to get the absolute visual X coordinate of a cursor.
-        let get_cursor_x = |item: &PositionedItem<T>, affinity: CursorAffinity| -> f32 {
+        let get_cursor_x = |item: &PositionedItem, affinity: CursorAffinity| -> f32 {
             match affinity {
                 CursorAffinity::Leading => item.position.x,
                 CursorAffinity::Trailing => item.position.x + get_item_measure(&item.item, false),
@@ -3519,40 +3330,9 @@ impl<T: ParsedFontTrait> UnifiedLayout<T> {
         cursor
     }
 
-    /// Collects all unique fonts used in this layout into the used_fonts map.
-    /// This should be called after the layout is complete to populate the font cache.
-    pub fn collect_used_fonts(&mut self) {
-        use std::collections::BTreeMap;
-
-        let mut fonts: BTreeMap<u64, T> = BTreeMap::new(); // Changed from Arc<T>
-
-        for item in &self.items {
-            match &item.item {
-                ShapedItem::Cluster(cluster) => {
-                    for glyph in &cluster.glyphs {
-                        let hash = glyph.font.get_hash();
-                        fonts
-                            .entry(hash)
-                            .or_insert_with(|| glyph.font.shallow_clone());
-                    }
-                }
-                ShapedItem::CombinedBlock { glyphs, .. } => {
-                    for glyph in glyphs {
-                        let hash = glyph.font.get_hash();
-                        fonts
-                            .entry(hash)
-                            .or_insert_with(|| glyph.font.shallow_clone());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        self.used_fonts = fonts;
-    }
 }
 
-fn get_baseline_for_item<T: ParsedFontTrait>(item: &ShapedItem<T>) -> Option<f32> {
+fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
     match item {
         ShapedItem::CombinedBlock {
             baseline_offset, ..
@@ -3565,8 +3345,7 @@ fn get_baseline_for_item<T: ParsedFontTrait>(item: &ShapedItem<T>) -> Option<f32
             if let Some(last_glyph) = cluster.glyphs.last() {
                 Some(
                     last_glyph
-                        .font
-                        .get_font_metrics()
+                        .font_metrics
                         .baseline_scaled(last_glyph.style.font_size_px),
                 )
             } else {
@@ -3585,34 +3364,25 @@ fn get_baseline_for_item<T: ParsedFontTrait>(item: &ShapedItem<T>) -> Option<f32
 }
 
 /// Stores information about content that exceeded the available layout space.
-#[derive(Debug, Clone)]
-pub struct OverflowInfo<T: ParsedFontTrait> {
+#[derive(Debug, Clone, Default)]
+pub struct OverflowInfo {
     /// The items that did not fit within the constraints.
-    pub overflow_items: Vec<ShapedItem<T>>,
+    pub overflow_items: Vec<ShapedItem>,
     /// The total bounds of all content, including overflowing items.
     /// This is useful for `OverflowBehavior::Visible` or `Scroll`.
     pub unclipped_bounds: Rect,
 }
 
-impl<T: ParsedFontTrait> OverflowInfo<T> {
+impl OverflowInfo {
     pub fn has_overflow(&self) -> bool {
         !self.overflow_items.is_empty()
     }
 }
 
-impl<T: ParsedFontTrait> Default for OverflowInfo<T> {
-    fn default() -> Self {
-        Self {
-            overflow_items: Vec::new(),
-            unclipped_bounds: Rect::default(),
-        }
-    }
-}
-
 /// Intermediate structure carrying information from the line breaker to the positioner.
 #[derive(Debug, Clone)]
-pub struct UnifiedLine<T: ParsedFontTrait> {
-    pub items: Vec<ShapedItem<T>>,
+pub struct UnifiedLine {
+    pub items: Vec<ShapedItem>,
     /// The y-position (for horizontal) or x-position (for vertical) of the line's baseline.
     pub cross_axis_position: f32,
     /// The geometric segments this line must fit into.
@@ -3635,26 +3405,26 @@ pub struct LayoutFragment {
 
 /// Represents the final layout distributed across multiple fragments.
 #[derive(Debug, Clone)]
-pub struct FlowLayout<T: ParsedFontTrait> {
+pub struct FlowLayout {
     /// A map from a fragment's unique ID to the layout it contains.
-    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout<T>>>,
+    pub fragment_layouts: HashMap<String, Arc<UnifiedLayout>>,
     /// Any items that did not fit into the last fragment in the flow chain.
     /// This is useful for pagination or determining if more layout space is needed.
-    pub remaining_items: Vec<ShapedItem<T>>,
+    pub remaining_items: Vec<ShapedItem>,
 }
 
-pub struct LayoutCache<T: ParsedFontTrait> {
+pub struct LayoutCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
     // Stage 2 Cache: LogicalItems -> VisualItems
     visual_items: HashMap<CacheId, Arc<Vec<VisualItem>>>,
     // Stage 3 Cache: VisualItems -> ShapedItems (now strongly typed)
-    shaped_items: HashMap<CacheId, Arc<Vec<ShapedItem<T>>>>,
+    shaped_items: HashMap<CacheId, Arc<Vec<ShapedItem>>>,
     // Stage 4 Cache: ShapedItems + Constraints -> Final Layout (now strongly typed)
-    layouts: HashMap<CacheId, Arc<UnifiedLayout<T>>>,
+    layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
 
-impl<T: ParsedFontTrait> LayoutCache<T> {
+impl LayoutCache {
     pub fn new() -> Self {
         Self {
             logical_items: HashMap::new(),
@@ -3665,7 +3435,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
     }
 
     /// Get a layout from the cache by its ID
-    pub fn get_layout(&self, cache_id: &CacheId) -> Option<&Arc<UnifiedLayout<T>>> {
+    pub fn get_layout(&self, cache_id: &CacheId) -> Option<&Arc<UnifiedLayout>> {
         self.layouts.get(cache_id)
     }
 
@@ -3675,7 +3445,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
     }
 }
 
-impl<T: ParsedFontTrait> Default for LayoutCache<T> {
+impl Default for LayoutCache {
     fn default() -> Self {
         Self::new()
     }
@@ -3743,7 +3513,7 @@ fn calculate_id<T: Hash>(item: &T) -> CacheId {
 
 // --- Main Layout Pipeline Implementation ---
 
-impl<T: ParsedFontTrait> LayoutCache<T> {
+impl LayoutCache {
     /// New top-level entry point for flowing layout across multiple regions.
     ///
     /// This function orchestrates the entire layout pipeline, but instead of fitting
@@ -3794,19 +3564,24 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
     /// * `style_overrides` - Character-level style changes.
     /// * `flow_chain` - An ordered slice of `LayoutFragment` defining the regions (e.g., columns,
     ///   pages) that the content should flow through.
-    /// * `font_manager` - The font provider.
+    /// * `font_chain_cache` - Pre-resolved font chains (from FontManager.font_chain_cache)
+    /// * `fc_cache` - The fontconfig cache for font lookups
+    /// * `loaded_fonts` - Pre-loaded fonts, keyed by FontId
     ///
     /// # Returns
     /// A `FlowLayout` struct containing the positioned items for each fragment that
     /// was filled, and any content that did not fit in the final fragment.
-    pub fn layout_flow<P: FontProviderTrait<T>>(
+    pub fn layout_flow<T: ParsedFontTrait>(
         &mut self,
         content: &[InlineContent],
         style_overrides: &[StyleOverride],
         flow_chain: &[LayoutFragment],
-        font_manager: &P,
+        font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        fc_cache: &FcFontCache,
+        loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<FlowLayout<T>, LayoutError> {
+    ) -> Result<FlowLayout, LayoutError> {
+        
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
@@ -3851,9 +3626,11 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => cached.clone(),
+            Some(cached) => {
+                cached.clone()
+            },
             None => {
-                let items = Arc::new(shape_visual_items(&visual_items, font_manager, debug_messages)?);
+                let items = Arc::new(shape_visual_items(&visual_items, font_chain_cache, fc_cache, loaded_fonts, debug_messages)?);
                 self.shaped_items.insert(shaped_items_id, items.clone());
                 items
             }
@@ -3876,7 +3653,7 @@ impl<T: ParsedFontTrait> LayoutCache<T> {
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
             let fragment_layout =
-                perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints, debug_messages)?;
+                perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints, debug_messages, loaded_fonts)?;
 
             fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
             if cursor.is_done() {
@@ -4215,11 +3992,17 @@ pub fn reorder_logical_items(
 
 // --- Stage 3 Implementation ---
 
-pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
+/// Shape visual items into ShapedItems using pre-loaded fonts.
+/// 
+/// This function does NOT load any fonts - all fonts must be pre-loaded and passed in.
+/// If a required font is not in `loaded_fonts`, the text will be skipped with a warning.
+pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
-    font_provider: &P,
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Result<Vec<ShapedItem<T>>, LayoutError> {
+) -> Result<Vec<ShapedItem>, LayoutError> {
     let mut shaped = Vec::new();
 
     for item in visual_items {
@@ -4231,12 +4014,43 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                     Direction::Ltr
                 };
 
-                // Load font using the entire font stack with Unicode ranges from text
-                let font = match font_provider.load_font_from_stack(&style.font_stack, &item.text) {
-                    Ok(f) => f,
-                    Err(LayoutError::FontNotFound(_)) => {
+                // Build FontChainKey from style
+                let cache_key = FontChainKey::from_font_stack(&style.font_stack);
+                
+                // Look up pre-resolved font chain
+                let font_chain = match font_chain_cache.get(&cache_key) {
+                    Some(chain) => chain,
+                    None => {
                         if let Some(msgs) = debug_messages {
-                            // Truncate text to 50 characters (not bytes) to avoid cutting mid-character
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] Font chain not pre-resolved for {:?} - text will not be rendered",
+                                cache_key.font_families
+                            )));
+                        }
+                        continue;
+                    }
+                };
+                
+                // Use the font chain to resolve which font to use for the first character
+                let first_char = item.text.chars().next().unwrap_or('A');
+                let font_id = match font_chain.resolve_char(fc_cache, first_char) {
+                    Some((id, _css_source)) => id,
+                    None => {
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] No font in chain can render character '{}' (U+{:04X})",
+                                first_char, first_char as u32
+                            )));
+                        }
+                        continue;
+                    }
+                };
+                
+                // Look up the pre-loaded font
+                let font = match loaded_fonts.get(&font_id) {
+                    Some(f) => f,
+                    None => {
+                        if let Some(msgs) = debug_messages {
                             let truncated_text = item.text.chars()
                                 .take(50)
                                 .collect::<String>();
@@ -4247,30 +4061,22 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                             };
                             
                             msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] No font in stack could render text: '{}'",
-                                display_text
+                                "[TextLayout] Font {:?} not pre-loaded for text: '{}'",
+                                font_id, display_text
                             )));
                         }
                         continue;
                     }
-                    Err(e) => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::error(format!(
-                                "[TextLayout] Font loading error: {:?}",
-                                e
-                            )));
-                        }
-                        return Err(e);
-                    }
                 };
+                
                 let language = script_to_language(item.script, &item.text);
-
+                
                 let mut shaped_clusters = shape_text_correctly(
                     &item.text,
                     item.script,
                     language,
                     direction,
-                    &font,
+                    font,
                     style,
                     *source,
                 )?;
@@ -4337,7 +4143,47 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                 source,
                 text,
             } => {
-                let font: T = font_provider.load_font(style.font_stack.first().unwrap_or(&FontSelector::default()))?; // Changed from Arc<T>
+                // Build FontChainKey from style and look up font
+                let cache_key = FontChainKey::from_font_stack(&style.font_stack);
+                
+                let font_chain = match font_chain_cache.get(&cache_key) {
+                    Some(chain) => chain,
+                    None => {
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
+                                cache_key.font_families
+                            )));
+                        }
+                        continue;
+                    }
+                };
+                
+                let first_char = text.chars().next().unwrap_or('A');
+                let font_id = match font_chain.resolve_char(fc_cache, first_char) {
+                    Some((id, _)) => id,
+                    None => {
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] No font for CombinedText char '{}'", first_char
+                            )));
+                        }
+                        continue;
+                    }
+                };
+                
+                let font = match loaded_fonts.get(&font_id) {
+                    Some(f) => f,
+                    None => {
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::warning(format!(
+                                "[TextLayout] Font {:?} not pre-loaded for CombinedText", font_id
+                            )));
+                        }
+                        continue;
+                    }
+                };
+                
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -4350,7 +4196,8 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
                         kind: GlyphKind::Character,
                         glyph_id: g.glyph_id,
                         script: g.script,
-                        font: g.font,
+                        font_hash: g.font_hash,
+                        font_metrics: g.font_metrics,
                         style: g.style,
                         cluster_offset: 0,
                         advance: g.advance,
@@ -4399,7 +4246,7 @@ pub fn shape_visual_items<T: ParsedFontTrait, P: FontProviderTrait<T>>(
 }
 
 /// Helper to check if a cluster contains only hanging punctuation.
-fn is_hanging_punctuation<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
+fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
             match c.text.as_str() {
@@ -4422,7 +4269,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
-) -> Result<Vec<ShapedCluster<T>>, LayoutError> {
+) -> Result<Vec<ShapedCluster>, LayoutError> {
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
 
     if glyphs.is_empty() {
@@ -4441,9 +4288,17 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             // Finalize previous cluster
             let advance = current_cluster_glyphs
                 .iter()
-                .map(|g: &Glyph<T>| g.advance)
+                .map(|g: &Glyph| g.advance)
                 .sum();
-            let cluster_text = &text[cluster_start_byte_in_text..glyph.logical_byte_index];
+            
+            // Safely extract cluster text - handle cases where byte indices may be out of order
+            // (can happen with RTL text or complex GSUB reordering)
+            let (start, end) = if cluster_start_byte_in_text <= glyph.logical_byte_index {
+                (cluster_start_byte_in_text, glyph.logical_byte_index)
+            } else {
+                (glyph.logical_byte_index, cluster_start_byte_in_text)
+            };
+            let cluster_text = text.get(start..end).unwrap_or("");
 
             clusters.push(ShapedCluster {
                 text: cluster_text.to_string(), // Store original text for hyphenation
@@ -4455,10 +4310,15 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 glyphs: current_cluster_glyphs
                     .iter()
                     .map(|g| {
-                        let source_char = text[g.logical_byte_index..]
-                            .chars()
-                            .next()
+                        let source_char = text.get(g.logical_byte_index..)
+                            .and_then(|s| s.chars().next())
                             .unwrap_or('\u{FFFD}');
+                        // Calculate cluster_offset safely
+                        let cluster_offset = if g.logical_byte_index >= cluster_start_byte_in_text {
+                            (g.logical_byte_index - cluster_start_byte_in_text) as u32
+                        } else {
+                            0
+                        };
                         ShapedGlyph {
                             kind: if g.glyph_id == 0 {
                                 GlyphKind::NotDef
@@ -4467,10 +4327,10 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             },
                             glyph_id: g.glyph_id,
                             script: g.script,
-                            font: g.font.clone(),
+                            font_hash: g.font_hash,
+                            font_metrics: g.font_metrics.clone(),
                             style: g.style.clone(),
-                            cluster_offset: (g.logical_byte_index - cluster_start_byte_in_text)
-                                as u32,
+                            cluster_offset,
                             advance: g.advance,
                             kerning: g.kerning,
                             vertical_advance: g.vertical_advance,
@@ -4495,9 +4355,9 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     if !current_cluster_glyphs.is_empty() {
         let advance = current_cluster_glyphs
             .iter()
-            .map(|g: &Glyph<T>| g.advance)
+            .map(|g: &Glyph| g.advance)
             .sum();
-        let cluster_text = &text[cluster_start_byte_in_text..];
+        let cluster_text = text.get(cluster_start_byte_in_text..).unwrap_or("");
         clusters.push(ShapedCluster {
             text: cluster_text.to_string(), // Store original text
             source_cluster_id: GraphemeClusterId {
@@ -4508,10 +4368,15 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             glyphs: current_cluster_glyphs
                 .iter()
                 .map(|g| {
-                    let source_char = text[g.logical_byte_index..]
-                        .chars()
-                        .next()
+                    let source_char = text.get(g.logical_byte_index..)
+                        .and_then(|s| s.chars().next())
                         .unwrap_or('\u{FFFD}');
+                    // Calculate cluster_offset safely
+                    let cluster_offset = if g.logical_byte_index >= cluster_start_byte_in_text {
+                        (g.logical_byte_index - cluster_start_byte_in_text) as u32
+                    } else {
+                        0
+                    };
                     ShapedGlyph {
                         kind: if g.glyph_id == 0 {
                             GlyphKind::NotDef
@@ -4519,12 +4384,13 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                             GlyphKind::Character
                         },
                         glyph_id: g.glyph_id,
-                        font: g.font.clone(),
+                        font_hash: g.font_hash,
+                        font_metrics: g.font_metrics.clone(),
                         style: g.style.clone(),
                         script: g.script,
                         vertical_advance: g.vertical_advance,
                         vertical_offset: g.vertical_bearing,
-                        cluster_offset: (g.logical_byte_index - cluster_start_byte_in_text) as u32,
+                        cluster_offset,
                         advance: g.advance,
                         kerning: g.kerning,
                         offset: g.offset,
@@ -4588,10 +4454,10 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
 // --- Stage 4 Implementation: Vertical Text ---
 
 /// Applies orientation and vertical metrics to glyphs if the writing mode is vertical.
-fn apply_text_orientation<T: ParsedFontTrait>(
-    items: Arc<Vec<ShapedItem<T>>>,
+fn apply_text_orientation(
+    items: Arc<Vec<ShapedItem>>,
     constraints: &UnifiedConstraints,
-) -> Result<Arc<Vec<ShapedItem<T>>>, LayoutError> {
+) -> Result<Arc<Vec<ShapedItem>>, LayoutError> {
     if !constraints.is_vertical() {
         return Ok(items);
     }
@@ -4606,15 +4472,12 @@ fn apply_text_orientation<T: ParsedFontTrait>(
                 let mut total_vertical_advance = 0.0;
 
                 for glyph in &mut new_cluster.glyphs {
-                    if let Some(v_metrics) = glyph.font.get_vertical_metrics(glyph.glyph_id) {
-                        glyph.vertical_advance = v_metrics.advance;
-                        glyph.vertical_offset = Point {
-                            x: v_metrics.bearing_x,
-                            y: v_metrics.bearing_y,
-                        };
-                        total_vertical_advance += v_metrics.advance;
+                    // Use the vertical metrics already computed during shaping
+                    // If they're zero, use fallback values
+                    if glyph.vertical_advance > 0.0 {
+                        total_vertical_advance += glyph.vertical_advance;
                     } else {
-                        // Fallback: use line height for vertical advance.
+                        // Fallback: use line height for vertical advance
                         let fallback_advance = cluster.style.line_height;
                         glyph.vertical_advance = fallback_advance;
                         // Center the glyph horizontally as a fallback
@@ -4657,7 +4520,7 @@ fn apply_text_orientation<T: ParsedFontTrait>(
 
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item.
-pub fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f32, f32) {
+pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
@@ -4670,7 +4533,7 @@ pub fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                    let metrics = glyph.font.get_font_metrics();
+                    let metrics = &glyph.font_metrics;
                     if metrics.units_per_em == 0 {
                         return (max_asc, max_desc);
                     }
@@ -4708,7 +4571,7 @@ pub fn get_item_vertical_metrics<T: ParsedFontTrait>(item: &ShapedItem<T>) -> (f
 
 /// Calculates the maximum ascent and descent for an entire line of items.
 /// This determines the "line box" used for vertical alignment.
-fn calculate_line_metrics<T: ParsedFontTrait>(items: &[ShapedItem<T>]) -> (f32, f32) {
+fn calculate_line_metrics(items: &[ShapedItem]) -> (f32, f32) {
     // (max_ascent, max_descent)
     items
         .iter()
@@ -4755,11 +4618,12 @@ fn calculate_line_metrics<T: ParsedFontTrait>(items: &[ShapedItem<T>]) -> (f32, 
 /// - § 5 Line Spacing: line-height implemented, but line-fit-edge missing
 /// - § 6 Trimming Leading: text-box-trim not implemented
 pub fn perform_fragment_layout<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor<T>,
+    cursor: &mut BreakCursor,
     logical_items: &[LogicalItem],
     fragment_constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Result<UnifiedLayout<T>, LayoutError> {
+    fonts: &LoadedFonts<T>,
+) -> Result<UnifiedLayout, LayoutError> {
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info("\n--- Entering perform_fragment_layout ---".to_string()));
         msgs.push(LayoutDebugMessage::info(format!(
@@ -4913,7 +4777,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // "When an inline box exceeds the logical width of a line box, it is split
             // into several fragments, which are partitioned across multiple line boxes."
             let (mut line_items, was_hyphenated) =
-                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref());
+                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts);
             if line_items.is_empty() {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info("  Break returned no items. Ending column.".to_string()));
@@ -4944,6 +4808,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 cursor.is_done() && !was_hyphenated,
                 fragment_constraints,
                 debug_messages,
+                fonts,
             );
 
             for item in &mut line_pos_items {
@@ -4964,10 +4829,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         )));
     }
     
-    let mut layout = UnifiedLayout {
+    let layout = UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
-        used_fonts: std::collections::BTreeMap::new(),
     };
 
     // Calculate bounds on demand via the bounds() method
@@ -4978,9 +4842,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             calculated_bounds.width, calculated_bounds.height
         )));
     }
-
-    // Collect all fonts used in this layout
-    layout.collect_used_fonts();
 
     Ok(layout)
 }
@@ -5037,11 +4898,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - \u274c white-space: break-spaces handling
 ///
 pub fn break_one_line<T: ParsedFontTrait>(
-    cursor: &mut BreakCursor<T>,
+    cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
     is_vertical: bool,
     hyphenator: Option<&Standard>,
-) -> (Vec<ShapedItem<T>>, bool) {
+    fonts: &LoadedFonts<T>,
+) -> (Vec<ShapedItem>, bool) {
     let mut line_items = Vec::new();
     let mut current_width = 0.0;
 
@@ -5084,6 +4946,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                         available_width,
                         is_vertical,
                         hyphenator,
+                        fonts,
                     ) {
                         line_items.extend(hyphenation_result.line_part);
                         // Consume the original full word from the cursor.
@@ -5110,26 +4973,27 @@ pub fn break_one_line<T: ParsedFontTrait>(
 
 /// Represents a single valid hyphenation point within a word.
 #[derive(Clone)]
-pub struct HyphenationBreak<T: ParsedFontTrait> {
+pub struct HyphenationBreak {
     /// The number of characters from the original word string included on the line.
     pub char_len_on_line: usize,
     /// The total advance width of the line part + the hyphen.
     pub width_on_line: f32,
     /// The cluster(s) that will remain on the current line.
-    pub line_part: Vec<ShapedItem<T>>,
+    pub line_part: Vec<ShapedItem>,
     /// The cluster that represents the hyphen character itself.
-    pub hyphen_item: ShapedItem<T>,
+    pub hyphen_item: ShapedItem,
     /// The cluster(s) that will be carried over to the next line.
-    /// CRITICAL FIX: Changed from ShapedItem<T> to Vec<ShapedItem<T>>
-    pub remainder_part: Vec<ShapedItem<T>>,
+    /// CRITICAL FIX: Changed from ShapedItem to Vec<ShapedItem>
+    pub remainder_part: Vec<ShapedItem>,
 }
 
 /// A "word" is defined as a sequence of one or more adjacent ShapedClusters.
 pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
-    word_clusters: &[ShapedCluster<T>],
+    word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
     is_vertical: bool, // Pass this in to use correct metrics
-) -> Option<Vec<HyphenationBreak<T>>> {
+    fonts: &LoadedFonts<T>,
+) -> Option<Vec<HyphenationBreak>> {
     if word_clusters.is_empty() {
         return None;
     }
@@ -5171,7 +5035,10 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 
     let last_cluster = word_clusters.last().unwrap();
     let last_glyph = last_cluster.glyphs.last().unwrap();
-    let (font, style) = (last_glyph.font.clone(), last_cluster.style.clone());
+    let style = last_cluster.style.clone();
+    
+    // Look up font from hash
+    let font = fonts.get_by_hash(last_glyph.font_hash)?;
     let (hyphen_glyph_id, hyphen_advance) =
         font.get_hyphen_glyph_and_advance(style.font_size_px)?;
 
@@ -5188,13 +5055,13 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
         let (_, _, width_at_break) = char_map[break_char_idx - 1];
 
         // The line part is all clusters *before* the break index.
-        let line_part: Vec<ShapedItem<T>> = word_clusters[..break_char_idx]
+        let line_part: Vec<ShapedItem> = word_clusters[..break_char_idx]
             .iter()
             .map(|c| ShapedItem::Cluster(c.clone()))
             .collect();
 
         // The remainder is all clusters *from* the break index onward.
-        let remainder_part: Vec<ShapedItem<T>> = word_clusters[break_char_idx..]
+        let remainder_part: Vec<ShapedItem> = word_clusters[break_char_idx..]
             .iter()
             .map(|c| ShapedItem::Cluster(c.clone()))
             .collect();
@@ -5212,7 +5079,8 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
             glyphs: vec![ShapedGlyph {
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
-                font: font.clone(),
+                font_hash: last_glyph.font_hash,
+                font_metrics: last_glyph.font_metrics.clone(),
                 cluster_offset: 0,
                 script: Script::Latin,
                 advance: hyphen_advance,
@@ -5242,12 +5110,13 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
 
 /// Tries to find a hyphenation point within a word, returning the line part and remainder.
 fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
-    word_items: &[ShapedItem<T>],
+    word_items: &[ShapedItem],
     remaining_width: f32,
     is_vertical: bool,
     hyphenator: &Standard,
-) -> Option<HyphenationResult<T>> {
-    let word_clusters: Vec<ShapedCluster<T>> = word_items
+    fonts: &LoadedFonts<T>,
+) -> Option<HyphenationResult> {
+    let word_clusters: Vec<ShapedCluster> = word_items
         .iter()
         .filter_map(|item| item.as_cluster().cloned())
         .collect();
@@ -5256,7 +5125,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
         return None;
     }
 
-    let all_breaks = find_all_hyphenation_breaks(&word_clusters, hyphenator, is_vertical)?;
+    let all_breaks = find_all_hyphenation_breaks(&word_clusters, hyphenator, is_vertical, fonts)?;
 
     if let Some(best_break) = all_breaks
         .into_iter()
@@ -5347,7 +5216,7 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c white-space: break-spaces alignment behavior
 ///
 pub fn position_one_line<T: ParsedFontTrait>(
-    line_items: Vec<ShapedItem<T>>,
+    line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
     line_top_y: f32,
     line_index: usize,
@@ -5356,7 +5225,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
     is_last_line: bool,
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> (Vec<PositionedItem<T>>, f32) {
+    fonts: &LoadedFonts<T>,
+) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
         .iter()
         .filter_map(|i| i.as_cluster())
@@ -5450,7 +5320,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 segments: vec![segment.clone()],
                 total_available: segment.width,
             };
-            justify_kashida_and_rebuild(segment_items, &segment_line_constraints, is_vertical, debug_messages)
+            justify_kashida_and_rebuild(segment_items, &segment_line_constraints, is_vertical, debug_messages, fonts)
         } else {
             segment_items
         };
@@ -5598,8 +5468,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
 }
 
 /// Calculates the starting pen offset to achieve the desired text alignment.
-fn calculate_alignment_offset<T: ParsedFontTrait>(
-    items: &[ShapedItem<T>],
+fn calculate_alignment_offset(
+    items: &[ShapedItem],
     line_constraints: &LineConstraints,
     align: TextAlign,
     is_vertical: bool,
@@ -5648,8 +5518,8 @@ fn calculate_alignment_offset<T: ParsedFontTrait>(
 /// # Returns
 /// A tuple `(extra_per_word, extra_per_char)` containing the extra space in pixels
 /// to add at each word or character justification opportunity.
-fn calculate_justification_spacing<T: ParsedFontTrait>(
-    items: &[ShapedItem<T>],
+fn calculate_justification_spacing(
+    items: &[ShapedItem],
     line_constraints: &LineConstraints,
     text_justify: JustifyContent,
     is_vertical: bool,
@@ -5701,11 +5571,12 @@ fn calculate_justification_spacing<T: ParsedFontTrait>(
 /// original items and returns a completely new `Vec`. This is necessary because Kashida
 /// justification changes the number of items on the line, and must not modify cached data.
 pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
-    items: Vec<ShapedItem<T>>,
+    items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
     is_vertical: bool,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Vec<ShapedItem<T>> {
+    fonts: &LoadedFonts<T>,
+) -> Vec<ShapedItem> {
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info("\n--- Entering justify_kashida_and_rebuild ---".to_string()));
     }
@@ -5737,14 +5608,17 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
         if let ShapedItem::Cluster(c) = item {
             if let Some(glyph) = c.glyphs.first() {
                 if glyph.script == Script::Arabic {
-                    return Some((glyph.font.clone(), glyph.style.clone()));
+                    // Look up font from hash
+                    if let Some(font) = fonts.get_by_hash(glyph.font_hash) {
+                        return Some((font.clone(), glyph.font_hash, glyph.font_metrics.clone(), glyph.style.clone()));
+                    }
                 }
             }
         }
         None
     });
 
-    let (font, style) = match font_info {
+    let (font, font_hash, font_metrics, style) = match font_info {
         Some(info) => {
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info("Found Arabic font for kashida.".to_string()));
@@ -5835,7 +5709,8 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                 width: kashida_advance,
             },
             glyph_id: kashida_glyph_id,
-            font,
+            font_hash,
+            font_metrics: font_metrics.clone(),
             style: style.clone(),
             script: Script::Arabic,
             advance: kashida_advance,
@@ -5889,14 +5764,14 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
 }
 
 /// Helper to determine if a cluster belongs to the Arabic script.
-fn is_arabic_cluster<T: ParsedFontTrait>(cluster: &ShapedCluster<T>) -> bool {
+fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
     // A cluster is considered Arabic if its first non-NotDef glyph is from the Arabic script.
     // This is a robust heuristic for mixed-script lines.
     cluster.glyphs.iter().any(|g| g.script == Script::Arabic)
 }
 
 /// Helper to identify if an item is a word separator (like a space).
-pub fn is_word_separator<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
+pub fn is_word_separator(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         // A cluster is a word separator if its text is whitespace.
         // This is a simplification; a single glyph might be whitespace.
@@ -5907,7 +5782,7 @@ pub fn is_word_separator<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
 }
 
 /// Helper to identify if space can be added after an item.
-fn can_justify_after<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
+fn can_justify_after(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.text.chars().last().map_or(false, |g| {
             !g.is_whitespace() && classify_character(g as u32) != CharacterClass::Combining
@@ -5935,7 +5810,7 @@ fn classify_character(codepoint: u32) -> CharacterClass {
 }
 
 /// Helper to get the primary measure (width or height) of a shaped item.
-pub fn get_item_measure<T: ParsedFontTrait>(item: &ShapedItem<T>, is_vertical: bool) -> f32 {
+pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
     match item {
         ShapedItem::Cluster(c) => {
             // Total width = base advance + kerning adjustments
@@ -5958,7 +5833,7 @@ pub fn get_item_measure<T: ParsedFontTrait>(item: &ShapedItem<T>, is_vertical: b
 }
 
 /// Helper to get the final positioned bounds of an item.
-fn get_item_bounds<T: ParsedFontTrait>(item: &PositionedItem<T>) -> Rect {
+fn get_item_bounds(item: &PositionedItem) -> Rect {
     let measure = get_item_measure(&item.item, false); // for simplicity, use horizontal
     let cross_measure = match &item.item {
         ShapedItem::Object { bounds, .. } => bounds.height,
@@ -6211,7 +6086,7 @@ fn get_hyphenator(language: Language) -> Result<Standard, LayoutError> {
     Standard::from_embedded(language).map_err(|e| LayoutError::HyphenationError(e.to_string()))
 }
 
-fn is_break_opportunity<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
+fn is_break_opportunity(item: &ShapedItem) -> bool {
     // Break after spaces or explicit break items.
     if is_word_separator(item) {
         return true;
@@ -6230,18 +6105,18 @@ fn is_break_opportunity<T: ParsedFontTrait>(item: &ShapedItem<T>) -> bool {
 
 // A cursor to manage the state of the line breaking process.
 // This allows us to handle items that are partially consumed by hyphenation.
-pub struct BreakCursor<'a, T: ParsedFontTrait> {
+pub struct BreakCursor<'a> {
     /// A reference to the complete list of shaped items.
-    pub items: &'a [ShapedItem<T>],
+    pub items: &'a [ShapedItem],
     /// The index of the next *full* item to be processed from the `items` slice.
     pub next_item_index: usize,
     /// The remainder of an item that was split by hyphenation on the previous line.
     /// This will be the very first piece of content considered for the next line.
-    pub partial_remainder: Vec<ShapedItem<T>>,
+    pub partial_remainder: Vec<ShapedItem>,
 }
 
-impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
-    pub fn new(items: &'a [ShapedItem<T>]) -> Self {
+impl<'a> BreakCursor<'a> {
+    pub fn new(items: &'a [ShapedItem]) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -6255,7 +6130,7 @@ impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
     }
 
     /// Consumes the cursor and returns all remaining items as a `Vec`.
-    pub fn drain_remaining(&mut self) -> Vec<ShapedItem<T>> {
+    pub fn drain_remaining(&mut self) -> Vec<ShapedItem> {
         let mut remaining = std::mem::take(&mut self.partial_remainder);
         if self.next_item_index < self.items.len() {
             remaining.extend_from_slice(&self.items[self.next_item_index..]);
@@ -6290,7 +6165,7 @@ impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
     /// Looks ahead and returns the next "unbreakable" unit of content.
     /// This is typically a word (a series of non-space clusters) followed by a
     /// space, or just a single space if that's next.
-    pub fn peek_next_unit(&self) -> Vec<ShapedItem<T>> {
+    pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
         let mut unit = Vec::new();
         let mut source_items = self.partial_remainder.clone();
         source_items.extend_from_slice(&self.items[self.next_item_index..]);
@@ -6317,11 +6192,11 @@ impl<'a, T: ParsedFontTrait> BreakCursor<'a, T> {
 }
 
 // A structured result from a hyphenation attempt.
-struct HyphenationResult<T: ParsedFontTrait> {
+struct HyphenationResult {
     /// The items that fit on the current line, including the new hyphen.
-    line_part: Vec<ShapedItem<T>>,
+    line_part: Vec<ShapedItem>,
     /// The remainder of the split item to be carried over to the next line.
-    remainder_part: Vec<ShapedItem<T>>,
+    remainder_part: Vec<ShapedItem>,
 }
 
 fn perform_bidi_analysis<'a, 'b: 'a>(
@@ -6404,79 +6279,6 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     }
 
     Ok((final_visual_runs, base_direction))
-}
-
-fn shape_visual_runs<Q: ParsedFontTrait, T: FontProviderTrait<Q>>(
-    visual_runs: &[VisualRun],
-    font_provider: &T,
-) -> Result<Vec<Glyph<Q>>, LayoutError> {
-    let mut all_shaped_glyphs = Vec::new();
-
-    for run in visual_runs {
-        let font = font_provider.load_font(run.style.font_stack.first().unwrap_or(&FontSelector::default()))?;
-
-        let direction = if run.bidi_level.is_rtl() {
-            Direction::Rtl
-        } else {
-            Direction::Ltr
-        };
-
-        let mut shaped_output = font.shape_text(
-            run.text_slice,
-            run.script,
-            run.language,
-            direction,
-            &run.style,
-        )?;
-
-        if direction == Direction::Rtl {
-            shaped_output.reverse();
-        }
-
-        for shaped_in_run in shaped_output {
-            let source_char = run.text_slice[shaped_in_run.logical_byte_index..]
-                .chars()
-                .next()
-                .unwrap_or('\0');
-
-            let is_whitespace = source_char.is_whitespace();
-            let is_soft_hyphen = source_char == '\u{00AD}';
-
-            // Determine character class for justification
-            let character_class = classify_character(source_char as u32);
-            let can_justify = !is_whitespace && character_class != CharacterClass::Combining;
-            let justification_priority = get_justification_priority(character_class);
-
-            all_shaped_glyphs.push(Glyph {
-                glyph_id: shaped_in_run.glyph_id,
-                codepoint: source_char,
-                style: run.style.clone(),
-                font: font.shallow_clone(), // Use shallow_clone instead of clone
-                advance: shaped_in_run.advance,
-                kerning: shaped_in_run.kerning,
-                source: GlyphSource::Char,
-                script: run.script,
-                bidi_level: run.bidi_level,
-                offset: shaped_in_run.offset,
-                cluster: shaped_in_run.cluster + run.logical_start_byte as u32,
-                content_index: 0, // Would be set from content analysis
-
-                // Add missing vertical metrics - will be set later, if vertical
-                vertical_advance: 0.0,
-                vertical_origin_y: 0.0,
-                vertical_bearing: Point { x: 0.0, y: 0.0 },
-
-                // Complete byte mappings
-                logical_byte_index: shaped_in_run.logical_byte_index + run.logical_start_byte,
-                logical_byte_len: shaped_in_run.logical_byte_len,
-
-                // Add justification fields
-                orientation: GlyphOrientation::Horizontal, // Will be set based on script
-            });
-        }
-    }
-
-    Ok(all_shaped_glyphs)
 }
 
 fn get_justification_priority(class: CharacterClass) -> u8 {

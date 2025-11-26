@@ -1039,7 +1039,7 @@ impl CallbackInfo {
     fn get_inline_layout_for_node(
         &self,
         node_id: &DomNodeId,
-    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout<FontRef>>> {
+    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout>> {
         let layout_window = self.get_layout_window();
 
         // Get the layout result for this DOM
@@ -1387,7 +1387,7 @@ impl CallbackInfo {
     /// Future: Add NodeId -> CacheId mapping to enable node-specific layout access
     pub fn get_text_cache(
         &self,
-    ) -> &crate::text3::cache::LayoutCache<azul_css::props::basic::FontRef> {
+    ) -> &crate::text3::cache::LayoutCache {
         &self.get_layout_window().text_cache
     }
 

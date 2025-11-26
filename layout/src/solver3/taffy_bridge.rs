@@ -333,13 +333,13 @@ fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
 /// The bridge struct that implements Taffy's traits.
 /// It holds mutable references to the solver's data structures, allowing Taffy
 /// to read styles and write layout results back into our `LayoutTree`.
-struct TaffyBridge<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> {
-    ctx: &'a mut LayoutContext<'b, T, Q>,
-    tree: &'a mut LayoutTree<T>,
+struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
+    ctx: &'a mut LayoutContext<'b, T>,
+    tree: &'a mut LayoutTree,
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q> {
-    fn new(ctx: &'a mut LayoutContext<'b, T, Q>, tree: &'a mut LayoutTree<T>) -> Self {
+impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
+    fn new(ctx: &'a mut LayoutContext<'b, T>, tree: &'a mut LayoutTree) -> Self {
         Self { ctx, tree }
     }
 
@@ -793,9 +793,9 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TaffyBridge<'a, 'b, T, Q
 }
 
 /// Main entry point for laying out a Flexbox or Grid container using Taffy.
-pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
-    ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+pub fn layout_taffy_subtree<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
     node_idx: usize,
     inputs: LayoutInput,
 ) -> LayoutOutput {
@@ -822,8 +822,8 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 
 // --- Trait Implementations for the Bridge ---
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
-    for TaffyBridge<'a, 'b, T, Q>
+impl<'a, 'b, T: ParsedFontTrait> TraversePartialTree
+    for TaffyBridge<'a, 'b, T>
 {
     type ChildIter<'c>
         = std::vec::IntoIter<taffy::NodeId>
@@ -851,8 +851,8 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> TraversePartialTree
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
-    for TaffyBridge<'a, 'b, T, Q>
+impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree
+    for TaffyBridge<'a, 'b, T>
 {
     type CoreContainerStyle<'c>
         = Style
@@ -980,7 +980,7 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutPartialTree
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> CacheTree for TaffyBridge<'a, 'b, T, Q> {
+impl<'a, 'b, T: ParsedFontTrait> CacheTree for TaffyBridge<'a, 'b, T> {
     fn cache_get(
         &self,
         node_id: taffy::NodeId,
@@ -1018,8 +1018,8 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> CacheTree for TaffyBridg
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutFlexboxContainer
-    for TaffyBridge<'a, 'b, T, Q>
+impl<'a, 'b, T: ParsedFontTrait> LayoutFlexboxContainer
+    for TaffyBridge<'a, 'b, T>
 {
     type FlexboxContainerStyle<'c>
         = Style
@@ -1042,8 +1042,8 @@ impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutFlexboxContainer
     }
 }
 
-impl<'a, 'b, T: ParsedFontTrait, Q: FontLoaderTrait<T>> LayoutGridContainer
-    for TaffyBridge<'a, 'b, T, Q>
+impl<'a, 'b, T: ParsedFontTrait> LayoutGridContainer
+    for TaffyBridge<'a, 'b, T>
 {
     type GridContainerStyle<'c>
         = Style
