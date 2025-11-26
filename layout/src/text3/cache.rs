@@ -5360,6 +5360,28 @@ pub fn position_one_line<T: ParsedFontTrait>(
             main_axis_pen += constraints.text_indent;
         }
 
+        // Calculate total marker width for proper outside marker positioning
+        // We need to position all marker clusters together in the padding gutter
+        let total_marker_width: f32 = justified_segment_items
+            .iter()
+            .filter_map(|item| {
+                if let ShapedItem::Cluster(c) = item {
+                    if c.marker_position_outside == Some(true) {
+                        return Some(get_item_measure(item, is_vertical));
+                    }
+                }
+                None
+            })
+            .sum();
+        
+        // Track marker pen separately - starts at negative position for outside markers
+        let marker_spacing = 4.0; // Small gap between marker and content
+        let mut marker_pen = if total_marker_width > 0.0 {
+            -(total_marker_width + marker_spacing)
+        } else {
+            0.0
+        };
+
         // 4. Position the items belonging to this segment.
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item);
@@ -5390,15 +5412,15 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // Check if this is an outside marker - if so, position it in the padding gutter
                 let x_position = if let ShapedItem::Cluster(cluster) = &item {
                     if cluster.marker_position_outside == Some(true) {
-                        // Position marker to the left (negative offset) so it appears in the padding area
-                        // The marker width + some spacing should fit in the container's padding-left (40px by default)
+                        // Use marker_pen for sequential marker positioning
                         let marker_width = item_measure;
-                        let spacing = 4.0; // Small gap between marker and content
                         if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Outside marker detected! width={}, positioning at x={}", 
-                                     marker_width, -(marker_width + spacing))));
+                            msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Outside marker detected! width={}, positioning at marker_pen={}", 
+                                     marker_width, marker_pen)));
                         }
-                        -(marker_width + spacing)
+                        let pos = marker_pen;
+                        marker_pen += marker_width; // Advance marker pen for next marker cluster
+                        pos
                     } else {
                         main_axis_pen
                     }
