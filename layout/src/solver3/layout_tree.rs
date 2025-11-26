@@ -2,11 +2,6 @@
 //!
 //! Layout tree generation and anonymous box handling
 //!
-//! NOTE: This file uses deprecated ctx.debug_*() methods.
-//! TODO: Migrate to debug_*!() macros for lazy evaluation.
-
-#![allow(deprecated)]
-
 use std::{
     collections::BTreeMap,
     hash::{Hash, Hasher},
@@ -30,6 +25,7 @@ use azul_css::{
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
 
+use crate::{debug_log};
 use crate::{
     font::parsed::ParsedFont,
     font_traits::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
@@ -381,10 +377,10 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
     let root_index = builder.process_node(ctx.styled_dom, root_id, None, &mut ctx.debug_messages)?;
     let layout_tree = builder.build(root_index);
 
-    ctx.debug_log(&format!(
+    debug_log!(ctx, 
         "Generated layout tree with {} nodes (incl. anonymous)",
         layout_tree.nodes.len()
-    ));
+    );
 
     Ok(layout_tree)
 }

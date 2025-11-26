@@ -71,6 +71,7 @@ use azul_css::{
     LayoutDebugMessage,
 };
 
+use crate::{debug_info};
 use crate::{
     font_traits::{
         FontHash, FontLoaderTrait, ImageSource, InlineContent, ParsedFontTrait, ShapedItem,
@@ -567,8 +568,8 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
-    ctx.debug_info("Starting display list generation");
-    ctx.debug_info(&format!("Collecting stacking contexts from root node {}", tree.root));
+    debug_info!(ctx, "Starting display list generation");
+    debug_info!(ctx, "Collecting stacking contexts from root node {}", tree.root);
 
     let positioned_tree = PositionedTree {
         tree,
@@ -590,14 +591,14 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
 
     // 2. Traverse the stacking context tree to generate display items in the correct order.
-    generator.ctx.debug_info("Generating display items from stacking context tree");
+    debug_info!(generator.ctx, "Generating display items from stacking context tree");
     generator.generate_for_stacking_context(&mut builder, &stacking_context_tree)?;
 
     let display_list = builder.build();
-    generator.ctx.debug_info(&format!(
+    debug_info!(generator.ctx, 
         "Generated display list with {} items",
         display_list.items.len()
-    ));
+    );
     Ok(display_list)
 }
 
@@ -752,12 +753,12 @@ where
 
         if let Some(dom_id) = node.dom_node_id {
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            self.ctx.debug_info(&format!(
+            debug_info!(self.ctx, 
                 "Collecting stacking context for node {} ({:?}), z-index={}",
                 node_index,
                 node_type.get_node_type(),
                 z_index
-            ));
+            );
         }
 
         let mut child_contexts = Vec::new();
@@ -795,14 +796,14 @@ where
         
         if let Some(dom_id) = node.dom_node_id {
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            self.ctx.debug_info(&format!(
+            debug_info!(self.ctx, 
                 "Painting stacking context for node {} ({:?}), z-index={}, {} child contexts, {} in-flow children",
                 context.node_index,
                 node_type.get_node_type(),
                 context.z_index,
                 context.child_contexts.len(),
                 context.in_flow_children.len()
-            ));
+            );
         }
         
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
@@ -1180,10 +1181,10 @@ where
         // Tables have a special 6-layer background painting order
         use azul_core::dom::FormattingContext;
         if matches!(node.formatting_context, FormattingContext::Table) {
-            self.ctx.debug_info(&format!(
+            debug_info!(self.ctx, 
                 "Painting table backgrounds/borders for node {} at {:?}",
                 node_index, paint_rect
-            ));
+            );
             // Delegate to specialized table painting function
             return self.paint_table_items(builder, node_index);
         }
@@ -1194,13 +1195,13 @@ where
             let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            self.ctx.debug_info(&format!(
+            debug_info!(self.ctx, 
                 "Painting background/border for node {} ({:?}) at {:?}, bg_color={:?}",
                 node_index,
                 node_type.get_node_type(),
                 paint_rect,
                 bg_color
-            ));
+            );
 
             // Get both versions: simple BorderRadius for rect clipping and StyleBorderRadius for
             // border rendering
@@ -1412,13 +1413,13 @@ where
             let inline_layout = &cached_layout.layout;
             if let Some(dom_id) = node.dom_node_id {
                 let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                self.ctx.debug_info(&format!(
+                debug_info!(self.ctx, 
                     "Painting inline content for node {} ({:?}) at {:?}, {} layout items",
                     node_index,
                     node_type.get_node_type(),
                     paint_rect,
                     inline_layout.items.len()
-                ));
+                );
             }
             
             // paint_rect is the border-box, but inline layout positions are relative to content-box.
@@ -1431,10 +1432,10 @@ where
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_data) = node_data.get_node_type() {
-                self.ctx.debug_info(&format!(
+                debug_info!(self.ctx, 
                     "Painting image for node {} at {:?}",
                     node_index, paint_rect
-                ));
+                );
                 let image_key = get_image_key_for_src(&image_data.get_hash(), self.id_namespace);
                 builder.push_image(paint_rect, image_key);
             }
