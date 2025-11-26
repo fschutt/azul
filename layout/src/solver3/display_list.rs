@@ -1891,36 +1891,287 @@ pub fn generate_display_lists_paged<T: ParsedFontTrait + Sync + 'static>(
         return Ok(vec![full_display_list]);
     }
     
-    // Determine number of pages needed based on max Y position of items
-    let max_y = full_display_list.items.iter()
-        .filter_map(|item| get_display_item_bounds(item))
-        .map(|bounds| bounds.origin.y + bounds.size.height)
-        .fold(0.0f32, f32::max);
+    // NEW: Use commit-based pagination
+    // Each item is assigned to exactly ONE page. Items that would span pages
+    // are pushed to the next page, which shifts all subsequent content.
+    paginate_display_list_with_commitment(full_display_list, page_content_height)
+}
+
+/// Paginate a display list using a "commitment" model.
+/// 
+/// Each display item is assigned to exactly ONE page:
+/// - If an item fits entirely on the current page, it stays there
+/// - If an item doesn't fit (or spans the page boundary), it's pushed to the next page
+/// - This creates a "page break shift" that affects all subsequent items
+///
+/// This avoids the duplication problem where items appear on multiple pages.
+fn paginate_display_list_with_commitment(
+    full_display_list: DisplayList,
+    page_content_height: f32,
+) -> Result<Vec<DisplayList>> {
+    // Collect items with their bounds
+    let items_with_bounds: Vec<(DisplayListItem, Option<LogicalRect>)> = full_display_list
+        .items
+        .into_iter()
+        .map(|item| {
+            let bounds = get_display_item_bounds(&item);
+            (item, bounds)
+        })
+        .collect();
     
-    let num_pages = ((max_y / page_content_height).ceil() as usize).max(1);
+    // Track cumulative shift per original Y position
+    // This maps original_y -> shift amount
+    // When we push an item to the next page, all items below it get shifted
+    let mut pages: Vec<Vec<DisplayListItem>> = vec![Vec::new()];
+    let mut current_page = 0;
+    let mut shift_amount = 0.0f32;
     
-    // Generate per-page display lists by filtering and offsetting items
-    let mut pages = Vec::with_capacity(num_pages);
+    // We need to process items in Y order for correct shifting
+    // Group items by their approximate Y position (top of bounds)
+    let mut sorted_items: Vec<(usize, DisplayListItem, Option<LogicalRect>)> = items_with_bounds
+        .into_iter()
+        .enumerate()
+        .map(|(i, (item, bounds))| (i, item, bounds))
+        .collect();
     
-    for page_idx in 0..num_pages {
-        let page_top = page_idx as f32 * page_content_height;
-        let page_bottom = page_top + page_content_height;
+    // Sort by Y position (items without bounds go at the end)
+    sorted_items.sort_by(|a, b| {
+        let y_a = a.2.map(|r| r.origin.y).unwrap_or(f32::MAX);
+        let y_b = b.2.map(|r| r.origin.y).unwrap_or(f32::MAX);
+        y_a.partial_cmp(&y_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    
+    for (_original_idx, item, bounds) in sorted_items {
+        let Some(item_bounds) = bounds else {
+            // Items without spatial extent (like PopClip) - skip for now
+            // In a full implementation, we'd track clip stack state
+            continue;
+        };
         
-        let page_items: Vec<DisplayListItem> = full_display_list.items.iter()
-            .filter_map(|item| clip_and_offset_display_item(item, page_top, page_bottom))
-            .collect();
+        // Apply current shift to get the "virtual" position
+        let shifted_y = item_bounds.origin.y + shift_amount;
+        let item_top = shifted_y;
+        let item_bottom = shifted_y + item_bounds.size.height;
         
-        // Build node_mapping for this page's items
-        // (simplified: we lose the mapping for now, but that's okay for rendering)
-        let node_mapping = vec![None; page_items.len()];
+        // Calculate which page this item's top falls on
+        let page_for_top = (item_top / page_content_height).floor() as usize;
+        let page_bottom_y = (page_for_top + 1) as f32 * page_content_height;
         
-        pages.push(DisplayList {
-            items: page_items,
-            node_mapping,
-        });
+        // Decision: Does the item fit entirely on its page?
+        let fits_on_page = item_bottom <= page_bottom_y + 0.5; // Small tolerance for floating point
+        
+        let target_page;
+        let page_relative_y;
+        
+        if fits_on_page {
+            // Item fits on current page
+            target_page = page_for_top;
+            page_relative_y = item_top - (page_for_top as f32 * page_content_height);
+        } else {
+            // Item doesn't fit - push to next page
+            // This creates additional shift for subsequent items
+            target_page = page_for_top + 1;
+            page_relative_y = 0.0; // Start at top of new page
+            
+            // Calculate how much extra shift this creates
+            // The item "wanted" to be at shifted_y, but we're moving it to the top of target_page
+            let new_position = target_page as f32 * page_content_height;
+            let extra_shift = new_position - item_bounds.origin.y;
+            
+            // Update shift for subsequent items if this pushes things forward
+            if extra_shift > shift_amount {
+                shift_amount = extra_shift;
+            }
+        }
+        
+        // Ensure we have enough pages
+        while pages.len() <= target_page {
+            pages.push(Vec::new());
+        }
+        
+        // Create the offset item for this page
+        let offset_item = offset_display_item_to_page(
+            item,
+            item_bounds.origin.y,  // Original Y
+            page_relative_y,       // New Y (page-relative)
+        );
+        
+        pages[target_page].push(offset_item);
     }
     
-    Ok(pages)
+    // Convert to DisplayList format
+    let result: Vec<DisplayList> = pages
+        .into_iter()
+        .map(|items| DisplayList {
+            node_mapping: vec![None; items.len()],
+            items,
+        })
+        .collect();
+    
+    // Ensure at least one page
+    if result.is_empty() {
+        return Ok(vec![DisplayList {
+            items: Vec::new(),
+            node_mapping: Vec::new(),
+        }]);
+    }
+    
+    Ok(result)
+}
+
+/// Offset a display item's Y coordinate from its original position to a new page-relative position.
+fn offset_display_item_to_page(
+    item: DisplayListItem,
+    original_y: f32,
+    new_y: f32,
+) -> DisplayListItem {
+    let y_delta = new_y - original_y;
+    
+    match item {
+        DisplayListItem::Rect { bounds, color, border_radius } => {
+            DisplayListItem::Rect {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+                border_radius,
+            }
+        }
+        
+        DisplayListItem::Border { bounds, widths, colors, styles, border_radius } => {
+            DisplayListItem::Border {
+                bounds: offset_rect_y(bounds, y_delta),
+                widths,
+                colors,
+                styles,
+                border_radius,
+            }
+        }
+        
+        DisplayListItem::SelectionRect { bounds, border_radius, color } => {
+            DisplayListItem::SelectionRect {
+                bounds: offset_rect_y(bounds, y_delta),
+                border_radius,
+                color,
+            }
+        }
+        
+        DisplayListItem::CursorRect { bounds, color } => {
+            DisplayListItem::CursorRect {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+            }
+        }
+        
+        DisplayListItem::Image { bounds, key } => {
+            DisplayListItem::Image {
+                bounds: offset_rect_y(bounds, y_delta),
+                key,
+            }
+        }
+        
+        DisplayListItem::TextLayout { layout, bounds, font_hash, font_size_px, color } => {
+            DisplayListItem::TextLayout {
+                layout,
+                bounds: offset_rect_y(bounds, y_delta),
+                font_hash,
+                font_size_px,
+                color,
+            }
+        }
+        
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect } => {
+            let offset_glyphs: Vec<GlyphInstance> = glyphs
+                .into_iter()
+                .map(|g| GlyphInstance {
+                    index: g.index,
+                    point: LogicalPosition {
+                        x: g.point.x,
+                        y: g.point.y + y_delta,
+                    },
+                    size: g.size,
+                })
+                .collect();
+            DisplayListItem::Text {
+                glyphs: offset_glyphs,
+                font_hash,
+                font_size_px,
+                color,
+                clip_rect: offset_rect_y(clip_rect, y_delta),
+            }
+        }
+        
+        DisplayListItem::Underline { bounds, color, thickness } => {
+            DisplayListItem::Underline {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+                thickness,
+            }
+        }
+        
+        DisplayListItem::Strikethrough { bounds, color, thickness } => {
+            DisplayListItem::Strikethrough {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+                thickness,
+            }
+        }
+        
+        DisplayListItem::Overline { bounds, color, thickness } => {
+            DisplayListItem::Overline {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+                thickness,
+            }
+        }
+        
+        DisplayListItem::ScrollBar { bounds, color, orientation, opacity_key, hit_id } => {
+            DisplayListItem::ScrollBar {
+                bounds: offset_rect_y(bounds, y_delta),
+                color,
+                orientation,
+                opacity_key,
+                hit_id,
+            }
+        }
+        
+        DisplayListItem::HitTestArea { bounds, tag } => {
+            DisplayListItem::HitTestArea {
+                bounds: offset_rect_y(bounds, y_delta),
+                tag,
+            }
+        }
+        
+        DisplayListItem::IFrame { child_dom_id, bounds, clip_rect } => {
+            DisplayListItem::IFrame {
+                child_dom_id,
+                bounds: offset_rect_y(bounds, y_delta),
+                clip_rect: offset_rect_y(clip_rect, y_delta),
+            }
+        }
+        
+        // State management items pass through unchanged
+        DisplayListItem::PushClip { bounds, border_radius } => {
+            DisplayListItem::PushClip {
+                bounds: offset_rect_y(bounds, y_delta),
+                border_radius,
+            }
+        }
+        DisplayListItem::PopClip => DisplayListItem::PopClip,
+        DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: offset_rect_y(clip_bounds, y_delta),
+                content_size,
+                scroll_id,
+            }
+        }
+        DisplayListItem::PopScrollFrame => DisplayListItem::PopScrollFrame,
+        DisplayListItem::PushStackingContext { bounds, z_index } => {
+            DisplayListItem::PushStackingContext {
+                bounds: offset_rect_y(bounds, y_delta),
+                z_index,
+            }
+        }
+        DisplayListItem::PopStackingContext => DisplayListItem::PopStackingContext,
+    }
 }
 
 /// Get the bounds of a display list item, if it has spatial extent.
