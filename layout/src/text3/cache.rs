@@ -1818,6 +1818,17 @@ pub struct StyleProperties {
     pub font_stack: Vec<FontSelector>,
     pub font_size_px: f32,
     pub color: ColorU,
+    /// Background color for inline elements (e.g., `<span style="background-color: yellow">`)
+    /// 
+    /// This is propagated from CSS through the style system and eventually used by
+    /// the PDF renderer to draw filled rectangles behind text. The value is `None`
+    /// for transparent backgrounds (the default).
+    /// 
+    /// The propagation chain is:
+    /// CSS -> `get_style_properties()` -> `StyleProperties` -> `ShapedGlyph` -> `PdfGlyphRun`
+    /// 
+    /// See `PdfGlyphRun::background_color` for how this is used in PDF rendering.
+    pub background_color: Option<ColorU>,
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
 
@@ -1854,6 +1865,7 @@ impl Default for StyleProperties {
             font_stack: vec![FontSelector::default()],
             font_size_px: FONT_SIZE,
             color: ColorU::default(),
+            background_color: None,
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
             line_height: FONT_SIZE * 1.2,
@@ -1877,6 +1889,7 @@ impl Hash for StyleProperties {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.font_stack.hash(state);
         self.color.hash(state);
+        self.background_color.hash(state);
         self.text_decoration.hash(state);
         self.font_features.hash(state);
         self.writing_mode.hash(state);

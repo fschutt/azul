@@ -1083,6 +1083,13 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| v.inner.normalized() * font_size)
         .unwrap_or(font_size * 1.2);
 
+    // Get background color for inline elements
+    let background_color = {
+        let bg = get_background_color(styled_dom, dom_id, node_state);
+        // Only set if not fully transparent
+        if bg.a > 0 { Some(bg) } else { None }
+    };
+
     // Query font-weight from CSS cache
     let font_weight = cache
         .get_font_weight(node_data, &dom_id, node_state)
@@ -1128,6 +1135,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         font_stack,
         font_size_px: font_size,
         color,
+        background_color,
         line_height,
         ..Default::default()
     };

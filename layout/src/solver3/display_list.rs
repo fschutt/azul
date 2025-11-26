@@ -1534,7 +1534,24 @@ where
 
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
-                                            // Store only the font hash in the display list to keep it lean
+            
+            // IMPORTANT: Inline background colors (e.g., <span style="background: yellow">)
+            // are NOT rendered here via push_rect().
+            // 
+            // Reason: The PDF renderer processes DisplayListItem::TextLayout, which contains
+            // the full UnifiedLayout. The renderer extracts glyph runs with their background_color
+            // and renders backgrounds in a FIRST PASS, then text in a SECOND PASS.
+            // 
+            // If we called push_rect() here, it would:
+            // 1. Add Rect items AFTER the TextLayout item in the display list
+            // 2. The PDF renderer would render TextLayout (backgrounds + text)
+            // 3. Then render the Rect items ON TOP of the text
+            // 4. Result: Text hidden behind backgrounds (wrong z-order)
+            // 
+            // The background_color is stored in StyleProperties -> ShapedGlyph -> PdfGlyphRun
+            // and the PDF renderer handles it correctly via get_glyph_runs_pdf().
+            
+            // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
                 glyph_run.glyphs.clone(),
                 FontHash::from_hash(glyph_run.font_hash),

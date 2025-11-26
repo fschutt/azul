@@ -32,6 +32,8 @@ pub struct SimpleGlyphRun {
     pub glyphs: Vec<GlyphInstance>,
     /// The color of the text in this glyph run.
     pub color: ColorU,
+    /// Background color for this run (rendered behind text)
+    pub background_color: Option<ColorU>,
     /// A hash of the font, useful for caching purposes.
     pub font_hash: u64,
     /// The font size in pixels.
@@ -80,6 +82,7 @@ pub fn get_glyph_runs_simple(
 
                 for glyph in positioned_glyphs {
                     let glyph_color = glyph.style.color;
+                    let glyph_background = glyph.style.background_color;
                     let font_hash = glyph.font_hash;
                     let font_size_px = glyph.style.font_size_px;
                     let text_decoration = glyph.style.text_decoration.clone();
@@ -92,8 +95,10 @@ pub fn get_glyph_runs_simple(
                     let instance = glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
 
                     if let Some(run) = current_run.as_mut() {
+                        // Break run if any style property changes (including background)
                         if run.font_hash == font_hash
                             && run.color == glyph_color
+                            && run.background_color == glyph_background
                             && run.font_size_px == font_size_px
                             && run.text_decoration == text_decoration
                         {
@@ -103,6 +108,7 @@ pub fn get_glyph_runs_simple(
                             current_run = Some(SimpleGlyphRun {
                                 glyphs: vec![instance],
                                 color: glyph_color,
+                                background_color: glyph_background,
                                 font_hash,
                                 font_size_px,
                                 text_decoration: text_decoration.clone(),
@@ -113,6 +119,7 @@ pub fn get_glyph_runs_simple(
                         current_run = Some(SimpleGlyphRun {
                             glyphs: vec![instance],
                             color: glyph_color,
+                            background_color: glyph_background,
                             font_hash,
                             font_size_px,
                             text_decoration: text_decoration.clone(),
@@ -259,13 +266,31 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
 }
 
 /// A glyph run optimized for PDF rendering.
+/// 
 /// Groups glyphs by font, color, size, and style, while breaking at line boundaries.
+/// This struct is used by the PDF renderer to efficiently render text with proper
+/// styling, including inline background colors for `<span>` elements.
+/// 
+/// # Z-Order for Inline Backgrounds
+/// 
+/// The `background_color` field enables proper z-ordering of inline backgrounds:
+/// - PDF renderers should iterate over all runs and render backgrounds FIRST
+/// - Then iterate again and render all text SECOND
+/// - This ensures backgrounds appear behind text, not on top of it
+/// 
+/// The display list (`paint_inline_content`) does NOT emit `push_rect()` for inline
+/// backgrounds because that would cause double-rendering and z-order issues.
 #[derive(Debug, Clone)]
 pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// The glyphs in this run with their absolute positions
     pub glyphs: Vec<PdfPositionedGlyph>,
     /// The color of the text
     pub color: ColorU,
+    /// Background color for inline elements (e.g., `<span style="background: yellow">`)
+    /// 
+    /// This is rendered as a filled rectangle behind the text by the PDF renderer.
+    /// The rectangle spans from ascent to descent and covers the full width of the run.
+    pub background_color: Option<ColorU>,
     /// The font used for this run
     pub font: T,
     /// Font hash for identification
@@ -339,6 +364,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
         
         for (glyph_idx, glyph) in cluster.glyphs.iter().enumerate() {
             let glyph_color = glyph.style.color;
+            let glyph_background = glyph.style.background_color;
             let font_hash = glyph.font_hash;
             let font_size_px = glyph.style.font_size_px;
             let text_decoration = glyph.style.text_decoration.clone();
@@ -395,10 +421,11 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             };
 
             // Check if we can add to the current run
-            // Break the run if any style property or line changes
+            // Break the run if any style property or line changes (including background)
             let should_break = if let Some(run) = current_run.as_ref() {
                 run.font_hash != font_hash
                     || run.color != glyph_color
+                    || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
                     || run.text_decoration != text_decoration
                     || run.line_index != line_index
@@ -424,6 +451,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 current_run = Some(PdfGlyphRun {
                     glyphs: vec![pdf_glyph],
                     color: glyph_color,
+                    background_color: glyph_background,
                     font: font.clone(),
                     font_hash,
                     font_size_px,
