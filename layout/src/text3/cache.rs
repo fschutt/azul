@@ -4924,6 +4924,23 @@ pub fn break_one_line<T: ParsedFontTrait>(
         return (Vec::new(), false);
     }
 
+    // CSS Text Module Level 3 § 4.1.1: At the beginning of a line, white space
+    // is collapsed away. Skip leading whitespace at line start.
+    // https://www.w3.org/TR/css-text-3/#white-space-phase-2
+    while !cursor.is_done() {
+        let next_unit = cursor.peek_next_unit();
+        if next_unit.is_empty() {
+            break;
+        }
+        // Check if the first item is whitespace-only
+        if next_unit.len() == 1 && is_word_separator(&next_unit[0]) {
+            // Skip this whitespace at line start
+            cursor.consume(1);
+        } else {
+            break;
+        }
+    }
+
     loop {
         // 1. Identify the next unbreakable unit (word) or break opportunity.
         let next_unit = cursor.peek_next_unit();
@@ -5149,7 +5166,6 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 
         return Some(HyphenationResult {
             line_part,
-            // The remainder is now a Vec, passed through directly.
             remainder_part: best_break.remainder_part,
         });
     }

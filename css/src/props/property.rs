@@ -2184,9 +2184,27 @@ pub fn parse_css_property<'a>(
     use crate::props::style::{parse_selection_background_color, parse_selection_color, parse_selection_radius};
 
     let value = value.trim();
+    
+    // For properties where "auto" or "none" is a valid typed value (not just the generic CSS keyword),
+    // we must NOT intercept them here. Let the specific parser handle them.
+    let has_typed_auto = matches!(key, 
+        CssPropertyType::Hyphens |      // hyphens: auto means StyleHyphens::Auto
+        CssPropertyType::OverflowX |
+        CssPropertyType::OverflowY |
+        CssPropertyType::UserSelect     // user-select: auto is a typed value
+    );
+    
+    let has_typed_none = matches!(key,
+        CssPropertyType::Hyphens |      // hyphens: none means StyleHyphens::None
+        CssPropertyType::Display |      // display: none means LayoutDisplay::None
+        CssPropertyType::UserSelect |
+        CssPropertyType::Float |        // float: none means LayoutFloat::None
+        CssPropertyType::TextDecoration // text-decoration: none is a typed value
+    );
+    
     Ok(match value {
-        "auto" => CssProperty::auto(key),
-        "none" => CssProperty::none(key),
+        "auto" if !has_typed_auto => CssProperty::auto(key),
+        "none" if !has_typed_none => CssProperty::none(key),
         "initial" => CssProperty::initial(key),
         "inherit" => CssProperty::inherit(key),
         value => match key {
