@@ -499,7 +499,7 @@ LayoutOutput {
 ```rust
 fn layout_block_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {

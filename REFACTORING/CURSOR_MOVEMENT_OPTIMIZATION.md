@@ -39,8 +39,8 @@ The key insight is that `LayoutNode` stores a **direct reference** to its text l
 
 ```rust
 // From layout/src/solver3/layout_tree.rs
-pub struct LayoutNode<T> {
-    pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>, // ← Direct reference!
+pub struct LayoutNode {
+    pub inline_layout_result: Option<Arc<UnifiedLayout>>, // ← Direct reference!
     // ... other fields
 }
 ```
@@ -63,11 +63,11 @@ LayoutWindow
 DomLayoutResult
   ↓ layout_tree: LayoutTree
 LayoutTree
-  ├─ nodes: Vec<LayoutNode<FontRef>>                   (all layout nodes)
+  ├─ nodes: Vec<LayoutNode>                   (all layout nodes)
   └─ dom_to_layout: BTreeMap<NodeId, Vec<usize>>      (NodeId → layout indices)
        ↓
 LayoutNode
-  └─ inline_layout_result: Option<Arc<UnifiedLayout<T>>>  ← Direct access!
+  └─ inline_layout_result: Option<Arc<UnifiedLayout>>  ← Direct access!
 ```
 
 ### Implementation

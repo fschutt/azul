@@ -153,7 +153,7 @@ use azul_css::props::basic::ColorU;
 /// **Limitations**: This is a simplified conversion. It does not handle complex CSS
 /// properties like floats, absolute positioning, or margin collapsing. It's best suited
 /// for document-style content.
-fn dom_to_inline_content<T: ParsedFontTrait>(
+fn dom_to_inline_content(
     dom: &StyledDom,
     font_manager: &FontManager<T, PathLoader>,
 ) -> Vec<InlineContent> {
@@ -240,7 +240,7 @@ pub fn layout_to_pages<T: ParsedFontTrait + 'static>(
         .layout_flow(&inline_content, &[], &fragments, font_manager)
         .map_err(LayoutError::Text)?;
 
-    let mut pages: Vec<(usize, Arc<UnifiedLayout<T>>)> = flow_layout
+    let mut pages: Vec<(usize, Arc<UnifiedLayout>)> = flow_layout
         .fragment_layouts
         .into_iter()
         .filter_map(|(id, layout)| {
@@ -261,8 +261,8 @@ pub fn layout_to_pages<T: ParsedFontTrait + 'static>(
 }
 
 /// Converts a `UnifiedLayout` (the output of the text engine) into a `DisplayList`.
-fn generate_display_list_from_unified_layout<T: ParsedFontTrait>(
-    layout: &UnifiedLayout<T>,
+fn generate_display_list_from_unified_layout(
+    layout: &UnifiedLayout,
 ) -> DisplayList {
     let mut builder = DisplayListBuilder::new();
     let container_rect = layout.bounds.into();
@@ -503,7 +503,7 @@ Of course. I understand that you need a complete, production-ready implementatio
 I will provide a full implementation that is robust and well-documented. To achieve this, I'll make the following architectural decisions:
 
 1.  **New `pdf` Feature Flag**: All new functionality will be placed behind a `pdf` feature flag in `Cargo.toml` to keep it modular. This also requires adding `printpdf` and `image` as dependencies.
-2.  **New `paged.rs` Module**: This module will contain the logic to transform a `StyledDom` into a linear flow of content suitable for pagination. It will then use the `text3` layout engine to flow this content across multiple pages, returning a `Vec<Arc<UnifiedLayout<T>>>`. This structure retains all the rich information needed for high-fidelity PDF rendering.
+2.  **New `paged.rs` Module**: This module will contain the logic to transform a `StyledDom` into a linear flow of content suitable for pagination. It will then use the `text3` layout engine to flow this content across multiple pages, returning a `Vec<Arc<UnifiedLayout>>`. This structure retains all the rich information needed for high-fidelity PDF rendering.
 3.  **New `pdf.rs` Module**: This module will contain the `export_to_pdf` function. It consumes the paged layouts and generates a PDF document using the `printpdf` crate. It will handle:
     *   **Full Text Rendering**: Embedding fonts, looking them up from your `RendererResources`, and placing glyphs precisely according to the layout calculations.
     *   **Image Embedding**: Resolving image references from your `ImageCache`, decoding them, and embedding them in the PDF.
@@ -599,7 +599,7 @@ use azul_css::props::basic::ColorU;
 ///
 /// This is a crucial step for pagination, as it transforms a hierarchical block-and-inline
 /// DOM into a flat stream that the `text3` engine can flow across pages.
-fn dom_to_inline_content<T: ParsedFontTrait>(
+fn dom_to_inline_content(
     dom: &StyledDom,
     font_manager: &FontManager<T, PathLoader>,
 ) -> Vec<InlineContent> {
@@ -684,7 +684,7 @@ pub fn layout_to_pages<T: ParsedFontTrait + 'static>(
     styled_dom: &StyledDom,
     page_size: LogicalSize,
     font_manager: &FontManager<T, PathLoader>,
-) -> Result<Vec<Arc<UnifiedLayout<T>>>, LayoutError> {
+) -> Result<Vec<Arc<UnifiedLayout>>, LayoutError> {
     let inline_content = dom_to_inline_content(styled_dom, font_manager);
     if inline_content.is_empty() {
         return Ok(Vec::new());
@@ -711,7 +711,7 @@ pub fn layout_to_pages<T: ParsedFontTrait + 'static>(
         .map_err(LayoutError::Text)?;
 
     // Collect and sort pages by their number
-    let mut pages: Vec<(usize, Arc<UnifiedLayout<T>>)> = flow_layout
+    let mut pages: Vec<(usize, Arc<UnifiedLayout>)> = flow_layout
         .fragment_layouts
         .into_iter()
         .filter_map(|(id, layout)| {
@@ -727,8 +727,8 @@ pub fn layout_to_pages<T: ParsedFontTrait + 'static>(
 }
 
 /// Converts a paged layout result into a vector of `DisplayList`s for screen rendering.
-pub fn generate_display_lists_from_paged_layout<T: ParsedFontTrait>(
-    paged_layout: &[Arc<UnifiedLayout<T>>],
+pub fn generate_display_lists_from_paged_layout(
+    paged_layout: &[Arc<UnifiedLayout>],
 ) -> Vec<DisplayList> {
     paged_layout
         .iter()
@@ -827,8 +827,8 @@ struct PdfContext<'a> {
 /// Exports a collection of `UnifiedLayout`s to a PDF file.
 ///
 /// Each `UnifiedLayout` in the input vector is rendered as a separate page.
-pub fn export_to_pdf<T: ParsedFontTrait>(
-    pages: &[Arc<UnifiedLayout<T>>],
+pub fn export_to_pdf(
+    pages: &[Arc<UnifiedLayout>],
     page_size: LogicalSize,
     resources: &RendererResources,
     image_cache: &ImageCache,
@@ -864,10 +864,10 @@ pub fn export_to_pdf<T: ParsedFontTrait>(
 }
 
 /// Renders a single `UnifiedLayout` to a PDF layer.
-fn render_page<T: ParsedFontTrait>(
+fn render_page(
     ctx: &mut PdfContext,
     layer: &mut PdfLayerReference,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) {
     for item in &layout.items {
         render_item(ctx, layer, item);
@@ -875,7 +875,7 @@ fn render_page<T: ParsedFontTrait>(
 }
 
 /// Renders a single `PositionedItem` to the PDF layer.
-fn render_item<T: ParsedFontTrait>(
+fn render_item(
     ctx: &mut PdfContext,
     layer: &mut PdfLayerReference,
     item: &crate::text3::cache::PositionedItem<T>,
@@ -1369,11 +1369,11 @@ I've renamed `dom_to_inline_content` and made it public in `paged.rs` so it can 
 -/// **Limitations**: This is a simplified conversion. It does not handle complex CSS
 -/// properties like floats, absolute positioning, or margin collapsing. It's best suited
 -/// for document-style content.
--fn dom_to_inline_content<T: ParsedFontTrait>(
+-fn dom_to_inline_content(
 +/// **Note**: This is a simplified conversion suitable for document-style content.
 +/// It does not handle complex CSS layout properties like floats, absolute positioning,
 +/// or margin collapsing.
-+pub fn dom_to_inline_content<T: ParsedFontTrait>(
++pub fn dom_to_inline_content(
      dom: &StyledDom,
      font_manager: &FontManager<T, PathLoader>,
  ) -> Vec<InlineContent> {
@@ -1457,7 +1457,7 @@ I've renamed `dom_to_inline_content` and made it public in `paged.rs` so it can 
 -        .map_err(LayoutError::from)?;
 +        .map_err(LayoutError::Text)?;
  
-     let mut pages: Vec<(usize, Arc<UnifiedLayout<T>>)> = flow_layout
+     let mut pages: Vec<(usize, Arc<UnifiedLayout>)> = flow_layout
          .fragment_layouts
 @@ -124,56 +133,65 @@
  
@@ -1473,14 +1473,14 @@ I've renamed `dom_to_inline_content` and made it public in `paged.rs` so it can 
  }
  
 -/// Converts a `UnifiedLayout` (the output of the text engine) into a `DisplayList`.
--fn generate_display_list_from_unified_layout<T: ParsedFontTrait>(
--    layout: &UnifiedLayout<T>,
+-fn generate_display_list_from_unified_layout(
+-    layout: &UnifiedLayout,
 -) -> DisplayList {
 -    let mut builder = DisplayListBuilder::new();
 -    let container_rect = layout.bounds.into();
 +/// Converts a paged layout result into a vector of `DisplayList`s for screen rendering.
-+pub fn generate_display_lists_from_paged_layout<T: ParsedFontTrait>(
-+    paged_layout: &[Arc<UnifiedLayout<T>>],
++pub fn generate_display_lists_from_paged_layout(
++    paged_layout: &[Arc<UnifiedLayout>],
 +) -> Vec<DisplayList> {
 +    paged_layout
 +        .iter()

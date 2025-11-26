@@ -82,7 +82,7 @@ pub fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -
 ```rust
 pub fn generate_display_list<T, Q>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     // ...
 ) -> Result<DisplayList>
 ```

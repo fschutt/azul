@@ -333,8 +333,8 @@ fn test_caption_bottom_positioning() {
 // In solver3/fc.rs or new module
 
 /// Checks if a table cell is empty (contains no visible content)
-fn is_cell_empty<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn is_cell_empty(
+    tree: &LayoutTree,
     cell_idx: usize,
 ) -> bool {
     let cell_node = &tree.nodes[cell_idx];
@@ -482,7 +482,7 @@ for row in 0..num_rows {
 
 fn calculate_row_heights<T, Q>(
     ctx: &TableLayoutContext,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     collapsed_rows: &HashSet<usize>,
     /* ... */
 ) -> Vec<f32> {
@@ -512,7 +512,7 @@ fn calculate_row_heights<T, Q>(
 
 fn calculate_column_widths_auto<T, Q>(
     ctx: &mut TableLayoutContext,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     collapsed_columns: &HashSet<usize>,
     available_width: f32,
     /* ... */

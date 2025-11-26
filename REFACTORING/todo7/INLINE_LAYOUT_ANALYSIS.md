@@ -369,7 +369,7 @@ Add a new helper function:
 ```rust
 fn collect_inline_span_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     span_dom_id: NodeId,
     inherited_style: StyleProperties,
     content: &mut Vec<InlineContent>,

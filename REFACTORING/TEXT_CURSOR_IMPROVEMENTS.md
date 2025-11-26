@@ -68,7 +68,7 @@ Convert mouse click coordinates to text cursor position.
 **File**: `layout/src/text3/cache.rs`
 
 ```rust
-impl<T: ParsedFontTrait> UnifiedLayout<T> {
+impl UnifiedLayout {
     /// Map a mouse position (x, y) to a text cursor position
     /// Returns the nearest cursor position to the click point
     pub fn hit_test_position(

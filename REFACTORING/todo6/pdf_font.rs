@@ -2135,18 +2135,18 @@ pub mod text3_integration {
     /// 
     /// This function provides a modern interface for text shaping and layout
     /// using azul's unified text layout engine.
-    pub fn shape_text_with_azul<T: ParsedFontTrait>(
+    pub fn shape_text_with_azul(
         _text: &str,
         _font: &T,
         _font_size_px: f32,
         _max_width: Option<f32>,
-    ) -> Result<UnifiedLayout<T>, LayoutError> {
+    ) -> Result<UnifiedLayout, LayoutError> {
         todo!("Implement text shaping with azul text3 API")
     }
 
     /// Extract glyph runs from a UnifiedLayout for PDF rendering
-    pub fn extract_glyph_runs<T: ParsedFontTrait>(
-        layout: &UnifiedLayout<T>,
+    pub fn extract_glyph_runs(
+        layout: &UnifiedLayout,
     ) -> Vec<GlyphRun<T>> {
         get_glyph_runs(layout)
     }

@@ -425,7 +425,7 @@ This function is modified to correctly stack block-level children. The key chang
 /// current vertical offset, advancing it by each child's height and margins.
 fn layout_bfc<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -704,8 +704,8 @@ use azul_css::props::basic::pixel::PixelValue;
 /// This function correctly implements `font-size` inheritance. If a `font-size`
 /// is not explicitly set on the current node, it recursively checks its parent
 /// until a value is found or it reaches the root, where it defaults to 16px.
-pub fn get_resolved_font_size<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+pub fn get_resolved_font_size(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_index: usize,
 ) -> f32 {
@@ -756,8 +756,8 @@ use crate::solver3::getters::get_style_properties; // OLD import (will be remove
 // ... (other functions) ...
 
 /// NEW FUNCTION: Creates StyleProperties for a node, resolving inherited values.
-fn get_style_properties_with_context<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn get_style_properties_with_context(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_index: usize,
 ) -> Arc<StyleProperties> {
@@ -811,7 +811,7 @@ fn get_style_properties_with_context<T: ParsedFontTrait>(
 fn collect_and_measure_inline_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
     text_cache: &mut TextLayoutCache<T>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     ifc_root_index: usize,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     

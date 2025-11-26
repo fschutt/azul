@@ -4,7 +4,7 @@ This document describes how the text selection system integrates with existing c
 
 ## 1. UnifiedLayout Cursor Navigation (Already Implemented)
 
-The `UnifiedLayout<T>` in `layout/src/text3/cache.rs` already has comprehensive cursor navigation:
+The `UnifiedLayout` in `layout/src/text3/cache.rs` already has comprehensive cursor navigation:
 
 ### Hit Testing (Unified)
 ```rust
@@ -378,8 +378,8 @@ impl SelectionManager {
 **Location**: `layout/src/text3/selection.rs`
 
 ```rust
-pub fn select_word_at_cursor<T: ParsedFontTrait>(
-    layout: &UnifiedLayout<T>,
+pub fn select_word_at_cursor(
+    layout: &UnifiedLayout,
     cursor: TextCursor,
 ) -> SelectionRange {
     // Unicode word boundary detection
@@ -387,8 +387,8 @@ pub fn select_word_at_cursor<T: ParsedFontTrait>(
     // 5 passing unit tests
 }
 
-pub fn select_paragraph_at_cursor<T: ParsedFontTrait>(
-    layout: &UnifiedLayout<T>,
+pub fn select_paragraph_at_cursor(
+    layout: &UnifiedLayout,
     cursor: TextCursor,
 ) -> SelectionRange {
     // Line-based paragraph detection

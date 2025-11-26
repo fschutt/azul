@@ -210,7 +210,7 @@ compute_leaf_layout(
 
 **Add Field**:
 ```rust
-pub struct LayoutNode<T: ParsedFontTrait> {
+pub struct LayoutNode {
     // ... existing fields ...
     
     /// Parent's formatting context (Flex, Grid, Block, etc.)

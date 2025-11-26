@@ -111,7 +111,7 @@ Here are the code changes to fix all the failing tests:
 +/// Gathers all inline content for the intrinsic sizing pass.
 +fn collect_inline_content_for_sizing<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
      ctx: &mut LayoutContext<T, Q>,
-     tree: &LayoutTree<T>,
+     tree: &LayoutTree,
      ifc_root_index: usize,
  ) -> Result<Vec<InlineContent>> {
      let mut content = Vec::new();

@@ -47,7 +47,7 @@ Comprehensive design for text selection, contenteditable, and clipboard integrat
 
 3. **UnifiedLayout** (`layout/src/text3/cache.rs`)
    ```rust
-   pub struct UnifiedLayout<T: ParsedFontTrait> {
+   pub struct UnifiedLayout {
        pub items: Vec<PositionedItem<T>>,
        pub bounds: Rect,
        pub overflow: OverflowInfo<T>,
@@ -60,7 +60,7 @@ Comprehensive design for text selection, contenteditable, and clipboard integrat
 
 4. **ShapedGlyph** (`layout/src/text3/cache.rs`)
    ```rust
-   pub struct ShapedGlyph<T: ParsedFontTrait> {
+   pub struct ShapedGlyph {
        pub glyph_id: u16,
        pub cluster_offset: u32,
        pub advance: f32,
@@ -256,9 +256,9 @@ use azul_core::selection::{TextCursor, SelectionRange};
 use crate::text3::cache::UnifiedLayout;
 
 /// Select word at cursor position
-pub fn select_word_at_cursor<T: ParsedFontTrait>(
+pub fn select_word_at_cursor(
     cursor: &TextCursor,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the item containing this cursor
     let item = layout.items.iter().find(|item| {
@@ -305,9 +305,9 @@ pub fn select_word_at_cursor<T: ParsedFontTrait>(
 }
 
 /// Select paragraph/line at cursor
-pub fn select_paragraph_at_cursor<T: ParsedFontTrait>(
+pub fn select_paragraph_at_cursor(
     cursor: &TextCursor,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
     // Find the line containing this cursor
     let line_items: Vec<_> = layout.items.iter()
@@ -522,10 +522,10 @@ impl ClipboardContent {
 impl SelectionManager {
     /// Build rich clipboard content from current selection
     /// ALWAYS builds rich content, plain text extracted lazily
-    pub fn get_clipboard_content<T: ParsedFontTrait>(
+    pub fn get_clipboard_content(
         &self,
         dom_id: &DomId,
-        text_layout: &UnifiedLayout<T>,
+        text_layout: &UnifiedLayout,
     ) -> Option<ClipboardContent> {
         let selection_state = self.get_selection(dom_id)?;
 
@@ -554,9 +554,9 @@ impl SelectionManager {
 }
 
 /// Extract styled text runs from selection range
-fn extract_styled_runs_from_range<T: ParsedFontTrait>(
+fn extract_styled_runs_from_range(
     range: &SelectionRange,
-    layout: &UnifiedLayout<T>,
+    layout: &UnifiedLayout,
 ) -> Vec<StyledTextRun> {
     let mut runs = Vec::new();
     let mut current_run: Option<StyledTextRun> = None;

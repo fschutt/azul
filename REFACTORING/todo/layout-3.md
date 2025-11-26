@@ -62,7 +62,7 @@ This version replaces the simple summation logic with the spec-compliant rules f
 ///   `left` wins. For `rtl`, `right` wins.
 pub fn adjust_relative_positions<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     absolute_positions: &mut BTreeMap<usize, LogicalPosition>,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) -> Result<()> {

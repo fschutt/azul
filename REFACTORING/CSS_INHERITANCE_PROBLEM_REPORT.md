@@ -68,8 +68,8 @@ It receives `None` because:
 In `/Users/fschutt/Development/azul/layout/src/solver3/fc.rs` at line ~270, there's a partial workaround:
 
 ```rust
-fn get_style_properties_with_context<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn get_style_properties_with_context(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_index: usize,
 ) -> Arc<StyleProperties> {
@@ -309,8 +309,8 @@ This is a major refactor for CSS 2.2/3 compliance. Deferred until layout engine 
    ```rust
    // In /Users/fschutt/Development/azul/layout/src/solver3/fc.rs
    
-   fn get_resolved_font_weight<T: ParsedFontTrait>(
-       tree: &LayoutTree<T>,
+   fn get_resolved_font_weight(
+       tree: &LayoutTree,
        styled_dom: &StyledDom,
        node_index: usize,
    ) -> StyleFontWeight {

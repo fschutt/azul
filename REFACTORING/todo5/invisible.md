@@ -276,7 +276,7 @@ if is_dirty || children_are_different {
 // fc.rs - layout_cell_for_height
 fn layout_cell_for_height<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache<T>,
     cell_index: usize,
     cell_width: f32,

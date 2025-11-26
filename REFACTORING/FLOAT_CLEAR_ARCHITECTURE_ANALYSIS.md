@@ -126,7 +126,7 @@ Normal flow content wraps around floats; clear forces positioning below floats.
 ```rust
 fn layout_bfc<T, Q>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -354,7 +354,7 @@ impl FloatingContext {
 fn layout_ifc<T, Q>(
     ctx: &mut LayoutContext<T, Q>,
     text_cache: &mut LayoutCache<T>,
-    tree: &LayoutTree<T>,
+    tree: &LayoutTree,
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {

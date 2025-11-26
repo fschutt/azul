@@ -701,7 +701,7 @@ if is_empty_block(child_node) && !child_has_top_blocker {
 ```rust
 fn layout_bfc<T, Q>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut BTreeMap<NodeId, InlineCache>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -712,7 +712,7 @@ fn layout_bfc<T, Q>(
 ```rust
 fn layout_bfc<T, Q>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut BTreeMap<NodeId, InlineCache>,
     node_index: usize,
     constraints: &LayoutConstraints,

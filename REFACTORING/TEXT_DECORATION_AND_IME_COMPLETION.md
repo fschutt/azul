@@ -55,7 +55,7 @@ pub enum DisplayListItem {
 Extended `GlyphRun` to carry text decoration information:
 
 ```rust
-pub struct GlyphRun<T: ParsedFontTrait> {
+pub struct GlyphRun {
     pub glyphs: Vec<GlyphInstance>,
     pub color: ColorU,
     pub font: T,
@@ -211,7 +211,7 @@ Decorations are **per-glyph-run**:
 
 Added `is_ime_preview` field to `GlyphRun`:
 ```rust
-pub struct GlyphRun<T: ParsedFontTrait> {
+pub struct GlyphRun {
     // ... other fields ...
     pub is_ime_preview: bool,  // Marks IME composition text
 }

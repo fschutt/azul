@@ -463,7 +463,7 @@ pub enum AnonymousBoxType {
 
 // ... (LayoutNode struct remains the same) ...
 
-impl<T: ParsedFontTrait> LayoutTreeBuilder<T> {
+impl LayoutTreeBuilder<T> {
     
     // ... (new, get, get_mut) ...
 
@@ -1012,7 +1012,7 @@ use crate::css::props::style::lists::CounterOperation;
 /// Recursive, top-down pass to calculate used sizes and positions for a given subtree.
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     // ... (other parameters)
@@ -1100,7 +1100,7 @@ use crate::solver3::{
 /// Main dispatcher for formatting context layout.
 pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -1122,7 +1122,7 @@ pub fn layout_formatting_context<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// NEW FUNCTION: Lays out the content of a `display: list-item` element.
 fn layout_list_item_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,
@@ -1215,7 +1215,7 @@ fn layout_list_item_content<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
 /// Helper to lay out a subset of a BFC's children.
 fn layout_bfc_children<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     ctx: &mut LayoutContext<T, Q>,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     text_cache: &mut text3::cache::LayoutCache<T>,
     node_index: usize,
     constraints: &LayoutConstraints,

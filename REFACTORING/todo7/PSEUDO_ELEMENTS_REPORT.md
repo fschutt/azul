@@ -252,7 +252,7 @@ Current implementation doesn't distinguish between:
 
 **Required Data Structure** (`LayoutNode`):
 ```rust
-pub struct LayoutNode<T: ParsedFontTrait> {
+pub struct LayoutNode {
     pub dom_node_id: Option<NodeId>,           // Real DOM node
     pub pseudo_element: Option<PseudoElement>, // NEW: ::marker, ::before, ::after
     pub is_anonymous: bool,                    // Anonymous box
@@ -279,7 +279,7 @@ fn create_list_item_box(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     parent_idx: usize,
-) -> Vec<LayoutNode<T>> {
+) -> Vec<LayoutNode> {
     let mut nodes = Vec::new();
     
     // 1. Create the principal list-item box
@@ -365,8 +365,8 @@ if display == LayoutDisplay::ListItem {
 
 Update `generate_list_marker_text()`:
 ```rust
-fn generate_list_marker_text<T: ParsedFontTrait>(
-    tree: &LayoutTree<T>,
+fn generate_list_marker_text(
+    tree: &LayoutTree,
     styled_dom: &StyledDom,
     marker_index: usize,
     counters: &BTreeMap<(usize, String), i32>,

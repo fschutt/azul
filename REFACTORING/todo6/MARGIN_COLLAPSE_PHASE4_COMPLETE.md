@@ -21,9 +21,9 @@ Instead of passing a `MarginCollapseContext` parameter through all function call
 
 **File:** `layout/src/solver3/layout_tree.rs`
 ```rust
-pub struct LayoutNode<T: ParsedFontTrait> {
+pub struct LayoutNode {
     // ... existing fields ...
-    pub inline_layout_result: Option<Arc<UnifiedLayout<T>>>,
+    pub inline_layout_result: Option<Arc<UnifiedLayout>>,
     
     // NEW FIELDS for CSS 2.1 margin collapsing
     pub escaped_top_margin: Option<f32>,

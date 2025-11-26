@@ -153,7 +153,7 @@ for (&child_index, &child_relative_pos) in &layout_output.positions {
 // Change signature (line ~2185)
 fn position_table_cells<T: ParsedFontTrait, Q: FontLoaderTrait<T>>(
     table_ctx: &TableLayoutContext,
-    tree: &mut LayoutTree<T>,
+    tree: &mut LayoutTree,
     ctx: &mut LayoutContext<T, Q>,
     table_index: usize,
     constraints: &LayoutConstraints,
