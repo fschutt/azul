@@ -46,7 +46,7 @@ pub struct TextChangeset {
 /// Text editing operation (what will change)
 #[derive(Debug, Clone)]
 pub enum TextOperation {
-    // === Text Mutations (actually modify text) ===
+    // Text Mutations (actually modify text)
     /// Insert text at cursor position
     InsertText {
         position: CursorPosition,
@@ -69,7 +69,7 @@ pub enum TextOperation {
         new_cursor: CursorPosition,
     },
 
-    // === Selection Mutations (no text change, only selection) ===
+    // Selection Mutations (no text change, only selection)
     /// Set selection to new range
     SetSelection {
         old_range: Option<SelectionRange>, // For undo
@@ -88,7 +88,7 @@ pub enum TextOperation {
         old_range: SelectionRange, // For undo
     },
 
-    // === Cursor Mutations (no text change, only cursor position) ===
+    // Cursor Mutations (no text change, only cursor position)
     /// Move cursor to new position
     MoveCursor {
         old_position: CursorPosition,
@@ -96,7 +96,7 @@ pub enum TextOperation {
         movement: CursorMovement,
     },
 
-    // === Clipboard Operations ===
+    // Clipboard Operations
     /// Copy selection to clipboard (no text change)
     Copy {
         range: SelectionRange,
@@ -117,7 +117,7 @@ pub enum TextOperation {
         new_cursor: CursorPosition,
     },
 
-    // === Compound Operations ===
+    // Compound Operations
     /// Select all text in node
     SelectAll {
         old_range: Option<SelectionRange>, // For undo
@@ -260,9 +260,7 @@ pub fn create_changesets_from_system_events(
 }
 */
 
-// ============================================================================
-// CHANGESET CREATION HELPERS
-// ============================================================================
+// Changeset Creation Helpers
 
 fn get_current_time() -> Instant {
     let external = crate::callbacks::ExternalSystemCallbacks::rust_internal();

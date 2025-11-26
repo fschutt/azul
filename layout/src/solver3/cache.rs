@@ -767,7 +767,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         
         calculated_positions.insert(child_index, child_absolute_pos);
         
-        // === PHASE 2: Assign page_index based on absolute Y position ===
+        // Phase 2: Assign page_index based on absolute Y position
         // If we're in paged layout mode, calculate which page this node belongs to
         if let Some(ref frag_ctx) = ctx.fragmentation_context {
             let page_height = frag_ctx.page_content_height();

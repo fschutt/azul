@@ -945,7 +945,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 debug_info!(ctx, "[layout_bfc] First child {} with CLEARANCE: no collapse, child_margin={}, main_pen={}",
                     child_index, child_margin_top, main_pen);
             } else if !parent_has_top_blocker {
-                // ========== MARGIN ESCAPE CASE ==========
+                // Margin Escape Case
                 // CSS 2.2 § 8.3.1: "The top margin of an in-flow block element collapses with
                 // its first in-flow block-level child's top margin if the element has no top
                 // border, no top padding, and the child has no clearance."
@@ -988,7 +988,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 debug_info!(ctx, "[layout_bfc] First child {} margin ESCAPES: parent_margin={}, child_margin={}, collapsed={}, total_escaped={}",
                     child_index, parent_margin_top, child_margin_top, accumulated_top_margin, total_escaped_top_margin);
             } else {
-                // ========== MARGIN BLOCKED CASE ==========
+                // Margin Blocked Case
                 // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse.
                 // When padding or border exists, margins do NOT collapse and exist in different
                 // coordinate spaces.
@@ -1046,7 +1046,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 debug_info!(ctx, "[layout_bfc] Child {} with CLEARANCE: no collapse with sibling, child_margin_top={}, main_pen={}",
                     child_index, child_margin_top, main_pen);
             } else {
-                // ========== SIBLING MARGIN COLLAPSE ==========
+                // Sibling Margin Collapse
                 // CSS 2.2 § 8.3.1: "Vertical margins of adjacent block boxes in the normal
                 // flow collapse." The collapsed margin is the maximum of the two margins.
                 //
@@ -1413,7 +1413,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // This matches Chrome/Firefox behavior where float margins escape through
     // the container's padding when there's existing in-flow content.
 
-    // ========== CONTENT-BOX HEIGHT CALCULATION ==========
+    // Content-box Height Calculation
     // CSS 2.2 § 8.3.1: "The top border edge of the box is defined to coincide with
     // the top border edge of the [first] child" when margins collapse/escape.
     //
@@ -2631,7 +2631,7 @@ fn layout_table_fc<T: ParsedFontTrait>(
         (table_border_box_width - padding_width - border_width).max(0.0)
     };
     
-    debug_table_layout!(ctx, "========== TABLE LAYOUT DEBUG ==========");
+    debug_table_layout!(ctx, "Table Layout Debug");
     debug_table_layout!(ctx, "Node index: {}", node_index);
     debug_table_layout!(ctx, "Available size from parent: {:.2} x {:.2}", 
         constraints.available_size.width, constraints.available_size.height);
@@ -2641,7 +2641,7 @@ fn layout_table_fc<T: ParsedFontTrait>(
         table_node.box_props.padding.left, table_node.box_props.padding.right);
     debug_table_layout!(ctx, "Table border: L={:.2} R={:.2}", 
         table_node.box_props.border.left, table_node.box_props.border.right);
-    debug_table_layout!(ctx, "=======================================");
+    debug_table_layout!(ctx, "=");
     
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
@@ -2796,7 +2796,7 @@ fn layout_table_fc<T: ParsedFontTrait>(
     debug_table_layout!(ctx, "  Content height (rows): {:.2}", table_height);
     debug_table_layout!(ctx, "  Caption height: {:.2}", caption_height);
     debug_table_layout!(ctx, "  Total height: {:.2}", total_height);
-    debug_table_layout!(ctx, "========== END TABLE DEBUG ==========");
+    debug_table_layout!(ctx, "End Table Debug");
     
     // Create output with the table's final size and cell positions
     let output = LayoutOutput {

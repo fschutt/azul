@@ -5535,12 +5535,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
         // 4. Position the items belonging to this segment.
         //
-        // VERTICAL ALIGNMENT POSITIONING (CSS vertical-align)
-        // ====================================================
+        // Vertical alignment positioning (CSS vertical-align)
+        //
         // Currently, we use `constraints.vertical_align` for ALL items on the line.
         // This is the GLOBAL vertical alignment set on the containing block.
         //
         // KNOWN LIMITATION / TODO:
+        //
         // Per-item vertical-align (stored in `InlineImage.alignment`) is NOT used here.
         // According to CSS, each inline element can have its own vertical-align value:
         //   <img style="vertical-align: top"> would align to line top

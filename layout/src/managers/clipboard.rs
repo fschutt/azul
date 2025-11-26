@@ -48,7 +48,7 @@ impl ClipboardManager {
         }
     }
 
-    // ===== Paste Operations (System → Application) =====
+    // Paste Operations (System → Application)
 
     /// Set content from system clipboard (called by event handler before paste callbacks)
     ///
@@ -68,7 +68,7 @@ impl ClipboardManager {
         self.pending_paste_content.as_ref()
     }
 
-    // ===== Copy Operations (Application → System) =====
+    // Copy Operations (Application → System)
 
     /// Set content to be copied to system clipboard (called by user callbacks)
     ///
@@ -91,7 +91,7 @@ impl ClipboardManager {
         self.pending_copy_content.take()
     }
 
-    // ===== Lifecycle Management =====
+    // Lifecycle Management
 
     /// Clear all pending clipboard content
     ///

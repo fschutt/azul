@@ -67,7 +67,7 @@ where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
-    // === FONT RESOLUTION AND LOADING ===
+    // Font Resolution And Loading
     {
         use crate::solver3::getters::{
             collect_and_resolve_font_chains, 
@@ -112,7 +112,7 @@ where
         return Ok(vec![display_list]);
     }
     
-    // === PAGED LAYOUT ===
+    // Paged Layout
     
     // Perform layout with fragmentation context
     // This will assign page_index to nodes based on their Y position

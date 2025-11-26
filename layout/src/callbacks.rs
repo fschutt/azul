@@ -51,7 +51,7 @@ use crate::{
 /// - Future extensibility for new change types
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
-    // ===== Window State Changes =====
+    // Window State Changes
     /// Modify the window state (size, position, title, etc.)
     ModifyWindowState { state: FullWindowState },
     /// Create a new window
@@ -59,29 +59,29 @@ pub enum CallbackChange {
     /// Close the current window (via Update::CloseWindow return value, tracked here for logging)
     CloseWindow,
 
-    // ===== Focus Management =====
+    // Focus Management
     /// Change keyboard focus to a specific node or clear focus
     SetFocusTarget { target: FocusTarget },
 
-    // ===== Event Propagation Control =====
+    // Event Propagation Control
     /// Stop event from propagating to parent nodes
     StopPropagation,
     /// Prevent default browser behavior (e.g., block text input from being applied)
     PreventDefault,
 
-    // ===== Timer Management =====
+    // Timer Management
     /// Add a new timer to the window
     AddTimer { timer_id: TimerId, timer: Timer },
     /// Remove an existing timer
     RemoveTimer { timer_id: TimerId },
 
-    // ===== Thread Management =====
+    // Thread Management
     /// Add a new background thread
     AddThread { thread_id: ThreadId, thread: Thread },
     /// Remove an existing thread
     RemoveThread { thread_id: ThreadId },
 
-    // ===== Content Modifications =====
+    // Content Modifications
     /// Change the text content of a node
     ChangeNodeText {
         dom_id: DomId,
@@ -114,7 +114,7 @@ pub enum CallbackChange {
         properties: Vec<CssProperty>,
     },
 
-    // ===== Scroll Management =====
+    // Scroll Management
     /// Scroll a node to a specific position
     ScrollTo {
         dom_id: DomId,
@@ -122,17 +122,17 @@ pub enum CallbackChange {
         position: LogicalPosition,
     },
 
-    // ===== Image Cache Management =====
+    // Image Cache Management
     /// Add an image to the image cache
     AddImageToCache { id: AzString, image: ImageRef },
     /// Remove an image from the image cache
     RemoveImageFromCache { id: AzString },
 
-    // ===== Font Cache Management =====
+    // Font Cache Management
     /// Reload system fonts (expensive operation)
     ReloadSystemFonts,
 
-    // ===== Menu Management =====
+    // Menu Management
     /// Open a context menu or dropdown menu
     /// Whether it's native or fallback depends on window.state.flags.use_native_context_menus
     OpenMenu {
@@ -141,7 +141,7 @@ pub enum CallbackChange {
         position: Option<LogicalPosition>,
     },
 
-    // ===== Tooltip Management =====
+    // Tooltip Management
     /// Show a tooltip at a specific position
     ///
     /// Platform-specific implementation:
@@ -156,7 +156,7 @@ pub enum CallbackChange {
     /// Hide the currently displayed tooltip
     HideTooltip,
 
-    // ===== Text Editing =====
+    // Text Editing
     /// Insert text at the current cursor position or replace selection
     InsertText {
         dom_id: DomId,
@@ -185,7 +185,7 @@ pub enum CallbackChange {
         changeset: crate::managers::text_input::TextChangeset,
     },
 
-    // ===== Cursor Movement Operations =====
+    // Cursor Movement Operations
     /// Move cursor left (arrow left)
     MoveCursorLeft {
         dom_id: DomId,
@@ -235,7 +235,7 @@ pub enum CallbackChange {
         extend_selection: bool,
     },
 
-    // ===== Clipboard Operations (Override) =====
+    // Clipboard Operations (Override)
     /// Override clipboard content for copy operation
     SetCopyContent {
         target: DomNodeId,
@@ -389,7 +389,7 @@ pub struct CallbackInfoRefData<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
-    // ===== READ-ONLY DATA (Query Access) =====
+    // Read-only Data (Query Access)
     /// Single reference to all readonly reference data
     /// This consolidates 8 individual parameters into 1, improving API ergonomics
     ref_data: *const CallbackInfoRefData<'static>,
@@ -397,7 +397,7 @@ pub struct CallbackInfo {
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     system_style: Arc<SystemStyle>,
 
-    // ===== CONTEXT INFO (Immutable Event Data) =====
+    // Context Info (Immutable Event Data)
     /// The ID of the DOM + the node that was hit
     hit_dom_node: DomNodeId,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was
@@ -406,7 +406,7 @@ pub struct CallbackInfo {
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**
     cursor_in_viewport: OptionLogicalPosition,
 
-    // ===== TRANSACTION CONTAINER (New System) =====
+    // Transaction Container (New System)
     /// All changes made by the callback, applied atomically after callback returns
     changes: *mut Vec<CallbackChange>,
 }
@@ -437,7 +437,7 @@ impl CallbackInfo {
         }
     }
 
-    // ===== Helper methods for transaction system =====
+    // Helper methods for transaction system
 
     /// Push a change to be applied after the callback returns
     /// This is the primary method for modifying window state from callbacks
@@ -445,7 +445,7 @@ impl CallbackInfo {
         unsafe { (*self.changes).push(change) }
     }
 
-    // ===== Modern API (using CallbackChange transactions) =====
+    // Modern Api (using CallbackChange transactions)
 
     /// Add a timer to this window (applied after callback returns)
     pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
@@ -554,7 +554,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateIFrame { dom_id, node_id });
     }
 
-    // ===== DOM Tree Navigation =====
+    // Dom Tree Navigation
 
     /// Find a node by ID attribute in the layout tree
     ///
@@ -694,7 +694,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ReloadSystemFonts);
     }
 
-    // ===== Text Input / Changeset API =====
+    // Text Input / Changeset Api
 
     /// Get the current text changeset being processed (if any)
     ///
@@ -809,7 +809,7 @@ impl CallbackInfo {
         });
     }
 
-    // ===== Tooltip API =====
+    // Tooltip Api
 
     /// Show a tooltip at the current cursor position
     ///
@@ -871,7 +871,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::HideTooltip);
     }
 
-    // ===== Text Editing API (transactional) =====
+    // Text Editing Api (transactional)
 
     /// Insert text at the current cursor position in a text node
     ///
@@ -1016,7 +1016,7 @@ impl CallbackInfo {
         self.open_menu_for_node(menu, hit_node)
     }
 
-    // ===== Internal accessors =====
+    // Internal accessors
 
     /// Get reference to the underlying LayoutWindow for queries
     ///
@@ -1060,7 +1060,7 @@ impl CallbackInfo {
         layout_node.inline_layout_result.as_ref().map(|c| c.get_layout())
     }
 
-    // ===== Public query API =====
+    // Public query Api
     // All methods below delegate to LayoutWindow for read-only access
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         self.get_layout_window().get_node_size(node_id)
@@ -1089,7 +1089,7 @@ impl CallbackInfo {
         self.get_node_rect(hit_node)
     }
 
-    // ===== Timer Management (Query APIs) =====
+    // Timer Management (Query APIs)
 
     /// Get a reference to a timer
     pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
@@ -1101,7 +1101,7 @@ impl CallbackInfo {
         self.get_layout_window().get_timer_ids()
     }
 
-    // ===== Thread Management (Query APIs) =====
+    // Thread Management (Query APIs)
 
     /// Get a reference to a thread
     pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
@@ -1113,14 +1113,14 @@ impl CallbackInfo {
         self.get_layout_window().get_thread_ids()
     }
 
-    // ===== GPU Value Cache Management (Query APIs) =====
+    // Gpu Value Cache Management (Query APIs)
 
     /// Get the GPU value cache for a specific DOM
     pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&azul_core::gpu::GpuValueCache> {
         self.get_layout_window().get_gpu_cache(dom_id)
     }
 
-    // ===== Layout Result Access (Query APIs) =====
+    // Layout Result Access (Query APIs)
 
     /// Get a layout result for a specific DOM
     pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&crate::window::DomLayoutResult> {
@@ -1132,7 +1132,7 @@ impl CallbackInfo {
         self.get_layout_window().get_dom_ids()
     }
 
-    // ===== Node Hierarchy Navigation =====
+    // Node Hierarchy Navigation
 
     pub fn get_hit_node(&self) -> DomNodeId {
         self.hit_dom_node
@@ -1278,7 +1278,7 @@ impl CallbackInfo {
         }
     }
 
-    // ===== Node Data and State =====
+    // Node Data and State
 
     pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
         let layout_window = self.get_layout_window();
@@ -1340,7 +1340,7 @@ impl CallbackInfo {
         }
     }
 
-    // ===== Text Selection Management =====
+    // Text Selection Management
 
     /// Get the current selection state for a DOM
     pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
@@ -1391,7 +1391,7 @@ impl CallbackInfo {
         &self.get_layout_window().text_cache
     }
 
-    // ===== Window State Access =====
+    // Window State Access
 
     /// Get full current window state (immutable reference)
     pub fn get_current_window_state(&self) -> &FullWindowState {
@@ -1444,7 +1444,7 @@ impl CallbackInfo {
         )
     }
 
-    // ===== Cursor and Input =====
+    // Cursor and Input
 
     pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
         self.cursor_relative_to_item
@@ -1475,7 +1475,7 @@ impl CallbackInfo {
             .get_node_layout_rect(self.hit_dom_node)
     }
 
-    // ===== CSS Property Access =====
+    // Css Property Access
 
     /// Get the computed CSS property for a specific DOM node
     ///
@@ -1559,7 +1559,7 @@ impl CallbackInfo {
         self.get_computed_css_property(node_id, azul_css::props::property::CssPropertyType::Height)
     }
 
-    // ===== System Callbacks =====
+    // System Callbacks
 
     pub fn get_system_time_fn(&self) -> azul_core::task::GetSystemTimeCallback {
         unsafe { (*self.ref_data).system_callbacks.get_system_time_fn }
@@ -1570,7 +1570,7 @@ impl CallbackInfo {
         (cb.cb)()
     }
 
-    // ===== Manager Access (Read-Only) =====
+    // Manager Access (Read-Only)
 
     /// Get immutable reference to the scroll manager
     ///
@@ -1656,7 +1656,7 @@ impl CallbackInfo {
             .unwrap_or(false)
     }
 
-    // ===== Pen/Stylus Query Methods =====
+    // Pen/Stylus Query Methods
 
     /// Get current pen/stylus state if a pen is active
     pub fn get_pen_state(&self) -> Option<&crate::managers::gesture::PenState> {
@@ -1709,7 +1709,7 @@ impl CallbackInfo {
         self.get_last_input_sample().map(|sample| sample.event_id)
     }
 
-    // ===== Focus Management Methods =====
+    // Focus Management Methods
 
     /// Set focus to a specific DOM node by ID
     pub fn set_focus_to_node(&mut self, dom_id: DomId, node_id: NodeId) {
@@ -1752,7 +1752,7 @@ impl CallbackInfo {
         self.set_focus(FocusTarget::NoFocus);
     }
 
-    // ===== Manager Access Methods =====
+    // Manager Access Methods
 
     /// Check if a drag gesture is currently active
     ///
@@ -1824,7 +1824,7 @@ impl CallbackInfo {
         self.get_layout_window().drag_drop_manager.get_drag_state()
     }
 
-    // ===== Hover Manager Access =====
+    // Hover Manager Access
 
     /// Get the current mouse cursor hit test result (most recent frame)
     pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
@@ -1856,7 +1856,7 @@ impl CallbackInfo {
             .has_sufficient_history_for_gestures(&InputPointId::Mouse)
     }
 
-    // ===== File Drop Manager Access =====
+    // File Drop Manager Access
 
     /// Get immutable reference to the file drop manager
     pub fn get_file_drop_manager(&self) -> &crate::managers::file_drop::FileDropManager {
@@ -1868,7 +1868,7 @@ impl CallbackInfo {
         self.get_selection_manager().get_all_selections()
     }
 
-    // ===== Drag-Drop Manager Access =====
+    // Drag-Drop Manager Access
 
     /// Get immutable reference to the drag-drop manager
     pub fn get_drag_drop_manager(&self) -> &crate::managers::drag_drop::DragDropManager {
@@ -1901,7 +1901,7 @@ impl CallbackInfo {
             })
     }
 
-    // ===== Scroll Manager Query Methods =====
+    // Scroll Manager Query Methods
 
     /// Get the current scroll offset for a node (if it's scrollable)
     pub fn get_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
@@ -1929,21 +1929,21 @@ impl CallbackInfo {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
-    // ===== GPU State Manager Access =====
+    // Gpu State Manager Access
 
     /// Get immutable reference to the GPU state manager
     pub fn get_gpu_state_manager(&self) -> &crate::managers::gpu_state::GpuStateManager {
         &self.get_layout_window().gpu_state_manager
     }
 
-    // ===== IFrame Manager Access =====
+    // IFrame Manager Access
 
     /// Get immutable reference to the IFrame manager
     pub fn get_iframe_manager(&self) -> &crate::managers::iframe::IFrameManager {
         &self.get_layout_window().iframe_manager
     }
 
-    // ===== Changeset Inspection/Modification Methods =====
+    // Changeset Inspection/Modification Methods
     // These methods allow callbacks to inspect pending operations and modify them before execution
 
     /// Inspect a pending copy operation
@@ -2115,7 +2115,7 @@ impl CallbackInfo {
         self.get_undo_redo_manager().peek_redo(node_id)
     }
 
-    // ===== Clipboard Helper Methods =====
+    // Clipboard Helper Methods
 
     /// Get clipboard content from system clipboard (available during paste operations)
     ///
@@ -2267,7 +2267,7 @@ impl CallbackInfo {
         self.get_node_text_content(target).map(|text| text.len())
     }
 
-    // ===== Cursor Movement Inspection/Override Methods =====
+    // Cursor Movement Inspection/Override Methods
 
     /// Inspect where the cursor would move when pressing left arrow
     ///
@@ -2487,7 +2487,7 @@ impl CallbackInfo {
         self.inspect_delete_changeset(target, true)
     }
 
-    // ===== Cursor Movement Override Methods =====
+    // Cursor Movement Override Methods
     // These methods queue cursor movement operations to be applied after the callback
 
     /// Move cursor left (arrow left key)

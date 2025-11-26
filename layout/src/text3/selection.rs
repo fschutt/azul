@@ -97,7 +97,7 @@ pub fn select_paragraph_at_cursor(
     })
 }
 
-// === Helper Functions ===
+// Helper Functions
 
 /// Find the cluster containing the given cursor
 fn find_cluster_at_cursor<'a>(

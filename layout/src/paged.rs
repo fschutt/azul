@@ -282,9 +282,7 @@ impl FragmentationContext {
     }
 }
 
-// ============================================================================
-// Fragmentation State - Tracked DURING Layout
-// ============================================================================
+// Fragmentation State - Tracked During Layout
 
 /// State tracked during layout for fragmentation.
 /// This is created at the start of paged layout and updated as nodes are laid out.

@@ -562,9 +562,7 @@ impl GestureAndDragManager {
         }
     }
 
-    // ========================================================================
     // Input Recording Methods (called from event loop / system timer)
-    // ========================================================================
 
     /// Start a new input session (mouse button pressed down)
     ///
@@ -751,9 +749,7 @@ impl GestureAndDragManager {
         self.pen_state.as_ref()
     }
 
-    // ========================================================================
     // Gesture Detection Methods (query state without mutation)
-    // ========================================================================
 
     /// Detect if current input represents a drag gesture
     ///
@@ -1074,9 +1070,7 @@ impl GestureAndDragManager {
             .map(|sample| sample.position)
     }
 
-    // ========================================================================
     // Active State Management (promote detected gestures to active state)
-    // ========================================================================
 
     /// Promote detected drag to active node drag
     ///
@@ -1193,9 +1187,7 @@ impl GestureAndDragManager {
         self.file_drop = None;
     }
 
-    // ========================================================================
     // Query Methods (read-only access for callbacks)
-    // ========================================================================
 
     /// Check if any drag operation is in progress
     pub fn is_dragging(&self) -> bool {
@@ -1235,9 +1227,7 @@ impl GestureAndDragManager {
         self.get_current_session().map(|s| s.session_id)
     }
 
-    // ========================================================================
     // Window Drag Helper Methods
-    // ========================================================================
 
     /// Calculate window position delta from current drag state
     ///

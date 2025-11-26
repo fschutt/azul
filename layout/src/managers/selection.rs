@@ -296,9 +296,7 @@ impl SelectionManager {
     }
 }
 
-// ============================================================================
 // Clipboard Content Extraction
-// ============================================================================
 
 /// Styled text run for rich clipboard content
 #[derive(Debug, Clone, PartialEq)]
@@ -368,9 +366,7 @@ impl ClipboardContent {
     }
 }
 
-// ============================================================================
 // Trait Implementations for Event Filtering
-// ============================================================================
 
 impl azul_core::events::SelectionManagerQuery for SelectionManager {
     fn get_click_count(&self) -> u8 {

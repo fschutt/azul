@@ -20,9 +20,7 @@ use azul_core::{
     task::{Duration, Instant},
 };
 
-// ============================================================================
 // Scrollbar Component Types
-// ============================================================================
 
 /// Which component of a scrollbar was hit during hit-testing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -145,9 +143,7 @@ pub struct ScrollbarHit {
     pub global_position: LogicalPosition, // Original global position
 }
 
-// ============================================================================
 // Core Scroll Manager
-// ============================================================================
 
 /// Manages all scroll state and animations for a window
 #[derive(Debug, Clone, Default)]
@@ -223,9 +219,7 @@ pub struct ScrollTickResult {
     pub updated_nodes: Vec<(DomId, NodeId)>,
 }
 
-// ============================================================================
 // ScrollManager Implementation
-// ============================================================================
 
 impl ScrollManager {
     pub fn new() -> Self {
@@ -523,9 +517,7 @@ impl ScrollManager {
             .collect()
     }
 
-    // ========================================================================
     // ExternalScrollId Management
-    // ========================================================================
 
     /// Register a scroll node and get its ExternalScrollId for WebRender.
     /// If the node already has an ID, returns the existing one.
@@ -566,9 +558,7 @@ impl ScrollManager {
         self.external_scroll_ids.iter().map(|(k, v)| (*k, *v))
     }
 
-    // ========================================================================
     // Scrollbar State Management
-    // ========================================================================
 
     /// Calculate scrollbar states for all visible scrollbars.
     /// This should be called once per frame after layout is complete.
@@ -705,9 +695,7 @@ impl ScrollManager {
         self.scrollbar_states.iter().map(|(k, v)| (*k, v))
     }
 
-    // ========================================================================
     // Scrollbar Hit-Testing
-    // ========================================================================
 
     /// Perform hit-testing for scrollbars at the given global position.
     ///
@@ -825,9 +813,7 @@ impl ScrollManager {
     }
 }
 
-// ============================================================================
 // ScrollState Implementation
-// ============================================================================
 
 impl ScrollState {
     pub fn new(now: Instant) -> Self {
@@ -851,9 +837,7 @@ impl ScrollState {
     }
 }
 
-// ============================================================================
 // Easing Functions
-// ============================================================================
 
 pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
@@ -872,9 +856,7 @@ pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 // Legacy type alias
 pub type ScrollStates = ScrollManager;
 
-// ============================================================================
 // EventProvider Implementation
-// ============================================================================
 
 impl EventProvider for ScrollManager {
     /// Get pending scroll events.

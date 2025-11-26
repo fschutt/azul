@@ -22,9 +22,7 @@ use crate::{
     font_traits::{ParsedFontTrait, StyleProperties},
 };
 
-// ============================================================================
 // Font-size resolution helper functions
-// ============================================================================
 
 /// Helper function to get element's computed font-size
 pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state: &StyledNodeState) -> f32 {
@@ -1190,9 +1188,7 @@ pub fn get_list_style_position(
         .unwrap_or_default()
 }
 
-// ============================================================================
-// NEW: Taffy Bridge Getters - Box Model Properties with UA CSS Fallback
-// ============================================================================
+// New: Taffy Bridge Getters - Box Model Properties with Ua Css Fallback
 
 use azul_css::props::{
     basic::pixel::PixelValue,
@@ -1257,9 +1253,7 @@ get_css_property_pixel!(get_css_border_right_width, get_border_right_width, azul
 get_css_property_pixel!(get_css_border_top_width, get_border_top_width, azul_css::props::property::CssPropertyType::BorderTopWidth);
 get_css_property_pixel!(get_css_border_bottom_width, get_border_bottom_width, azul_css::props::property::CssPropertyType::BorderBottomWidth);
 
-// ============================================================================
 // Fragmentation (page breaking) properties
-// ============================================================================
 
 use azul_css::props::layout::{PageBreak, BreakInside, Orphans, Widows, BoxDecorationBreak};
 
@@ -1355,9 +1349,7 @@ pub fn get_box_decoration_break(styled_dom: &StyledDom, dom_id: Option<NodeId>) 
         .unwrap_or(BoxDecorationBreak::Slice)
 }
 
-// ============================================================================
 // Helper functions for break properties
-// ============================================================================
 
 /// Check if a PageBreak value forces a break
 pub fn is_forced_page_break(page_break: &PageBreak) -> bool {
@@ -1380,9 +1372,7 @@ pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
     )
 }
 
-// ============================================================================
 // Font Chain Resolution - Pre-Layout Font Loading
-// ============================================================================
 
 use azul_core::dom::NodeType;
 use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
@@ -1629,9 +1619,7 @@ pub fn collect_and_resolve_font_chains(
     resolve_font_chains(&collected, fc_cache)
 }
 
-// ============================================================================
 // Font Loading Functions
-// ============================================================================
 
 use std::collections::HashSet;
 use rust_fontconfig::FontId;

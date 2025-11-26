@@ -505,7 +505,7 @@ impl LayoutWindow {
             size: window_state.size.dimensions,
         };
 
-        // === FONT RESOLUTION AND LOADING ===
+        // Font Resolution And Loading
         // This must happen BEFORE layout_document() is called
         {
             use crate::solver3::getters::{
@@ -1094,7 +1094,7 @@ impl LayoutWindow {
         nested
     }
 
-    // ===== Timer Management =====
+    // Timer Management
 
     /// Add a timer to this window
     pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
@@ -1137,7 +1137,7 @@ impl LayoutWindow {
         ready_timers
     }
 
-    // ===== Thread Management =====
+    // Thread Management
 
     /// Add a thread to this window
     pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
@@ -1164,7 +1164,7 @@ impl LayoutWindow {
         self.threads.keys().copied().collect()
     }
 
-    // ===== CallbackChange Processing =====
+    // CallbackChange Processing
 
     /// Apply callback changes that were collected during callback execution
     ///
@@ -1425,7 +1425,7 @@ impl LayoutWindow {
                     // This allows user callbacks to modify what text will be inserted
                     self.text_input_manager.pending_changeset = Some(changeset);
                 }
-                // ===== Cursor Movement Operations =====
+                // Cursor Movement Operations
                 CallbackChange::MoveCursorLeft {
                     dom_id,
                     node_id,
@@ -1552,7 +1552,7 @@ impl LayoutWindow {
                         }
                     }
                 }
-                // ===== Clipboard Operations (Override) =====
+                // Clipboard Operations (Override)
                 CallbackChange::SetCopyContent { target, content } => {
                     // Store clipboard content to be written to system clipboard
                     // This will be picked up by the platform's sync_clipboard() method
@@ -1679,7 +1679,7 @@ impl LayoutWindow {
         }
     }
 
-    // ===== GPU Value Cache Management =====
+    // Gpu Value Cache Management
 
     /// Get the GPU value cache for a specific DOM
     pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&GpuValueCache> {
@@ -1699,7 +1699,7 @@ impl LayoutWindow {
             .or_insert_with(GpuValueCache::default)
     }
 
-    // ===== Layout Result Access =====
+    // Layout Result Access
 
     /// Get a layout result for a specific DOM
     pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&DomLayoutResult> {
@@ -1716,7 +1716,7 @@ impl LayoutWindow {
         self.layout_results.keys().copied().collect()
     }
 
-    // ===== Hit-Test Computation =====
+    // Hit-Test Computation
 
     /// Compute the cursor type hit-test from a full hit-test
     ///
@@ -3474,7 +3474,7 @@ mod tests {
         assert_eq!(window.get_dom_ids().len(), 0);
     }
 
-    // === ScrollManager and IFrame Integration Tests ===
+    // ScrollManager and IFrame Integration Tests
 
     #[test]
     fn test_scroll_manager_initialization() {

@@ -317,9 +317,7 @@ pub fn determine_all_events(
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
 
-    // ========================================================================
-    // MOUSE BUTTON EVENTS
-    // ========================================================================
+    // Mouse Button Events
 
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
@@ -384,9 +382,7 @@ pub fn determine_all_events(
         ));
     }
 
-    // ========================================================================
-    // MOUSE MOVEMENT EVENTS
-    // ========================================================================
+    // Mouse Movement Events
 
     let current_in_window = matches!(
         current_state.mouse_state.cursor_position,
@@ -435,9 +431,7 @@ pub fn determine_all_events(
         ));
     }
 
-    // ========================================================================
-    // KEYBOARD EVENTS
-    // ========================================================================
+    // Keyboard Events
 
     let current_key = current_state
         .keyboard_state
@@ -467,9 +461,7 @@ pub fn determine_all_events(
         ));
     }
 
-    // ========================================================================
-    // WINDOW STATE EVENTS
-    // ========================================================================
+    // Window State Events
 
     // Window resize
     if current_state.size.dimensions != previous_state.size.dimensions {
@@ -550,9 +542,7 @@ pub fn determine_all_events(
         ));
     }
 
-    // ========================================================================
-    // FILE DROP EVENTS
-    // ========================================================================
+    // File Drop Events
 
     if let Some(_hovered_file) = file_drop_manager.get_hovered_file() {
         events.push(SyntheticEvent::new(
@@ -574,9 +564,7 @@ pub fn determine_all_events(
         ));
     }
 
-    // ========================================================================
-    // GESTURE EVENTS
-    // ========================================================================
+    // Gesture Events
 
     if let Some(manager) = gesture_manager {
         let event_was_mouse_release = !current_mouse_down && previous_mouse_down;
@@ -714,17 +702,13 @@ pub fn determine_all_events(
         }
     }
 
-    // ========================================================================
-    // MANAGER EVENTS (Scroll, Text Input, etc.)
-    // ========================================================================
+    // Manager Events (Scroll, Text Input, etc.)
 
     for manager in managers {
         events.extend(manager.get_pending_events(timestamp.clone()));
     }
 
-    // ========================================================================
-    // DEDUPLICATION
-    // ========================================================================
+    // Deduplication
 
     deduplicate_synthetic_events(events)
 }

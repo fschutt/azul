@@ -1826,9 +1826,7 @@ fn get_image_key_for_image_source(
     None
 }
 
-// ============================================================================
 // Phase 3: Per-Page Display List Generation
-// ============================================================================
 
 /// Generate display lists for paged layout, one per page.
 /// 

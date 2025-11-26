@@ -1188,9 +1188,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // Trait Implementations for Event Filtering
-// ============================================================================
 
 impl azul_core::events::FocusManagerQuery for FocusManager {
     fn get_focused_node_id(&self) -> Option<azul_core::dom::DomNodeId> {

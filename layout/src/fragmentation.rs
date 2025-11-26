@@ -28,9 +28,7 @@ use azul_css::props::layout::fragmentation::{PageBreak, BreakInside, Orphans, Wi
 
 use crate::solver3::display_list::{DisplayList, DisplayListItem};
 
-// ============================================================================
 // Page Templates (Headers, Footers, Running Content)
-// ============================================================================
 
 /// Counter that tracks page numbers and other running content
 #[derive(Debug, Clone)]
@@ -309,9 +307,7 @@ impl PageTemplate {
     }
 }
 
-// ============================================================================
 // Box Break Behavior Classification
-// ============================================================================
 
 /// How a box should behave at fragmentation breaks
 #[derive(Debug, Clone)]
@@ -407,9 +403,7 @@ impl BreakPoint {
     }
 }
 
-// ============================================================================
 // Fragmentation Layout Context
-// ============================================================================
 
 /// A fragment of content placed on a specific page
 #[derive(Debug)]
@@ -754,9 +748,7 @@ impl FragmentationLayoutContext {
     }
 }
 
-// ============================================================================
 // Break Decision Logic
-// ============================================================================
 
 /// Result of deciding how to handle a box at a potential break point
 #[derive(Debug, Clone)]
@@ -863,9 +855,7 @@ fn decide_splittable_break(
     }
 }
 
-// ============================================================================
 // Helper Functions
-// ============================================================================
 
 fn is_forced_break(page_break: &PageBreak) -> bool {
     matches!(
