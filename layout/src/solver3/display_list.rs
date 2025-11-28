@@ -1873,287 +1873,11 @@ pub fn generate_display_lists_paged<T: ParsedFontTrait + Sync + 'static>(
         return Ok(vec![full_display_list]);
     }
     
-    // NEW: Use commit-based pagination
-    // Each item is assigned to exactly ONE page. Items that would span pages
-    // are pushed to the next page, which shifts all subsequent content.
-    paginate_display_list_with_commitment(full_display_list, page_content_height)
-}
-
-/// Paginate a display list using a "commitment" model.
-/// 
-/// Each display item is assigned to exactly ONE page:
-/// - If an item fits entirely on the current page, it stays there
-/// - If an item doesn't fit (or spans the page boundary), it's pushed to the next page
-/// - This creates a "page break shift" that affects all subsequent items
-///
-/// This avoids the duplication problem where items appear on multiple pages.
-fn paginate_display_list_with_commitment(
-    full_display_list: DisplayList,
-    page_content_height: f32,
-) -> Result<Vec<DisplayList>> {
-    // Collect items with their bounds
-    let items_with_bounds: Vec<(DisplayListItem, Option<LogicalRect>)> = full_display_list
-        .items
-        .into_iter()
-        .map(|item| {
-            let bounds = get_display_item_bounds(&item);
-            (item, bounds)
-        })
-        .collect();
-    
-    // Track cumulative shift per original Y position
-    // This maps original_y -> shift amount
-    // When we push an item to the next page, all items below it get shifted
-    let mut pages: Vec<Vec<DisplayListItem>> = vec![Vec::new()];
-    let mut current_page = 0;
-    let mut shift_amount = 0.0f32;
-    
-    // We need to process items in Y order for correct shifting
-    // Group items by their approximate Y position (top of bounds)
-    let mut sorted_items: Vec<(usize, DisplayListItem, Option<LogicalRect>)> = items_with_bounds
-        .into_iter()
-        .enumerate()
-        .map(|(i, (item, bounds))| (i, item, bounds))
-        .collect();
-    
-    // Sort by Y position (items without bounds go at the end)
-    sorted_items.sort_by(|a, b| {
-        let y_a = a.2.map(|r| r.origin.y).unwrap_or(f32::MAX);
-        let y_b = b.2.map(|r| r.origin.y).unwrap_or(f32::MAX);
-        y_a.partial_cmp(&y_b).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    
-    for (_original_idx, item, bounds) in sorted_items {
-        let Some(item_bounds) = bounds else {
-            // Items without spatial extent (like PopClip) - skip for now
-            // In a full implementation, we'd track clip stack state
-            continue;
-        };
-        
-        // Apply current shift to get the "virtual" position
-        let shifted_y = item_bounds.origin.y + shift_amount;
-        let item_top = shifted_y;
-        let item_bottom = shifted_y + item_bounds.size.height;
-        
-        // Calculate which page this item's top falls on
-        let page_for_top = (item_top / page_content_height).floor() as usize;
-        let page_bottom_y = (page_for_top + 1) as f32 * page_content_height;
-        
-        // Decision: Does the item fit entirely on its page?
-        let fits_on_page = item_bottom <= page_bottom_y + 0.5; // Small tolerance for floating point
-        
-        let target_page;
-        let page_relative_y;
-        
-        if fits_on_page {
-            // Item fits on current page
-            target_page = page_for_top;
-            page_relative_y = item_top - (page_for_top as f32 * page_content_height);
-        } else {
-            // Item doesn't fit - push to next page
-            // This creates additional shift for subsequent items
-            target_page = page_for_top + 1;
-            page_relative_y = 0.0; // Start at top of new page
-            
-            // Calculate how much extra shift this creates
-            // The item "wanted" to be at shifted_y, but we're moving it to the top of target_page
-            let new_position = target_page as f32 * page_content_height;
-            let extra_shift = new_position - item_bounds.origin.y;
-            
-            // Update shift for subsequent items if this pushes things forward
-            if extra_shift > shift_amount {
-                shift_amount = extra_shift;
-            }
-        }
-        
-        // Ensure we have enough pages
-        while pages.len() <= target_page {
-            pages.push(Vec::new());
-        }
-        
-        // Create the offset item for this page
-        let offset_item = offset_display_item_to_page(
-            item,
-            item_bounds.origin.y,  // Original Y
-            page_relative_y,       // New Y (page-relative)
-        );
-        
-        pages[target_page].push(offset_item);
-    }
-    
-    // Convert to DisplayList format
-    let result: Vec<DisplayList> = pages
-        .into_iter()
-        .map(|items| DisplayList {
-            node_mapping: vec![None; items.len()],
-            items,
-        })
-        .collect();
-    
-    // Ensure at least one page
-    if result.is_empty() {
-        return Ok(vec![DisplayList {
-            items: Vec::new(),
-            node_mapping: Vec::new(),
-        }]);
-    }
-    
-    Ok(result)
-}
-
-/// Offset a display item's Y coordinate from its original position to a new page-relative position.
-fn offset_display_item_to_page(
-    item: DisplayListItem,
-    original_y: f32,
-    new_y: f32,
-) -> DisplayListItem {
-    let y_delta = new_y - original_y;
-    
-    match item {
-        DisplayListItem::Rect { bounds, color, border_radius } => {
-            DisplayListItem::Rect {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-                border_radius,
-            }
-        }
-        
-        DisplayListItem::Border { bounds, widths, colors, styles, border_radius } => {
-            DisplayListItem::Border {
-                bounds: offset_rect_y(bounds, y_delta),
-                widths,
-                colors,
-                styles,
-                border_radius,
-            }
-        }
-        
-        DisplayListItem::SelectionRect { bounds, border_radius, color } => {
-            DisplayListItem::SelectionRect {
-                bounds: offset_rect_y(bounds, y_delta),
-                border_radius,
-                color,
-            }
-        }
-        
-        DisplayListItem::CursorRect { bounds, color } => {
-            DisplayListItem::CursorRect {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-            }
-        }
-        
-        DisplayListItem::Image { bounds, key } => {
-            DisplayListItem::Image {
-                bounds: offset_rect_y(bounds, y_delta),
-                key,
-            }
-        }
-        
-        DisplayListItem::TextLayout { layout, bounds, font_hash, font_size_px, color } => {
-            DisplayListItem::TextLayout {
-                layout,
-                bounds: offset_rect_y(bounds, y_delta),
-                font_hash,
-                font_size_px,
-                color,
-            }
-        }
-        
-        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect } => {
-            let offset_glyphs: Vec<GlyphInstance> = glyphs
-                .into_iter()
-                .map(|g| GlyphInstance {
-                    index: g.index,
-                    point: LogicalPosition {
-                        x: g.point.x,
-                        y: g.point.y + y_delta,
-                    },
-                    size: g.size,
-                })
-                .collect();
-            DisplayListItem::Text {
-                glyphs: offset_glyphs,
-                font_hash,
-                font_size_px,
-                color,
-                clip_rect: offset_rect_y(clip_rect, y_delta),
-            }
-        }
-        
-        DisplayListItem::Underline { bounds, color, thickness } => {
-            DisplayListItem::Underline {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-                thickness,
-            }
-        }
-        
-        DisplayListItem::Strikethrough { bounds, color, thickness } => {
-            DisplayListItem::Strikethrough {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-                thickness,
-            }
-        }
-        
-        DisplayListItem::Overline { bounds, color, thickness } => {
-            DisplayListItem::Overline {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-                thickness,
-            }
-        }
-        
-        DisplayListItem::ScrollBar { bounds, color, orientation, opacity_key, hit_id } => {
-            DisplayListItem::ScrollBar {
-                bounds: offset_rect_y(bounds, y_delta),
-                color,
-                orientation,
-                opacity_key,
-                hit_id,
-            }
-        }
-        
-        DisplayListItem::HitTestArea { bounds, tag } => {
-            DisplayListItem::HitTestArea {
-                bounds: offset_rect_y(bounds, y_delta),
-                tag,
-            }
-        }
-        
-        DisplayListItem::IFrame { child_dom_id, bounds, clip_rect } => {
-            DisplayListItem::IFrame {
-                child_dom_id,
-                bounds: offset_rect_y(bounds, y_delta),
-                clip_rect: offset_rect_y(clip_rect, y_delta),
-            }
-        }
-        
-        // State management items pass through unchanged
-        DisplayListItem::PushClip { bounds, border_radius } => {
-            DisplayListItem::PushClip {
-                bounds: offset_rect_y(bounds, y_delta),
-                border_radius,
-            }
-        }
-        DisplayListItem::PopClip => DisplayListItem::PopClip,
-        DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
-            DisplayListItem::PushScrollFrame {
-                clip_bounds: offset_rect_y(clip_bounds, y_delta),
-                content_size,
-                scroll_id,
-            }
-        }
-        DisplayListItem::PopScrollFrame => DisplayListItem::PopScrollFrame,
-        DisplayListItem::PushStackingContext { bounds, z_index } => {
-            DisplayListItem::PushStackingContext {
-                bounds: offset_rect_y(bounds, y_delta),
-                z_index,
-            }
-        }
-        DisplayListItem::PopStackingContext => DisplayListItem::PopStackingContext,
-    }
+    // Use simple slicer-based pagination for this legacy API
+    // The new commitment-based pagination with CSS break properties
+    // is used via layout_document_paged_with_config
+    let config = SlicerConfig::simple(page_content_height);
+    paginate_display_list_with_slicer(full_display_list, &config)
 }
 
 /// Get the bounds of a display list item, if it has spatial extent.
@@ -2267,77 +1991,104 @@ fn clip_and_offset_display_item(
             #[cfg(feature = "text_layout")]
             {
                 if let Some(unified_layout) = layout.downcast_ref::<crate::text3::cache::UnifiedLayout>() {
-                    // Item positions in UnifiedLayout are relative to the layout origin (0,0)
-                    // bounds.origin.y is the position of this TextLayout block on the canvas
+                    // The bounds.origin.y is the position of this TextLayout block on the infinite canvas.
+                    // Item positions within UnifiedLayout are relative to this origin.
                     // 
-                    // To filter: compute absolute position of each item on the canvas:
-                    //   absolute_y = bounds.origin.y + item.position.y
-                    // 
-                    // Use CENTER-POINT DECISION: each item belongs to exactly ONE page,
-                    // determined by which page contains the item's vertical center.
-                    // This prevents text duplication across page boundaries.
+                    // For pagination:
+                    // - page_top, page_bottom define the slice of the infinite canvas for this page
+                    // - We filter items whose center falls within this page
+                    // - We then offset item positions to be relative to page_top (so page starts at y=0)
                     
                     let layout_origin_y = bounds.origin.y;
+                    let layout_origin_x = bounds.origin.x;
                     
+                    // First pass: filter items that belong to this page
+                    // An item belongs to this page if its center point falls within [page_top, page_bottom)
                     let filtered_items: Vec<_> = unified_layout.items.iter()
                         .filter(|item| {
                             let item_y_relative = item.position.y;
                             let item_height = item.item.bounds().height;
                             
-                            // Absolute position on canvas
+                            // Absolute position on the infinite canvas
                             let item_y_absolute = layout_origin_y + item_y_relative;
                             
-                            // Center-point decision: item belongs to page containing its center
-                            // This ensures each item appears on exactly ONE page
+                            // Center-point decision for page assignment
                             let item_center_y = item_y_absolute + (item_height / 2.0);
                             item_center_y >= page_top && item_center_y < page_bottom
                         })
-                        .map(|item| {
-                            // Calculate offset to translate item to page-local coordinates
-                            // The new bounds will start at y = max(0, bounds.origin.y - page_top)
-                            // Items need to be offset accordingly
-                            let offset_y = if page_top > layout_origin_y {
-                                page_top - layout_origin_y
-                            } else {
-                                0.0
-                            };
-                            
-                            crate::text3::cache::PositionedItem {
-                                item: item.item.clone(),
-                                position: crate::text3::cache::Point {
-                                    x: item.position.x,
-                                    y: item.position.y - offset_y,
-                                },
-                                line_index: item.line_index,
-                            }
-                        })
+                        .cloned()
                         .collect();
                     
                     if filtered_items.is_empty() {
                         return None;
                     }
                     
+                    // Calculate the vertical offset needed to convert from canvas coords to page coords
+                    // All Y positions need to subtract page_top to become page-relative
+                    // Additionally, the TextLayout bounds.origin.y might be above or below page_top
+                    
+                    // The new bounds origin for this page's TextLayout:
+                    // - X stays the same
+                    // - Y becomes: max(0, bounds.origin.y - page_top)
+                    //   If bounds.origin.y < page_top, some items are above the page top,
+                    //   but they passed the filter (their center is on this page)
+                    
+                    let new_origin_y = (layout_origin_y - page_top).max(0.0);
+                    
+                    // Calculate the offset that items need to apply to their positions
+                    // Items are currently relative to layout_origin_y on the canvas
+                    // They need to become relative to new_origin_y on the page
+                    // 
+                    // Current absolute Y = layout_origin_y + item.position.y
+                    // New page Y = current_absolute - page_top
+                    // New relative = new_page_y - new_origin_y
+                    //              = (layout_origin_y + item.position.y - page_top) - new_origin_y
+                    
+                    // Calculate bounds for the filtered items
+                    let mut min_y = f32::MAX;
+                    let mut max_y = f32::MIN;
+                    let mut max_width = 0.0f32;
+                    
+                    let offset_items: Vec<_> = filtered_items.into_iter()
+                        .map(|mut item| {
+                            // Calculate the item's position on the page
+                            let abs_y = layout_origin_y + item.position.y;
+                            let page_y = abs_y - page_top;
+                            
+                            // The item position should be relative to new_origin_y
+                            // Since new_origin_y is where the TextLayout block starts on the page
+                            let new_item_y = page_y - new_origin_y;
+                            
+                            let item_bounds = item.item.bounds();
+                            min_y = min_y.min(new_item_y);
+                            max_y = max_y.max(new_item_y + item_bounds.height);
+                            max_width = max_width.max(item.position.x + item_bounds.width);
+                            
+                            item.position.y = new_item_y;
+                            item
+                        })
+                        .collect();
+                    
                     let new_layout = crate::text3::cache::UnifiedLayout {
-                        items: filtered_items,
+                        items: offset_items,
                         overflow: unified_layout.overflow.clone(),
                     };
                     
-                    // Calculate new bounds Y position for the clipped layout
-                    let new_bounds_y = if page_top > layout_origin_y {
-                        0.0 // Content starts at top of page
-                    } else {
-                        layout_origin_y - page_top
+                    // Calculate the new bounds for this page's TextLayout
+                    let new_bounds = LogicalRect {
+                        origin: LogicalPosition {
+                            x: layout_origin_x,
+                            y: new_origin_y,
+                        },
+                        size: LogicalSize {
+                            width: max_width.max(bounds.size.width),
+                            height: (max_y - min_y.min(0.0)).max(0.0),
+                        },
                     };
                     
                     return Some(DisplayListItem::TextLayout {
                         layout: Arc::new(new_layout) as Arc<dyn std::any::Any + Send + Sync>,
-                        bounds: LogicalRect {
-                            origin: LogicalPosition {
-                                x: bounds.origin.x,
-                                y: new_bounds_y,
-                            },
-                            size: bounds.size,
-                        },
+                        bounds: new_bounds,
                         font_hash: *font_hash,
                         font_size_px: *font_size_px,
                         color: *color,
@@ -2526,7 +2277,9 @@ fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
 
 use crate::solver3::pagination::{
     HeaderFooterConfig, PageInfo, TableHeaderTracker, TableHeaderInfo, MarginBoxContent,
+    is_forced_break, is_avoid_break,
 };
+use azul_css::props::layout::fragmentation::{PageBreak, BreakInside};
 
 /// Configuration for the slicer-based pagination.
 #[derive(Debug, Clone, Default)]
@@ -2631,6 +2384,29 @@ pub fn paginate_display_list_with_slicer(
     full_display_list: DisplayList,
     config: &SlicerConfig,
 ) -> Result<Vec<DisplayList>> {
+    // Use default (no break properties) implementation
+    paginate_display_list_with_slicer_and_breaks(
+        full_display_list,
+        config,
+        |_| BreakProperties::default(),
+    )
+}
+
+/// Paginate with CSS break property support.
+/// 
+/// This function calculates page boundaries based on CSS break-before, break-after,
+/// and break-inside properties, then clips content to those boundaries.
+/// 
+/// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
+/// to honor break properties.
+pub fn paginate_display_list_with_slicer_and_breaks<F>(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    get_break_properties: F,
+) -> Result<Vec<DisplayList>> 
+where
+    F: Fn(Option<azul_core::dom::NodeId>) -> BreakProperties,
+{
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
         return Ok(vec![full_display_list]);
     }
@@ -2656,34 +2432,33 @@ pub fn paginate_display_list_with_slicer(
         normal_page_content_height
     };
     
-    // Determine total content height to know how many pages we need
-    let total_height = calculate_display_list_height(&full_display_list);
+    // =========================================================================
+    // STEP 1: Calculate page break positions based on CSS properties
+    // =========================================================================
+    // 
+    // Instead of using regular intervals, we calculate where page breaks
+    // should occur based on:
+    // - break-before: always → force break before this item
+    // - break-after: always → force break after this item
+    // - break-inside: avoid → don't break inside this item (push to next page if needed)
     
-    // Calculate number of pages accounting for different first page height
-    let num_pages = if total_height <= 0.0 {
-        1
-    } else if normal_page_content_height <= 0.0 {
-        1
-    } else if total_height <= first_page_content_height {
-        1
-    } else {
-        // First page takes first_page_content_height, rest use normal_page_content_height
-        let remaining_after_first = total_height - first_page_content_height;
-        1 + ((remaining_after_first / normal_page_content_height).ceil() as usize).max(0)
-    };
+    let page_breaks = calculate_page_break_positions(
+        &full_display_list,
+        first_page_content_height,
+        normal_page_content_height,
+        &get_break_properties,
+    );
+    
+    let num_pages = page_breaks.len();
     
     // Create per-page display lists by slicing the master list
     let mut pages: Vec<DisplayList> = Vec::with_capacity(num_pages);
     
-    // Track cumulative content position (source Y coordinate)
-    let mut cumulative_content_y = 0.0f32;
-    
-    for page_idx in 0..num_pages {
+    for (page_idx, &(content_start_y, content_end_y)) in page_breaks.iter().enumerate() {
         // Generate page info for header/footer content
         let page_info = PageInfo::new(page_idx + 1, num_pages);
         
         // Calculate per-page header/footer space
-        // On the first page with skip_first_page, we don't reserve space for header/footer
         let skip_this_page = config.header_footer.skip_first_page && page_info.is_first;
         let header_space = if config.header_footer.show_header && !skip_this_page {
             config.header_footer.header_height
@@ -2696,18 +2471,12 @@ pub fn paginate_display_list_with_slicer(
             0.0
         };
         
-        // Calculate the slice of content for this page
-        let page_effective_height = config.page_content_height - header_space - footer_space;
-        let content_start_y = cumulative_content_y;
-        let content_end_y = content_start_y + page_effective_height;
-        
-        // Update cumulative position for next page
-        cumulative_content_y = content_end_y;
+        let _ = footer_space; // Currently unused but reserved for future
         
         let mut page_items = Vec::new();
         let mut page_node_mapping = Vec::new();
         
-        // 1. Add header if enabled (at top of page, before content)
+        // 1. Add header if enabled
         if config.header_footer.show_header && !skip_this_page {
             let header_text = config.header_footer.header_text(page_info);
             if !header_text.is_empty() {
@@ -2731,8 +2500,7 @@ pub fn paginate_display_list_with_slicer(
             }
         }
         
-        // 2. Inject repeated table headers for this page
-        // These headers belong to tables that started on a previous page but continue here
+        // 2. Inject repeated table headers (if any)
         let repeated_headers = config.table_headers.get_repeated_headers_for_page(
             page_idx,
             content_start_y,
@@ -2741,33 +2509,33 @@ pub fn paginate_display_list_with_slicer(
         
         let mut thead_total_height = 0.0f32;
         for (y_offset_from_page_top, thead_items, thead_height) in repeated_headers {
-            // Clone and translate the thead items to this page
-            // The thead should appear right after the page header
             let thead_y = header_space + y_offset_from_page_top;
             for item in thead_items {
                 let translated_item = offset_display_item_y(item, thead_y);
                 page_items.push(translated_item);
-                page_node_mapping.push(None); // No node mapping for cloned items
+                page_node_mapping.push(None);
             }
             thead_total_height = thead_total_height.max(thead_height);
         }
         
-        // 3. Offset for content (after header AND repeated table headers)
+        // 3. Calculate content offset (after header and repeated table headers)
         let content_y_offset = header_space + thead_total_height;
         
         // 4. Slice and offset content items
         for (item_idx, item) in full_display_list.items.iter().enumerate() {
-            // Clip to content bounds in source coordinates
             if let Some(clipped_item) = clip_and_offset_display_item(item, content_start_y, content_end_y) {
-                // Further offset by header height so content appears below header
-                let offset_item = offset_display_item_y(&clipped_item, content_y_offset);
-                page_items.push(offset_item);
+                let final_item = if content_y_offset > 0.0 {
+                    offset_display_item_y(&clipped_item, content_y_offset)
+                } else {
+                    clipped_item
+                };
+                page_items.push(final_item);
                 let node_mapping = full_display_list.node_mapping.get(item_idx).copied().flatten();
                 page_node_mapping.push(node_mapping);
             }
         }
         
-        // 5. Add footer if enabled (at bottom of page, after content)
+        // 5. Add footer if enabled
         if config.header_footer.show_footer && !skip_this_page {
             let footer_text = config.header_footer.footer_text(page_info);
             if !footer_text.is_empty() {
@@ -2804,6 +2572,53 @@ pub fn paginate_display_list_with_slicer(
     }
     
     Ok(pages)
+}
+
+/// Calculate page break positions using REGULAR INTERVALS.
+/// 
+/// Returns a vector of (start_y, end_y) tuples representing each page's content bounds.
+/// 
+/// **IMPORTANT**: CSS break properties (break-before, break-after, break-inside) are 
+/// currently NOT supported because they require shifting items, not just adjusting 
+/// page boundaries. The slicer model assumes items stay at their original canvas 
+/// positions. See PAGINATION_DEBUG_STATE.md for details.
+/// 
+/// TODO: To properly support CSS break properties, we need a commitment-based approach
+/// that actually moves items when break-before: always is encountered.
+fn calculate_page_break_positions<F>(
+    display_list: &DisplayList,
+    first_page_height: f32,
+    normal_page_height: f32,
+    _get_break_properties: &F,  // Currently unused - see note above
+) -> Vec<(f32, f32)>
+where
+    F: Fn(Option<azul_core::dom::NodeId>) -> BreakProperties,
+{
+    let total_height = calculate_display_list_height(display_list);
+    
+    if total_height <= 0.0 || first_page_height <= 0.0 {
+        return vec![(0.0, total_height.max(first_page_height))];
+    }
+    
+    // Use simple regular intervals for page breaks
+    // This ensures items at Y=X are correctly placed on page floor(X / page_height)
+    let mut page_breaks: Vec<(f32, f32)> = Vec::new();
+    let mut y = 0.0f32;
+    let mut current_page_height = first_page_height;
+    
+    while y < total_height {
+        let page_end = (y + current_page_height).min(total_height);
+        page_breaks.push((y, page_end));
+        y = page_end;
+        current_page_height = normal_page_height;
+    }
+    
+    // Ensure at least one page
+    if page_breaks.is_empty() {
+        page_breaks.push((0.0, total_height.max(first_page_height)));
+    }
+    
+    page_breaks
 }
 
 /// Text alignment for generated header/footer text.
@@ -3137,11 +2952,8 @@ where
             for p in start_page..=end_page {
                 let (p_top, p_bottom) = config.page_bounds(p);
                 // Adjust item for the shift when clipping
-                let adjusted_item = offset_display_item_to_page(
-                    item.clone(),
-                    item_bounds.origin.y,
-                    shifted_y,
-                );
+                let y_delta = shifted_y - item_bounds.origin.y;
+                let adjusted_item = offset_display_item_y(&item, y_delta);
                 if let Some(clipped) = clip_and_offset_display_item(&adjusted_item, p_top, p_bottom) {
                     ensure_page_exists(&mut pages, &mut page_node_mappings, p);
                     pages[p].push(clipped);
@@ -3180,4 +2992,326 @@ fn ensure_page_exists(
     while mappings.len() <= page_idx {
         mappings.push(Vec::new());
     }
+}
+
+// =============================================================================
+// COMMITMENT-BASED PAGINATION WITH CSS BREAK PROPERTIES
+// =============================================================================
+//
+// This approach combines the slicer model with CSS fragmentation properties:
+// 1. Pre-scan to identify "Keep-Together Groups" (break-after: avoid)
+// 2. Single-pass placement with commitment (no backtracking)
+// 3. Decision leeway to avoid tiny fragments
+// 4. Force breaks for break-before: always
+
+/// Break property information for pagination decisions.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BreakProperties {
+    pub break_before: PageBreak,
+    pub break_after: PageBreak,
+    pub break_inside: BreakInside,
+}
+
+/// Paginate a display list using a "commitment" model with CSS break property support.
+/// 
+/// This function:
+/// 1. Pre-processes to identify "Keep-Together Groups" (e.g., Heading + Paragraph)
+/// 2. Uses a single-pass greedy placement algorithm
+/// 3. Respects `break-before: always` for forced page breaks
+/// 4. Respects `break-after: avoid` by grouping with subsequent content
+/// 5. Uses "decision leeway" to avoid tiny fragments at page boundaries
+/// 
+/// # Arguments
+/// * `full_display_list` - The complete display list from layout
+/// * `config` - Slicer configuration (page height, headers/footers, etc.)
+/// * `get_break_properties` - Closure to lookup CSS break properties for a node
+pub fn paginate_display_list_with_commitment<F>(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    get_break_properties: F,
+) -> Result<Vec<DisplayList>> 
+where
+    F: Fn(Option<azul_core::dom::NodeId>) -> BreakProperties,
+{
+    use std::collections::HashMap;
+    
+    if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
+        return Ok(vec![full_display_list]);
+    }
+    
+    let page_content_height = config.page_content_height;
+    
+    // Phase 1: Identify "Keep-Together Groups" (break-after: avoid chains)
+    // Items with break-after: avoid are grouped with their immediate successor
+    let num_items = full_display_list.items.len();
+    let mut item_group_ids = vec![0usize; num_items];
+    let mut current_group_id = 1usize;
+    
+    for i in 0..num_items {
+        let node_id = full_display_list.node_mapping.get(i).copied().flatten();
+        let props = get_break_properties(node_id);
+        
+        // If this item says "avoid break after", group it with the next item
+        if is_avoid_break(props.break_after) && i + 1 < num_items {
+            if item_group_ids[i] == 0 {
+                item_group_ids[i] = current_group_id;
+            }
+            // Add next item to same group
+            item_group_ids[i + 1] = item_group_ids[i];
+            
+            // Check if the chain continues
+            let next_node_id = full_display_list.node_mapping.get(i + 1).copied().flatten();
+            let next_props = get_break_properties(next_node_id);
+            if !is_avoid_break(next_props.break_after) {
+                current_group_id += 1;
+            }
+        }
+    }
+    
+    // Phase 2: Collect items with metadata, sorted by Y position
+    let mut items_with_meta: Vec<_> = full_display_list.items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let bounds = get_display_item_bounds(item)?;
+            let node_id = full_display_list.node_mapping.get(i).copied().flatten();
+            let props = get_break_properties(node_id);
+            let group_id = item_group_ids[i];
+            Some((i, item.clone(), bounds, node_id, props, group_id))
+        })
+        .collect();
+    
+    // Sort by Y position to process in layout order
+    items_with_meta.sort_by(|a, b| {
+        a.2.origin.y.partial_cmp(&b.2.origin.y).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    
+    // Phase 3: Calculate group bounds (for keeping groups together)
+    let mut group_bounds: HashMap<usize, (f32, f32)> = HashMap::new(); // group_id -> (min_y, max_y)
+    for &(_, _, ref bounds, _, _, group_id) in &items_with_meta {
+        if group_id > 0 {
+            let item_top = bounds.origin.y;
+            let item_bottom = bounds.origin.y + bounds.size.height;
+            group_bounds
+                .entry(group_id)
+                .and_modify(|(min_y, max_y)| {
+                    *min_y = min_y.min(item_top);
+                    *max_y = max_y.max(item_bottom);
+                })
+                .or_insert((item_top, item_bottom));
+        }
+    }
+    
+    // Phase 4: Single-pass placement with commitment
+    let mut pages: Vec<Vec<DisplayListItem>> = vec![Vec::new()];
+    let mut page_node_mappings: Vec<Vec<Option<azul_core::dom::NodeId>>> = vec![Vec::new()];
+    
+    // Track cumulative shift - ONLY used for forced breaks (break-before/after: always)
+    // This is NOT applied to normal items - only to items that come after a forced break
+    let mut cumulative_shift = 0.0f32;
+    
+    // Track if the NEXT item needs to be shifted (due to break-after on previous item)
+    let mut pending_break_after_shift: Option<f32> = None;
+    
+    // Track which groups have been committed to which page
+    let mut group_page_commitment: HashMap<usize, usize> = HashMap::new();
+    
+    // Track items we've already placed (by original index) to avoid duplicates
+    let mut placed_items: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    
+    for (orig_idx, item, bounds, node_id, props, group_id) in items_with_meta {
+        if placed_items.contains(&orig_idx) {
+            continue;
+        }
+        
+        // Apply any pending shift from a previous break-after
+        if let Some(pending_shift) = pending_break_after_shift.take() {
+            cumulative_shift = pending_shift;
+        }
+        
+        // For normal items (no break-before), use original position
+        // Only apply cumulative_shift if there was a preceding forced break
+        let item_shift = if is_forced_break(props.break_before) || cumulative_shift > 0.0 {
+            cumulative_shift
+        } else {
+            0.0
+        };
+        
+        let shifted_y = bounds.origin.y + item_shift;
+        let item_height = bounds.size.height;
+        
+        // Determine natural page for this item
+        let natural_page = (shifted_y / page_content_height).floor() as usize;
+        let mut target_page = natural_page;
+        let mut this_item_shift = item_shift;
+        
+        // Check for forced break-before
+        if is_forced_break(props.break_before) {
+            let page_start_y = target_page as f32 * page_content_height;
+            // Only force break if we're not already at the top of a page
+            if shifted_y > page_start_y + 1.0 {
+                target_page += 1;
+                // Calculate shift to push this item to the start of the next page
+                let new_page_start = target_page as f32 * page_content_height;
+                this_item_shift = new_page_start - bounds.origin.y;
+                cumulative_shift = this_item_shift;
+            }
+        }
+        
+        // Check group commitment (if part of a group, follow the group's page)
+        if group_id > 0 {
+            if let Some(&committed_page) = group_page_commitment.get(&group_id) {
+                if committed_page > target_page {
+                    target_page = committed_page;
+                }
+            }
+        }
+        
+        // Recalculate position after potential shift updates
+        let shifted_y = bounds.origin.y + this_item_shift;
+        let page_end_y = (target_page + 1) as f32 * page_content_height;
+        let remaining_space = page_end_y - shifted_y;
+        
+        // Decision leeway: If the item (or group) would leave a tiny fragment, push it
+        let effective_height = if group_id > 0 {
+            // Use group height for decision
+            if let Some(&(group_min, group_max)) = group_bounds.get(&group_id) {
+                group_max - group_min
+            } else {
+                item_height
+            }
+        } else {
+            item_height
+        };
+        
+        let fits_on_page = effective_height <= remaining_space;
+        let fits_on_empty_page = effective_height <= page_content_height;
+        
+        // Check if we should push to next page (ONLY for break-inside: avoid scenarios)
+        // For normal content, we let it flow naturally across pages
+        let should_push = if !fits_on_page && fits_on_empty_page {
+            // Only push if break_inside is avoid AND the item can fit on an empty page
+            props.break_inside == BreakInside::Avoid
+        } else {
+            false
+        };
+        
+        if should_push {
+            target_page += 1;
+            let new_page_start = target_page as f32 * page_content_height;
+            this_item_shift = new_page_start - bounds.origin.y;
+            // Don't propagate this shift to subsequent items unless there's a break-after
+        }
+        
+        // Commit group to this page
+        if group_id > 0 {
+            group_page_commitment.insert(group_id, target_page);
+        }
+        
+        // Place the item (potentially split across pages)
+        let final_y = bounds.origin.y + this_item_shift;
+        let final_bottom = final_y + item_height;
+        
+        let start_page = (final_y / page_content_height).floor() as usize;
+        let end_page = ((final_bottom - 0.01).max(final_y) / page_content_height).floor() as usize;
+        
+        for p in start_page..=end_page {
+            let p_top = p as f32 * page_content_height;
+            let p_bottom = (p + 1) as f32 * page_content_height;
+            
+            // Create a shifted version of the item (only if shift is needed)
+            let item_to_clip = if this_item_shift != 0.0 {
+                offset_display_item_y(&item, this_item_shift)
+            } else {
+                item.clone()
+            };
+            
+            if let Some(clipped) = clip_and_offset_display_item(&item_to_clip, p_top, p_bottom) {
+                ensure_page_exists(&mut pages, &mut page_node_mappings, p);
+                pages[p].push(clipped);
+                page_node_mappings[p].push(node_id);
+            }
+        }
+        
+        placed_items.insert(orig_idx);
+        
+        // Handle break-after: always
+        // After placing this item, set up a pending shift for the NEXT item
+        if is_forced_break(props.break_after) {
+            let item_end_page = end_page;
+            let next_page_start = (item_end_page + 1) as f32 * page_content_height;
+            // Calculate how much the next item needs to be shifted to land at next page start
+            // The next item's original Y will need this much shift
+            pending_break_after_shift = Some(next_page_start - bounds.origin.y - item_height);
+        }
+    }
+    
+    // Phase 5: Handle items without bounds (stateless items like PopClip)
+    // For now, skip them as they don't affect visual output
+    
+    // Phase 6: Add headers and footers if configured
+    let num_pages = pages.len();
+    for page_idx in 0..num_pages {
+        let page_info = PageInfo::new(page_idx + 1, num_pages);
+        let skip_this_page = config.header_footer.skip_first_page && page_info.is_first;
+        
+        // Add header
+        if config.header_footer.show_header && !skip_this_page {
+            let header_text = config.header_footer.header_text(page_info);
+            if !header_text.is_empty() {
+                let header_items = generate_text_display_items(
+                    &header_text,
+                    LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: 0.0 },
+                        size: LogicalSize { 
+                            width: config.page_width, 
+                            height: config.header_footer.header_height 
+                        },
+                    },
+                    config.header_footer.font_size,
+                    config.header_footer.text_color,
+                    TextAlignment::Center,
+                );
+                // Insert headers at the beginning
+                for (i, item) in header_items.into_iter().enumerate() {
+                    pages[page_idx].insert(i, item);
+                    page_node_mappings[page_idx].insert(i, None);
+                }
+            }
+        }
+        
+        // Add footer
+        if config.header_footer.show_footer && !skip_this_page {
+            let footer_text = config.header_footer.footer_text(page_info);
+            if !footer_text.is_empty() {
+                let footer_y = page_content_height - config.header_footer.footer_height;
+                let footer_items = generate_text_display_items(
+                    &footer_text,
+                    LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: footer_y },
+                        size: LogicalSize { 
+                            width: config.page_width, 
+                            height: config.header_footer.footer_height 
+                        },
+                    },
+                    config.header_footer.font_size,
+                    config.header_footer.text_color,
+                    TextAlignment::Center,
+                );
+                for item in footer_items {
+                    pages[page_idx].push(item);
+                    page_node_mappings[page_idx].push(None);
+                }
+            }
+        }
+    }
+    
+    // Convert to DisplayList format
+    let result: Vec<DisplayList> = pages
+        .into_iter()
+        .zip(page_node_mappings.into_iter())
+        .map(|(items, mappings)| DisplayList { items, node_mapping: mappings })
+        .collect();
+    
+    Ok(if result.is_empty() { vec![DisplayList::default()] } else { result })
 }

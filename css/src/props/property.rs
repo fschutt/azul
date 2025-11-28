@@ -68,7 +68,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 145] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 148] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -212,6 +212,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 145] = [
     (CssPropertyType::BreakBefore, "break-before"),
     (CssPropertyType::BreakAfter, "break-after"),
     (CssPropertyType::BreakInside, "break-inside"),
+    // CSS 2.1 legacy aliases for page breaking
+    (CssPropertyType::BreakBefore, "page-break-before"),
+    (CssPropertyType::BreakAfter, "page-break-after"),
+    (CssPropertyType::BreakInside, "page-break-inside"),
     (CssPropertyType::Orphans, "orphans"),
     (CssPropertyType::Widows, "widows"),
     (CssPropertyType::BoxDecorationBreak, "box-decoration-break"),

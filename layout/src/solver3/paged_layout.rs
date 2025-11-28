@@ -47,6 +47,7 @@ use crate::{
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
+        getters::{get_break_before, get_break_after, get_break_inside},
         pagination::FakePageConfig,
         LayoutContext, LayoutError, Result,
     },
@@ -255,24 +256,27 @@ where
         fragmentation_context: Some(&mut fragmentation_context),
     };
     
-    // NEW: Use the slicer-based pagination approach
+    // NEW: Use the commitment-based pagination approach with CSS break properties
     // 
     // This treats pages as viewports into a single infinite canvas:
     // 1. Generate ONE complete display list on infinite vertical strip
-    // 2. Slice it into per-page lists by clipping items at page boundaries
-    // 3. Items that span pages are clipped (backgrounds split correctly)
-    // 4. Headers and footers are injected per-page
+    // 2. Analyze CSS break properties (break-before, break-after, break-inside)
+    // 3. Calculate page boundaries based on break properties
+    // 4. Slice content to page boundaries (items are NEVER shifted, only clipped)
+    // 5. Headers and footers are injected per-page
     //
-    // Benefits over the old node-based approach:
+    // Benefits over the old approach:
     // - No coordinate desynchronization between page_index and actual Y position
     // - Backgrounds render correctly (clipped, not torn/duplicated)
     // - Simple mental model: pages are just views into continuous content
     // - Headers/footers with page numbers are automatically generated
+    // - CSS fragmentation properties are respected
     
     use crate::solver3::display_list::{
         generate_display_list, 
-        paginate_display_list_with_slicer,
+        paginate_display_list_with_slicer_and_breaks,
         SlicerConfig,
+        BreakProperties,
     };
     
     // Step 1: Generate ONE complete display list (infinite canvas)
@@ -296,12 +300,7 @@ where
     }
     
     // Step 2: Configure the slicer with page dimensions and headers/footers
-    // Get page width - use viewport width as fallback
     let page_width = viewport.size.width;
-    
-    // Convert FakePageConfig to internal HeaderFooterConfig
-    // NOTE: Full CSS @page rule parsing is not yet implemented.
-    // The FakePageConfig provides programmatic control as a temporary solution.
     let header_footer = page_config.to_header_footer_config();
     
     if let Some(msgs) = ctx.debug_messages {
@@ -322,12 +321,26 @@ where
         table_headers: Default::default(),
     };
     
-    // Step 3: Slice the display list into per-page lists
-    let pages = paginate_display_list_with_slicer(full_display_list, &slicer_config)?;
+    // Step 3: Create break property lookup closure
+    let styled_dom_ref = &new_dom;
+    let get_break_props = |node_id: Option<azul_core::dom::NodeId>| -> BreakProperties {
+        BreakProperties {
+            break_before: get_break_before(styled_dom_ref, node_id),
+            break_after: get_break_after(styled_dom_ref, node_id),
+            break_inside: get_break_inside(styled_dom_ref, node_id),
+        }
+    };
+    
+    // Step 4: Paginate with CSS break property support
+    let pages = paginate_display_list_with_slicer_and_breaks(
+        full_display_list, 
+        &slicer_config,
+        get_break_props,
+    )?;
     
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Paginated into {} pages using slicer approach",
+            "[PagedLayout] Paginated into {} pages with CSS break support",
             pages.len()
         )));
     }
