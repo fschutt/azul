@@ -6,6 +6,27 @@
 //! 1. page_index is assigned to nodes DURING layout based on Y position
 //! 2. generate_display_lists_paged() creates per-page DisplayLists by filtering
 //! 3. No post-hoc fragmentation is needed
+//!
+//! ## Page Header/Footer Configuration
+//!
+//! Page headers and footers can be configured using `FakePageConfig`:
+//!
+//! ```rust,ignore
+//! use azul_layout::solver3::pagination::FakePageConfig;
+//!
+//! // Simple footer with "Page X of Y"
+//! let page_config = FakePageConfig::new()
+//!     .with_footer_page_numbers();
+//!
+//! // Or with custom text
+//! let page_config = FakePageConfig::new()
+//!     .with_header_text("My Document")
+//!     .with_footer_page_numbers()
+//!     .skip_first_page(true);
+//! ```
+//!
+//! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
+//! provides programmatic control over page decoration as a temporary solution.
 
 use std::collections::BTreeMap;
 
@@ -25,7 +46,8 @@ use crate::{
     paged::FragmentationContext,
     solver3::{
         cache::LayoutCache,
-        display_list::{DisplayList, generate_display_lists_paged},
+        display_list::DisplayList,
+        pagination::FakePageConfig,
         LayoutContext, LayoutError, Result,
     },
 };
@@ -39,6 +61,9 @@ use crate::{
 /// 2. Nodes get their page_index assigned during layout based on absolute Y position
 /// 3. DisplayLists are generated per-page by filtering items based on page bounds
 ///
+/// Uses default page header/footer configuration (page numbers in footer).
+/// For custom headers/footers, use `layout_document_paged_with_config`.
+///
 /// # Arguments
 /// * `fragmentation_context` - Controls page size and fragmentation behavior
 /// * Other arguments same as `layout_document()`
@@ -48,6 +73,86 @@ use crate::{
 /// elements that fit on that page, with Y-coordinates relative to the page origin.
 #[cfg(feature = "text_layout")]
 pub fn layout_document_paged<T, F>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    fragmentation_context: FragmentationContext,
+    new_dom: StyledDom,
+    viewport: LogicalRect,
+    font_manager: &mut crate::font_traits::FontManager<T>,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    selections: &BTreeMap<DomId, SelectionState>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: azul_core::resources::IdNamespace,
+    dom_id: DomId,
+    font_loader: F,
+) -> Result<Vec<DisplayList>> 
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+{
+    // Use default page config (page numbers in footer)
+    let page_config = FakePageConfig::new().with_footer_page_numbers();
+    
+    layout_document_paged_with_config(
+        cache,
+        text_cache,
+        fragmentation_context,
+        new_dom,
+        viewport,
+        font_manager,
+        scroll_offsets,
+        selections,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        font_loader,
+        page_config,
+    )
+}
+
+/// Layout a document with integrated pagination and custom page configuration.
+///
+/// This function is the same as `layout_document_paged` but allows you to
+/// specify custom headers and footers via `FakePageConfig`.
+///
+/// # Arguments
+/// * `page_config` - Configuration for page headers/footers (see `FakePageConfig`)
+/// * Other arguments same as `layout_document_paged()`
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use azul_layout::solver3::pagination::FakePageConfig;
+///
+/// let page_config = FakePageConfig::new()
+///     .with_header_text("Company Report 2024")
+///     .with_footer_page_numbers()
+///     .skip_first_page(true);
+///
+/// let pages = layout_document_paged_with_config(
+///     &mut cache,
+///     &mut text_cache,
+///     fragmentation_context,
+///     dom,
+///     viewport,
+///     &mut font_manager,
+///     &scroll_offsets,
+///     &selections,
+///     &mut debug_messages,
+///     gpu_value_cache,
+///     renderer_resources,
+///     id_namespace,
+///     dom_id,
+///     font_loader,
+///     page_config,
+/// )?;
+/// ```
+#[cfg(feature = "text_layout")]
+pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     mut fragmentation_context: FragmentationContext,
@@ -62,6 +167,7 @@ pub fn layout_document_paged<T, F>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
     font_loader: F,
+    page_config: FakePageConfig,
 ) -> Result<Vec<DisplayList>> 
 where
     T: ParsedFontTrait + Sync + 'static,
@@ -122,34 +228,18 @@ where
         gpu_value_cache, renderer_resources, id_namespace, dom_id,
     )?;
     
-    // Get the layout tree and positions (we need mutable ctx for generate_display_lists_paged)
+    // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
     let calculated_positions = &cache.calculated_positions;
     
-    // Debug: print page assignments
+    // Debug: log page layout info
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Page content height: {}", page_content_height
         )));
-        
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            if node.page_index > 0 {
-                let node_type = node.dom_node_id
-                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
-                    .map(|n| format!("{:?}", n.node_type))
-                    .unwrap_or_else(|| "Anonymous".to_string());
-                let pos = calculated_positions.get(&idx)
-                    .map(|p| format!("({:.1}, {:.1})", p.x, p.y))
-                    .unwrap_or_else(|| "?".to_string());
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[PagedLayout] Node {} {} at {} -> page {}",
-                    idx, node_type, pos, node.page_index
-                )));
-            }
-        }
     }
     
-    // Compute scroll IDs (needed for generate_display_lists_paged)
+    // Compute scroll IDs (needed for display list generation)
     use crate::window::LayoutWindow;
     let (scroll_ids, _scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, &new_dom);
     
@@ -165,8 +255,28 @@ where
         fragmentation_context: Some(&mut fragmentation_context),
     };
     
-    // Generate per-page display lists using the new integrated approach
-    let pages = generate_display_lists_paged(
+    // NEW: Use the slicer-based pagination approach
+    // 
+    // This treats pages as viewports into a single infinite canvas:
+    // 1. Generate ONE complete display list on infinite vertical strip
+    // 2. Slice it into per-page lists by clipping items at page boundaries
+    // 3. Items that span pages are clipped (backgrounds split correctly)
+    // 4. Headers and footers are injected per-page
+    //
+    // Benefits over the old node-based approach:
+    // - No coordinate desynchronization between page_index and actual Y position
+    // - Backgrounds render correctly (clipped, not torn/duplicated)
+    // - Simple mental model: pages are just views into continuous content
+    // - Headers/footers with page numbers are automatically generated
+    
+    use crate::solver3::display_list::{
+        generate_display_list, 
+        paginate_display_list_with_slicer,
+        SlicerConfig,
+    };
+    
+    // Step 1: Generate ONE complete display list (infinite canvas)
+    let full_display_list = generate_display_list(
         &mut ctx,
         tree,
         calculated_positions,
@@ -176,8 +286,51 @@ where
         renderer_resources,
         id_namespace,
         dom_id,
-        page_content_height,
     )?;
+    
+    if let Some(msgs) = ctx.debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[PagedLayout] Generated master display list with {} items",
+            full_display_list.items.len()
+        )));
+    }
+    
+    // Step 2: Configure the slicer with page dimensions and headers/footers
+    // Get page width - use viewport width as fallback
+    let page_width = viewport.size.width;
+    
+    // Convert FakePageConfig to internal HeaderFooterConfig
+    // NOTE: Full CSS @page rule parsing is not yet implemented.
+    // The FakePageConfig provides programmatic control as a temporary solution.
+    let header_footer = page_config.to_header_footer_config();
+    
+    if let Some(msgs) = ctx.debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[PagedLayout] Page config: header={}, footer={}, skip_first={}",
+            header_footer.show_header,
+            header_footer.show_footer,
+            header_footer.skip_first_page
+        )));
+    }
+    
+    let slicer_config = SlicerConfig {
+        page_content_height,
+        page_gap: 0.0,
+        allow_clipping: true,
+        header_footer,
+        page_width,
+        table_headers: Default::default(),
+    };
+    
+    // Step 3: Slice the display list into per-page lists
+    let pages = paginate_display_list_with_slicer(full_display_list, &slicer_config)?;
+    
+    if let Some(msgs) = ctx.debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[PagedLayout] Paginated into {} pages using slicer approach",
+            pages.len()
+        )));
+    }
     
     Ok(pages)
 }

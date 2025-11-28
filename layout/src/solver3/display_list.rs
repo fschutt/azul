@@ -182,7 +182,7 @@ pub struct DisplayList {
 
 /// A command in the display list. Can be either a drawing primitive or a
 /// state-management instruction for the renderer's graphics context.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DisplayListItem {
     // --- Drawing Primitives ---
     Rect {
@@ -2261,6 +2261,90 @@ fn clip_and_offset_display_item(
             if !rect_intersects(bounds, page_top, page_bottom) {
                 return None;
             }
+            
+            // Try to downcast the layout to UnifiedLayout and filter its items
+            // This ensures that only text items within the current page bounds are included
+            #[cfg(feature = "text_layout")]
+            {
+                if let Some(unified_layout) = layout.downcast_ref::<crate::text3::cache::UnifiedLayout>() {
+                    // Item positions in UnifiedLayout are relative to the layout origin (0,0)
+                    // bounds.origin.y is the position of this TextLayout block on the canvas
+                    // 
+                    // To filter: compute absolute position of each item on the canvas:
+                    //   absolute_y = bounds.origin.y + item.position.y
+                    // 
+                    // Keep items where absolute_y overlaps with [page_top, page_bottom]
+                    
+                    let layout_origin_y = bounds.origin.y;
+                    let margin = 30.0; // Allow some margin for text that may partially overlap page boundaries
+                    
+                    let filtered_items: Vec<_> = unified_layout.items.iter()
+                        .filter(|item| {
+                            let item_y_relative = item.position.y;
+                            let item_height = item.item.bounds().height;
+                            
+                            // Absolute position on canvas
+                            let item_y_absolute = layout_origin_y + item_y_relative;
+                            let item_bottom_absolute = item_y_absolute + item_height;
+                            
+                            // Keep items that overlap with the page area [page_top, page_bottom]
+                            item_bottom_absolute >= page_top - margin && item_y_absolute <= page_bottom + margin
+                        })
+                        .map(|item| {
+                            // Calculate offset to translate item to page-local coordinates
+                            // The new bounds will start at y = max(0, bounds.origin.y - page_top)
+                            // Items need to be offset accordingly
+                            let offset_y = if page_top > layout_origin_y {
+                                page_top - layout_origin_y
+                            } else {
+                                0.0
+                            };
+                            
+                            crate::text3::cache::PositionedItem {
+                                item: item.item.clone(),
+                                position: crate::text3::cache::Point {
+                                    x: item.position.x,
+                                    y: item.position.y - offset_y,
+                                },
+                                line_index: item.line_index,
+                            }
+                        })
+                        .collect();
+                    
+                    if filtered_items.is_empty() {
+                        return None;
+                    }
+                    
+                    let new_layout = crate::text3::cache::UnifiedLayout {
+                        items: filtered_items,
+                        overflow: unified_layout.overflow.clone(),
+                    };
+                    
+                    // Calculate new bounds Y position for the clipped layout
+                    let new_bounds_y = if page_top > layout_origin_y {
+                        0.0 // Content starts at top of page
+                    } else {
+                        layout_origin_y - page_top
+                    };
+                    
+                    return Some(DisplayListItem::TextLayout {
+                        layout: Arc::new(new_layout) as Arc<dyn std::any::Any + Send + Sync>,
+                        bounds: LogicalRect {
+                            origin: LogicalPosition {
+                                x: bounds.origin.x,
+                                y: new_bounds_y,
+                            },
+                            size: bounds.size,
+                        },
+                        font_hash: *font_hash,
+                        font_size_px: *font_size_px,
+                        color: *color,
+                    });
+                }
+            }
+            
+            // Fallback: if not UnifiedLayout or text_layout feature disabled,
+            // use simple bounds offset (legacy behavior)
             Some(DisplayListItem::TextLayout {
                 layout: layout.clone(),
                 bounds: offset_rect_y(*bounds, -page_top),
@@ -2418,5 +2502,677 @@ fn offset_rect_y(bounds: LogicalRect, offset_y: f32) -> LogicalRect {
             y: bounds.origin.y + offset_y,
         },
         size: bounds.size,
+    }
+}
+
+// =============================================================================
+// SLICER-BASED PAGINATION (Infinite Canvas with Clipping)
+// =============================================================================
+//
+// This approach treats pages as "viewports" into a single infinite canvas:
+// 1. Layout generates ONE display list on an infinite vertical strip
+// 2. Each page is a clip rectangle that "views" a portion of that strip
+// 3. Items that span page boundaries are clipped and appear on BOTH pages
+//
+// Benefits:
+// - Backgrounds render correctly (clipped at page boundary, not duplicated)
+// - No complex page assignment logic during layout
+// - Simple mental model: pages are just views into continuous content
+
+use crate::solver3::pagination::{
+    HeaderFooterConfig, PageInfo, TableHeaderTracker, TableHeaderInfo, MarginBoxContent,
+};
+
+/// Configuration for the slicer-based pagination.
+#[derive(Debug, Clone, Default)]
+pub struct SlicerConfig {
+    /// Height of each page's content area (excludes margins, headers, footers)
+    pub page_content_height: f32,
+    /// Height of "dead zone" between pages (for margins, headers, footers)
+    /// This represents space that content should NOT overlap with
+    pub page_gap: f32,
+    /// Whether to clip items that span page boundaries (true) or push them to next page (false)
+    pub allow_clipping: bool,
+    /// Header and footer configuration
+    pub header_footer: HeaderFooterConfig,
+    /// Width of the page content area (for centering headers/footers)
+    pub page_width: f32,
+    /// Table headers that need repetition across pages
+    pub table_headers: TableHeaderTracker,
+}
+
+impl SlicerConfig {
+    /// Create a simple slicer config with no gaps between pages.
+    pub fn simple(page_height: f32) -> Self {
+        Self {
+            page_content_height: page_height,
+            page_gap: 0.0,
+            allow_clipping: true,
+            header_footer: HeaderFooterConfig::default(),
+            page_width: 595.0, // Default A4 width in points
+            table_headers: TableHeaderTracker::default(),
+        }
+    }
+    
+    /// Create a slicer config with margins/gaps between pages.
+    pub fn with_gap(page_height: f32, gap: f32) -> Self {
+        Self {
+            page_content_height: page_height,
+            page_gap: gap,
+            allow_clipping: true,
+            header_footer: HeaderFooterConfig::default(),
+            page_width: 595.0,
+            table_headers: TableHeaderTracker::default(),
+        }
+    }
+    
+    /// Add header/footer configuration.
+    pub fn with_header_footer(mut self, config: HeaderFooterConfig) -> Self {
+        self.header_footer = config;
+        self
+    }
+    
+    /// Set the page width (for header/footer positioning).
+    pub fn with_page_width(mut self, width: f32) -> Self {
+        self.page_width = width;
+        self
+    }
+    
+    /// Add table headers for repetition.
+    pub fn with_table_headers(mut self, tracker: TableHeaderTracker) -> Self {
+        self.table_headers = tracker;
+        self
+    }
+    
+    /// Register a single table header.
+    pub fn register_table_header(&mut self, info: TableHeaderInfo) {
+        self.table_headers.register_table_header(info);
+    }
+    
+    /// The total height of a page "slot" including the gap.
+    pub fn page_slot_height(&self) -> f32 {
+        self.page_content_height + self.page_gap
+    }
+    
+    /// Calculate which page a Y coordinate falls on.
+    pub fn page_for_y(&self, y: f32) -> usize {
+        if self.page_slot_height() <= 0.0 {
+            return 0;
+        }
+        (y / self.page_slot_height()).floor() as usize
+    }
+    
+    /// Get the Y range for a specific page (in infinite canvas coordinates).
+    pub fn page_bounds(&self, page_index: usize) -> (f32, f32) {
+        let start = page_index as f32 * self.page_slot_height();
+        let end = start + self.page_content_height;
+        (start, end)
+    }
+}
+
+/// Paginate a display list using the slicer approach.
+/// 
+/// This treats pages as viewports into a single continuous layout.
+/// Items that span page boundaries are clipped and appear on multiple pages.
+/// Headers and footers are injected per-page based on configuration.
+/// 
+/// # Arguments
+/// * `full_display_list` - The complete display list from layout
+/// * `config` - Slicer configuration (page height, gaps, headers/footers, etc.)
+/// 
+/// # Returns
+/// A vector of DisplayLists, one per page.
+pub fn paginate_display_list_with_slicer(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+) -> Result<Vec<DisplayList>> {
+    if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
+        return Ok(vec![full_display_list]);
+    }
+    
+    // Calculate base header/footer space (used for pages that show headers/footers)
+    let base_header_space = if config.header_footer.show_header { 
+        config.header_footer.header_height 
+    } else { 
+        0.0 
+    };
+    let base_footer_space = if config.header_footer.show_footer { 
+        config.header_footer.footer_height 
+    } else { 
+        0.0 
+    };
+    
+    // Calculate effective heights for different page types
+    let normal_page_content_height = config.page_content_height - base_header_space - base_footer_space;
+    let first_page_content_height = if config.header_footer.skip_first_page {
+        // First page has full height when skipping headers/footers
+        config.page_content_height
+    } else {
+        normal_page_content_height
+    };
+    
+    // Determine total content height to know how many pages we need
+    let total_height = calculate_display_list_height(&full_display_list);
+    
+    // Calculate number of pages accounting for different first page height
+    let num_pages = if total_height <= 0.0 {
+        1
+    } else if normal_page_content_height <= 0.0 {
+        1
+    } else if total_height <= first_page_content_height {
+        1
+    } else {
+        // First page takes first_page_content_height, rest use normal_page_content_height
+        let remaining_after_first = total_height - first_page_content_height;
+        1 + ((remaining_after_first / normal_page_content_height).ceil() as usize).max(0)
+    };
+    
+    // Create per-page display lists by slicing the master list
+    let mut pages: Vec<DisplayList> = Vec::with_capacity(num_pages);
+    
+    // Track cumulative content position (source Y coordinate)
+    let mut cumulative_content_y = 0.0f32;
+    
+    for page_idx in 0..num_pages {
+        // Generate page info for header/footer content
+        let page_info = PageInfo::new(page_idx + 1, num_pages);
+        
+        // Calculate per-page header/footer space
+        // On the first page with skip_first_page, we don't reserve space for header/footer
+        let skip_this_page = config.header_footer.skip_first_page && page_info.is_first;
+        let header_space = if config.header_footer.show_header && !skip_this_page {
+            config.header_footer.header_height
+        } else {
+            0.0
+        };
+        let footer_space = if config.header_footer.show_footer && !skip_this_page {
+            config.header_footer.footer_height
+        } else {
+            0.0
+        };
+        
+        // Calculate the slice of content for this page
+        let page_effective_height = config.page_content_height - header_space - footer_space;
+        let content_start_y = cumulative_content_y;
+        let content_end_y = content_start_y + page_effective_height;
+        
+        // Update cumulative position for next page
+        cumulative_content_y = content_end_y;
+        
+        let mut page_items = Vec::new();
+        let mut page_node_mapping = Vec::new();
+        
+        // 1. Add header if enabled (at top of page, before content)
+        if config.header_footer.show_header && !skip_this_page {
+            let header_text = config.header_footer.header_text(page_info);
+            if !header_text.is_empty() {
+                let header_items = generate_text_display_items(
+                    &header_text,
+                    LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: 0.0 },
+                        size: LogicalSize { 
+                            width: config.page_width, 
+                            height: config.header_footer.header_height 
+                        },
+                    },
+                    config.header_footer.font_size,
+                    config.header_footer.text_color,
+                    TextAlignment::Center,
+                );
+                for item in header_items {
+                    page_items.push(item);
+                    page_node_mapping.push(None);
+                }
+            }
+        }
+        
+        // 2. Inject repeated table headers for this page
+        // These headers belong to tables that started on a previous page but continue here
+        let repeated_headers = config.table_headers.get_repeated_headers_for_page(
+            page_idx,
+            content_start_y,
+            content_end_y,
+        );
+        
+        let mut thead_total_height = 0.0f32;
+        for (y_offset_from_page_top, thead_items, thead_height) in repeated_headers {
+            // Clone and translate the thead items to this page
+            // The thead should appear right after the page header
+            let thead_y = header_space + y_offset_from_page_top;
+            for item in thead_items {
+                let translated_item = offset_display_item_y(item, thead_y);
+                page_items.push(translated_item);
+                page_node_mapping.push(None); // No node mapping for cloned items
+            }
+            thead_total_height = thead_total_height.max(thead_height);
+        }
+        
+        // 3. Offset for content (after header AND repeated table headers)
+        let content_y_offset = header_space + thead_total_height;
+        
+        // 4. Slice and offset content items
+        for (item_idx, item) in full_display_list.items.iter().enumerate() {
+            // Clip to content bounds in source coordinates
+            if let Some(clipped_item) = clip_and_offset_display_item(item, content_start_y, content_end_y) {
+                // Further offset by header height so content appears below header
+                let offset_item = offset_display_item_y(&clipped_item, content_y_offset);
+                page_items.push(offset_item);
+                let node_mapping = full_display_list.node_mapping.get(item_idx).copied().flatten();
+                page_node_mapping.push(node_mapping);
+            }
+        }
+        
+        // 5. Add footer if enabled (at bottom of page, after content)
+        if config.header_footer.show_footer && !skip_this_page {
+            let footer_text = config.header_footer.footer_text(page_info);
+            if !footer_text.is_empty() {
+                let footer_y = config.page_content_height - config.header_footer.footer_height;
+                let footer_items = generate_text_display_items(
+                    &footer_text,
+                    LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: footer_y },
+                        size: LogicalSize { 
+                            width: config.page_width, 
+                            height: config.header_footer.footer_height 
+                        },
+                    },
+                    config.header_footer.font_size,
+                    config.header_footer.text_color,
+                    TextAlignment::Center,
+                );
+                for item in footer_items {
+                    page_items.push(item);
+                    page_node_mapping.push(None);
+                }
+            }
+        }
+        
+        pages.push(DisplayList {
+            items: page_items,
+            node_mapping: page_node_mapping,
+        });
+    }
+    
+    // Ensure at least one page
+    if pages.is_empty() {
+        pages.push(DisplayList::default());
+    }
+    
+    Ok(pages)
+}
+
+/// Text alignment for generated header/footer text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+/// Helper to offset all Y coordinates of a display item.
+fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListItem {
+    if y_offset == 0.0 {
+        return item.clone();
+    }
+    
+    match item {
+        DisplayListItem::Rect { bounds, color, border_radius } => {
+            DisplayListItem::Rect {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+                border_radius: *border_radius,
+            }
+        }
+        DisplayListItem::Border { bounds, widths, colors, styles, border_radius } => {
+            DisplayListItem::Border {
+                bounds: offset_rect_y(*bounds, y_offset),
+                widths: widths.clone(),
+                colors: *colors,
+                styles: *styles,
+                border_radius: border_radius.clone(),
+            }
+        }
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect } => {
+            let offset_glyphs: Vec<GlyphInstance> = glyphs
+                .iter()
+                .map(|g| GlyphInstance {
+                    index: g.index,
+                    point: LogicalPosition {
+                        x: g.point.x,
+                        y: g.point.y + y_offset,
+                    },
+                    size: g.size,
+                })
+                .collect();
+            DisplayListItem::Text {
+                glyphs: offset_glyphs,
+                font_hash: *font_hash,
+                font_size_px: *font_size_px,
+                color: *color,
+                clip_rect: offset_rect_y(*clip_rect, y_offset),
+            }
+        }
+        DisplayListItem::TextLayout { layout, bounds, font_hash, font_size_px, color } => {
+            DisplayListItem::TextLayout {
+                layout: layout.clone(),
+                bounds: offset_rect_y(*bounds, y_offset),
+                font_hash: *font_hash,
+                font_size_px: *font_size_px,
+                color: *color,
+            }
+        }
+        DisplayListItem::Image { bounds, key } => {
+            DisplayListItem::Image {
+                bounds: offset_rect_y(*bounds, y_offset),
+                key: *key,
+            }
+        }
+        // Pass through other items with their bounds offset
+        DisplayListItem::SelectionRect { bounds, border_radius, color } => {
+            DisplayListItem::SelectionRect {
+                bounds: offset_rect_y(*bounds, y_offset),
+                border_radius: *border_radius,
+                color: *color,
+            }
+        }
+        DisplayListItem::CursorRect { bounds, color } => {
+            DisplayListItem::CursorRect {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+            }
+        }
+        DisplayListItem::Underline { bounds, color, thickness } => {
+            DisplayListItem::Underline {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+                thickness: *thickness,
+            }
+        }
+        DisplayListItem::Strikethrough { bounds, color, thickness } => {
+            DisplayListItem::Strikethrough {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+                thickness: *thickness,
+            }
+        }
+        DisplayListItem::Overline { bounds, color, thickness } => {
+            DisplayListItem::Overline {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+                thickness: *thickness,
+            }
+        }
+        DisplayListItem::ScrollBar { bounds, color, orientation, opacity_key, hit_id } => {
+            DisplayListItem::ScrollBar {
+                bounds: offset_rect_y(*bounds, y_offset),
+                color: *color,
+                orientation: *orientation,
+                opacity_key: *opacity_key,
+                hit_id: *hit_id,
+            }
+        }
+        DisplayListItem::HitTestArea { bounds, tag } => {
+            DisplayListItem::HitTestArea {
+                bounds: offset_rect_y(*bounds, y_offset),
+                tag: *tag,
+            }
+        }
+        DisplayListItem::PushClip { bounds, border_radius } => {
+            DisplayListItem::PushClip {
+                bounds: offset_rect_y(*bounds, y_offset),
+                border_radius: *border_radius,
+            }
+        }
+        DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: offset_rect_y(*clip_bounds, y_offset),
+                content_size: *content_size,
+                scroll_id: *scroll_id,
+            }
+        }
+        DisplayListItem::PushStackingContext { bounds, z_index } => {
+            DisplayListItem::PushStackingContext {
+                bounds: offset_rect_y(*bounds, y_offset),
+                z_index: *z_index,
+            }
+        }
+        DisplayListItem::IFrame { child_dom_id, bounds, clip_rect } => {
+            DisplayListItem::IFrame {
+                child_dom_id: *child_dom_id,
+                bounds: offset_rect_y(*bounds, y_offset),
+                clip_rect: offset_rect_y(*clip_rect, y_offset),
+            }
+        }
+        // Pass through stateless items
+        DisplayListItem::PopClip => DisplayListItem::PopClip,
+        DisplayListItem::PopScrollFrame => DisplayListItem::PopScrollFrame,
+        DisplayListItem::PopStackingContext => DisplayListItem::PopStackingContext,
+    }
+}
+
+/// Generate display list items for simple text (headers/footers).
+/// 
+/// This creates a simplified text rendering without full text layout.
+/// For now, this creates a placeholder that renderers should handle specially.
+fn generate_text_display_items(
+    text: &str,
+    bounds: LogicalRect,
+    font_size: f32,
+    color: ColorU,
+    alignment: TextAlignment,
+) -> Vec<DisplayListItem> {
+    use crate::font_traits::FontHash;
+    
+    if text.is_empty() {
+        return Vec::new();
+    }
+    
+    // Calculate approximate text position based on alignment
+    // For now, we estimate character width as 0.5 * font_size (monospace approximation)
+    let char_width = font_size * 0.5;
+    let text_width = text.len() as f32 * char_width;
+    
+    let x_offset = match alignment {
+        TextAlignment::Left => bounds.origin.x,
+        TextAlignment::Center => bounds.origin.x + (bounds.size.width - text_width) / 2.0,
+        TextAlignment::Right => bounds.origin.x + bounds.size.width - text_width,
+    };
+    
+    // Position text vertically centered in the bounds
+    let y_pos = bounds.origin.y + (bounds.size.height + font_size) / 2.0 - font_size * 0.2;
+    
+    // Create simple glyph instances for each character
+    // Note: This is a simplified approach - proper text rendering should use text3
+    let glyphs: Vec<GlyphInstance> = text
+        .chars()
+        .enumerate()
+        .filter(|(_, c)| !c.is_control())
+        .map(|(i, c)| GlyphInstance {
+            index: c as u32,  // Use Unicode codepoint as glyph index (placeholder)
+            point: LogicalPosition {
+                x: x_offset + i as f32 * char_width,
+                y: y_pos,
+            },
+            size: LogicalSize::new(char_width, font_size),
+        })
+        .collect();
+    
+    if glyphs.is_empty() {
+        return Vec::new();
+    }
+    
+    vec![DisplayListItem::Text {
+        glyphs,
+        font_hash: FontHash::from_hash(0), // Default font hash - renderer should use default font
+        font_size_px: font_size,
+        color,
+        clip_rect: bounds,
+    }]
+}
+
+/// Calculate the total height of a display list (max Y + height of all items).
+fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+    let mut max_bottom = 0.0f32;
+    
+    for item in &display_list.items {
+        if let Some(bounds) = get_display_item_bounds(item) {
+            let item_bottom = bounds.origin.y + bounds.size.height;
+            max_bottom = max_bottom.max(item_bottom);
+        }
+    }
+    
+    max_bottom
+}
+
+/// Advanced pagination that combines slicer approach with CSS break properties.
+/// 
+/// This function:
+/// 1. First analyzes break properties (break-before, break-after, break-inside)
+/// 2. Identifies "monolithic" items that should NOT be split
+/// 3. Uses slicer clipping for splittable content
+/// 4. Pushes monolithic items to next page if they don't fit
+/// 
+/// # Arguments
+/// * `display_list` - The complete display list from layout
+/// * `node_mapping` - Maps display list items to DOM nodes (for break property lookup)
+/// * `config` - Slicer configuration
+/// * `styled_dom` - The styled DOM (for reading CSS break properties)
+pub fn paginate_with_break_properties<F>(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    is_monolithic: F,
+) -> Result<Vec<DisplayList>> 
+where
+    F: Fn(Option<azul_core::dom::NodeId>) -> bool,
+{
+    if config.page_content_height <= 0.0 {
+        return Ok(vec![full_display_list]);
+    }
+    
+    // Collect items with metadata
+    let items_with_meta: Vec<(DisplayListItem, Option<LogicalRect>, Option<azul_core::dom::NodeId>, bool)> = 
+        full_display_list.items
+            .into_iter()
+            .zip(full_display_list.node_mapping.iter())
+            .map(|(item, node_id)| {
+                let bounds = get_display_item_bounds(&item);
+                let node_id = *node_id;
+                let monolithic = is_monolithic(node_id);
+                (item, bounds, node_id, monolithic)
+            })
+            .collect();
+    
+    // Track page assignments and shifts
+    let mut pages: Vec<Vec<DisplayListItem>> = vec![Vec::new()];
+    let mut page_node_mappings: Vec<Vec<Option<azul_core::dom::NodeId>>> = vec![Vec::new()];
+    let mut shift_amount = 0.0f32;
+    
+    for (item, bounds, node_id, is_monolithic_item) in items_with_meta {
+        let Some(item_bounds) = bounds else {
+            // Items without bounds - skip for now
+            continue;
+        };
+        
+        let shifted_y = item_bounds.origin.y + shift_amount;
+        let item_height = item_bounds.size.height;
+        
+        let page_idx = config.page_for_y(shifted_y);
+        let (page_top, page_bottom) = config.page_bounds(page_idx);
+        let remaining_on_page = page_bottom - shifted_y;
+        
+        if is_monolithic_item {
+            // Monolithic item: cannot be split
+            if item_height <= remaining_on_page {
+                // Fits on current page
+                let clipped = clip_and_offset_display_item(&item, page_top, page_bottom);
+                if let Some(clipped_item) = clipped {
+                    ensure_page_exists(&mut pages, &mut page_node_mappings, page_idx);
+                    pages[page_idx].push(clipped_item);
+                    page_node_mappings[page_idx].push(node_id);
+                }
+            } else if item_height <= config.page_content_height {
+                // Doesn't fit but would fit on empty page - push to next page
+                let next_page = page_idx + 1;
+                let (next_top, next_bottom) = config.page_bounds(next_page);
+                
+                // Update shift for this and subsequent items
+                let new_position = next_top;
+                let extra_shift = new_position - item_bounds.origin.y;
+                if extra_shift > shift_amount {
+                    shift_amount = extra_shift;
+                }
+                
+                let clipped = clip_and_offset_display_item(&item, next_top - extra_shift + shift_amount, next_bottom - extra_shift + shift_amount);
+                if let Some(clipped_item) = clipped {
+                    ensure_page_exists(&mut pages, &mut page_node_mappings, next_page);
+                    pages[next_page].push(clipped_item);
+                    page_node_mappings[next_page].push(node_id);
+                }
+            } else {
+                // Too large for any page - let it overflow (place on current page)
+                let clipped = clip_and_offset_display_item(&item, page_top, page_bottom);
+                if let Some(clipped_item) = clipped {
+                    ensure_page_exists(&mut pages, &mut page_node_mappings, page_idx);
+                    pages[page_idx].push(clipped_item);
+                    page_node_mappings[page_idx].push(node_id);
+                }
+            }
+        } else {
+            // Splittable item: can be clipped across pages
+            let shifted_bounds = LogicalRect {
+                origin: LogicalPosition { x: item_bounds.origin.x, y: shifted_y },
+                size: item_bounds.size,
+            };
+            let item_bottom = shifted_y + item_height;
+            
+            // Find all pages this item overlaps
+            let start_page = config.page_for_y(shifted_y);
+            let end_page = config.page_for_y(item_bottom - 0.01);
+            
+            for p in start_page..=end_page {
+                let (p_top, p_bottom) = config.page_bounds(p);
+                // Adjust item for the shift when clipping
+                let adjusted_item = offset_display_item_to_page(
+                    item.clone(),
+                    item_bounds.origin.y,
+                    shifted_y,
+                );
+                if let Some(clipped) = clip_and_offset_display_item(&adjusted_item, p_top, p_bottom) {
+                    ensure_page_exists(&mut pages, &mut page_node_mappings, p);
+                    pages[p].push(clipped);
+                    page_node_mappings[p].push(node_id);
+                }
+            }
+        }
+    }
+    
+    // Convert to DisplayList format
+    let result: Vec<DisplayList> = pages
+        .into_iter()
+        .zip(page_node_mappings.into_iter())
+        .map(|(items, mappings)| DisplayList {
+            items,
+            node_mapping: mappings,
+        })
+        .collect();
+    
+    if result.is_empty() {
+        return Ok(vec![DisplayList::default()]);
+    }
+    
+    Ok(result)
+}
+
+/// Helper to ensure pages vector has enough entries.
+fn ensure_page_exists(
+    pages: &mut Vec<Vec<DisplayListItem>>,
+    mappings: &mut Vec<Vec<Option<azul_core::dom::NodeId>>>,
+    page_idx: usize,
+) {
+    while pages.len() <= page_idx {
+        pages.push(Vec::new());
+    }
+    while mappings.len() <= page_idx {
+        mappings.push(Vec::new());
     }
 }

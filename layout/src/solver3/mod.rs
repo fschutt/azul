@@ -10,6 +10,7 @@ pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
 pub mod paged_layout;
+pub mod pagination;
 pub mod positioning;
 pub mod scrollbar;
 pub mod sizing;

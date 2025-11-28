@@ -245,9 +245,6 @@ pub struct LayoutNode {
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     pub scrollbar_info: Option<ScrollbarInfo>,
-    /// Page index for CSS Paged Media (PDF generation)
-    /// Indicates which page/fragmentainer this node belongs to (0-indexed)
-    pub page_index: usize,
 }
 
 /// CSS pseudo-elements that can be generated
@@ -696,7 +693,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            page_index: 0,
         });
         
         self.nodes[parent].children.push(index);
@@ -744,7 +740,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            page_index: 0,
         });
         
         // Insert as FIRST child (per spec)
@@ -787,7 +782,6 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
-            page_index: 0,
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
