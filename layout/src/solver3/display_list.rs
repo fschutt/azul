@@ -2273,10 +2273,11 @@ fn clip_and_offset_display_item(
                     // To filter: compute absolute position of each item on the canvas:
                     //   absolute_y = bounds.origin.y + item.position.y
                     // 
-                    // Keep items where absolute_y overlaps with [page_top, page_bottom]
+                    // Use CENTER-POINT DECISION: each item belongs to exactly ONE page,
+                    // determined by which page contains the item's vertical center.
+                    // This prevents text duplication across page boundaries.
                     
                     let layout_origin_y = bounds.origin.y;
-                    let margin = 30.0; // Allow some margin for text that may partially overlap page boundaries
                     
                     let filtered_items: Vec<_> = unified_layout.items.iter()
                         .filter(|item| {
@@ -2285,10 +2286,11 @@ fn clip_and_offset_display_item(
                             
                             // Absolute position on canvas
                             let item_y_absolute = layout_origin_y + item_y_relative;
-                            let item_bottom_absolute = item_y_absolute + item_height;
                             
-                            // Keep items that overlap with the page area [page_top, page_bottom]
-                            item_bottom_absolute >= page_top - margin && item_y_absolute <= page_bottom + margin
+                            // Center-point decision: item belongs to page containing its center
+                            // This ensures each item appears on exactly ONE page
+                            let item_center_y = item_y_absolute + (item_height / 2.0);
+                            item_center_y >= page_top && item_center_y < page_bottom
                         })
                         .map(|item| {
                             // Calculate offset to translate item to page-local coordinates
@@ -2360,8 +2362,11 @@ fn clip_and_offset_display_item(
             }
             
             // Filter glyphs to only those visible on this page
+            // Use CENTER-POINT DECISION: glyph belongs to page containing its baseline
+            // (g.point.y is the baseline position, which is effectively the glyph's center)
+            // This prevents glyph duplication across page boundaries.
             let page_glyphs: Vec<_> = glyphs.iter()
-                .filter(|g| g.point.y >= page_top - 20.0 && g.point.y <= page_bottom + 20.0)
+                .filter(|g| g.point.y >= page_top && g.point.y < page_bottom)
                 .map(|g| GlyphInstance {
                     index: g.index,
                     point: LogicalPosition {
