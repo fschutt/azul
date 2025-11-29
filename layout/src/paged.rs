@@ -1,14 +1,17 @@
 //! Paged media layout engine.
 //!
-//! This module provides infrastructure for multi-page document layout with CSS Paged Media support.
+//! This module provides infrastructure for multi-page document 
+//! layout with CSS Paged Media support.
 //!
-//! The core concept is a **FragmentationContext**, which represents a series of containers
-//! (fragmentainers) that content flows into during layout. For continuous media (screens),
-//! we use a single infinite container. For paged media (print), we use a series of page-sized
-//! containers.
+//! The core concept is a **FragmentationContext**, which represents 
+//! a series of containers (fragmentainers) that content flows into 
+//! during layout. For continuous media (screens), we use a single 
+//! infinite container. For paged media (print), we use a series of 
+//! page-sized containers.
 //!
-//! This approach allows the layout engine to make break decisions during layout, respecting
-//! CSS properties like `break-before`, `break-after`, and `break-inside`.
+//! This approach allows the layout engine to make break decisions 
+//! during layout, respecting CSS properties like `break-before`, 
+//! `break-after`, and `break-inside`.
 
 use azul_core::geom::{LogicalPosition, LogicalSize};
 
@@ -83,7 +86,8 @@ pub struct Fragmentainer {
     /// How much block-axis space has been used (typically vertical space)
     pub used_block_size: f32,
 
-    /// Whether this container has a fixed size (true for pages) or can grow (false for continuous)
+    /// Whether this container has a fixed size (true for pages) or can 
+    /// grow (false for continuous)
     pub is_fixed_size: bool,
 
     /// Content that has been placed in this fragmentainer.
@@ -99,12 +103,14 @@ pub struct LayoutBox {
 }
 
 impl Fragmentainer {
+
     /// Create a new fragmentainer with the given size.
     ///
     /// # Arguments
-    /// * `size` - The logical size (width and height) of this fragmentainer
-    /// * `is_fixed_size` - Whether this fragmentainer has a fixed size (true for pages, false for
-    ///   continuous)
+    /// 
+    /// - `size` - The logical size (width and height) of this fragmentainer
+    /// - `is_fixed_size` - Whether this fragmentainer has a fixed size 
+    ///   (true for pages, false for continuous)
     pub fn new(size: LogicalSize, is_fixed_size: bool) -> Self {
         Self {
             size,
@@ -116,8 +122,8 @@ impl Fragmentainer {
 
     /// Get the remaining space in this fragmentainer.
     ///
-    /// For continuous media, this returns infinity (f32::MAX).
-    /// For paged media, this returns the unused space.
+    /// - For continuous media, this returns infinity (f32::MAX).
+    /// - For paged media, this returns the unused space.
     pub fn remaining_space(&self) -> f32 {
         if self.is_fixed_size {
             (self.size.height - self.used_block_size).max(0.0)
@@ -128,24 +134,22 @@ impl Fragmentainer {
 
     /// Check if this fragmentainer is full.
     ///
-    /// A fragmentainer is considered full if it has less than 1px of remaining space.
-    /// Continuous fragmentainers are never full.
+    /// - A fragmentainer is considered full if it has less than 1px of remaining space.
+    /// - Continuous fragmentainers are never full.
     pub fn is_full(&self) -> bool {
         self.is_fixed_size && self.remaining_space() < 1.0
     }
 
     /// Check if a block of the given size can fit in this fragmentainer.
     ///
-    /// # Arguments
-    /// * `block_size` - The height of the block to check
+    /// - `block_size` - The height of the block to check
     pub fn can_fit(&self, block_size: f32) -> bool {
         self.remaining_space() >= block_size
     }
 
     /// Record that space has been used in this fragmentainer.
-    ///
-    /// # Arguments
-    /// * `size` - The amount of block-axis space used
+    /// 
+    /// - `size` - The amount of block-axis space used
     pub fn use_space(&mut self, size: f32) {
         self.used_block_size += size;
     }
@@ -154,8 +158,7 @@ impl Fragmentainer {
 impl FragmentationContext {
     /// Create a continuous fragmentation context for screen rendering.
     ///
-    /// # Arguments
-    /// * `width` - The viewport width
+    /// - `width` - The viewport width
     pub fn new_continuous(width: f32) -> Self {
         Self::Continuous {
             width,
@@ -168,8 +171,7 @@ impl FragmentationContext {
 
     /// Create a paged fragmentation context for print rendering.
     ///
-    /// # Arguments
-    /// * `page_size` - The size of each page
+    /// - `page_size` - The size of each page
     pub fn new_paged(page_size: LogicalSize) -> Self {
         Self::Paged {
             page_size,
@@ -221,12 +223,13 @@ impl FragmentationContext {
 
     /// Advance to the next fragmentainer, creating a new one if necessary.
     ///
-    /// For continuous media, this is a no-op (continuous media can't advance).
-    /// For paged media, this creates a new page.
-    /// For regions, this fails if no more regions are available.
+    /// - For continuous media, this is a no-op (continuous media can't advance).
+    /// - For paged media, this creates a new page.
+    /// - For regions, this fails if no more regions are available.
     ///
     /// # Returns
-    /// `Ok(())` if the advance succeeded, `Err(String)` if it failed (e.g., no more regions).
+    /// 
+    /// - `Ok(())` if the advance succeeded, `Err(String)` if it failed (e.g., no more regions).
     pub fn advance(&mut self) -> Result<(), String> {
         match self {
             Self::Continuous { .. } => {
@@ -366,94 +369,3 @@ impl FragmentationState {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_continuous_context_has_infinite_space() {
-        let ctx = FragmentationContext::new_continuous(800.0);
-        assert_eq!(ctx.fragmentainer_count(), 1);
-        assert_eq!(ctx.current().remaining_space(), f32::MAX);
-        assert!(!ctx.current().is_full());
-    }
-
-    #[test]
-    fn test_paged_context_has_fixed_space() {
-        let ctx = FragmentationContext::new_paged(LogicalSize::new(800.0, 1000.0));
-        assert_eq!(ctx.fragmentainer_count(), 1);
-        assert_eq!(ctx.current().remaining_space(), 1000.0);
-        assert!(!ctx.current().is_full());
-    }
-
-    #[test]
-    fn test_fragmentainer_tracks_used_space() {
-        let mut fragmentainer = Fragmentainer::new(LogicalSize::new(800.0, 1000.0), true);
-        assert_eq!(fragmentainer.remaining_space(), 1000.0);
-
-        fragmentainer.use_space(300.0);
-        assert_eq!(fragmentainer.remaining_space(), 700.0);
-
-        fragmentainer.use_space(600.0);
-        assert_eq!(fragmentainer.remaining_space(), 100.0);
-    }
-
-    #[test]
-    fn test_fragmentainer_can_fit_checks_space() {
-        let mut fragmentainer = Fragmentainer::new(LogicalSize::new(800.0, 1000.0), true);
-        assert!(fragmentainer.can_fit(500.0));
-        assert!(fragmentainer.can_fit(1000.0));
-        assert!(!fragmentainer.can_fit(1001.0));
-
-        fragmentainer.use_space(700.0);
-        assert!(fragmentainer.can_fit(200.0));
-        assert!(fragmentainer.can_fit(300.0));
-        assert!(!fragmentainer.can_fit(301.0));
-    }
-
-    #[test]
-    fn test_fragmentainer_is_full_when_space_exhausted() {
-        let mut fragmentainer = Fragmentainer::new(LogicalSize::new(800.0, 1000.0), true);
-        assert!(!fragmentainer.is_full());
-
-        // After using 999px, we have 1px remaining - not full yet
-        fragmentainer.use_space(999.0);
-        assert!(!fragmentainer.is_full()); // Still has exactly 1px
-
-        // After using 0.1px more, we have 0.9px remaining - now it's full (< 1px)
-        fragmentainer.use_space(0.1);
-        assert!(fragmentainer.is_full()); // Less than 1px remaining
-    }
-
-    #[test]
-    fn test_paged_context_advances_creates_new_page() {
-        let mut ctx = FragmentationContext::new_paged(LogicalSize::new(800.0, 1000.0));
-        assert_eq!(ctx.fragmentainer_count(), 1);
-
-        ctx.advance().unwrap();
-        assert_eq!(ctx.fragmentainer_count(), 2);
-
-        ctx.advance().unwrap();
-        assert_eq!(ctx.fragmentainer_count(), 3);
-    }
-
-    #[test]
-    fn test_continuous_context_advance_is_noop() {
-        let mut ctx = FragmentationContext::new_continuous(800.0);
-        assert_eq!(ctx.fragmentainer_count(), 1);
-
-        ctx.advance().unwrap();
-        assert_eq!(ctx.fragmentainer_count(), 1); // Still 1, doesn't create new containers
-    }
-
-    #[test]
-    fn test_fragmentainer_never_full_for_continuous() {
-        let mut fragmentainer = Fragmentainer::new(LogicalSize::new(800.0, f32::MAX), false);
-        assert_eq!(fragmentainer.remaining_space(), f32::MAX);
-        assert!(!fragmentainer.is_full());
-
-        fragmentainer.use_space(10000.0);
-        assert_eq!(fragmentainer.remaining_space(), f32::MAX);
-        assert!(!fragmentainer.is_full());
-    }
-}

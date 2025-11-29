@@ -296,11 +296,11 @@ impl IFrameCallbackInfo {
 /// 1. **Initial render** - First time the IFrame appears in the layout
 /// 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out)
 /// 3. **Window resize (expansion only)** - Window grows and IFrame bounds exceed `scroll_size`
-///    - ✅ Only triggers **ONCE** per expansion (when bounds become uncovered)
-///    - ❌ Does **NOT** trigger when window shrinks (content is clipped, not re-rendered)
-///    - ❌ Does **NOT** trigger if expanded area is still within existing `scroll_size`
+///    - Only triggers **ONCE** per expansion (when bounds become uncovered)
+///    - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered)
+///    - Does **NOT** trigger if expanded area is still within existing `scroll_size`
 /// 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge
-///    - ✅ Only triggers **ONCE** per edge approach (prevents repeated calls)
+///    - Only triggers **ONCE** per edge approach (prevents repeated calls)
 ///    - Flag resets when: scroll moves away from edge, or callback returns expanded content
 /// 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size`
 ///    - Same constraints as rule #4 (threshold and once-per-edge)
@@ -316,13 +316,13 @@ impl IFrameCallbackInfo {
 ///   
 /// Frame 2: Window resizes to 1100×800 (even larger)
 ///   -> If callback returned scroll_size = 1100×800, fully covered again
-///   -> ❌ Do NOT re-invoke (content covers new bounds)
+///   -> Do NOT re-invoke (content covers new bounds)
 ///   -> If callback returned scroll_size = 1000×700, not fully covered
-///   -> ✅ RE-INVOKE again (new uncovered area)
+///   -> RE-INVOKE again (new uncovered area)
 ///
 /// Frame 3: Window resizes to 900×650 (smaller)
 ///   -> Bounds now smaller than scroll_size
-///   -> ❌ Do NOT re-invoke (content is just clipped by scrollbars)
+///   -> Do NOT re-invoke (content is just clipped by scrollbars)
 /// ```
 ///
 /// ## Scroll Near Edge Example

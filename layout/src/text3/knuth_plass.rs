@@ -1,4 +1,5 @@
-//! An implementation of the Knuth-Plass line-breaking algorithm for simple rectangular layouts.
+//! An implementation of the Knuth-Plass line-breaking algorithm 
+//! for simple rectangular layouts.
 
 use std::sync::Arc;
 
@@ -28,7 +29,8 @@ enum LayoutNode {
     },
     /// A point where a line break is allowed, with an associated cost.
     Penalty {
-        item: Option<ShapedItem>, // e.g., a hyphen glyph
+        /// Optional item associated with the penalty (e.g., a hyphen glyph).
+        item: Option<ShapedItem>,
         width: f32,
         penalty: f32,
     },
@@ -52,11 +54,13 @@ struct Breakpoint {
 /// to find globally optimal break points.
 ///
 /// # Use Cases
+/// 
 /// - `text-wrap: balance` - CSS property for balanced line lengths
 /// - High-quality typesetting where line consistency matters
 /// - Multi-line headings that should appear visually balanced
 ///
 /// # Limitations
+/// 
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
@@ -74,20 +78,19 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
         });
     }
 
-    // --- Step 1: Convert ShapedItems into a sequence of Boxes, Glue, and Penalties ---
+    // Convert ShapedItems into a sequence of Boxes, Glue, and Penalties
     let nodes = convert_items_to_nodes(items, hyphenator, fonts);
 
-    // --- Step 2: Dynamic Programming to find optimal breakpoints ---
+    // Dynamic Programming to find optimal breakpoints
     let breaks = find_optimal_breakpoints(&nodes, constraints);
 
-    // --- Step 3: Use breakpoints to build and position the final lines ---
+    // Use breakpoints to build and position the final lines
     let final_layout: UnifiedLayout =
         position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
 
     Ok(final_layout)
 }
 
-/// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
 /// Converts a slice of ShapedItems into the Box/Glue/Penalty model.
 fn convert_items_to_nodes<T: ParsedFontTrait>(
     items: &[ShapedItem],
@@ -214,9 +217,12 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
 /// Uses dynamic programming to find the optimal set of line breaks.
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
+    
     // For Knuth-Plass, we need a definite line width.
+    // 
     // For MaxContent, use a very large value (no line breaks unless forced).
     // For MinContent, use 0.0 (break at every opportunity).
+
     let line_width = match constraints.available_width {
         AvailableSpace::Definite(w) => w,
         AvailableSpace::MaxContent => f32::MAX / 2.0,
@@ -237,14 +243,18 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     };
 
     for i in 0..nodes.len() {
-        // --- OPTIMIZATION ---
+
+        // Optimization:
+        // 
         // A legal line break can only occur at a Penalty node. If the current node
         // is a Box or Glue, we can skip it as a potential breakpoint.
+
         if !matches!(nodes.get(i), Some(LayoutNode::Penalty { .. })) {
             continue;
         }
 
         for j in (0..=i).rev() {
+
             // Calculate the properties of a potential line from node `j` to `i`.
             let (mut current_width, mut stretch, mut shrink) = (0.0, 0.0, 0.0);
 
@@ -300,7 +310,9 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 }
             }
 
-            // TODO: Add demerits for consecutive lines with very different ratios (fitness classes)
+            // TODO: Add demerits for consecutive lines with very different 
+            // ratios (fitness classes). 
+            // 
             // For now, demerit is simply the cumulative badness.
             let demerit = badness + breakpoints[j].demerit;
 
@@ -353,7 +365,7 @@ fn position_lines_from_breaks(
             })
             .collect();
 
-        // --- FIX: Calculate spacing, do not mutate items ---
+        // Note: Calculate spacing, do not mutate items
         let mut extra_per_space = 0.0;
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
 
@@ -380,7 +392,7 @@ fn position_lines_from_breaks(
             }
         }
 
-        // --- Alignment & Positioning ---
+        // Alignment & Positioning
         let total_width: f32 = line_items
             .iter()
             .map(|item| get_item_measure(item, false))
@@ -403,8 +415,8 @@ fn position_lines_from_breaks(
                             .count() as f32)
         };
 
-        // NEW: Resolve the physical alignment here, inside the function, just like in
-        // position_one_line.
+        // Resolve the physical alignment here, inside the function,
+        // just like in position_one_line
         let physical_align = match (constraints.text_align, base_direction) {
             (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
             (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
@@ -444,7 +456,7 @@ fn position_lines_from_breaks(
 
             main_axis_pen += item_advance;
 
-            // --- FIX: Apply extra spacing to the pen ---
+            //Apply extra spacing to the pen
             if is_word_separator(&item) {
                 main_axis_pen += extra_per_space;
             }
@@ -484,7 +496,8 @@ fn split_cluster_for_hyphenation(
         .map(|g| g.advance + g.kerning)
         .sum();
 
-    // We can approximate the split text, but a more robust solution would map glyphs back to bytes.
+    // We can approximate the split text, but a more robust solution 
+    // would map glyphs back to bytes.
     let first_part = ShapedCluster {
         glyphs: first_part_glyphs,
         advance: first_part_advance,

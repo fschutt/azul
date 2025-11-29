@@ -126,7 +126,7 @@ pub fn autofix_api_recursive(
     output_dir: &Path,
 ) -> Result<()> {
     // Phase 0: Initialization
-    println!("🔍 Initializing autofix...");
+    println!("[SEARCH] Initializing autofix...");
     println!("   • Loading api.json");
 
     println!("   • Compiling regexes");
@@ -140,12 +140,12 @@ pub fn autofix_api_recursive(
 
     let workspace_index = WorkspaceIndex::build_with_regexes(project_root, regexes.clone())?;
     println!(
-        "     ✓ Indexed {} types from {} files",
+        "     [OK] Indexed {} types from {} files",
         workspace_index.types.len(),
         workspace_index.files.len()
     );
 
-    println!("\n🔄 Running analysis (this may take a moment)...\n");
+    println!("\n[REFRESH] Running analysis (this may take a moment)...\n");
 
     // Step 1: Collect all types referenced in API
     let api_types = collect_all_api_types(api_data);
@@ -428,7 +428,7 @@ pub fn autofix_api_recursive(
 
     // Analysis complete - print comprehensive report
     let duration = start_time.elapsed();
-    println!("✅ Analysis complete ({:.1}s)\n", duration.as_secs_f32());
+    println!("[OK] Analysis complete ({:.1}s)\n", duration.as_secs_f32());
 
     messages.print_report(
         &patch_summary,

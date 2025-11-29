@@ -2,17 +2,17 @@
 //!
 //! This module implements the CSS Visual Formatting Model's formatting contexts:
 //!
-//! - **Block Formatting Context (BFC)**: CSS 2.2 § 9.4.1 Block-level boxes in normal flow, with
-//!   margin collapsing and float positioning.
+//! - **Block Formatting Context (BFC)**: CSS 2.2 § 9.4.1 Block-level boxes in normal
+//!   flow, with margin collapsing and float positioning.
 //!
 //! - **Inline Formatting Context (IFC)**: CSS 2.2 § 9.4.2 Inline-level content (text,
 //!   inline-blocks) laid out in line boxes.
 //!
-//! - **Table Formatting Context**: CSS 2.2 § 17 Table layout with column width calculation and cell
-//!   positioning.
+//! - **Table Formatting Context**: CSS 2.2 § 17 Table layout with column width calculation
+//!   and cell positioning.
 //!
-//! - **Flex/Grid Formatting Contexts**: CSS Flexbox/Grid via Taffy Delegated to the Taffy layout
-//!   engine for modern layout modes.
+//! - **Flex/Grid Formatting Contexts**: CSS Flexbox/Grid via Taffy Delegated to the
+//!   Taffy layout engine for modern layout modes.
 //!
 //! # Module Organization
 //!
@@ -28,7 +28,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
-
+use rust_fontconfig::FcWeight;
 use azul_core::{
     dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -41,28 +41,23 @@ use azul_css::{
         basic::{
             font::{StyleFontStyle, StyleFontWeight},
             pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-            PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
+            ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight, LayoutJustifyContent,
-            LayoutOverflow, LayoutPosition, LayoutTextJustify, LayoutWidth, LayoutWritingMode,
+            ColumnCount, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
+            LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition,
+            LayoutTableLayout, LayoutTextJustify, LayoutWidth, LayoutWritingMode,
+            ShapeInside, ShapeOutside, StyleBorderCollapse, StyleCaptionSide,
         },
-        property::{CssProperty, CssPropertyType},
-        style::{StyleHyphens, StyleTextAlign, StyleVerticalAlign},
+        property::CssProperty,
+        style::{
+            BorderStyle, StyleDirection, StyleHyphens, StyleListStylePosition,
+            StyleListStyleType, StyleTextAlign, StyleTextCombineUpright, StyleVerticalAlign,
+            StyleVisibility, StyleWhiteSpace,
+        },
     },
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
-
-// Constants
-
-/// Default scrollbar width in pixels (CSS Overflow Module Level 3).
-/// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
-const SCROLLBAR_WIDTH_PX: f32 = 16.0;
-
-// Note: DEFAULT_FONT_SIZE and PT_TO_PX are imported from azul_css::props::basic::pixel
-
-#[cfg(feature = "text_layout")]
-use crate::text3;
 use crate::{
     debug_ifc_layout, debug_info, debug_log, debug_table_layout, debug_warning,
     font_traits::{
@@ -75,10 +70,11 @@ use crate::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{
             get_css_height, get_css_width, get_display_property, get_element_font_size, get_float,
-            get_overflow_x, get_overflow_y, get_parent_font_size, get_root_font_size,
-            get_style_properties, get_writing_mode,
+            get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
+            get_parent_font_size, get_root_font_size, get_style_properties, get_writing_mode,
+            MultiValue,
         },
-        layout_tree::{CachedInlineLayout, LayoutNode, LayoutTree},
+        layout_tree::{AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutTree, PseudoElement},
         positioning::get_position_type,
         scrollbar::ScrollbarInfo,
         sizing::extract_text_from_node,
@@ -86,24 +82,30 @@ use crate::{
     },
     text3::cache::{AvailableSpace as Text3AvailableSpace, TextAlign as Text3TextAlign},
 };
+#[cfg(feature = "text_layout")]
+use crate::text3;
+
+/// Default scrollbar width in pixels (CSS Overflow Module Level 3).
+/// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
+const SCROLLBAR_WIDTH_PX: f32 = 16.0;
+
+// Note: DEFAULT_FONT_SIZE and PT_TO_PX are imported from pixel
 
 /// Result of BFC layout with margin escape information
 #[derive(Debug, Clone)]
 pub(crate) struct BfcLayoutResult {
     /// Standard layout output (positions, overflow size, baseline)
-    pub(crate) output: LayoutOutput,
-
+    pub output: LayoutOutput,
     /// Top margin that escaped the BFC (for parent-child collapse)
     /// If Some, this margin should be used by parent instead of positioning this BFC
-    pub(crate) escaped_top_margin: Option<f32>,
-
+    pub escaped_top_margin: Option<f32>,
     /// Bottom margin that escaped the BFC (for parent-child collapse)
     /// If Some, this margin should collapse with next sibling
-    pub(crate) escaped_bottom_margin: Option<f32>,
+    pub escaped_bottom_margin: Option<f32>,
 }
 
 impl BfcLayoutResult {
-    fn from_output(output: LayoutOutput) -> Self {
+    pub fn from_output(output: LayoutOutput) -> Self {
         Self {
             output,
             escaped_top_margin: None,
@@ -225,7 +227,8 @@ struct FloatBox {
 /// Manages the state of all floated elements within a Block Formatting Context.
 #[derive(Debug, Default, Clone)]
 pub struct FloatingContext {
-    floats: Vec<FloatBox>,
+    /// All currently positioned floats within the BFC.
+    pub floats: Vec<FloatBox>,
 }
 
 impl FloatingContext {
@@ -321,125 +324,6 @@ pub struct LayoutResult {
     pub positions: Vec<(usize, LogicalPosition)>,
     pub overflow_size: Option<LogicalSize>,
     pub baseline_offset: f32,
-}
-
-fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
-    TaffySize {
-        width: Some(size.width),
-        height: Some(size.height),
-    }
-}
-
-/// Helper: Convert StyleFontStyle to text3::cache::FontStyle
-pub(crate) fn convert_font_style(
-    style: azul_css::props::basic::font::StyleFontStyle,
-) -> crate::font_traits::FontStyle {
-    match style {
-        StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
-        StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
-        StyleFontStyle::Oblique => crate::font_traits::FontStyle::Oblique,
-    }
-}
-
-/// Helper: Convert StyleFontWeight to rust_fontconfig::FcWeight
-pub(crate) fn convert_font_weight(
-    weight: azul_css::props::basic::font::StyleFontWeight,
-) -> rust_fontconfig::FcWeight {
-    match weight {
-        StyleFontWeight::W100 => rust_fontconfig::FcWeight::Thin,
-        StyleFontWeight::W200 => rust_fontconfig::FcWeight::ExtraLight,
-        StyleFontWeight::W300 | StyleFontWeight::Lighter => rust_fontconfig::FcWeight::Light,
-        StyleFontWeight::Normal => rust_fontconfig::FcWeight::Normal,
-        StyleFontWeight::W500 => rust_fontconfig::FcWeight::Medium,
-        StyleFontWeight::W600 => rust_fontconfig::FcWeight::SemiBold,
-        StyleFontWeight::Bold => rust_fontconfig::FcWeight::Bold,
-        StyleFontWeight::W800 => rust_fontconfig::FcWeight::ExtraBold,
-        StyleFontWeight::W900 | StyleFontWeight::Bolder => rust_fontconfig::FcWeight::Black,
-    }
-}
-
-/// Checks if a node establishes a new Block Formatting Context (BFC).
-///
-/// Per CSS 2.2 § 9.4.1, a BFC is established by:
-/// - Floats (elements with float other than 'none')
-/// - Absolutely positioned elements (position: absolute or fixed)
-/// - Block containers that are not block boxes (e.g., inline-blocks, table-cells)
-/// - Block boxes with 'overflow' other than 'visible' and 'clip'
-/// - Elements with 'display: flow-root'
-/// - Table cells, table captions, and inline-blocks
-///
-/// Normal flow block-level boxes do NOT establish a new BFC.
-/// This is critical for correct float interaction: normal blocks should overlap floats
-/// (not shrink around them), while their inline content wraps around floats.
-fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
-    let Some(dom_id) = node.dom_node_id else {
-        return false;
-    };
-
-    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
-
-    // 1. Floats establish BFC
-    let float_val = get_float(ctx.styled_dom, dom_id, node_state);
-    if matches!(
-        float_val,
-        crate::solver3::getters::MultiValue::Exact(LayoutFloat::Left | LayoutFloat::Right)
-    ) {
-        return true;
-    }
-
-    // 2. Absolutely positioned elements establish BFC
-    let position = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(dom_id));
-    if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
-        return true;
-    }
-
-    // 3. Inline-blocks, table-cells, table-captions establish BFC
-    let display = get_display_property(ctx.styled_dom, Some(dom_id));
-    if matches!(
-        display,
-        crate::solver3::getters::MultiValue::Exact(
-            LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption
-        )
-    ) {
-        return true;
-    }
-
-    // 4. display: flow-root establishes BFC
-    if matches!(
-        display,
-        crate::solver3::getters::MultiValue::Exact(LayoutDisplay::FlowRoot)
-    ) {
-        return true;
-    }
-
-    // 5. Block boxes with overflow other than 'visible' or 'clip' establish BFC
-    // Note: 'clip' does NOT establish BFC per CSS Overflow Module Level 3
-    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, node_state);
-    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, node_state);
-
-    let creates_bfc_via_overflow = |ov: &crate::solver3::getters::MultiValue<LayoutOverflow>| {
-        matches!(
-            ov,
-            &crate::solver3::getters::MultiValue::Exact(
-                LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
-            )
-        )
-    };
-
-    if creates_bfc_via_overflow(&overflow_x) || creates_bfc_via_overflow(&overflow_y) {
-        return true;
-    }
-
-    // 6. Table, Flex, and Grid containers establish BFC (via FormattingContext)
-    if matches!(
-        node.formatting_context,
-        FormattingContext::Table | FormattingContext::Flex | FormattingContext::Grid
-    ) {
-        return true;
-    }
-
-    // Normal flow block boxes do NOT establish BFC
-    false
 }
 
 // Entry Point & Dispatcher
@@ -640,32 +524,6 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
         .unwrap_or((None, false))
 }
 
-/// Resolves a CSS size metric to pixels.
-#[inline]
-fn resolve_size_metric(metric: SizeMetric, value: f32, containing_block_size: f32) -> f32 {
-    match metric {
-        SizeMetric::Px => value,
-        SizeMetric::Pt => value * PT_TO_PX,
-        SizeMetric::Percent => value / 100.0 * containing_block_size,
-        SizeMetric::Em | SizeMetric::Rem => value * DEFAULT_FONT_SIZE,
-        _ => value, // Fallback
-    }
-}
-
-pub fn translate_taffy_size_back(size: TaffySize<f32>) -> LogicalSize {
-    LogicalSize {
-        width: size.width,
-        height: size.height,
-    }
-}
-
-pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
-    LogicalPosition {
-        x: point.x,
-        y: point.y,
-    }
-}
-
 /// Position a float within a BFC, considering existing floats.
 /// Returns the LogicalRect (margin box) for the float.
 fn position_float(
@@ -777,6 +635,7 @@ fn position_float(
 /// ```
 ///
 /// **Collapsing Rules:**
+/// 
 /// - Sibling margins: Adjacent vertical margins collapse to max (or sum if mixed signs)
 /// - Parent-child: First child's top margin can escape parent (if no border/padding)
 /// - Parent-child: Last child's bottom margin can escape parent (if no border/padding/height)
@@ -809,11 +668,12 @@ fn layout_bfc<T: ParsedFontTrait>(
     );
 
     // Initialize FloatingContext for this BFC
+    // 
     // We always recalculate float positions in this pass, but we'll store them in the cache
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
 
-    // --- Pass 1: Size all children (floats and normal flow) ---
+    // Pass 1: Size all children (floats and normal flow)
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
@@ -839,7 +699,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         )?;
     }
 
-    // --- Pass 2: Single-pass interleaved layout (position floats and normal flow in DOM order) ---
+    // Pass 2: Single-pass interleaved layout (position floats and normal flow in DOM order)
 
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
@@ -869,7 +729,8 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Track accumulated top margin for first-child escape
     let mut accumulated_top_margin = 0.0f32;
     let mut top_margin_resolved = false;
-    let mut top_margin_escaped = false; // Track if first child's margin escaped (for return value)
+    // Track if first child's margin escaped (for return value)
+    let mut top_margin_escaped = false; 
 
     // Track if we have any actual content (non-empty blocks)
     let mut has_content = false;
@@ -914,7 +775,8 @@ fn layout_bfc<T: ParsedFontTrait>(
                     float_type,
                     float_size,
                     float_margin,
-                    float_y, // Include last_margin_bottom since float margins don't collapse!
+                    // Include last_margin_bottom since float margins don't collapse!
+                    float_y,
                     constraints.available_size.cross(writing_mode),
                     writing_mode,
                 );
@@ -971,13 +833,16 @@ fn layout_bfc<T: ParsedFontTrait>(
         );
 
         // IMPORTANT: Use the ACTUAL margins from box_props, NOT escaped margins!
+        // 
         // Escaped margins are only relevant for the parent-child relationship WITHIN a node's
         // own BFC layout. When positioning this child in ITS parent's BFC, we use its actual
         // margins. CSS 2.2 § 8.3.1: Margin collapsing happens between ADJACENT margins,
         // which means:
+        // 
         // - Parent's top and first child's top (if no blocker)
         // - Sibling's bottom and next sibling's top
         // - Parent's bottom and last child's bottom (if no blocker)
+        // 
         // The escaped_top_margin stored in the child node is for its OWN children, not for itself!
         let child_margin_top = child_margin.main_start(writing_mode);
         let child_margin_bottom = child_margin.main_end(writing_mode);
@@ -1083,16 +948,20 @@ fn layout_bfc<T: ParsedFontTrait>(
         };
 
         // PHASE 2: Parent-Child Top Margin Escape (First Child)
+        // 
         // CSS 2.2 § 8.3.1: "The top margin of a box is adjacent to the top margin of its first
         // in-flow child if the box has no top border, no top padding, and the child has no
         // clearance." CSS 2.2 § 9.5.2: "Clearance inhibits margin collapsing"
+
         if is_first_child {
             is_first_child = false;
 
             // Clearance prevents collapse (acts as invisible blocker)
             if clearance_applied {
+
                 // Clearance inhibits all margin collapsing for this element
                 // The clearance has already positioned main_pen past floats
+                // 
                 // CSS 2.2 § 8.3.1: Parent's margin was already handled by parent's parent BFC
                 // We only add child's margin in our content-box coordinate space
                 main_pen += child_margin_top;
@@ -1105,7 +974,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                     main_pen
                 );
             } else if !parent_has_top_blocker {
+
                 // Margin Escape Case
+                // 
                 // CSS 2.2 § 8.3.1: "The top margin of an in-flow block element collapses with
                 // its first in-flow block-level child's top margin if the element has no top
                 // border, no top padding, and the child has no clearance."
@@ -1114,7 +985,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                 // in the grandparent's coordinate space. This is critical for understanding the
                 // coordinate system separation:
                 //
-                // Example: <body padding=20><div margin=0><div margin=30></div></div></body>
+                // Example: 
+                // <body padding=20>
+                //  <div margin=0>
+                //      <div margin=30></div>
+                //  </div>
+                // </body>
+                // 
                 //   - Middle div (our parent) has no padding → margins can escape
                 //   - Inner div's 30px margin collapses with middle div's 0px margin = 30px
                 //   - This 30px margin "escapes" to be handled by body's BFC
@@ -1122,29 +999,30 @@ fn layout_bfc<T: ParsedFontTrait>(
                 //   - Middle div's content-box height does NOT include the escaped 30px
                 //   - Inner div is positioned at Y=0 in middle div's content-box
                 //
-                // COORDINATE SYSTEM INVARIANT:
+                // **NOTE**: This is a subtle but critical distinction in coordinate systems:
+                //
                 //   - Parent's margin belongs to grandparent's coordinate space
                 //   - Child's margin (when escaped) also belongs to grandparent's coordinate space
                 //   - They collapse BEFORE entering this BFC's coordinate space
                 //   - We return the collapsed margin so grandparent can position parent correctly
                 //
-                // NOTE: Child's own blocker status (padding/border) is IRRELEVANT for parent-child
-                // collapse. The child may have padding that prevents collapse with ITS OWN
-                // children, but this doesn't prevent its margin from escaping
-                // through its parent.
+                // **NOTE**: Child's own blocker status (padding/border) is IRRELEVANT for parent-child
+                //  collapse. The child may have padding that prevents collapse with ITS OWN
+                //  children, but this doesn't prevent its margin from escaping
+                //  through its parent.
                 //
-                // BUG HISTORY: Previously, we incorrectly added parent_margin_top to main_pen in
-                // the blocked case, which double-counted the margin by mixing
-                // coordinate systems. The parent's margin is NEVER in our (the
-                // parent's content-box) coordinate system!
+                // **NOTE**: Previously, we incorrectly added parent_margin_top to main_pen in
+                //  the blocked case, which double-counted the margin by mixing
+                //  coordinate systems. The parent's margin is NEVER in our (the
+                //  parent's content-box) coordinate system!
 
                 accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
                 top_margin_resolved = true;
                 top_margin_escaped = true;
 
                 // Track escaped margin so it gets subtracted from content-box height
-                // The escaped margin is NOT part of our content-box - it belongs to our parent's
-                // parent
+                // The escaped margin is NOT part of our content-box - it belongs to our
+                // parent's parent
                 total_escaped_top_margin = accumulated_top_margin;
 
                 // Position child at pen (no margin applied - it escaped!)
@@ -1159,12 +1037,15 @@ fn layout_bfc<T: ParsedFontTrait>(
                     total_escaped_top_margin
                 );
             } else {
+
                 // Margin Blocked Case
+                // 
                 // CSS 2.2 § 8.3.1: "no top padding and no top border" required for collapse.
                 // When padding or border exists, margins do NOT collapse and exist in different
                 // coordinate spaces.
                 //
                 // CRITICAL COORDINATE SYSTEM SEPARATION:
+                // 
                 //   This is where the architecture becomes subtle. When layout_bfc() is called:
                 //   1. We are INSIDE the parent's content-box coordinate space (main_pen starts at
                 //      0)
@@ -1172,8 +1053,14 @@ fn layout_bfc<T: ParsedFontTrait>(
                 //   3. The parent's margin is in the grandparent's coordinate space, not ours
                 //   4. We NEVER reference the parent's margin in this BFC - it's outside our scope
                 //
-                // Example: <body padding=20><div margin=30 padding=20><div
-                // margin=30></div></div></body>
+                // Example: 
+                // 
+                // <body padding=20>
+                //   <div margin=30 padding=20>
+                //      <div margin=30></div>
+                //   </div>
+                // </body>
+                // 
                 //   - Middle div has padding=20 → blocker exists, margins don't collapse
                 //   - Body's BFC positions middle div at Y=30 (middle div's margin, in body's
                 //     space)
@@ -1184,19 +1071,20 @@ fn layout_bfc<T: ParsedFontTrait>(
                 //   - Absolute position: 20 (body padding) + 30 (middle margin) + 20 (middle
                 //     padding) + 30 (inner margin) = 100px
                 //
-                // BUG HISTORY (CRITICAL - DO NOT REINTRODUCE):
-                //   Previous code incorrectly added parent_margin_top to main_pen here:
-                //     ❌ main_pen += parent_margin_top;  // WRONG! Mixes coordinate systems
-                //     ❌ main_pen += child_margin_top;
+                // **NOTE**: Previous code incorrectly added parent_margin_top to main_pen here:
+                // 
+                //     - main_pen += parent_margin_top;  // WRONG! Mixes coordinate systems
+                //     - main_pen += child_margin_top;
+                // 
                 //   This caused the "double margin" bug where margins were applied twice:
+                // 
                 //   - Once by grandparent positioning parent (correct)
                 //   - Again inside parent's BFC (INCORRECT - wrong coordinate system)
                 //
                 //   The parent's margin belongs to GRANDPARENT's coordinate space and was already
                 //   used to position the parent. Adding it again here is like adding feet to
-                // meters.
-                //
-                // CORRECT BEHAVIOR:
+                //   meters.
+                // 
                 //   We ONLY add the child's margin in our (parent's content-box) coordinate space.
                 //   The parent's margin is irrelevant to us - it's outside our scope.
 
@@ -1244,27 +1132,36 @@ fn layout_bfc<T: ParsedFontTrait>(
                 );
             } else {
                 // Sibling Margin Collapse
+                // 
                 // CSS 2.2 § 8.3.1: "Vertical margins of adjacent block boxes in the normal
                 // flow collapse." The collapsed margin is the maximum of the two margins.
                 //
                 // IMPORTANT: Sibling margins ARE part of the parent's content-box height!
+                // 
                 // Unlike escaped margins (which belong to grandparent's space), sibling margins
                 // are the space BETWEEN children within our content-box.
                 //
-                // Example: <div><div margin-bottom=30></div><div margin-top=40></div></div>
+                // Example: 
+                // 
+                // <div>
+                //  <div margin-bottom=30></div>
+                //  <div margin-top=40></div>
+                // </div>
+                // 
                 //   - First child ends at Y=100 (including its content + margins)
                 //   - Collapsed margin = max(30, 40) = 40px
                 //   - Second child starts at Y=140 (100 + 40)
                 //   - Parent's content-box height includes this 40px gap
                 //
-                // We track total_sibling_margins for debugging, but NOTE: we do NOT subtract
-                // these from content-box height! They are part of the layout space.
+                // We track total_sibling_margins for debugging, but NOTE: we do **not** 
+                // subtract these from content-box height! They are part of the layout space.
                 //
-                // BUG HISTORY: Previously subtracted total_sibling_margins from content-box height:
-                //   ❌ content_box_height = main_pen - total_escaped_top_margin -
-                // total_sibling_margins; This was wrong because sibling margins are
-                // BETWEEN boxes (part of content), not OUTSIDE boxes (like escaped
-                // margins).
+                // Previously we subtracted total_sibling_margins from content-box height:
+                // 
+                //   content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins; 
+                // 
+                // This was wrong because sibling margins are between boxes (part of content), 
+                // not outside boxes (like escaped margins).
 
                 let collapsed = collapse_margins(last_margin_bottom, child_margin_top);
                 main_pen += collapsed;
@@ -1718,7 +1615,9 @@ fn layout_bfc<T: ParsedFontTrait>(
     }
 
     // CSS 2.2 § 9.5: Floats don't contribute to container height with overflow:visible
+    // 
     // However, browsers DO expand containers to contain floats in specific cases:
+    // 
     // 1. If there's NO in-flow content (main_pen == 0), floats determine height
     // 2. If container establishes a BFC (overflow != visible)
     //
@@ -1730,26 +1629,31 @@ fn layout_bfc<T: ParsedFontTrait>(
     // the container's padding when there's existing in-flow content.
 
     // Content-box Height Calculation
+    // 
     // CSS 2.2 § 8.3.1: "The top border edge of the box is defined to coincide with
     // the top border edge of the [first] child" when margins collapse/escape.
     //
     // This means escaped margins do NOT contribute to the parent's content-box height.
     //
-    // CALCULATION BREAKDOWN:
+    // Calculation:
+    // 
     //   main_pen = total vertical space used by all children and margins
     //
     //   Components of main_pen:
+    // 
     //   1. Children's border-boxes (always included)
     //   2. Sibling collapsed margins (space BETWEEN children - part of content)
     //   3. First child's position (0 if margin escaped, margin_top if blocked)
     //
     //   What to subtract:
-    //   - total_escaped_top_margin: First child's margin that went to grandparent's space This
-    //     margin is OUTSIDE our content-box, so we must subtract it.
+    // 
+    //   - total_escaped_top_margin: First child's margin that went to grandparent's space
+    //     This margin is OUTSIDE our content-box, so we must subtract it.
     //
     //   What NOT to subtract:
-    //   - total_sibling_margins: These are the gaps BETWEEN children, which are legitimately part
-    //     of our content area's layout space.
+    // 
+    //   - total_sibling_margins: These are the gaps BETWEEN children, which are 
+    //    legitimately part of our content area's layout space.
     //
     // Example with escaped margin:
     //   <div class="parent" padding=0>              <!-- Node 2 -->
@@ -1758,6 +1662,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     //   </div>
     //
     //   Layout process:
+    // 
     //   - Node 3 positioned at main_pen=0 (margin escaped)
     //   - Node 3 size=140px → main_pen advances to 140
     //   - Sibling collapse: max(30 child1 bottom, 40 child2 top) = 40px
@@ -1767,11 +1672,13 @@ fn layout_bfc<T: ParsedFontTrait>(
     //   - total_sibling_margins = 40 (tracked but NOT subtracted)
     //   - content_box_height = 310 - 30 = 280px ✓
     //
-    // BUG HISTORY:
-    //   ❌ Previously: content_box_height = main_pen - total_escaped_top_margin -
-    // total_sibling_margins   This incorrectly subtracted sibling margins, making parent too
-    // small.   Sibling margins are BETWEEN boxes (part of layout), not OUTSIDE boxes (like
-    // escaped margins).
+    // Previously, we calculated:
+    // 
+    //   content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins   
+    // 
+    // This incorrectly subtracted sibling margins, making parent too small.   
+    // Sibling margins are *between* boxes (part of layout), not *outside* boxes 
+    // (like escaped margins).
 
     let content_box_height = main_pen - total_escaped_top_margin;
     output.overflow_size =
@@ -1815,36 +1722,28 @@ fn layout_bfc<T: ParsedFontTrait>(
 /// This function acts as a bridge between the box-tree world of `solver3` and the
 /// rich text layout world of `text3`. Its responsibilities are:
 ///
-/// 1. **Collect Content**: Traverse the direct children of the IFC root and convert them into a
-///    `Vec<InlineContent>`, the input format for `text3`. This involves:
-///     - Recursively laying out `inline-block` children to determine their final size and baseline,
-///       which are then passed to `text3` as opaque objects.
+/// 1. **Collect Content**: Traverse the direct children of the IFC root and convert 
+///    them into a `Vec<InlineContent>`, the input format for `text3`. This involves:
+///
+///     - Recursively laying out `inline-block` children to determine their final size
+///       and baseline, which are then passed to `text3` as opaque objects.
 ///     - Extracting raw text runs from inline text nodes.
 ///
-/// 2. **Translate Constraints**: Convert the `LayoutConstraints` (available space, floats) from
-///    `solver3` into the more detailed `UnifiedConstraints` that `text3` requires.
+/// 2. **Translate Constraints**: Convert the `LayoutConstraints` (available space, floats)
+///    from `solver3` into the more detailed `UnifiedConstraints` that `text3` requires.
 ///
-/// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform the complex
-///    tasks of BIDI analysis, shaping, line breaking, justification, and vertical alignment.
+/// 3. **Invoke Text Layout**: Call the `text3` cache's `layout_flow` method to perform
+///    the complex tasks of BIDI analysis, shaping, line breaking, justification, and
+///    vertical alignment.
 ///
 /// 4. **Integrate Results**: Process the `UnifiedLayout` returned by `text3`:
-///     - Store the rich layout result on the IFC root `LayoutNode` for the display list generation
-///       pass.
-///     - Update the `positions` map for all `inline-block` children based on the positions
-///       calculated by `text3`.
-///     - Extract the final overflow size and baseline for the IFC root itself.
+/// 
+///     - Store the rich layout result on the IFC root `LayoutNode` for the
+///       display list generation pass.
+///     - Update the `positions` map for all `inline-block` children based
+///       on the positions calculated by `text3`.
+///     - Extract the final overflow size and baseline for the IFC root itself
 fn layout_ifc<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
-    tree: &mut LayoutTree,
-    node_index: usize,
-    constraints: &LayoutConstraints,
-) -> Result<LayoutOutput> {
-    layout_ifc_impl(ctx, text_cache, tree, node_index, constraints)
-}
-
-/// Internal IFC layout implementation.
-fn layout_ifc_impl<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut crate::font_traits::TextLayoutCache,
     tree: &mut LayoutTree,
@@ -1978,9 +1877,10 @@ fn layout_ifc_impl<T: ParsedFontTrait>(
         );
         debug_ifc_layout!(ctx, "Storing inline_layout_result on node {}", node_index);
 
-        // Determine if we should store this layout result using the new CachedInlineLayout system.
-        //
-        // The key insight is that inline layouts depend on available width:
+        // Determine if we should store this layout result using the new
+        // CachedInlineLayout system. The key insight is that inline layouts 
+        // depend on available width:
+        // 
         // - Min-content measurement uses width ≈ 0 (maximum line wrapping)
         // - Max-content measurement uses width = ∞ (no line wrapping)
         // - Final layout uses the actual column/container width
@@ -2067,6 +1967,162 @@ fn layout_ifc_impl<T: ParsedFontTrait>(
     Ok(output)
 }
 
+fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
+    TaffySize {
+        width: Some(size.width),
+        height: Some(size.height),
+    }
+}
+
+/// Helper: Convert StyleFontStyle to text3::cache::FontStyle
+pub(crate) fn convert_font_style(
+    style: StyleFontStyle,
+) -> crate::font_traits::FontStyle {
+    match style {
+        StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
+        StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
+        StyleFontStyle::Oblique => crate::font_traits::FontStyle::Oblique,
+    }
+}
+
+/// Helper: Convert StyleFontWeight to FcWeight
+pub(crate) fn convert_font_weight(
+    weight: StyleFontWeight,
+) -> FcWeight {
+    match weight {
+        StyleFontWeight::W100 => FcWeight::Thin,
+        StyleFontWeight::W200 => FcWeight::ExtraLight,
+        StyleFontWeight::W300 | StyleFontWeight::Lighter => FcWeight::Light,
+        StyleFontWeight::Normal => FcWeight::Normal,
+        StyleFontWeight::W500 => FcWeight::Medium,
+        StyleFontWeight::W600 => FcWeight::SemiBold,
+        StyleFontWeight::Bold => FcWeight::Bold,
+        StyleFontWeight::W800 => FcWeight::ExtraBold,
+        StyleFontWeight::W900 | StyleFontWeight::Bolder => FcWeight::Black,
+    }
+}
+
+/// Resolves a CSS size metric to pixels.
+#[inline]
+fn resolve_size_metric(metric: SizeMetric, value: f32, containing_block_size: f32) -> f32 {
+    match metric {
+        SizeMetric::Px => value,
+        SizeMetric::Pt => value * PT_TO_PX,
+        SizeMetric::Percent => value / 100.0 * containing_block_size,
+        SizeMetric::Em | SizeMetric::Rem => value * DEFAULT_FONT_SIZE,
+        _ => value, // Fallback
+    }
+}
+
+pub fn translate_taffy_size_back(size: TaffySize<f32>) -> LogicalSize {
+    LogicalSize {
+        width: size.width,
+        height: size.height,
+    }
+}
+
+pub fn translate_taffy_point_back(point: taffy::Point<f32>) -> LogicalPosition {
+    LogicalPosition {
+        x: point.x,
+        y: point.y,
+    }
+}
+
+/// Checks if a node establishes a new Block Formatting Context (BFC).
+///
+/// Per CSS 2.2 § 9.4.1, a BFC is established by:
+/// - Floats (elements with float other than 'none')
+/// - Absolutely positioned elements (position: absolute or fixed)
+/// - Block containers that are not block boxes (e.g., inline-blocks, table-cells)
+/// - Block boxes with 'overflow' other than 'visible' and 'clip'
+/// - Elements with 'display: flow-root'
+/// - Table cells, table captions, and inline-blocks
+///
+/// Normal flow block-level boxes do NOT establish a new BFC.
+/// 
+/// This is critical for correct float interaction: normal blocks should overlap floats
+/// (not shrink around them), while their inline content wraps around floats.
+fn establishes_new_bfc<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>, 
+    node: &LayoutNode
+) -> bool {
+
+    let Some(dom_id) = node.dom_node_id else {
+        return false;
+    };
+
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+
+    // 1. Floats establish BFC
+    let float_val = get_float(ctx.styled_dom, dom_id, node_state);
+    if matches!(
+        float_val,
+        MultiValue::Exact(LayoutFloat::Left | LayoutFloat::Right)
+    ) {
+        return true;
+    }
+
+    // 2. Absolutely positioned elements establish BFC
+    let position = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(dom_id));
+    if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) {
+        return true;
+    }
+
+    // 3. Inline-blocks, table-cells, table-captions establish BFC
+    let display = get_display_property(ctx.styled_dom, Some(dom_id));
+    if matches!(
+        display,
+        MultiValue::Exact(
+            LayoutDisplay::InlineBlock | 
+            LayoutDisplay::TableCell | 
+            LayoutDisplay::TableCaption
+        )
+    ) {
+        return true;
+    }
+
+    // 4. display: flow-root establishes BFC
+    if matches!(
+        display,
+        MultiValue::Exact(LayoutDisplay::FlowRoot)
+    ) {
+        return true;
+    }
+
+    // 5. Block boxes with overflow other than 'visible' or 'clip' establish BFC
+    // Note: 'clip' does NOT establish BFC per CSS Overflow Module Level 3
+    let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, node_state);
+    let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, node_state);
+
+    let creates_bfc_via_overflow = |ov: &MultiValue<LayoutOverflow>| {
+        matches!(
+            ov,
+            &MultiValue::Exact(
+                LayoutOverflow::Hidden | 
+                LayoutOverflow::Scroll | 
+                LayoutOverflow::Auto
+            )
+        )
+    };
+
+    if creates_bfc_via_overflow(&overflow_x) || creates_bfc_via_overflow(&overflow_y) {
+        return true;
+    }
+
+    // 6. Table, Flex, and Grid containers establish BFC (via FormattingContext)
+    if matches!(
+        node.formatting_context,
+        FormattingContext::Table | 
+        FormattingContext::Flex | 
+        FormattingContext::Grid
+    ) {
+        return true;
+    }
+
+    // Normal flow block boxes do NOT establish BFC
+    false
+}
+
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
 fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -2146,7 +2202,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .get_height(node_data, &id, node_state)
             .and_then(|v| v.get_property())
             .and_then(|h| match h {
-                azul_css::props::layout::dimensions::LayoutHeight::Px(v) => {
+                LayoutHeight::Px(v) => {
                     // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
                     // since we can't resolve relative units without proper context
                     match v.metric {
@@ -2189,7 +2245,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         })
         .and_then(|shape_inside| {
             debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
-            if let azul_css::props::layout::ShapeInside::Shape(css_shape) = shape_inside {
+            if let ShapeInside::Shape(css_shape) = shape_inside {
                 debug_info!(
                     ctx,
                     "Converting CSS shape to ShapeBoundary: {:?}",
@@ -2222,7 +2278,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
         if let Some(shape_outside) = shape_outside_value.get_property() {
             debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
-            if let azul_css::props::layout::ShapeOutside::Shape(css_shape) = shape_outside {
+            if let ShapeOutside::Shape(css_shape) = shape_outside {
                 debug_info!(
                     ctx,
                     "Converting CSS shape-outside to ShapeBoundary: {:?}",
@@ -2297,8 +2353,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_direction(node_data, &id, node_state)
         .and_then(|s| s.get_property().copied())
         .map(|d| match d {
-            azul_css::props::style::StyleDirection::Ltr => text3::cache::Direction::Ltr,
-            azul_css::props::style::StyleDirection::Rtl => text3::cache::Direction::Rtl,
+            StyleDirection::Ltr => text3::cache::Direction::Ltr,
+            StyleDirection::Rtl => text3::cache::Direction::Rtl,
         });
 
     debug_info!(
@@ -2337,8 +2393,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_column_count(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|cc| match cc {
-            azul_css::props::layout::ColumnCount::Integer(n) => *n,
-            azul_css::props::layout::ColumnCount::Auto => 1,
+            ColumnCount::Integer(n) => *n,
+            ColumnCount::Auto => 1,
         })
         .unwrap_or(1);
 
@@ -2372,9 +2428,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_white_space(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|ws| match ws {
-            azul_css::props::style::StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
-            azul_css::props::style::StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
-            azul_css::props::style::StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
+            StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
+            StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
+            StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
         })
         .unwrap_or(text3::cache::TextWrap::Wrap);
 
@@ -2417,13 +2473,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_text_combine_upright(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|tcu| match tcu {
-            azul_css::props::style::StyleTextCombineUpright::None => {
+            StyleTextCombineUpright::None => {
                 text3::cache::TextCombineUpright::None
             }
-            azul_css::props::style::StyleTextCombineUpright::All => {
+            StyleTextCombineUpright::All => {
                 text3::cache::TextCombineUpright::All
             }
-            azul_css::props::style::StyleTextCombineUpright::Digits(n) => {
+            StyleTextCombineUpright::Digits(n) => {
                 text3::cache::TextCombineUpright::Digits(*n)
             }
         });
@@ -2568,9 +2624,9 @@ struct TableLayoutContext {
     /// Computed height for each row
     row_heights: Vec<f32>,
     /// Border collapse mode
-    border_collapse: azul_css::props::layout::StyleBorderCollapse,
+    border_collapse: StyleBorderCollapse,
     /// Border spacing (only used when border_collapse is Separate)
-    border_spacing: azul_css::props::layout::LayoutBorderSpacing,
+    border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
     caption_index: Option<usize>,
     /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
@@ -2589,8 +2645,8 @@ impl TableLayoutContext {
             num_rows: 0,
             use_fixed_layout: false,
             row_heights: Vec::new(),
-            border_collapse: azul_css::props::layout::StyleBorderCollapse::Separate,
-            border_spacing: azul_css::props::layout::LayoutBorderSpacing::default(),
+            border_collapse: StyleBorderCollapse::Separate,
+            border_spacing: LayoutBorderSpacing::default(),
             caption_index: None,
             collapsed_rows: std::collections::HashSet::new(),
             collapsed_columns: std::collections::HashSet::new(),
@@ -2613,16 +2669,16 @@ pub enum BorderSource {
 #[derive(Debug, Clone)]
 pub struct BorderInfo {
     pub width: f32,
-    pub style: azul_css::props::style::BorderStyle,
-    pub color: azul_css::props::basic::ColorU,
+    pub style: BorderStyle,
+    pub color: ColorU,
     pub source: BorderSource,
 }
 
 impl BorderInfo {
     pub fn new(
         width: f32,
-        style: azul_css::props::style::BorderStyle,
-        color: azul_css::props::basic::ColorU,
+        style: BorderStyle,
+        color: ColorU,
         source: BorderSource,
     ) -> Self {
         Self {
@@ -2635,8 +2691,7 @@ impl BorderInfo {
 
     /// Get the priority of a border style for conflict resolution
     /// Higher number = higher priority
-    pub fn style_priority(style: &azul_css::props::style::BorderStyle) -> u8 {
-        use azul_css::props::style::BorderStyle;
+    pub fn style_priority(style: &BorderStyle) -> u8 {
         match style {
             BorderStyle::Hidden => 255, // Highest - suppresses all borders
             BorderStyle::None => 0,     // Lowest - loses to everything
@@ -2654,8 +2709,6 @@ impl BorderInfo {
     /// Compare two borders for conflict resolution per CSS 2.2 Section 17.6.2.1
     /// Returns the winning border
     pub fn resolve_conflict(a: &BorderInfo, b: &BorderInfo) -> Option<BorderInfo> {
-        use azul_css::props::style::BorderStyle;
-
         // 1. 'hidden' wins and suppresses all borders
         if a.style == BorderStyle::Hidden || b.style == BorderStyle::Hidden {
             return None;
@@ -2694,7 +2747,8 @@ impl BorderInfo {
             return Some(b.clone());
         }
 
-        // 5. If same style, source priority: Cell > Row > RowGroup > Column > ColumnGroup > Table
+        // 5. If same style, source priority: 
+        // Cell > Row > RowGroup > Column > ColumnGroup > Table
         if a.source > b.source {
             return Some(a.clone());
         }
@@ -2721,7 +2775,7 @@ fn get_border_info<T: ParsedFontTrait>(
         style::BorderStyle,
     };
 
-    use crate::solver3::getters::{
+    use {
         get_element_font_size, get_parent_font_size, get_root_font_size,
     };
 
@@ -2759,8 +2813,10 @@ fn get_border_info<T: ParsedFontTrait>(
         element_font_size,
         parent_font_size,
         root_font_size,
-        containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-width
-        element_size: None,                                 // Not used for border-width
+        // Not used for border-width
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        // Not used for border-width
+        element_size: None,
         viewport_size: PhysicalSize::new(0.0, 0.0),
     };
 
@@ -2879,8 +2935,7 @@ fn get_border_info<T: ParsedFontTrait>(
 fn get_table_layout_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
-) -> azul_css::props::layout::LayoutTableLayout {
-    use azul_css::props::layout::LayoutTableLayout;
+) -> LayoutTableLayout {
 
     let Some(dom_id) = node.dom_node_id else {
         return LayoutTableLayout::Auto;
@@ -2901,8 +2956,7 @@ fn get_table_layout_property<T: ParsedFontTrait>(
 fn get_border_collapse_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
-) -> azul_css::props::layout::StyleBorderCollapse {
-    use azul_css::props::layout::StyleBorderCollapse;
+) -> StyleBorderCollapse {
 
     let Some(dom_id) = node.dom_node_id else {
         return StyleBorderCollapse::Separate;
@@ -2923,8 +2977,7 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
 fn get_border_spacing_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
-) -> azul_css::props::layout::LayoutBorderSpacing {
-    use azul_css::props::layout::LayoutBorderSpacing;
+) -> LayoutBorderSpacing {
 
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
@@ -2945,17 +2998,17 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
 }
 
 /// CSS 2.2 Section 17.4 - Tables in the visual formatting model:
-/// "The caption box is a block box that retains its own content, padding, border, and margin areas.
-/// The caption-side property specifies the position of the caption box with respect to the table
-/// box."
+/// 
+/// "The caption box is a block box that retains its own content, padding, 
+/// border, and margin areas. The caption-side property specifies the position 
+/// of the caption box with respect to the table box."
 ///
 /// Get the caption-side property for a table node.
 /// Returns Top (default) or Bottom.
 fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
-) -> azul_css::props::layout::StyleCaptionSide {
-    use azul_css::props::layout::StyleCaptionSide;
+) -> StyleCaptionSide {
 
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
@@ -2977,17 +3030,19 @@ fn get_caption_side_property<T: ParsedFontTrait>(
 }
 
 /// CSS 2.2 Section 17.6 - Dynamic row and column effects:
-/// "The 'visibility' value 'collapse' removes a row or column from display, but it has a different
-/// effect than 'visibility: hidden' on other elements. When a row or column is collapsed, the space
-/// normally occupied by the row or column is removed."
+/// 
+/// "The 'visibility' value 'collapse' removes a row or column from display, 
+/// but it has a different effect than 'visibility: hidden' on other elements. 
+/// When a row or column is collapsed, the space normally occupied by the row 
+/// or column is removed."
 ///
 /// Check if a node has visibility:collapse set.
+/// 
 /// This is used for table rows and columns to optimize dynamic hiding.
 fn is_visibility_collapsed<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> bool {
-    use azul_css::props::style::StyleVisibility;
 
     if let Some(dom_id) = node.dom_node_id {
         let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
@@ -3008,16 +3063,19 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     false
 }
 
-/// CSS 2.2 Section 17.6.1.1 - Borders and Backgrounds around empty cells: the 'empty-cells'
-/// property "In the separated borders model, the 'empty-cells' property controls the rendering of
+/// CSS 2.2 Section 17.6.1.1 - Borders and Backgrounds around empty cells
+/// 
+/// In the separated borders model, the 'empty-cells' property controls the rendering of
 /// borders and backgrounds around cells that have no visible content. Empty means it has no
 /// children, or has children that are only collapsed whitespace."
 ///
 /// Check if a table cell is empty (has no visible content).
+/// 
 /// This is used by the rendering pipeline to decide whether to paint borders/backgrounds
 /// when empty-cells: hide is set in separated border model.
 ///
 /// A cell is considered empty if:
+/// 
 /// - It has no children, OR
 /// - It has children but no inline_layout_result (no rendered content)
 ///
@@ -3044,6 +3102,7 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
 
     // Check if all children have no content
     // A more thorough check would recursively examine all descendants
+    // 
     // For now, we use a simple heuristic: if there are children, assume not empty
     // unless proven otherwise by inline_layout_result
 
@@ -3051,7 +3110,8 @@ fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     false
 }
 
-fn layout_table_fc<T: ParsedFontTrait>(
+/// Main function to layout a table formatting context
+pub fn layout_table_fc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut crate::font_traits::TextLayoutCache,
@@ -3069,6 +3129,7 @@ fn layout_table_fc<T: ParsedFontTrait>(
     );
 
     // Multi-pass table layout algorithm:
+    // 
     // 1. Analyze table structure - identify rows, cells, columns
     // 2. Determine table-layout property (fixed vs auto)
     // 3. Calculate column widths
@@ -3143,7 +3204,6 @@ fn layout_table_fc<T: ParsedFontTrait>(
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
 
     // Phase 2: Read CSS properties and determine layout algorithm
-    use azul_css::props::layout::LayoutTableLayout;
     let table_layout = get_table_layout_property(ctx, &table_node);
     table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
 
@@ -3220,11 +3280,10 @@ fn layout_table_fc<T: ParsedFontTrait>(
     );
 
     // Add border-spacing to table size if border-collapse is separate
-    use azul_css::props::layout::StyleBorderCollapse;
     if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
+        use {PhysicalSize, PropertyContext, ResolutionContext};
 
-        use crate::solver3::getters::{
+        use {
             get_element_font_size, get_parent_font_size, get_root_font_size,
         };
 
@@ -3238,7 +3297,8 @@ fn layout_table_fc<T: ParsedFontTrait>(
             root_font_size: get_root_font_size(styled_dom, table_state),
             containing_block_size: PhysicalSize::new(0.0, 0.0),
             element_size: None,
-            viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Get actual DPI scale from ctx
+            // TODO: Get actual DPI scale from ctx
+            viewport_size: PhysicalSize::new(0.0, 0.0),
         };
 
         let h_spacing = table_ctx
@@ -3263,8 +3323,9 @@ fn layout_table_fc<T: ParsedFontTrait>(
     }
 
     // CSS 2.2 Section 17.4: Layout and position the caption if present
-    // "The caption box is a block box that retains its own content, padding, border, and margin
-    // areas."
+    // 
+    // "The caption box is a block box that retains its own content, 
+    // padding, border, and margin areas."
     let caption_side = get_caption_side_property(ctx, &table_node);
     let mut caption_height = 0.0;
     let mut table_y_offset = 0.0;
@@ -3302,7 +3363,6 @@ fn layout_table_fc<T: ParsedFontTrait>(
         caption_height = caption_result.output.overflow_size.height;
 
         // Position caption based on caption-side property
-        use azul_css::props::layout::StyleCaptionSide;
         let caption_position = match caption_side {
             StyleCaptionSide::Top => {
                 // Caption on top: position at y=0, table starts below caption
@@ -3362,8 +3422,10 @@ fn layout_table_fc<T: ParsedFontTrait>(
             width: table_width,
             height: total_height,
         },
-        positions: cell_positions, // Cell positions calculated in position_table_cells
-        baseline: None,            // Tables don't have a baseline
+        // Cell positions calculated in position_table_cells
+        positions: cell_positions,
+        // Tables don't have a baseline
+        baseline: None,            
     };
 
     Ok(output)
@@ -3436,8 +3498,9 @@ fn analyze_table_structure<T: ParsedFontTrait>(
 }
 
 /// Analyze a table column group to identify columns and track collapsed columns
-/// CSS 2.2 Section 17.2: Column groups contain columns
-/// CSS 2.2 Section 17.6: Columns can have visibility:collapse
+/// 
+/// - CSS 2.2 Section 17.2: Column groups contain columns
+/// - CSS 2.2 Section 17.6: Columns can have visibility:collapse
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
@@ -3448,13 +3511,13 @@ fn analyze_table_colgroup<T: ParsedFontTrait>(
 
     // Check if the colgroup itself has visibility:collapse
     if is_visibility_collapsed(ctx, colgroup_node) {
+        // All columns in this group should be collapsed
+        // TODO: For now, just mark the group (actual column indices will be determined later)
         debug_log!(
             ctx,
             "Column group at index {} has visibility:collapse",
             colgroup_index
         );
-        // All columns in this group should be collapsed
-        // For now, just mark the group (actual column indices will be determined later)
     }
 
     // Check for individual column elements within the group
@@ -3529,9 +3592,12 @@ fn analyze_table_row<T: ParsedFontTrait>(
 }
 
 /// Calculate column widths using the fixed table layout algorithm
-/// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is not dependent on cell
-/// contents CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded from width
-/// calculations
+/// 
+/// CSS 2.2 Section 17.5.2.1: In fixed table layout, the table width is 
+/// not dependent on cell contents 
+/// 
+/// CSS 2.2 Section 17.6: Columns with visibility:collapse are excluded
+/// from width calculations
 fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     table_ctx: &mut TableLayoutContext,
@@ -3581,9 +3647,10 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
     // CSS 2.2 Section 17.5.2.2: "Calculate the minimum content width (MCW) of each cell"
+    // 
     // Min-content width is the width with maximum wrapping.
-    // Use AvailableSpace::MinContent to signal intrinsic min-content sizing to the text layout
-    // engine.
+    // Use AvailableSpace::MinContent to signal intrinsic min-content sizing to the 
+    // text layout engine.
     use crate::text3::cache::AvailableSpace;
     let min_constraints = LayoutConstraints {
         available_size: LogicalSize {
@@ -3640,10 +3707,12 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
     cell_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<f32> {
+
     // CSS 2.2 Section 17.5.2.2: "Calculate the maximum content width (MCW) of each cell"
+    // 
     // Max-content width is the width without any wrapping.
-    // Use AvailableSpace::MaxContent to signal intrinsic max-content sizing to the text layout
-    // engine.
+    // Use AvailableSpace::MaxContent to signal intrinsic max-content sizing to
+    // the text layout engine.
     use crate::text3::cache::AvailableSpace;
     let max_constraints = LayoutConstraints {
         available_size: LogicalSize {
@@ -3828,8 +3897,11 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
             }
         }
     } else if available_width >= total_max_width {
+
         // Case 1: More space than max-content - distribute excess proportionally
-        // CSS 2.1 Section 17.5.2.2: Distribute extra space proportionally to max-content widths
+        // 
+        // CSS 2.1 Section 17.5.2.2: Distribute extra space proportionally to
+        // max-content widths
         let excess_width = available_width - total_max_width;
 
         // First pass: collect column info (max_width) to avoid borrowing issues
@@ -3994,8 +4066,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     let border = &cell_node.box_props.border;
     let writing_mode = constraints.writing_mode;
 
-    // cell_width is the border-box width (includes padding/border from column width calculation)
-    // but layout functions need content-box width
+    // cell_width is the border-box width (includes padding/border from column
+    // width calculation) but layout functions need content-box width
     let content_width = cell_width
         - padding.cross_start(writing_mode)
         - padding.cross_end(writing_mode)
@@ -4011,7 +4083,6 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
     let content_height = if has_text_children {
         // Cell contains text - use IFC to measure it
-        // This is the key fix: IFC traverses DOM to find text nodes
         debug_table_layout!(ctx, "Using IFC to measure text content");
 
         let cell_constraints = LayoutConstraints {
@@ -4023,7 +4094,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
-            // CRITICAL: Use Definite width for final cell layout!
+            // Use definite width for final cell layout!
             // This replaces any previous MinContent/MaxContent measurement.
             available_width_type: Text3AvailableSpace::Definite(content_width),
         };
@@ -4050,7 +4121,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             bfc_state: None,
             text_align: constraints.text_align,
             containing_block_size: constraints.containing_block_size,
-            // CRITICAL: Use Definite width for final cell layout!
+            // Use Definite width for final cell layout!
             available_width_type: Text3AvailableSpace::Definite(content_width),
         };
 
@@ -4213,8 +4284,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
                 .map(|(_, height)| height)
                 .sum();
 
-            // If the cell needs more height, distribute extra height across non-collapsed spanned
-            // rows
+            // If the cell needs more height, distribute extra height across
+            // non-collapsed spanned rows
             if cell_height > current_total {
                 let extra_height = cell_height - current_total;
 
@@ -4259,13 +4330,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     let mut positions = BTreeMap::new();
 
     // Get border spacing values if border-collapse is separate
-    use azul_css::props::layout::StyleBorderCollapse;
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
-
-        use crate::solver3::getters::{
-            get_element_font_size, get_parent_font_size, get_root_font_size,
-        };
 
         let styled_dom = ctx.styled_dom;
         let table_id = tree.nodes[table_index].dom_node_id.unwrap();
@@ -4284,10 +4349,12 @@ fn position_table_cells<T: ParsedFontTrait>(
             .border_spacing
             .horizontal
             .resolve_with_context(&spacing_context, PropertyContext::Other);
+
         let v = table_ctx
             .border_spacing
             .vertical
             .resolve_with_context(&spacing_context, PropertyContext::Other);
+
         (h, v)
     } else {
         (0.0, 0.0)
@@ -4354,14 +4421,14 @@ fn position_table_cells<T: ParsedFontTrait>(
                 } else {
                     debug_info!(
                         ctx,
-                        "[position_table_cells]   ⚠️  Col {} has NO computed_width!",
+                        "[position_table_cells]   WARN:  Col {} has NO computed_width!",
                         col_idx
                     );
                 }
             } else {
                 debug_info!(
                     ctx,
-                    "[position_table_cells]   ⚠️  Col {} not found in table_ctx.columns!",
+                    "[position_table_cells]   WARN:  Col {} not found in table_ctx.columns!",
                     col_idx
                 );
             }
@@ -4414,7 +4481,7 @@ fn position_table_cells<T: ParsedFontTrait>(
         // Apply vertical-align to cell content if it has inline layout
         if let Some(ref cached_layout) = cell_node.inline_layout_result {
             let inline_result = &cached_layout.layout;
-            use azul_css::props::style::StyleVerticalAlign;
+            use StyleVerticalAlign;
 
             // Get vertical-align property from styled_dom
             let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
@@ -4575,7 +4642,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 .get_display(node_data, &dom_id, &node_state)
         {
             if let Some(display) = display_value.get_property() {
-                use azul_css::props::layout::LayoutDisplay;
+                use LayoutDisplay;
                 if *display == LayoutDisplay::ListItem {
                     debug_ifc_layout!(ctx, "IFC root NodeId({:?}) is list-item", dom_id);
                     list_item_dom_id = Some(dom_id);
@@ -4598,7 +4665,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                         &parent_node_state,
                     ) {
                         if let Some(display) = display_value.get_property() {
-                            use azul_css::props::layout::LayoutDisplay;
+                            use LayoutDisplay;
                             if *display == LayoutDisplay::ListItem {
                                 debug_ifc_layout!(
                                     ctx,
@@ -4643,7 +4710,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     tree.get(child_idx)
                         .map(|child| {
                             child.pseudo_element
-                                == Some(crate::solver3::layout_tree::PseudoElement::Marker)
+                                == Some(PseudoElement::Marker)
                         })
                         .unwrap_or(false)
                 })
@@ -4661,9 +4728,6 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
                 // Get list-style-position to determine marker positioning
                 // Default is 'outside' per CSS Lists Module Level 3
-                use azul_css::props::style::lists::StyleListStylePosition;
-
-                use crate::solver3::getters::get_list_style_position;
 
                 let list_style_position =
                     get_list_style_position(ctx.styled_dom, Some(list_dom_id));
@@ -4716,6 +4780,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     drop(ifc_root_node);
 
     // IMPORTANT: We need to traverse the DOM, not just the layout tree!
+    // 
     // According to CSS spec, a block container with inline-level children establishes
     // an IFC and should collect ALL inline content, including text nodes.
     // Text nodes exist in the DOM but might not have their own layout tree nodes.
@@ -4752,7 +4817,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
             debug_info!(
                 ctx,
-                "[collect_and_measure_inline_content] ✓ Found text node (DOM child {:?}): '{}'",
+                "[collect_and_measure_inline_content] OK: Found text node (DOM child {:?}): '{}'",
                 dom_child_id,
                 text_content.as_str()
             );
@@ -4780,7 +4845,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         let Some(child_index) = child_index else {
             debug_info!(
                 ctx,
-                "[collect_and_measure_inline_content] WARNING: DOM child {:?} has no layout node",
+                "[collect_and_measure_inline_content] WARN: DOM child {:?} has no layout node",
                 dom_child_id
             );
             continue;
@@ -4799,7 +4864,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             // The intrinsic sizing pass has already calculated its preferred size.
             let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
 
-            // CRITICAL FIX: For inline-blocks, check if explicit CSS width/height are specified
+            // Important: For inline-blocks, check if explicit CSS width/height are specified
+            // 
             // If so, use those instead of intrinsic sizes (which may be 0 for empty inline-blocks)
             let styled_node_state = ctx
                 .styled_dom
@@ -4810,15 +4876,15 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 .unwrap_or_default();
 
             let css_width =
-                crate::solver3::getters::get_css_width(ctx.styled_dom, dom_id, &styled_node_state);
+                get_css_width(ctx.styled_dom, dom_id, &styled_node_state);
             let css_height =
-                crate::solver3::getters::get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+                get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
             // Resolve explicit width if specified, otherwise use max-content width
             let width = match css_width.unwrap_or_default() {
-                azul_css::props::layout::LayoutWidth::Px(px) => {
+                LayoutWidth::Px(px) => {
                     // Convert pixel value to actual pixels
-                    use azul_css::props::basic::SizeMetric;
+                    use SizeMetric;
                     match px.metric {
                         SizeMetric::Px => px.number.get(),
                         SizeMetric::Pt => px.number.get() * PT_TO_PX,
@@ -4829,10 +4895,12 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                             // TODO: Resolve em/rem properly with font-size
                             px.number.get() * DEFAULT_FONT_SIZE
                         }
-                        _ => intrinsic_size.max_content_width, // Percent/viewport - use intrinsic
+                        // Percent/viewport - use intrinsic
+                        _ => intrinsic_size.max_content_width,
                     }
                 }
-                _ => intrinsic_size.max_content_width, // Auto or other - use intrinsic
+                // Auto or other - use intrinsic
+                _ => intrinsic_size.max_content_width,
             };
 
             debug_info!(
@@ -4851,8 +4919,10 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             let child_constraints = LayoutConstraints {
                 available_size: LogicalSize::new(width, f32::INFINITY),
                 writing_mode,
-                bfc_state: None, // Inline-blocks establish a new BFC, so no state is passed in.
-                text_align: TextAlign::Start, // Does not affect size/baseline of the container.
+                // Inline-blocks establish a new BFC, so no state is passed in.
+                bfc_state: None,
+                // Does not affect size/baseline of the container.
+                text_align: TextAlign::Start,
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(width),
             };
@@ -4875,8 +4945,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             let mut final_height = layout_result.output.overflow_size.height;
 
             // CRITICAL FIX: Check for explicit CSS height
-            if let azul_css::props::layout::LayoutHeight::Px(px) = css_height.unwrap_or_default() {
-                use azul_css::props::basic::SizeMetric;
+            if let LayoutHeight::Px(px) = css_height.unwrap_or_default() {
+                use SizeMetric;
                 final_height = match px.metric {
                     SizeMetric::Px => px.number.get(),
                     SizeMetric::Pt => px.number.get() * PT_TO_PX,
@@ -4884,7 +4954,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
                     SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
                     SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
-                    _ => final_height, // Percent/viewport - use layout result
+                    // Percent/viewport - use layout result
+                    _ => final_height,
                 };
             }
 
@@ -4925,8 +4996,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             // Re-get child_node since we dropped it earlier for the inline-block case
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
 
-            // This is a simplified image handling. A real implementation would have more robust
-            // intrinsic size resolution (e.g., from the image data itself).
+            // TODO: This is a simplified image handling. A real implementation would have
+            // more robust intrinsic size resolution (e.g., from the image data itself).
             let intrinsic_size = child_node
                 .intrinsic_sizes
                 .clone()
@@ -4942,13 +5013,16 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     height: intrinsic_size.max_content_height,
                 },
                 display_size: None,
-                baseline_offset: 0.0, // Images are bottom-aligned with the baseline by default
+                // Images are bottom-aligned with the baseline by default
+                baseline_offset: 0.0,
                 alignment: crate::text3::cache::VerticalAlign::Baseline,
                 object_fit: ObjectFit::Fill,
             }));
             child_map.insert(content_index, child_index);
         } else {
+
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
+            // 
             // According to CSS Inline-3 spec §2, inline boxes are "transparent" wrappers
             // We must recursively collect their text children with inherited style
             debug_info!(
@@ -4976,11 +5050,12 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 /// Recursively collects inline content from an inline span (display: inline) element.
 ///
 /// According to CSS Inline Layout Module Level 3 §2:
+/// 
 /// "Inline boxes are transparent wrappers that wrap their content."
+/// 
 /// They don't create a new formatting context - their children participate in the
-/// same IFC as the parent.
-///
-/// This function processes:
+/// same IFC as the parent. This function processes:
+/// 
 /// - Text nodes: collected with the span's inherited style
 /// - Nested inline spans: recursively descended
 /// - Inline-blocks, images: measured and added as shapes
@@ -5164,6 +5239,7 @@ fn position_floated_child(
     current_main_offset: f32,
     floating_context: &mut FloatingContext,
 ) -> Result<LogicalPosition> {
+
     let wm = constraints.writing_mode;
     let child_main_size = child_margin_box_size.main(wm);
     let child_cross_size = child_margin_box_size.cross(wm);
@@ -5171,7 +5247,8 @@ fn position_floated_child(
     let mut placement_main_offset = current_main_offset;
 
     loop {
-        // 1. Determine the available cross-axis space at the current `placement_main_offset`.
+        // 1. Determine the available cross-axis space at the current 
+        // `placement_main_offset`.
         let (available_cross_start, available_cross_end) = floating_context
             .available_line_box_space(
                 placement_main_offset,
@@ -5202,7 +5279,8 @@ fn position_floated_child(
             return Ok(final_pos);
         } else {
             // It doesn't fit. We must move the float down past an obstacle.
-            // Find the lowest main-axis end of all floats that are blocking the current line.
+            // Find the lowest main-axis end of all floats that are blocking 
+            // the current line.
             let mut next_main_offset = f32::INFINITY;
             for existing_float in &floating_context.floats {
                 let float_main_start = existing_float.rect.origin.main(wm);
@@ -5215,7 +5293,8 @@ fn position_floated_child(
             }
 
             if next_main_offset.is_infinite() {
-                // This indicates an unrecoverable state, e.g., a float wider than the container.
+                // This indicates an unrecoverable state, e.g., a float wider 
+                // than the container.
                 return Err(LayoutError::PositioningFailed);
             }
             placement_main_offset = next_main_offset;
@@ -5238,9 +5317,9 @@ fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutF
         .get_float(node_data, &id, node_state)
         .and_then(|f| {
             f.get_property().map(|inner| match inner {
-                azul_css::props::layout::LayoutFloat::Left => LayoutFloat::Left,
-                azul_css::props::layout::LayoutFloat::Right => LayoutFloat::Right,
-                azul_css::props::layout::LayoutFloat::None => LayoutFloat::None,
+                LayoutFloat::Left => LayoutFloat::Left,
+                LayoutFloat::Right => LayoutFloat::Right,
+                LayoutFloat::None => LayoutFloat::None,
             })
         })
         .unwrap_or(LayoutFloat::None)
@@ -5252,24 +5331,20 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    // There is no dedicated `get_clear` helper on the cache, so use the generic
-    // get_property -> as_clear path and then extract the inner value.
     styled_dom
         .css_property_cache
         .ptr
-        .get_property(node_data, &id, node_state, &CssPropertyType::Clear)
-        .and_then(|p| p.as_clear())
-        .and_then(|v| v.get_property())
-        .map(|clear| match clear {
-            azul_css::props::layout::LayoutClear::Left => LayoutClear::Left,
-            azul_css::props::layout::LayoutClear::Right => LayoutClear::Right,
-            azul_css::props::layout::LayoutClear::Both => LayoutClear::Both,
-            azul_css::props::layout::LayoutClear::None => LayoutClear::None,
+        .get_clear(node_data, &id, node_state)
+        .and_then(|c| {
+            c.get_property().map(|inner| match inner {
+                LayoutClear::Left => LayoutClear::Left,
+                LayoutClear::Right => LayoutClear::Right,
+                LayoutClear::Both => LayoutClear::Both,
+                LayoutClear::None => LayoutClear::None,
+            })
         })
         .unwrap_or(LayoutClear::None)
-}
-
-/// Helper to determine if scrollbars are needed.
+}/// Helper to determine if scrollbars are needed.
 ///
 /// # CSS Spec Reference
 /// CSS Overflow Module Level 3 § 3: Scrollable overflow
@@ -5280,13 +5355,17 @@ pub fn check_scrollbar_necessity(
     overflow_y: OverflowBehavior,
 ) -> ScrollbarInfo {
     let mut needs_horizontal = match overflow_x {
-        OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
+        OverflowBehavior::Visible | 
+        OverflowBehavior::Hidden | 
+        OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.width > container_size.width,
     };
 
     let mut needs_vertical = match overflow_y {
-        OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
+        OverflowBehavior::Visible | 
+        OverflowBehavior::Hidden | 
+        OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
         OverflowBehavior::Auto => content_size.height > container_size.height,
     };
@@ -5328,18 +5407,6 @@ pub fn check_scrollbar_necessity(
 /// - If both margins are negative, the result is the more negative of the two.
 /// - If the margins have mixed signs, they are effectively summed.
 ///
-/// # Examples
-///
-/// ```ignore
-/// // Positive margins: larger wins
-/// assert_eq!(collapse_margins(20.0, 10.0), 20.0);
-///
-/// // Negative margins: more negative wins
-/// assert_eq!(collapse_margins(-20.0, -10.0), -20.0);
-///
-/// // Mixed signs: sum
-/// assert_eq!(collapse_margins(20.0, -10.0), 10.0);
-/// ```
 pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
     if a.is_sign_positive() && b.is_sign_positive() {
         a.max(b)
@@ -5354,21 +5421,24 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
 ///
 /// This implements CSS 2.1 margin collapsing for adjacent block-level boxes in a BFC.
 ///
-/// # Arguments
-/// * `pen` - Current main-axis position (will be modified)
-/// * `last_margin_bottom` - The bottom margin of the previous in-flow element
-/// * `current_margin_top` - The top margin of the current element
+/// - `pen` - Current main-axis position (will be modified)
+/// - `last_margin_bottom` - The bottom margin of the previous in-flow element
+/// - `current_margin_top` - The top margin of the current element
 ///
 /// # Returns
+/// 
 /// The new `last_margin_bottom` value (the bottom margin of the current element)
 ///
 /// # CSS Spec Compliance
+/// 
 /// Per CSS 2.1 Section 8.3.1 "Collapsing margins":
+/// 
 /// - Adjacent vertical margins of block boxes collapse
 /// - The resulting margin width is the maximum of the adjoining margins (if both positive)
 /// - Or the sum of the most positive and most negative (if signs differ)
 ///
 /// # Example Flow
+/// 
 /// ```ignore
 /// // Element 1: margin-bottom = 20px
 /// // Element 2: margin-top = 30px, margin-bottom = 15px
@@ -5405,16 +5475,19 @@ fn advance_pen_with_margin_collapse(
 /// Checks if an element's border or padding prevents margin collapsing.
 ///
 /// Per CSS 2.1 Section 8.3.1:
+/// 
 /// - Border between margins prevents collapsing
 /// - Padding between margins prevents collapsing
 ///
 /// # Arguments
-/// * `box_props` - The box properties containing border and padding
-/// * `writing_mode` - The writing mode to determine main axis
-/// * `check_start` - If true, check main-start (top); if false, check main-end (bottom)
+/// 
+/// - `box_props` - The box properties containing border and padding
+/// - `writing_mode` - The writing mode to determine main axis
+/// - `check_start` - If true, check main-start (top); if false, check main-end (bottom)
 ///
 /// # Returns
-/// `true` if border or padding exists and prevents collapsing, `false` otherwise
+/// 
+/// `true` if border or padding exists and prevents collapsing
 fn has_margin_collapse_blocker(
     box_props: &crate::solver3::geometry::BoxProps,
     writing_mode: LayoutWritingMode,
@@ -5436,15 +5509,18 @@ fn has_margin_collapse_blocker(
 /// Checks if an element is empty (has no content).
 ///
 /// Per CSS 2.1 Section 8.3.1:
-/// If a block element has no border, padding, inline content, height, or min-height,
-/// then its top and bottom margins collapse with each other.
+/// 
+/// > If a block element has no border, padding, inline content, height, or min-height,
+/// > then its top and bottom margins collapse with each other.
 ///
 /// # Arguments
-/// * `node` - The layout node to check
+/// 
+/// - `node` - The layout node to check
 ///
 /// # Returns
+/// 
 /// `true` if the element is empty and its margins can collapse internally
-fn is_empty_block(node: &crate::solver3::layout_tree::LayoutNode) -> bool {
+fn is_empty_block(node: &LayoutNode) -> bool {
     // Per CSS 2.2 § 8.3.1: An empty block is one that:
     // - Has zero computed 'min-height'
     // - Has zero or 'auto' computed 'height'
@@ -5488,9 +5564,7 @@ fn generate_list_marker_text(
     counters: &BTreeMap<(usize, String), i32>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> String {
-    use azul_css::props::style::lists::StyleListStyleType;
-
-    use crate::solver3::{counters::format_counter, getters::get_list_style_type};
+    use crate::solver3::counters::format_counter;
 
     // Get the marker node
     let marker_node = match tree.get(marker_index) {
@@ -5500,7 +5574,7 @@ fn generate_list_marker_text(
 
     // Verify this is actually a ::marker pseudo-element
     // Per spec, markers must be pseudo-elements, not anonymous boxes
-    if marker_node.pseudo_element != Some(crate::solver3::layout_tree::PseudoElement::Marker) {
+    if marker_node.pseudo_element != Some(PseudoElement::Marker) {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::warning(format!(
                 "[generate_list_marker_text] WARNING: Node {} is not a ::marker pseudo-element \
@@ -5510,7 +5584,7 @@ fn generate_list_marker_text(
         }
         // Fallback for old-style anonymous markers during transition
         if marker_node.anonymous_type
-            != Some(crate::solver3::layout_tree::AnonymousBoxType::ListItemMarker)
+            != Some(AnonymousBoxType::ListItemMarker)
         {
             return String::new();
         }
@@ -5565,7 +5639,8 @@ fn generate_list_marker_text(
         None
     };
 
-    // Try to get list-style-type from the list container first, then fall back to the list-item
+    // Try to get list-style-type from the list container first, 
+    // then fall back to the list-item
     let list_style_type = if let Some(container_id) = list_container_dom_id {
         let container_type = get_list_style_type(styled_dom, Some(container_id));
         if container_type != StyleListStyleType::default() {
@@ -5608,14 +5683,14 @@ fn generate_list_marker_text(
     // For unordered lists (symbolic markers like •, ◦, ▪), just add a space
     if matches!(
         list_style_type,
-        azul_css::props::style::lists::StyleListStyleType::Decimal
-            | azul_css::props::style::lists::StyleListStyleType::DecimalLeadingZero
-            | azul_css::props::style::lists::StyleListStyleType::LowerAlpha
-            | azul_css::props::style::lists::StyleListStyleType::UpperAlpha
-            | azul_css::props::style::lists::StyleListStyleType::LowerRoman
-            | azul_css::props::style::lists::StyleListStyleType::UpperRoman
-            | azul_css::props::style::lists::StyleListStyleType::LowerGreek
-            | azul_css::props::style::lists::StyleListStyleType::UpperGreek
+        StyleListStyleType::Decimal
+            | StyleListStyleType::DecimalLeadingZero
+            | StyleListStyleType::LowerAlpha
+            | StyleListStyleType::UpperAlpha
+            | StyleListStyleType::LowerRoman
+            | StyleListStyleType::UpperRoman
+            | StyleListStyleType::LowerGreek
+            | StyleListStyleType::UpperGreek
     ) {
         format!("{}. ", marker_text)
     } else {

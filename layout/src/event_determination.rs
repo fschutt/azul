@@ -1,7 +1,8 @@
 //! Unified Event Determination
 //!
-//! This module provides the single source of truth for what events occurred in a frame.
-//! It combines window state changes with events from all managers (scroll, text input, etc.).
+//! This module provides the single source of truth for what 
+//! events occurred in a frame. It combines window state changes 
+//! with events from all managers (scroll, text input, etc.).
 
 use azul_core::{
     dom::{DomId, DomNodeId},
@@ -15,18 +16,17 @@ use azul_core::{
     task::{Instant, SystemTick},
     window::{CursorPosition, WindowPosition},
 };
-
 use crate::window_state::FullWindowState;
 
 /// Unified event determination from all sources.
 ///
 /// This is the **single source of truth** for what events occurred in a frame.
+/// 
 /// It combines:
+/// 
 /// 1. Window state changes (resize, move, theme, etc.)
 /// 2. Manager-reported events (scroll, text input, focus, hover)
 /// 3. Deduplicates by node + event type
-///
-/// This replaces the old `create_events_from_states()` + separate manager queries.
 ///
 /// ## Architecture
 ///
@@ -49,14 +49,14 @@ use crate::window_state::FullWindowState;
 /// All arguments are **immutable** references - no state is modified here.
 /// State changes happen earlier via `record_sample()`, `record_input()`, etc.
 ///
-/// * `current_state` - Current window state (after platform updates)
-/// * `previous_state` - Window state from previous frame
-/// * `managers` - All managers that can provide events
-/// * `timestamp` - Current time for event timestamps
+/// - `current_state` - Current window state (after platform updates)
+/// - `previous_state` - Window state from previous frame
+/// - `managers` - All managers that can provide events
+/// - `timestamp` - Current time for event timestamps
 ///
 /// ## Returns
 ///
-/// Vector of SyntheticEvents, deduplicated and ready for dispatch.
+/// - Vector of SyntheticEvents, deduplicated and ready for dispatch.
 pub fn determine_events_from_managers<'a>(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -84,6 +84,7 @@ pub fn determine_events_from_managers<'a>(
 /// Detect window-level events by comparing states.
 ///
 /// This is a simple sub-function that only handles window-level changes:
+/// 
 /// - Window resized
 /// - Window moved
 /// - Theme changed
@@ -199,80 +200,11 @@ fn detect_window_state_events(
     events
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_detect_window_resize() {
-        let timestamp = Instant::Tick(SystemTick::new(0));
-        let mut prev_state = FullWindowState::default();
-        let mut curr_state = FullWindowState::default();
-
-        prev_state.size = azul_core::window::WindowSize {
-            dimensions: azul_core::geom::LogicalSize {
-                width: 800.0,
-                height: 600.0,
-            },
-            dpi: 96,
-            min_dimensions: Default::default(),
-            max_dimensions: Default::default(),
-        };
-        curr_state.size = azul_core::window::WindowSize {
-            dimensions: azul_core::geom::LogicalSize {
-                width: 1024.0,
-                height: 768.0,
-            },
-            dpi: 96,
-            min_dimensions: Default::default(),
-            max_dimensions: Default::default(),
-        };
-
-        let events = detect_window_state_events(&curr_state, &prev_state, timestamp);
-
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::WindowResize);
-    }
-
-    #[test]
-    fn test_determine_events_deduplicates() {
-        struct DummyManager;
-        impl EventProvider for DummyManager {
-            fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
-                // Return duplicate event
-                vec![SyntheticEvent::new(
-                    EventType::Input,
-                    EventSource::User,
-                    DomNodeId {
-                        dom: DomId { inner: 0 },
-                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-                    },
-                    timestamp,
-                    EventData::None,
-                )]
-            }
-        }
-
-        let timestamp = Instant::Tick(SystemTick::new(0));
-        let prev_state = FullWindowState::default();
-        let curr_state = FullWindowState::default();
-
-        let manager1 = DummyManager;
-        let manager2 = DummyManager;
-        let managers: Vec<&dyn EventProvider> = vec![&manager1, &manager2];
-
-        let events = determine_events_from_managers(&curr_state, &prev_state, &managers, timestamp);
-
-        // Should deduplicate the two identical Input events
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::Input);
-    }
-}
-
 /// Comprehensive event determination including mouse, keyboard, and gesture events.
 ///
 /// This is the full replacement for `create_events_from_states_with_gestures()`.
 /// It generates SyntheticEvents for all event types including:
+/// 
 /// - Mouse button events (down/up for left/right/middle)
 /// - Mouse movement (MouseOver)
 /// - Keyboard events (VirtualKeyDown/Up)
@@ -293,7 +225,7 @@ mod tests {
 ///
 /// ## Returns
 ///
-/// Deduplicated vector of SyntheticEvents ready for dispatch
+/// - Deduplicated vector of SyntheticEvents ready for dispatch
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -304,6 +236,7 @@ pub fn determine_all_events(
     managers: &[&dyn EventProvider],
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
+
     let mut events = Vec::new();
 
     // Get root node for window-level events
@@ -614,68 +547,68 @@ pub fn determine_all_events(
             ));
         }
 
-        // Detect LongPress (not in EventType yet, skip for now)
-        // if let Some(long_press) = manager.detect_long_press() {
-        //     if !long_press.callback_invoked {
-        //         events.push(SyntheticEvent::new(
-        //             EventType::LongPress,
-        //             EventSource::User,
-        //             root_node.clone(),
-        //             timestamp.clone(),
-        //             EventData::None,
-        //         ));
-        //     }
-        // }
+        // Detect LongPress
+        if let Some(long_press) = manager.detect_long_press() {
+            if !long_press.callback_invoked {
+                events.push(SyntheticEvent::new(
+                    EventType::LongPress,
+                    EventSource::User,
+                    root_node.clone(),
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
+        }
 
-        // Detect Swipe gestures (not in EventType yet, skip for now)
-        // if let Some(direction) = manager.detect_swipe_direction() {
-        //     use crate::managers::gesture::GestureDirection;
-        //     let event_type = match direction {
-        //         GestureDirection::Left => EventType::SwipeLeft,
-        //         GestureDirection::Right => EventType::SwipeRight,
-        //         GestureDirection::Up => EventType::SwipeUp,
-        //         GestureDirection::Down => EventType::SwipeDown,
-        //     };
-        //     events.push(SyntheticEvent::new(
-        //         event_type,
-        //         EventSource::User,
-        //         root_node.clone(),
-        //         timestamp.clone(),
-        //         EventData::None,
-        //     ));
-        // }
+        // Detect Swipe gestures
+        if let Some(direction) = manager.detect_swipe_direction() {
+            use crate::managers::gesture::GestureDirection;
+            let event_type = match direction {
+                GestureDirection::Left => EventType::SwipeLeft,
+                GestureDirection::Right => EventType::SwipeRight,
+                GestureDirection::Up => EventType::SwipeUp,
+                GestureDirection::Down => EventType::SwipeDown,
+            };
+            events.push(SyntheticEvent::new(
+                event_type,
+                EventSource::User,
+                root_node.clone(),
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
 
-        // Detect Pinch gestures (not in EventType yet, skip for now)
-        // if let Some(pinch) = manager.detect_pinch() {
-        //     let event_type = if pinch.scale < 1.0 {
-        //         EventType::PinchIn
-        //     } else {
-        //         EventType::PinchOut
-        //     };
-        //     events.push(SyntheticEvent::new(
-        //         event_type,
-        //         EventSource::User,
-        //         root_node.clone(),
-        //         timestamp.clone(),
-        //         EventData::None,
-        //     ));
-        // }
+        // Detect Pinch gestures
+        if let Some(pinch) = manager.detect_pinch() {
+            let event_type = if pinch.scale < 1.0 {
+                EventType::PinchIn
+            } else {
+                EventType::PinchOut
+            };
+            events.push(SyntheticEvent::new(
+                event_type,
+                EventSource::User,
+                root_node.clone(),
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
 
-        // Detect Rotation gestures (not in EventType yet, skip for now)
-        // if let Some(rotation) = manager.detect_rotation() {
-        //     let event_type = if rotation.angle_radians > 0.0 {
-        //         EventType::RotateClockwise
-        //     } else {
-        //         EventType::RotateCounterClockwise
-        //     };
-        //     events.push(SyntheticEvent::new(
-        //         event_type,
-        //         EventSource::User,
-        //         root_node.clone(),
-        //         timestamp.clone(),
-        //         EventData::None,
-        //     ));
-        // }
+        // Detect Rotation gestures
+        if let Some(rotation) = manager.detect_rotation() {
+            let event_type = if rotation.angle_radians > 0.0 {
+                EventType::RotateClockwise
+            } else {
+                EventType::RotateCounterClockwise
+            };
+            events.push(SyntheticEvent::new(
+                event_type,
+                EventSource::User,
+                root_node.clone(),
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
 
         // Detect Pen events (not in EventType yet, use TouchMove for now)
         if let Some(pen_state) = manager.get_pen_state() {

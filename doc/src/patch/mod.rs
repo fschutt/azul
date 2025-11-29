@@ -177,7 +177,7 @@ impl ApiPatch {
                 match Self::from_file(&path) {
                     Ok(patch) => patches.push((filename, patch)),
                     Err(e) => {
-                        eprintln!("⚠️  Failed to load {}: {}", filename, e);
+                        eprintln!("[WARN]  Failed to load {}: {}", filename, e);
                     }
                 }
             }
@@ -243,30 +243,30 @@ impl PatchStats {
         println!("║                    Patch Summary                               ║");
         println!("╚════════════════════════════════════════════════════════════════╝\n");
 
-        println!("📊 Statistics:");
+        println!("[STATS] Statistics:");
         println!("  Total patch files: {}", self.total_patches);
         println!("  Successfully applied: {}", self.successful);
         println!("  Failed: {}", self.failed);
         println!("  Total changes made: {}", self.total_changes);
 
         if !self.failed_patches.is_empty() {
-            println!("\n❌ Failed patches:");
+            println!("\nERROR: Failed patches:");
             for (filename, error) in &self.failed_patches {
                 println!("  • {}: {}", filename, error);
             }
         }
 
         if !self.patch_errors.is_empty() {
-            println!("\n❌ Patch errors ({} total):", self.patch_errors.len());
+            println!("\nERROR: Patch errors ({} total):", self.patch_errors.len());
             for (filename, error) in &self.patch_errors {
                 println!("  • {}: {}", filename, error);
             }
         }
 
         if !self.has_errors() {
-            println!("\n✅ All patches applied successfully!");
+            println!("\n[OK] All patches applied successfully!");
         } else {
-            println!("\n❌ Some patches had errors");
+            println!("\nERROR: Some patches had errors");
         }
     }
 }
@@ -281,11 +281,11 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
     };
 
     if patches.is_empty() {
-        println!("ℹ️  No patch files found in {}", dir_path.display());
+        println!("[INFO]  No patch files found in {}", dir_path.display());
         return Ok(stats);
     }
 
-    println!("🔧 Applying {} patch files...\n", patches.len());
+    println!("[FIX] Applying {} patch files...\n", patches.len());
 
     for (filename, patch) in patches {
         print!("  Applying {}... ", filename);
@@ -293,15 +293,15 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
         match patch.apply(api_data) {
             Ok((count, errors)) => {
                 if errors.is_empty() {
-                    println!("✅ ({} changes)", count);
+                    println!("[OK] ({} changes)", count);
                     stats.successful += 1;
                 } else {
                     // Patch had some changes but also errors
                     if count > 0 {
-                        println!("⚠️  ({} changes, {} errors)", count, errors.len());
+                        println!("WARN:  ({} changes, {} errors)", count, errors.len());
                         stats.successful += 1;
                     } else {
-                        println!("❌ ({} errors)", errors.len());
+                        println!("ERROR: ({} errors)", errors.len());
                         stats.failed += 1;
                     }
                     for error in errors {
@@ -311,7 +311,7 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
                 stats.total_changes += count;
             }
             Err(e) => {
-                println!("❌");
+                println!("ERROR:");
                 stats.failed += 1;
                 stats.failed_patches.push((filename, e.to_string()));
             }
@@ -326,7 +326,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
     let patches = ApiPatch::from_directory(dir_path)?;
 
     if patches.is_empty() {
-        println!("ℹ️  No patch files found in {}", dir_path.display());
+        println!("[INFO]  No patch files found in {}", dir_path.display());
         return Ok(());
     }
 
@@ -346,7 +346,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
         }
     }
 
-    println!("📊 Summary:");
+    println!("[STATS] Summary:");
     println!(
         "  Total patches: {}",
         path_only_patches.len() + structural_patches.len()
@@ -362,7 +362,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
 
     // Show path-only patches
     if !path_only_patches.is_empty() {
-        println!("\n🔧 PATH-ONLY PATCHES ({})", path_only_patches.len());
+        println!("\n[FIX] PATH-ONLY PATCHES ({})", path_only_patches.len());
         println!(
             "   These patches only update external paths and are safe to apply automatically.\n"
         );
@@ -391,7 +391,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
 
     // Show structural patches
     if !structural_patches.is_empty() {
-        println!("\n🏗️  STRUCTURAL PATCHES ({})", structural_patches.len());
+        println!("\n[BUILD]  STRUCTURAL PATCHES ({})", structural_patches.len());
         println!("   These patches add new types or modify structures.\n");
 
         for (filename, patch) in structural_patches.iter().take(10) {
@@ -446,7 +446,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
         }
     }
 
-    println!("\n💡 NEXT STEPS:");
+    println!("\n[TIP] NEXT STEPS:");
     if !path_only_patches.is_empty() {
         println!(
             "  1. Apply safe patches: azul-doc patch safe {}",
@@ -476,7 +476,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     };
 
     if patches.is_empty() {
-        println!("ℹ️  No patch files found in {}", dir_path.display());
+        println!("[INFO]  No patch files found in {}", dir_path.display());
         return Ok(stats);
     }
 
@@ -493,7 +493,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     }
 
     if path_only_patches.is_empty() {
-        println!("ℹ️  No path-only patches found in {}", dir_path.display());
+        println!("[INFO]  No path-only patches found in {}", dir_path.display());
         println!(
             "   All {} patches contain structural changes",
             stats.total_patches
@@ -502,7 +502,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     }
 
     println!(
-        "🔧 Found {} path-only patches (out of {} total)",
+        "[FIX] Found {} path-only patches (out of {} total)",
         path_only_patches.len(),
         stats.total_patches
     );
@@ -515,14 +515,14 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
         match patch.apply(api_data) {
             Ok((count, errors)) => {
                 if errors.is_empty() {
-                    println!("✅ ({} changes)", count);
+                    println!("[OK] ({} changes)", count);
                     stats.successful += 1;
                 } else {
                     if count > 0 {
-                        println!("⚠️  ({} changes, {} errors)", count, errors.len());
+                        println!("[WARN]  ({} changes, {} errors)", count, errors.len());
                         stats.successful += 1;
                     } else {
-                        println!("❌ ({} errors)", errors.len());
+                        println!("ERROR: ({} errors)", errors.len());
                         stats.failed += 1;
                     }
                     for error in errors {
@@ -532,7 +532,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
                 stats.total_changes += count;
             }
             Err(e) => {
-                println!("❌");
+                println!("ERROR:");
                 stats.failed += 1;
                 stats.failed_patches.push((filename.clone(), e.to_string()));
             }
@@ -542,7 +542,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     // Delete successfully applied patches
     if stats.successful > 0 {
         println!(
-            "\n🗑️  Deleting {} successfully applied patch files...",
+            "\n[DELETE]  Deleting {} successfully applied patch files...",
             stats.successful
         );
 
@@ -554,32 +554,32 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
 
             let patch_path = dir_path.join(filename);
             if let Err(e) = fs::remove_file(&patch_path) {
-                eprintln!("   ⚠️  Warning: Failed to delete {}: {}", filename, e);
+                eprintln!("   [WARN]  Warning: Failed to delete {}: {}", filename, e);
             } else {
-                println!("   ✓ Deleted {}", filename);
+                println!("   [OK] Deleted {}", filename);
             }
         }
     }
 
     // Summary
-    println!("\n📊 Path-only patches summary:");
+    println!("\n[STATS] Path-only patches summary:");
     println!("  Applied and deleted: {}", stats.successful);
     println!("  Failed: {}", stats.failed);
     println!("  Total changes made: {}", stats.total_changes);
 
     if !other_patches.is_empty() {
-        println!("\n📁 Remaining patches with structural changes:");
+        println!("\n[DIR] Remaining patches with structural changes:");
         for filename in &other_patches {
             println!("  • {}", filename);
         }
         println!(
-            "\n💡 Apply these manually with:  patch {}",
+            "\n[TIP] Apply these manually with:  patch {}",
             dir_path.display()
         );
     }
 
     if stats.failed > 0 {
-        println!("\n❌ Failed patches:");
+        println!("\nERROR: Failed patches:");
         for (filename, error) in &stats.failed_patches {
             println!("  • {}: {}", filename, error);
         }
@@ -627,7 +627,7 @@ fn apply_module_patch(
             // Insert new class from patch
             if !class_patch.is_empty() {
                 println!(
-                    "  ➕ Adding new class {}.{} from patch",
+                    "  [ADD] Adding new class {}.{} from patch",
                     module_name, class_name
                 );
                 let new_class_data = class_patch_to_class_data(class_patch);
@@ -657,7 +657,7 @@ fn apply_class_patch(
 
     if let Some(new_external) = &patch.external {
         println!(
-            "  📝 Patching {}.{}: external path",
+            "  [NOTE] Patching {}.{}: external path",
             module_name, class_name
         );
         println!("     Old: {:?}", class_data.external);
@@ -668,7 +668,7 @@ fn apply_class_patch(
 
     if let Some(new_doc) = &patch.doc {
         println!(
-            "  📝 Patching {}.{}: documentation",
+            "  [NOTE] Patching {}.{}: documentation",
             module_name, class_name
         );
         class_data.doc = Some(new_doc.clone());
@@ -677,7 +677,7 @@ fn apply_class_patch(
 
     if let Some(new_derive) = &patch.derive {
         println!(
-            "  📝 Patching {}.{}: derive attributes",
+            "  [NOTE] Patching {}.{}: derive attributes",
             module_name, class_name
         );
         println!("     Old: {:?}", class_data.derive);
@@ -688,7 +688,7 @@ fn apply_class_patch(
 
     if let Some(new_is_boxed) = patch.is_boxed_object {
         println!(
-            "  📝 Patching {}.{}: is_boxed_object",
+            "  [NOTE] Patching {}.{}: is_boxed_object",
             module_name, class_name
         );
         println!("     Old: {}", class_data.is_boxed_object);
@@ -698,7 +698,7 @@ fn apply_class_patch(
     }
 
     if let Some(new_clone) = patch.clone {
-        println!("  📝 Patching {}.{}: clone", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: clone", module_name, class_name);
         println!("     Old: {:?}", class_data.clone);
         println!("     New: {}", new_clone);
         class_data.clone = Some(new_clone);
@@ -707,7 +707,7 @@ fn apply_class_patch(
 
     if let Some(new_custom_destructor) = patch.custom_destructor {
         println!(
-            "  📝 Patching {}.{}: custom_destructor",
+            "  [NOTE] Patching {}.{}: custom_destructor",
             module_name, class_name
         );
         println!("     Old: {:?}", class_data.custom_destructor);
@@ -717,7 +717,7 @@ fn apply_class_patch(
     }
 
     if let Some(new_serde) = &patch.serde {
-        println!("  📝 Patching {}.{}: serde", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: serde", module_name, class_name);
         println!("     Old: {:?}", class_data.serde);
         println!("     New: {}", new_serde);
         class_data.serde = Some(new_serde.clone());
@@ -725,7 +725,7 @@ fn apply_class_patch(
     }
 
     if let Some(new_repr) = &patch.repr {
-        println!("  📝 Patching {}.{}: repr", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: repr", module_name, class_name);
         println!("     Old: {:?}", class_data.repr);
         println!("     New: {}", new_repr);
         class_data.repr = Some(new_repr.clone());
@@ -734,7 +734,7 @@ fn apply_class_patch(
 
     if let Some(new_const_value_type) = &patch.const_value_type {
         println!(
-            "  📝 Patching {}.{}: const value type",
+            "  [NOTE] Patching {}.{}: const value type",
             module_name, class_name
         );
         println!("     Old: {:?}", class_data.const_value_type);
@@ -744,14 +744,14 @@ fn apply_class_patch(
     }
 
     if let Some(new_constants) = &patch.constants {
-        println!("  📝 Patching {}.{}: constants", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: constants", module_name, class_name);
         class_data.constants = Some(new_constants.clone());
         patches_applied += 1;
     }
 
     if let Some(new_struct_fields) = &patch.struct_fields {
         println!(
-            "  📝 Patching {}.{}: struct_fields",
+            "  [NOTE] Patching {}.{}: struct_fields",
             module_name, class_name
         );
         class_data.struct_fields = Some(new_struct_fields.clone());
@@ -759,14 +759,14 @@ fn apply_class_patch(
     }
 
     if let Some(new_enum_fields) = &patch.enum_fields {
-        println!("  📝 Patching {}.{}: enum_fields", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: enum_fields", module_name, class_name);
         class_data.enum_fields = Some(new_enum_fields.clone());
         patches_applied += 1;
     }
 
     if let Some(new_callback_typedef) = &patch.callback_typedef {
         println!(
-            "  📝 Patching {}.{}: callback_typedef",
+            "  [NOTE] Patching {}.{}: callback_typedef",
             module_name, class_name
         );
         class_data.callback_typedef = Some(new_callback_typedef.clone());
@@ -774,19 +774,19 @@ fn apply_class_patch(
     }
 
     if let Some(new_constructors) = &patch.constructors {
-        println!("  📝 Patching {}.{}: constructors", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: constructors", module_name, class_name);
         class_data.constructors = Some(new_constructors.clone());
         patches_applied += 1;
     }
 
     if let Some(new_functions) = &patch.functions {
-        println!("  📝 Patching {}.{}: functions", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: functions", module_name, class_name);
         class_data.functions = Some(new_functions.clone());
         patches_applied += 1;
     }
 
     if let Some(new_type_alias) = &patch.type_alias {
-        println!("  📝 Patching {}.{}: type_alias", module_name, class_name);
+        println!("  [NOTE] Patching {}.{}: type_alias", module_name, class_name);
         println!("     Old: {:?}", class_data.type_alias);
         println!("     New: {:?}", new_type_alias);
         class_data.type_alias = Some(new_type_alias.clone());
@@ -822,7 +822,7 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
 
 /// Print all external import paths for debugging/tracking
 pub fn print_import_paths(api_data: &ApiData) {
-    println!("\n📦 API Import Paths:\n");
+    println!("\n[PKG] API Import Paths:\n");
 
     for (version_name, version_data) in &api_data.0 {
         println!("Version: {}", version_name);
@@ -1117,7 +1117,7 @@ pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
         return Ok(0);
     }
 
-    println!("\n🔄 Normalizing {} class names...", rename_count);
+    println!("\n[REFRESH] Normalizing {} class names...", rename_count);
 
     // Second pass: apply renames
     for (version_name, module_name, old_name, new_name) in renames {

@@ -7,17 +7,14 @@ use allsorts::{
 use azul_core::{geom::LogicalSize, glyph::Placement};
 use azul_css::props::basic::FontRef;
 use rust_fontconfig::FcFontCache;
-
-// Imports from the layout engine's module
 use crate::text3::{
     cache::{
         BidiLevel, Direction, FontManager, FontSelector, Glyph, GlyphOrientation, GlyphSource,
         LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
         TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
     },
-    script::Script, // estimate_script_and_language removed with text2
+    script::Script,
 };
-// Imports for the provided ParsedFont implementation
 use crate::{
     font::parsed::ParsedFont,
     text3::cache::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
@@ -26,13 +23,15 @@ use crate::{
 /// Creates a FontRef from font bytes by parsing them into a ParsedFont.
 ///
 /// This is a bridge function that:
+/// 
 /// 1. Parses the bytes into a ParsedFont
 /// 2. Wraps it in a FontRef with proper reference counting
 ///
 /// # Arguments
-/// * `font_bytes` - The raw font file data
-/// * `font_index` - Index of the font in a font collection (0 for single fonts)
-/// * `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
+/// 
+/// - `font_bytes` - The raw font file data
+/// - `font_index` - Index of the font in a font collection (0 for single fonts)
+/// - `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
 pub fn font_ref_from_bytes(
     font_bytes: &[u8],
     font_index: usize,
@@ -90,13 +89,13 @@ impl PathLoader {
     }
 }
 
-// --- ParsedFontTrait Implementation for FontRef ---
+// ParsedFontTrait Implementation for FontRef
 
 // Implement ShallowClone for FontRef
-// FontRef already has reference counting built-in via its Clone impl
 impl crate::text3::cache::ShallowClone for FontRef {
     fn shallow_clone(&self) -> Self {
-        self.clone() // FontRef::clone increments the reference count
+        // FontRef::clone increments the reference count
+        self.clone()
     }
 }
 
@@ -153,12 +152,15 @@ impl ParsedFontTrait for FontRef {
     }
 }
 
-// --- ParsedFont helper method for FontRef ---
+// ParsedFont helper method for FontRef
+//
 // This allows ParsedFont to create glyphs that use FontRef
+//
 // FontRef is just a C-style Arc wrapper around ParsedFont, so we delegate to
 // the common shaping implementation and convert the font reference type.
 
 impl ParsedFont {
+
     /// Internal helper that shapes text and returns Glyph
     /// Delegates to shape_text_internal and converts the font reference.
     fn shape_text_for_font_ref(
@@ -257,7 +259,7 @@ impl ParsedFont {
     }
 }
 
-// --- Helper Functions ---
+// Helper Functions
 
 /// Builds a FeatureMask with the appropriate OpenType features for a given script.
 /// This ensures proper text shaping for complex scripts like Arabic, Devanagari, etc.

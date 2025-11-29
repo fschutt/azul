@@ -102,12 +102,12 @@ azul-doc print app.App
 
 **Example output:**
 ```
-📦 Class: app.App
+Class: app.App
 
-🔗 Import Path:
+Import Path:
   crate::azul_impl::app::AzAppPtr
 
-📂 Source Location:
+Source Location:
 ```rust
 pub struct AzAppPtr {
     pub window_count: usize,
@@ -116,10 +116,9 @@ pub struct AzAppPtr {
 }
 ```
 
-🔍 Validation:
-  ⚠️  Definition differs from source
-
-❌ Found errors in class 'app.App'
+Validation:
+  Definition differs from source
+ Found errors in class 'app.App'
 ```
 
 ### Step 2: Analyze the Difference

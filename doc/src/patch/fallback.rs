@@ -27,7 +27,7 @@ type CrateNameCache = HashMap<PathBuf, String>;
 /// 6. Reconstructs the full type path (e.g., azul_core::callbacks::TypeName)
 pub fn find_type_in_workspace(project_root: &Path, type_name: &str) -> Result<(String, String)> {
     println!(
-        "    🔍 Fallback: searching workspace for type '{}'...",
+        "    [SEARCH] Fallback: searching workspace for type '{}'...",
         type_name
     );
 
@@ -37,7 +37,7 @@ pub fn find_type_in_workspace(project_root: &Path, type_name: &str) -> Result<(S
     // Find all src directories
     let src_dirs = find_src_directories(project_root)?;
 
-    println!("    📂 Found {} src directories to search", src_dirs.len());
+    println!("    [DIR] Found {} src directories to search", src_dirs.len());
 
     // Search each src directory for the type
     for src_dir in src_dirs {
@@ -46,7 +46,7 @@ pub fn find_type_in_workspace(project_root: &Path, type_name: &str) -> Result<(S
             if let Ok(type_path) =
                 reconstruct_type_path(&file_path, &src_dir, type_name, &crate_cache)
             {
-                println!("    ✅ Found {} at {}", type_name, type_path);
+                println!("    [OK] Found {} at {}", type_name, type_path);
                 return Ok((source_code, type_path));
             }
         }

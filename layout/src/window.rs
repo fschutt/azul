@@ -1,10 +1,12 @@
 //! Window layout management for solver3/text3
 //!
-//! This module provides the high-level API for managing layout state across frames,
-//! including caching, incremental updates, and display list generation.
+//! This module provides the high-level API for managing layout
+//! state across frames, including caching, incremental updates,
+//! and display list generation.
 //!
-//! The main entry point is `LayoutWindow`, which encapsulates all the state needed
-//! to perform layout and maintain consistency across window resizes and DOM updates.
+//! The main entry point is `LayoutWindow`, which encapsulates all
+//! the state needed to perform layout and maintain consistency 
+//! across window resizes and DOM updates.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,14 +27,19 @@ use azul_core::{
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::RefAny,
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
+        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, 
+        ImageMask, ImageRef, ImageRefHash,
         OpacityKey, RendererResources,
     },
     selection::{
-        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, 
+        SelectionState, TextCursor,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadSendMsg, TimerId},
+    task::{
+        Duration, Instant, SystemTimeDiff, TerminateTimer, 
+        ThreadId, ThreadSendMsg, TimerId
+    },
     window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
@@ -45,7 +52,8 @@ use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{
-        CallCallbacksResult, Callback, ExternalSystemCallbacks, FocusUpdateRequest, MenuCallback,
+        CallCallbacksResult, Callback, ExternalSystemCallbacks, 
+        FocusUpdateRequest, MenuCallback,
     },
     managers::{
         gpu_state::GpuStateManager,
@@ -53,11 +61,15 @@ use crate::{
         scroll_state::{ScrollManager, ScrollStates},
     },
     solver3::{
-        self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
-        layout_tree::LayoutTree,
+        self, cache::LayoutCache as Solver3LayoutCache, 
+        display_list::DisplayList, layout_tree::LayoutTree,
     },
     text3::{
-        cache::{FontManager, LayoutCache as TextLayoutCache, LayoutError},
+        cache::{
+            FontManager, FontSelector, FontStyle, InlineContent, LayoutCache as TextLayoutCache,
+            LayoutError, ShapedItem, StyleProperties, StyledRun, TextBoundary,
+            UnifiedConstraints, UnifiedLayout,
+        },
         default::PathLoader,
     },
     thread::{OptionThreadReceiveMsg, Thread, ThreadReceiveMsg, ThreadWriteBackMsg},
@@ -101,17 +113,17 @@ pub enum CursorNavigationDirection {
 #[derive(Debug, Clone)]
 pub enum CursorMovementResult {
     /// Cursor moved within the same text node
-    MovedWithinNode(azul_core::selection::TextCursor),
+    MovedWithinNode(TextCursor),
     /// Cursor moved to a different text node
     MovedToNode {
         dom_id: DomId,
         node_id: NodeId,
-        cursor: azul_core::selection::TextCursor,
+        cursor: TextCursor,
     },
     /// Cursor is at a boundary and cannot move further
     AtBoundary {
-        boundary: crate::text3::cache::TextBoundary,
-        cursor: azul_core::selection::TextCursor,
+        boundary: TextBoundary,
+        cursor: TextCursor,
     },
 }
 
@@ -166,7 +178,7 @@ pub use crate::managers::text_input::TextChangeset;
 #[derive(Debug, Clone)]
 pub struct TextConstraintsCache {
     /// Map from (dom_id, node_id) to their layout constraints
-    pub constraints: BTreeMap<(DomId, NodeId), crate::text3::cache::UnifiedConstraints>,
+    pub constraints: BTreeMap<(DomId, NodeId), UnifiedConstraints>,
 }
 
 /// Result of applying callback changes
@@ -1403,11 +1415,11 @@ impl LayoutWindow {
                     };
 
                     match selection {
-                        azul_core::selection::Selection::Cursor(cursor) => {
+                        Selection::Cursor(cursor) => {
                             self.cursor_manager.move_cursor_to(cursor, dom_id, node_id);
                             self.selection_manager.clear_all();
                         }
-                        azul_core::selection::Selection::Range(range) => {
+                        Selection::Range(range) => {
                             self.cursor_manager
                                 .move_cursor_to(range.start, dom_id, node_id);
                             // TODO: Set selection range in SelectionManager
@@ -1511,9 +1523,9 @@ impl LayoutWindow {
                             .first()
                             .and_then(|item| item.item.as_cluster())
                         {
-                            let doc_start_cursor = azul_core::selection::TextCursor {
+                            let doc_start_cursor = TextCursor {
                                 cluster_id: first_cluster.source_cluster_id,
-                                affinity: azul_core::selection::CursorAffinity::Leading,
+                                affinity: CursorAffinity::Leading,
                             };
                             self.handle_cursor_movement(
                                 dom_id,
@@ -1534,9 +1546,9 @@ impl LayoutWindow {
                         if let Some(last_cluster) =
                             layout.items.last().and_then(|item| item.item.as_cluster())
                         {
-                            let doc_end_cursor = azul_core::selection::TextCursor {
+                            let doc_end_cursor = TextCursor {
                                 cluster_id: last_cluster.source_cluster_id,
-                                affinity: azul_core::selection::CursorAffinity::Trailing,
+                                affinity: CursorAffinity::Trailing,
                             };
                             self.handle_cursor_movement(
                                 dom_id,
@@ -1584,7 +1596,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout>> {
+    ) -> Option<&Arc<UnifiedLayout>> {
         let layout_result = self.layout_results.get(&dom_id)?;
 
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
@@ -1603,12 +1615,12 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
         movement_fn: F,
-    ) -> Option<azul_core::selection::TextCursor>
+    ) -> Option<TextCursor>
     where
         F: FnOnce(
-            &crate::text3::cache::UnifiedLayout,
-            &azul_core::selection::TextCursor,
-        ) -> azul_core::selection::TextCursor,
+            &UnifiedLayout,
+            &TextCursor,
+        ) -> TextCursor,
     {
         let current_cursor = self.cursor_manager.get_cursor()?;
         let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
@@ -1628,7 +1640,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        new_cursor: azul_core::selection::TextCursor,
+        new_cursor: TextCursor,
         extend_selection: bool,
     ) {
         if extend_selection {
@@ -1645,13 +1657,13 @@ impl LayoutWindow {
                     < old_cursor.cluster_id.start_byte_in_run
                 {
                     // Moving backwards
-                    azul_core::selection::SelectionRange {
+                    SelectionRange {
                         start: new_cursor,
                         end: *old_cursor,
                     }
                 } else {
                     // Moving forwards
-                    azul_core::selection::SelectionRange {
+                    SelectionRange {
                         start: *old_cursor,
                         end: new_cursor,
                     }
@@ -4368,7 +4380,7 @@ impl LayoutWindow {
 
         // Get current cursor/selection from cursor manager
         let current_selection = if let Some(cursor) = self.cursor_manager.get_cursor() {
-            vec![azul_core::selection::Selection::Cursor(cursor.clone())]
+            vec![Selection::Cursor(cursor.clone())]
         } else {
             // No cursor - create one at start of text
             vec![Selection::Cursor(TextCursor {
@@ -4383,14 +4395,14 @@ impl LayoutWindow {
         // Capture pre-state for undo/redo BEFORE mutation
         let old_text = self.extract_text_from_inline_content(&content);
         let old_cursor = current_selection.first().and_then(|sel| {
-            if let azul_core::selection::Selection::Cursor(c) = sel {
+            if let Selection::Cursor(c) = sel {
                 Some(c.clone())
             } else {
                 None
             }
         });
         let old_selection_range = current_selection.first().and_then(|sel| {
-            if let azul_core::selection::Selection::Range(r) = sel {
+            if let Selection::Range(r) = sel {
                 Some(*r)
             } else {
                 None
@@ -4412,7 +4424,7 @@ impl LayoutWindow {
 
         // Update the cursor/selection in cursor manager
         // This happens lazily, only when we actually apply the changes
-        if let Some(azul_core::selection::Selection::Cursor(new_cursor)) = new_selections.first() {
+        if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
             self.cursor_manager
                 .move_cursor_to(new_cursor.clone(), dom_id, node_id);
         }
@@ -4428,7 +4440,7 @@ impl LayoutWindow {
         let new_cursor = new_selections
             .first()
             .and_then(|sel| {
-                if let azul_core::selection::Selection::Cursor(c) = sel {
+                if let Selection::Cursor(c) = sel {
                     // Convert TextCursor to CursorPosition
                     // For now, we use InWindow with approximate coordinates
                     // TODO: Calculate proper screen coordinates from TextCursor
@@ -4544,9 +4556,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Vec<crate::text3::cache::InlineContent> {
-        use crate::text3::cache::{InlineContent, StyledRun};
-
+    ) -> Vec<InlineContent> {
         // Get the layout result for this DOM
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
@@ -4592,7 +4602,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> alloc::sync::Arc<crate::text3::cache::StyleProperties> {
+    ) -> alloc::sync::Arc<StyleProperties> {
         use alloc::sync::Arc;
 
         let layout_result = match self.layout_results.get(&dom_id) {
@@ -4618,8 +4628,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         parent_node_id: NodeId,
-    ) -> Vec<crate::text3::cache::InlineContent> {
-        use crate::text3::cache::InlineContent;
+    ) -> Vec<InlineContent> {
 
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
@@ -4657,9 +4666,8 @@ impl LayoutWindow {
     /// This is a helper for building the changeset's resulting_text field.
     pub fn extract_text_from_inline_content(
         &self,
-        content: &[crate::text3::cache::InlineContent],
+        content: &[InlineContent],
     ) -> String {
-        use crate::text3::cache::InlineContent;
 
         let mut result = String::new();
 
@@ -4701,7 +4709,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        new_inline_content: Vec<crate::text3::cache::InlineContent>,
+        new_inline_content: Vec<InlineContent>,
     ) {
         // TODO: Update the text cache with the new inline content
         //
@@ -4905,14 +4913,14 @@ impl LayoutWindow {
     /// is out of bounds.
     fn byte_offset_to_cursor(
         &self,
-        text_layout: &crate::text3::cache::UnifiedLayout,
+        text_layout: &UnifiedLayout,
         byte_offset: u32,
-    ) -> Option<azul_core::selection::TextCursor> {
+    ) -> Option<TextCursor> {
         // Handle offset 0 as special case (start of text)
         if byte_offset == 0 {
             // Find first cluster in items
             for item in &text_layout.items {
-                if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+                if let ShapedItem::Cluster(cluster) = &item.item {
                     return Some(TextCursor {
                         cluster_id: cluster.source_cluster_id,
                         affinity: CursorAffinity::Trailing,
@@ -4933,7 +4941,7 @@ impl LayoutWindow {
         let mut current_byte_offset = 0u32;
 
         for item in &text_layout.items {
-            if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+            if let ShapedItem::Cluster(cluster) = &item.item {
                 // Calculate byte length of this cluster from its text
                 let cluster_byte_length = cluster.text.len() as u32;
                 let cluster_end_byte = current_byte_offset + cluster_byte_length;
@@ -4953,7 +4961,7 @@ impl LayoutWindow {
 
         // Offset is beyond the end of all text - return cursor at end of last cluster
         for item in text_layout.items.iter().rev() {
-            if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
+            if let ShapedItem::Cluster(cluster) = &item.item {
                 return Some(TextCursor {
                     cluster_id: cluster.source_cluster_id,
                     affinity: CursorAffinity::Trailing,
@@ -4979,7 +4987,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-    ) -> Option<alloc::sync::Arc<crate::text3::cache::UnifiedLayout>> {
+    ) -> Option<alloc::sync::Arc<UnifiedLayout>> {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
 
@@ -5220,7 +5228,7 @@ impl LayoutWindow {
         self.selection_manager.clear_selection(&dom_id);
 
         if !selection_ranges.is_empty() {
-            let state = azul_core::selection::SelectionState {
+            let state = SelectionState {
                 selections: selection_ranges.into_iter().map(Selection::Range).collect(),
                 node_id: dom_node_id,
             };
@@ -5283,8 +5291,8 @@ impl LayoutWindow {
 
         if let Some(cursor) = earliest_cursor {
             // Set cursor at deletion point
-            let state = azul_core::selection::SelectionState {
-                selections: vec![azul_core::selection::Selection::Range(SelectionRange {
+            let state = SelectionState {
+                selections: vec![Selection::Range(SelectionRange {
                     start: cursor,
                     end: cursor,
                 })],
@@ -5361,7 +5369,7 @@ impl LayoutWindow {
                                     let style = &first_glyph.style;
 
                                     // Extract font family from font selector (use first from stack)
-                                    let default_font = crate::text3::cache::FontSelector::default();
+                                    let default_font = FontSelector::default();
                                     let first_font =
                                         style.font_stack.first().unwrap_or(&default_font);
                                     let font_family = Some(first_font.family.clone());
@@ -5374,8 +5382,8 @@ impl LayoutWindow {
                                     );
                                     let is_italic = matches!(
                                         first_font.style,
-                                        crate::text3::cache::FontStyle::Italic
-                                            | crate::text3::cache::FontStyle::Oblique
+                                        FontStyle::Italic
+                                            | FontStyle::Oblique
                                     );
 
                                     styled_runs.push(StyledTextRun {

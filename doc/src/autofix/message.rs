@@ -92,7 +92,7 @@ impl fmt::Display for AutofixMessage {
             } => {
                 write!(
                     f,
-                    "✓ Discovered {}\n  Path: {}\n  Reason: {}",
+                    "OK: Discovered {}\n  Path: {}\n  Reason: {}",
                     type_name, path, reason
                 )
             }
@@ -103,38 +103,38 @@ impl fmt::Display for AutofixMessage {
             } => {
                 write!(
                     f,
-                    "🔄 Path changed for {}\n  {} → {}",
+                    "INFO: Path changed for {}\n  {} → {}",
                     type_name, old_path, new_path
                 )
             }
             Self::IterationStarted { iteration, count } => {
-                write!(f, "🔄 Iteration {}: {} types to discover", iteration, count)
+                write!(f, "INFO: Iteration {}: {} types to discover", iteration, count)
             }
             Self::IterationComplete { iteration } => {
-                write!(f, "✓ Iteration {} complete", iteration)
+                write!(f, "OK: Iteration {} complete", iteration)
             }
             Self::VirtualPatchApplied { count } => {
-                write!(f, "✓ Applied {} virtual patches", count)
+                write!(f, "OK: Applied {} virtual patches", count)
             }
             Self::TypeSkipped { type_name, reason } => {
-                write!(f, "⊘ Skipped {}: {}", type_name, reason)
+                write!(f, "WARN: Skipped {}: {}", type_name, reason)
             }
             Self::TypeNotFound { type_name } => {
-                write!(f, "❓ Could not find type: {}", type_name)
+                write!(f, "WARN: Could not find type: {}", type_name)
             }
             Self::MaxIterationsReached { iteration } => {
-                write!(f, "⚠️  Reached maximum iteration limit ({})", iteration)
+                write!(f, "WARN:  Reached maximum iteration limit ({})", iteration)
             }
             Self::GenericWarning { message } => {
-                write!(f, "⚠️  {}", message)
+                write!(f, "WARN:  {}", message)
             }
             Self::WorkspaceIndexFailed { path, error } => {
-                write!(f, "❌ Failed to index {}: {}", path, error)
+                write!(f, "ERROR: Failed to index {}: {}", path, error)
             }
             Self::PatchGenerationFailed { type_name, error } => {
                 write!(
                     f,
-                    "❌ Failed to generate patch for {}: {}",
+                    "ERROR: Failed to generate patch for {}: {}",
                     type_name, error
                 )
             }
@@ -228,7 +228,7 @@ impl AutofixMessages {
             })
             .collect();
 
-        println!("📊 STATISTICS");
+        println!("[STATS] STATISTICS");
         println!("   • Duration: {:.1}s", duration_secs);
         println!("   • Types discovered: {}", discoveries.len());
         println!(
@@ -244,7 +244,7 @@ impl AutofixMessages {
 
         // Discovered types
         if !discoveries.is_empty() {
-            println!("🔍 DISCOVERED TYPES ({})", discoveries.len());
+            println!("[SEARCH] DISCOVERED TYPES ({})", discoveries.len());
             println!();
             for msg in discoveries {
                 if let AutofixMessage::TypeDiscovered {
@@ -265,7 +265,7 @@ impl AutofixMessages {
         // Path corrections
         if !patch_summary.external_path_changes.is_empty() {
             println!(
-                "🔧 PATH CORRECTIONS ({})",
+                "[FIX] PATH CORRECTIONS ({})",
                 patch_summary.external_path_changes.len()
             );
             println!();
@@ -281,7 +281,7 @@ impl AutofixMessages {
         // Warnings
         let warnings = self.messages_by_level(MessageLevel::Warning);
         if !warnings.is_empty() {
-            println!("⚠️  WARNINGS ({})", warnings.len());
+            println!("[WARN]  WARNINGS ({})", warnings.len());
             println!();
             for msg in warnings {
                 println!("  • {}", msg);
@@ -292,7 +292,7 @@ impl AutofixMessages {
         // Errors
         let errors = self.messages_by_level(MessageLevel::Error);
         if !errors.is_empty() {
-            println!("❌ ERRORS ({})", errors.len());
+            println!("ERRORS ({})", errors.len());
             println!();
             for msg in errors {
                 println!("  • {}", msg);
@@ -302,7 +302,7 @@ impl AutofixMessages {
 
         // Next steps
         if patch_count > 0 {
-            println!("💡 NEXT STEPS");
+            println!("[TIP] NEXT STEPS");
             println!("   1. Review patches: ls {}", patches_dir.display());
             println!(
                 "   2. Apply patches: azul-doc patch {}",
@@ -315,7 +315,7 @@ impl AutofixMessages {
             println!();
         }
 
-        println!("📁 Output: {}", patches_dir.display());
+        println!("[DIR] Output: {}", patches_dir.display());
     }
 }
 
@@ -381,7 +381,7 @@ impl PatchSummary {
         }
 
         if !self.classes_added.is_empty() {
-            println!("➕ Classes Added ({}):", self.classes_added.len());
+            println!("[ADD] Classes Added ({}):", self.classes_added.len());
             for added in &self.classes_added {
                 println!("  • {}.{}", added.module, added.class_name);
                 println!("    ({})", added.external_path);
@@ -392,7 +392,7 @@ impl PatchSummary {
         if !self.field_changes.is_empty() {
             use std::collections::HashMap;
 
-            println!("🔧 Field Changes ({}):", self.field_changes.len());
+            println!("[FIX] Field Changes ({}):", self.field_changes.len());
             let mut by_class: HashMap<String, Vec<&FieldChange>> = HashMap::new();
             for change in &self.field_changes {
                 by_class
@@ -422,7 +422,7 @@ impl PatchSummary {
 
         if !self.documentation_changes.is_empty() {
             println!(
-                "📝 Documentation Changes ({}):",
+                "[NOTE] Documentation Changes ({}):",
                 self.documentation_changes.len()
             );
             for change in &self.documentation_changes {

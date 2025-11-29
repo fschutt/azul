@@ -31,6 +31,7 @@ use crate::text3::script::{script_to_language, Script};
 /// Available space for layout, similar to Taffy's AvailableSpace.
 ///
 /// This type explicitly represents the three possible states for available space:
+/// 
 /// - `Definite(f32)`: A specific pixel width is available
 /// - `MinContent`: Layout should use minimum content width (shrink-wrap)
 /// - `MaxContent`: Layout should use maximum content width (no line breaks unless necessary)
@@ -164,6 +165,7 @@ impl FontChainKey {
 }
 
 /// A map of pre-loaded fonts, keyed by FontId (from rust-fontconfig)
+/// 
 /// This is passed to the shaper - no font loading happens during shaping
 /// The fonts are loaded BEFORE layout based on the font chains and text content.
 ///
@@ -328,7 +330,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Get the set of FontIds that are currently loaded
     ///
-    /// This is useful for computing which fonts need to be loaded (diff with required fonts).
+    /// This is useful for computing which fonts need to be loaded 
+    /// (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed.keys().cloned().collect()
@@ -474,7 +477,8 @@ pub struct UnifiedConstraints {
 
     // Text layout
     pub writing_mode: Option<WritingMode>,
-    pub direction: Option<Direction>, // Base direction from CSS, overrides auto-detection
+    // Base direction from CSS, overrides auto-detection
+    pub direction: Option<Direction>,
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
     pub text_justify: JustifyContent,
@@ -506,7 +510,8 @@ impl Default for UnifiedConstraints {
         Self {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
-            // [IMPORTANT] CRITICAL: This should be set to the containing block's inner width
+
+            // IMPORTANT: This should be set to the containing block's inner width
             // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line
             // breaking. This value should be passed from the box layout solver (fc.rs)
             // when creating UnifiedConstraints for text layout.
@@ -546,7 +551,7 @@ impl Hash for UnifiedConstraints {
             .map(|h| h.round() as usize)
             .hash(state);
         self.writing_mode.hash(state);
-        self.direction.hash(state); // Hash the direction field
+        self.direction.hash(state);
         self.text_orientation.hash(state);
         self.text_align.hash(state);
         self.text_justify.hash(state);
@@ -574,7 +579,7 @@ impl PartialEq for UnifiedConstraints {
                 _ => false,
             }
             && self.writing_mode == other.writing_mode
-            && self.direction == other.direction // Compare direction field
+            && self.direction == other.direction
             && self.text_orientation == other.text_orientation
             && self.text_align == other.text_align
             && self.text_justify == other.text_justify
@@ -618,7 +623,8 @@ pub struct LineConstraints {
 impl WritingMode {
     fn get_direction(&self) -> Option<Direction> {
         match self {
-            WritingMode::HorizontalTb => None, // determined by text content
+            // determined by text content
+            WritingMode::HorizontalTb => None,
             WritingMode::VerticalRl => Some(Direction::Rtl),
             WritingMode::VerticalLr => Some(Direction::Ltr),
             WritingMode::SidewaysRl => Some(Direction::Rtl),
@@ -702,7 +708,8 @@ pub enum SegmentAlignment {
     /// Align text within the first available segment on the line.
     #[default]
     First,
-    /// Align text relative to the total available width of all segments on the line combined.
+    /// Align text relative to the total available width of all 
+    /// segments on the line combined.
     Total,
 }
 
@@ -927,7 +934,8 @@ pub struct InlineImage {
     pub source: ImageSource,
     pub intrinsic_size: Size,
     pub display_size: Option<Size>,
-    pub baseline_offset: f32, // How much to shift baseline
+    // How much to shift baseline
+    pub baseline_offset: f32,
     pub alignment: VerticalAlign,
     pub object_fit: ObjectFit,
 }
@@ -1032,7 +1040,8 @@ impl Glyph {
 
     #[inline]
     fn can_justify(&self) -> bool {
-        !self.codepoint.is_whitespace() && self.character_class() != CharacterClass::Combining
+        !self.codepoint.is_whitespace() && 
+        self.character_class() != CharacterClass::Combining
     }
 
     #[inline]
@@ -1065,27 +1074,58 @@ pub enum ImageSource {
     Placeholder(Size), // For layout without actual image
 }
 
-#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum VerticalAlign {
+    // Align image baseline with text baseline
     #[default]
-    Baseline, // Align image baseline with text baseline
-    Bottom,     // Align image bottom with line bottom
-    Top,        // Align image top with line top
-    Middle,     // Align image middle with text middle
-    TextTop,    // Align with tallest text in line
-    TextBottom, // Align with lowest text in line
-    Sub,        // Subscript alignment
-    Super,      /* Superscript alignment
-                 * Offset(f32), // Custom offset from baseline */
+    Baseline,
+    // Align image bottom with line bottom
+    Bottom,  
+    // Align image top with line top   
+    Top,        
+    // Align image middle with text middle
+    Middle,    
+    // Align with tallest text in line
+    TextTop,    
+    // Align with lowest text in line
+    TextBottom, 
+    // Subscript alignment
+    Sub,        
+    // Superscript alignment
+    Super,
+    // Custom offset from baseline
+    Offset(f32),
+}
+
+impl std::hash::Hash for VerticalAlign {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        if let VerticalAlign::Offset(f) = self {
+            f.to_bits().hash(state);
+        }
+    }
+}
+
+impl Eq for VerticalAlign {}
+
+impl Ord for VerticalAlign {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ObjectFit {
-    Fill,      // Stretch to fit display size
-    Contain,   // Scale to fit within display size
-    Cover,     // Scale to cover display size
-    None,      // Use intrinsic size
-    ScaleDown, // Like contain but never scale up
+    // Stretch to fit display size
+    Fill,      
+    // Scale to fit within display size
+    Contain,   
+    // Scale to cover display size
+    Cover,     
+    // Use intrinsic size
+    None,      
+    // Like contain but never scale up
+    ScaleDown, 
 }
 
 #[derive(Debug, Clone)]
@@ -1094,19 +1134,25 @@ pub struct InlineShape {
     pub fill: Option<ColorU>,
     pub stroke: Option<Stroke>,
     pub baseline_offset: f32,
-    /// The NodeId of the element that created this shape (e.g., inline-block)
-    /// This allows us to look up styling information (background, border) when rendering
+    /// The NodeId of the element that created this shape 
+    /// (e.g., inline-block) - this allows us to look up 
+    /// styling information (background, border) when rendering
     pub source_node_id: Option<azul_core::dom::NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OverflowBehavior {
-    Visible, // Content extends outside shape
-    Hidden,  // Content is clipped to shape
-    Scroll,  // Scrollable overflow
+    // Content extends outside shape
+    Visible, 
+    // Content is clipped to shape
+    Hidden,  
+    // Scrollable overflow
+    Scroll,  
+    // Browser/system decides
     #[default]
-    Auto, // Browser/system decides
-    Break,   // Break into next shape/page
+    Auto, 
+    // Break into next shape/page
+    Break,   
 }
 
 #[derive(Debug, Clone)]
@@ -1244,7 +1290,9 @@ impl Ord for Size {
     fn cmp(&self, other: &Self) -> Ordering {
         (self.width.round() as usize)
             .cmp(&(other.width.round() as usize))
-            .then_with(|| (self.height.round() as usize).cmp(&(other.height.round() as usize)))
+            .then_with(|| {
+                (self.height.round() as usize).cmp(&(other.height.round() as usize))
+            })
     }
 }
 

@@ -126,7 +126,7 @@ impl WorkspaceIndex {
     /// Build a complete index of the workspace with optional quiet mode
     pub fn build_with_verbosity(project_root: &Path, verbose: bool) -> Result<Self> {
         if verbose {
-            println!("🔍 Building workspace index...");
+            println!("[SEARCH] Building workspace index...");
         }
 
         let mut index = WorkspaceIndex {
@@ -139,7 +139,7 @@ impl WorkspaceIndex {
 
         // Step 1: Find all crates and their names
         if verbose {
-            println!("  📦 Discovering crates...");
+            println!("  [PKG] Discovering crates...");
         }
         index.crate_names = build_crate_name_map(project_root)?;
         if verbose {
@@ -148,7 +148,7 @@ impl WorkspaceIndex {
 
         // Step 2: Find all Rust source files (including dll/src/widgets)
         if verbose {
-            println!("  📂 Finding Rust source files...");
+            println!("  [DIR] Finding Rust source files...");
         }
         let rust_files = find_all_rust_files(project_root)?;
         if verbose {
@@ -202,7 +202,7 @@ impl WorkspaceIndex {
                         // Silently skip unparseable files (likely syntax errors or non-module
                         // files)
                         if verbose && !file_path.to_string_lossy().contains("/target/") {
-                            eprintln!("    ⚠️  Failed to parse {}: {}", file_path.display(), e);
+                            eprintln!("    [WARN]  Failed to parse {}: {}", file_path.display(), e);
                         }
                         None
                     }

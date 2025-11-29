@@ -422,6 +422,27 @@ pub enum EventType {
     /// Touch cancelled
     TouchCancel,
 
+    // Gesture Events
+
+    /// Long press detected (touch or mouse held down)
+    LongPress,
+    /// Swipe gesture to the left
+    SwipeLeft,
+    /// Swipe gesture to the right
+    SwipeRight,
+    /// Swipe gesture upward
+    SwipeUp,
+    /// Swipe gesture downward
+    SwipeDown,
+    /// Pinch-in gesture (zoom out)
+    PinchIn,
+    /// Pinch-out gesture (zoom in)
+    PinchOut,
+    /// Clockwise rotation gesture
+    RotateClockwise,
+    /// Counter-clockwise rotation gesture
+    RotateCounterClockwise,
+
     // Clipboard Events
 
     /// Content copied to clipboard

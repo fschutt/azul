@@ -83,7 +83,7 @@ pub fn discover_type_paths(
     project_root: &Path,
     type_names: &[(String, String)], // (module, class)
 ) -> Result<HashMap<String, OracleTypeInfo>> {
-    println!("🔍 Using compiler oracle to discover type paths...");
+    println!("[SEARCH] Using compiler oracle to discover type paths...");
 
     // Create a temporary directory for the fake project
     let temp_dir = project_root.join("target").join("oracle_temp");
@@ -146,7 +146,7 @@ azul-layout = { path = "../../layout" }
         .context("Failed to run cargo check")?;
 
     if !output.status.success() {
-        println!("  ⚠️  Cargo check failed (this is expected - we want the errors!)");
+        println!("  [WARN]  Cargo check failed (this is expected - we want the errors!)");
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -165,7 +165,7 @@ azul-layout = { path = "../../layout" }
         &debug_file,
         format!("STDERR:\n{}\n\nSTDOUT:\n{}", stderr, stdout),
     )?;
-    println!("  💾 Debug output saved to: {}", debug_file.display());
+    println!("  [SAVE] Debug output saved to: {}", debug_file.display());
 
     // Parse JSON compiler messages to find correct paths
     let mut discovered_paths: HashMap<String, String> = HashMap::new();
@@ -202,7 +202,7 @@ azul-layout = { path = "../../layout" }
                                                         .last()
                                                         .unwrap_or(&correct_path);
                                                     println!(
-                                                        "  ✓ {}: {}",
+                                                        "  [OK] {}: {}",
                                                         type_name, &correct_path
                                                     );
                                                     discovered_paths.insert(
@@ -225,7 +225,7 @@ azul-layout = { path = "../../layout" }
     // Now analyze each discovered type to get its structure
     // TODO: This is disabled for now as it takes too long and may fail on complex types
     // We only collect the paths for now
-    println!("  🔍 Collected {} type paths", discovered_paths.len());
+    println!("  [SEARCH] Collected {} type paths", discovered_paths.len());
     let mut type_infos = HashMap::new();
 
     for (type_name, path) in discovered_paths {
@@ -921,6 +921,6 @@ pub struct Config {
             "azul_layout::callbacks::CallbackType"
         );
 
-        println!("✅ Generated valid patch:\n{}", patch_json);
+        println!("[OK] Generated valid patch:\n{}", patch_json);
     }
 }

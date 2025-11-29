@@ -36,7 +36,7 @@ pub fn handle_print_command(api_data: &ApiData, args: &[&str]) -> Result<()> {
             print_function(api_data, &project_root, parts[0], parts[1], parts[2])
         }
         _ => {
-            eprintln!("❌ Invalid path format: {}", path_str);
+            eprintln!("Invalid path format: {}", path_str);
             eprintln!("Expected formats:");
             eprintln!("  azul-doc print              (all modules)");
             eprintln!("  azul-doc print app          (module)");
@@ -48,7 +48,7 @@ pub fn handle_print_command(api_data: &ApiData, args: &[&str]) -> Result<()> {
 }
 
 pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
-    println!("📦 All API Modules:\n");
+    println!("[PKG] All API Modules:\n");
 
     let mut has_errors = false;
 
@@ -63,7 +63,7 @@ pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
                 .map(|d| d.as_str())
                 .unwrap_or("(no documentation)");
 
-            println!("  📁 {} - {} classes", module_name, class_count);
+            println!("  [DIR] {} - {} classes", module_name, class_count);
             println!("     {}", doc);
 
             // Check for missing external paths
@@ -72,7 +72,7 @@ pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
                 if class_data.external.is_none() {
                     missing_count += 1;
                     if missing_count == 1 {
-                        println!("     ⚠️  Missing external paths:");
+                        println!("     [WARN]  Missing external paths:");
                     }
                     println!("        - {}", class_name);
                     has_errors = true;
@@ -84,16 +84,16 @@ pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
     }
 
     if has_errors {
-        println!("❌ Found errors in API definitions");
+        println!("Found errors in API definitions");
         process::exit(1);
     } else {
-        println!("✅ All modules have complete definitions");
+        println!("[OK] All modules have complete definitions");
         Ok(())
     }
 }
 
 pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
-    println!("📁 Module: {}\n", module_name);
+    println!("[DIR] Module: {}\n", module_name);
 
     let mut found = false;
     let mut has_errors = false;
@@ -114,7 +114,7 @@ pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
 
                 // Check for errors
                 if class_data.external.is_none() {
-                    println!("  ⚠️  Missing external path");
+                    println!("  [WARN]  Missing external path");
                     has_errors = true;
                 }
             }
@@ -122,15 +122,15 @@ pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
     }
 
     if !found {
-        eprintln!("❌ Module '{}' not found", module_name);
+        eprintln!("Module '{}' not found", module_name);
         process::exit(1);
     }
 
     if has_errors {
-        println!("\n❌ Found errors in module '{}'", module_name);
+        println!("\nFound errors in module '{}'", module_name);
         process::exit(1);
     } else {
-        println!("\n✅ Module '{}' has complete definitions", module_name);
+        println!("\n[OK] Module '{}' has complete definitions", module_name);
         Ok(())
     }
 }
@@ -141,7 +141,7 @@ pub fn print_class(
     module_name: &str,
     class_name: &str,
 ) -> Result<()> {
-    println!("📦 Class: {}.{}\n", module_name, class_name);
+    println!("[PKG] Class: {}.{}\n", module_name, class_name);
 
     let mut found = false;
 
@@ -158,12 +158,12 @@ pub fn print_class(
                 print_class_detail(class_data);
 
                 // 2. Print import path
-                println!("\n🔗 Import Path:");
+                println!("\n[LINK] Import Path:");
                 if let Some(external) = &class_data.external {
                     println!("  {}", external);
 
                     // 3. Try to locate and print source
-                    println!("\n📂 Source Location:");
+                    println!("\n[DIR] Source Location:");
                     match locatesource::retrieve_item_source(project_root, external) {
                         Ok(source) => {
                             let lines: Vec<&str> = source.lines().collect();
@@ -182,11 +182,11 @@ pub fn print_class(
                             }
                         }
                         Err(e) => {
-                            println!("  ⚠️  Failed to retrieve source: {}", e);
+                            println!("  [WARN]  Failed to retrieve source: {}", e);
                         }
                     }
                 } else {
-                    println!("  ⚠️  No external path defined");
+                    println!("  [WARN]  No external path defined");
                 }
 
                 let separator2 = "─".repeat(60);
@@ -196,7 +196,7 @@ pub fn print_class(
     }
 
     if !found {
-        eprintln!("❌ Class '{}.{}' not found", module_name, class_name);
+        eprintln!("Class '{}.{}' not found", module_name, class_name);
         process::exit(1);
     }
 
@@ -230,17 +230,17 @@ pub fn print_function(
 
                         if let Some(external) = &class_data.external {
                             let full_path = format!("{}::{}", external, function_name);
-                            println!("\n🔗 Import Path:");
+                            println!("\n[LINK] Import Path:");
                             println!("  {}", full_path);
 
                             match match_function_with_source(project_root, &full_path, func_data) {
-                                Ok(true) => println!("  ✅ Signature matches source"),
+                                Ok(true) => println!("  [OK] Signature matches source"),
                                 Ok(false) => {
-                                    println!("  ⚠️  Signature differs from source");
+                                    println!("  WARN:  Signature differs from source");
                                     has_errors = true;
                                 }
                                 Err(e) => {
-                                    println!("  ❌ Validation failed: {}", e);
+                                    println!("  ERROR: Validation failed: {}", e);
                                     has_errors = true;
                                 }
                             }
@@ -257,17 +257,17 @@ pub fn print_function(
 
                         if let Some(external) = &class_data.external {
                             let full_path = format!("{}::{}", external, function_name);
-                            println!("\n🔗 Import Path:");
+                            println!("\n[LINK] Import Path:");
                             println!("  {}", full_path);
 
                             match match_function_with_source(project_root, &full_path, func_data) {
-                                Ok(true) => println!("  ✅ Signature matches source"),
+                                Ok(true) => println!("  [OK] Signature matches source"),
                                 Ok(false) => {
-                                    println!("  ⚠️  Signature differs from source");
+                                    println!("  WARN:  Signature differs from source");
                                     has_errors = true;
                                 }
                                 Err(e) => {
-                                    println!("  ❌ Validation failed: {}", e);
+                                    println!("  ERROR: Validation failed: {}", e);
                                     has_errors = true;
                                 }
                             }
@@ -280,7 +280,7 @@ pub fn print_function(
 
     if !found {
         eprintln!(
-            "❌ Function '{}.{}.{}' not found",
+            "ERROR: Function '{}.{}.{}' not found",
             module_name, class_name, function_name
         );
         process::exit(1);
@@ -288,13 +288,13 @@ pub fn print_function(
 
     if has_errors {
         println!(
-            "\n❌ Found errors in function '{}.{}.{}'",
+            "\nERROR: Found errors in function '{}.{}.{}'",
             module_name, class_name, function_name
         );
         process::exit(1);
     } else {
         println!(
-            "\n✅ Function '{}.{}.{}' is valid",
+            "\n[OK] Function '{}.{}.{}' is valid",
             module_name, class_name, function_name
         );
         Ok(())
@@ -385,7 +385,7 @@ pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
         println!("\n📄 Documentation: {}", doc);
     }
 
-    println!("\n🔧 Signature:");
+    println!("\n[FIX] Signature:");
     print!("  fn ");
     if is_constructor {
         print!("new");
@@ -418,7 +418,7 @@ pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
     println!();
 
     if let Some(body) = &func_data.fn_body {
-        println!("\n📝 Body:");
+        println!("\n[NOTE] Body:");
         println!("  {}", body);
     }
 

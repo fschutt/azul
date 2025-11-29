@@ -25,7 +25,3 @@ pub mod glyphs;
 pub mod knuth_plass;
 pub mod script;
 pub mod selection;
-
-// Test module commented out until it is implemented
-// #[cfg(test)]
-// pub mod tests;

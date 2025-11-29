@@ -1,12 +1,10 @@
 //! Pure functions for editing a `Vec<InlineContent>` based on selections.
 
 use std::sync::Arc;
-
+use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
 use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
 };
-
-use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
 
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
@@ -23,6 +21,7 @@ pub fn edit_text(
     selections: &[Selection],
     edit: &TextEdit,
 ) -> (Vec<InlineContent>, Vec<Selection>) {
+
     if selections.is_empty() {
         return (content.to_vec(), Vec::new());
     }
@@ -30,9 +29,9 @@ pub fn edit_text(
     let mut new_content = content.to_vec();
     let mut new_selections = Vec::new();
 
-    // Key insight: To handle multiple cursors correctly, we must process edits
-    // from the end of the document to the beginning. This ensures that earlier edits
-    // do not invalidate the indices of later edits.
+    // To handle multiple cursors correctly, we must process edits
+    // from the end of the document to the beginning. This ensures that
+    // earlier edits do not invalidate the indices of later edits.
     let mut sorted_selections = selections.to_vec();
     sorted_selections.sort_by(|a, b| {
         let cursor_a = match a {
@@ -128,11 +127,15 @@ pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
+
     // This is a highly complex function. A full implementation needs to handle:
+    // 
     // - Deletions within a single text run.
     // - Deletions that span across multiple text runs.
     // - Deletions that include non-text items like images.
-    // For now, we provide a simplified version that handles deletion within a single run.
+    // 
+    // For now, we provide a simplified version that handles deletion within a
+    // single run.
 
     let mut new_content = content.to_vec();
     let start_run_idx = range.start.cluster_id.source_run as usize;
@@ -284,13 +287,15 @@ pub fn delete_forward(
 /// This is useful for callbacks to inspect pending delete operations.
 ///
 /// # Arguments
-/// * `content` - The current text content
-/// * `selection` - The current selection (cursor or range)
-/// * `forward` - If true, delete forward (Delete key); if false, delete backward (Backspace key)
+/// 
+/// - `content` - The current text content
+/// - `selection` - The current selection (cursor or range)
+/// - `forward` - If true, delete forward (Delete key); if false, delete backward (Backspace key)
 ///
 /// # Returns
-/// * `Some((range, deleted_text))` - The range and text that would be deleted
-/// * `None` - Nothing would be deleted (e.g., cursor at start/end of document)
+/// 
+/// - `Some((range, deleted_text))` - The range and text that would be deleted
+/// - `None` - Nothing would be deleted (e.g., cursor at start/end of document)
 pub fn inspect_delete(
     content: &[InlineContent],
     selection: &Selection,

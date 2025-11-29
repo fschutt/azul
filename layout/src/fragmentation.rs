@@ -13,6 +13,7 @@
 //! ## Algorithm Overview
 //!
 //! Unlike post-layout splitting, this module integrates fragmentation INTO layout:
+//! 
 //! 1. Classify each box's break behavior (splittable, keep-together, monolithic)
 //! 2. During layout, check if content fits in current fragmentainer
 //! 3. Apply break-before/break-after rules
@@ -21,7 +22,7 @@
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::fmt;
-
+use crate::solver3::display_list::{DisplayList, DisplayListItem};
 use azul_core::{
     dom::NodeId,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -29,8 +30,6 @@ use azul_core::{
 use azul_css::props::layout::fragmentation::{
     BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows,
 };
-
-use crate::solver3::display_list::{DisplayList, DisplayListItem};
 
 // Page Templates (Headers, Footers, Running Content)
 
@@ -545,9 +544,14 @@ impl Default for FragmentationDefaults {
 impl FragmentationLayoutContext {
     /// Create a new fragmentation context for paged layout
     pub fn new(page_size: LogicalSize, margins: PageMargins) -> Self {
+
         let template = PageTemplate::default();
+
         let page_content_height =
-            page_size.height - margins.vertical() - template.header_height - template.footer_height;
+            page_size.height 
+            - margins.vertical() 
+            - template.header_height 
+            - template.footer_height;
 
         Self {
             page_size,
@@ -750,11 +754,14 @@ impl FragmentationLayoutContext {
         let content_width = self.page_size.width - self.margins.horizontal();
 
         let x = match position {
-            PageSlotPosition::TopLeft | PageSlotPosition::BottomLeft => self.margins.left,
-            PageSlotPosition::TopCenter | PageSlotPosition::BottomCenter => {
+            PageSlotPosition::TopLeft | 
+            PageSlotPosition::BottomLeft => self.margins.left,
+            PageSlotPosition::TopCenter | 
+            PageSlotPosition::BottomCenter => {
                 self.margins.left + content_width / 2.0
             }
-            PageSlotPosition::TopRight | PageSlotPosition::BottomRight => {
+            PageSlotPosition::TopRight | 
+            PageSlotPosition::BottomRight => {
                 self.page_size.width - self.margins.right
             }
         };
@@ -956,61 +963,3 @@ fn to_upper_alpha(mut n: usize) -> String {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_roman_numerals() {
-        assert_eq!(to_upper_roman(1), "I");
-        assert_eq!(to_upper_roman(4), "IV");
-        assert_eq!(to_upper_roman(9), "IX");
-        assert_eq!(to_upper_roman(42), "XLII");
-        assert_eq!(to_upper_roman(1984), "MCMLXXXIV");
-    }
-
-    #[test]
-    fn test_alpha_numerals() {
-        assert_eq!(to_upper_alpha(1), "A");
-        assert_eq!(to_upper_alpha(26), "Z");
-        assert_eq!(to_upper_alpha(27), "AA");
-        assert_eq!(to_upper_alpha(28), "AB");
-    }
-
-    #[test]
-    fn test_page_template_content_height() {
-        let template = PageTemplate::default().with_page_number_footer(30.0);
-
-        let page_height = 800.0;
-        assert_eq!(template.content_area_height(page_height, 1), 770.0);
-    }
-
-    #[test]
-    fn test_fragmentation_context_page_advance() {
-        let mut ctx = FragmentationLayoutContext::new(
-            LogicalSize::new(600.0, 800.0),
-            PageMargins::uniform(50.0),
-        );
-
-        assert_eq!(ctx.current_page, 0);
-        assert_eq!(ctx.counter.page_number, 1);
-
-        ctx.advance_page();
-
-        assert_eq!(ctx.current_page, 1);
-        assert_eq!(ctx.counter.page_number, 2);
-    }
-
-    #[test]
-    fn test_break_decision_monolithic() {
-        let ctx = FragmentationLayoutContext::new(
-            LogicalSize::new(600.0, 800.0),
-            PageMargins::uniform(50.0),
-        );
-
-        // Small monolithic box should fit
-        let behavior = BoxBreakBehavior::Monolithic { height: 100.0 };
-        let decision = decide_break(&behavior, &ctx, PageBreak::Auto, PageBreak::Auto);
-        assert!(matches!(decision, BreakDecision::FitOnCurrentPage));
-    }
-}

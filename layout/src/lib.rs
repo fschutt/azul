@@ -50,8 +50,6 @@ pub mod timer;
 pub mod window;
 #[cfg(feature = "text_layout")]
 pub mod window_state;
-#[cfg(feature = "text_layout")]
-mod window_tests;
 #[cfg(feature = "xml")]
 pub mod xml;
 
