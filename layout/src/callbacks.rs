@@ -307,15 +307,21 @@ pub unsafe fn core_callback_to_fn(core: CoreCallback) -> CallbackType {
     core::mem::transmute(core.cb)
 }
 
-/// Optional Callback
+/// FFI-safe Option<Callback> type for C interop.
+///
+/// This enum provides an ABI-stable alternative to `Option<Callback>`
+/// that can be safely passed across FFI boundaries.
 #[derive(Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum OptionCallback {
+    /// No callback is present.
     None,
+    /// A callback is present.
     Some(Callback),
 }
 
 impl OptionCallback {
+    /// Converts this FFI-safe option into a standard Rust `Option<Callback>`.
     pub fn into_option(self) -> Option<Callback> {
         match self {
             OptionCallback::None => None,
@@ -323,10 +329,12 @@ impl OptionCallback {
         }
     }
 
+    /// Returns `true` if a callback is present.
     pub fn is_some(&self) -> bool {
         matches!(self, OptionCallback::Some(_))
     }
 
+    /// Returns `true` if no callback is present.
     pub fn is_none(&self) -> bool {
         matches!(self, OptionCallback::None)
     }

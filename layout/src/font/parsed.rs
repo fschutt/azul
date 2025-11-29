@@ -22,81 +22,133 @@ use azul_core::resources::{
     OutlineQuadTo, OwnedGlyphBoundingBox,
 };
 use azul_css::props::basic::FontMetrics as CssFontMetrics;
-use mock::MockFont;
 
 use crate::text3::cache::LayoutFontMetrics;
 
-pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
-pub type GposCache = Arc<LayoutCacheData<GPOS>>;
+// Mock font module for testing
+pub mod mock;
+pub use mock::MockFont;
 
+/// Cached GSUB table for glyph substitution operations.
+pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
+/// Cached GPOS table for glyph positioning operations.
+pub type GposCache = Arc<LayoutCacheData<GPOS>>;
+/// Glyph outline contours: outer Vec = contours, inner Vec = operations per contour.
+pub type GlyphOutlineContours = Vec<Vec<GlyphOutlineOperation>>;
+
+/// Parsed font data with all required tables for text layout and PDF generation.
+///
+/// This struct holds the parsed representation of a TrueType/OpenType font,
+/// including glyph outlines, metrics, and shaping tables. It's used for:
+/// - Text layout (via GSUB/GPOS tables)
+/// - Glyph rendering (via glyf/CFF outlines)
+/// - PDF font embedding (via font metrics and subsetting)
 #[derive(Clone)]
 pub struct ParsedFont {
-    /// A hash of the font, useful for caching purposes
+    /// Hash of the font bytes for caching and equality checks.
     pub hash: u64,
-    /// Layout-specific font metrics (simplified from full FontMetrics)
+    /// Layout-specific font metrics (ascent, descent, line gap).
     pub font_metrics: LayoutFontMetrics,
-    /// PDF-specific detailed font metrics
+    /// PDF-specific detailed font metrics from HEAD, HHEA, OS/2 tables.
     pub pdf_font_metrics: FontMetrics,
+    /// Total number of glyphs in the font (from maxp table).
     pub num_glyphs: u16,
+    /// Horizontal header table (hhea) containing global horizontal metrics.
     pub hhea_table: HheaTable,
+    /// Raw horizontal metrics data (hmtx table bytes).
     pub hmtx_data: Vec<u8>,
+    /// Raw vertical metrics data (vmtx table bytes, if present).
     pub vmtx_data: Vec<u8>,
+    /// Maximum profile table (maxp) containing glyph count and memory hints.
     pub maxp_table: MaxpTable,
+    /// Cached GSUB table for glyph substitution (ligatures, alternates).
     pub gsub_cache: Option<GsubCache>,
+    /// Cached GPOS table for glyph positioning (kerning, mark placement).
     pub gpos_cache: Option<GposCache>,
+    /// Glyph definition table (GDEF) for glyph classification.
     pub opt_gdef_table: Option<Arc<GDEFTable>>,
+    /// Legacy kerning table (kern) for fonts without GPOS.
     pub opt_kern_table: Option<Arc<KernTable>>,
+    /// Decoded glyph records with outlines and metrics, keyed by glyph ID.
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
+    /// Cached width of the space character in font units.
     pub space_width: Option<usize>,
+    /// Character-to-glyph mapping (cmap subtable).
     pub cmap_subtable: Option<OwnedCmapSubtable>,
+    /// Mock font data for testing (replaces real font behavior).
     pub mock: Option<Box<MockFont>>,
-    /// Reverse mapping cache: glyph_id -> cluster text that produced this glyph
-    /// This handles ligatures (glyph 123 -> "fi") and complex scripts properly
+    /// Reverse mapping: glyph_id -> cluster text (handles ligatures like "fi").
     pub reverse_glyph_cache: std::collections::BTreeMap<u16, String>,
-    /// Original font bytes (needed to reconstruct font via allsorts)
+    /// Original font bytes (needed for subsetting and reconstruction).
     pub original_bytes: Vec<u8>,
-    /// Original font index in the font file (for font collections)
+    /// Font index within collection (0 for single-font files).
     pub original_index: usize,
-    /// GID to CID mapping for CFF fonts (for PDF embedding)
+    /// GID to CID mapping for CFF fonts (required for PDF embedding).
     pub index_to_cid: BTreeMap<u16, u16>,
-    /// Font type (TrueType or OpenType CFF) - for PDF font descriptor
+    /// Font type (TrueType outlines or OpenType CFF).
     pub font_type: FontType,
-    /// Font name from the NAME table
+    /// PostScript font name from the NAME table.
     pub font_name: Option<String>,
 }
 
+/// Distinguishes TrueType fonts from OpenType CFF fonts.
+///
+/// This affects how glyph outlines are extracted and how the font
+/// is embedded in PDF documents.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FontType {
+    /// TrueType font with quadratic Bézier outlines in glyf table.
     TrueType,
-    OpenTypeCFF(Vec<u8>), // Contains serialized CFF data
+    /// OpenType font with cubic Bézier outlines in CFF table.
+    /// Contains the serialized CFF data for PDF embedding.
+    OpenTypeCFF(Vec<u8>),
 }
 
-/// PDF-specific font metrics structure (simplified)
-/// Contains essential metrics from HEAD, HHEA, and OS/2 tables
+/// PDF-specific font metrics from HEAD, HHEA, and OS/2 tables.
+///
+/// These metrics are used for PDF font descriptors and accurate
+/// text positioning in generated PDF documents.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FontMetrics {
-    // head table
+    // -- HEAD table fields --
+    /// Font units per em-square (typically 1000 or 2048).
     pub units_per_em: u16,
+    /// Font flags (italic, bold, fixed-pitch, etc.).
     pub font_flags: u16,
+    /// Minimum x-coordinate across all glyphs.
     pub x_min: i16,
+    /// Minimum y-coordinate across all glyphs.
     pub y_min: i16,
+    /// Maximum x-coordinate across all glyphs.
     pub x_max: i16,
+    /// Maximum y-coordinate across all glyphs.
     pub y_max: i16,
 
-    // hhea table
+    // -- HHEA table fields --
+    /// Typographic ascender (distance above baseline).
     pub ascender: i16,
+    /// Typographic descender (distance below baseline, usually negative).
     pub descender: i16,
+    /// Recommended line gap between lines of text.
     pub line_gap: i16,
+    /// Maximum horizontal advance width across all glyphs.
     pub advance_width_max: u16,
+    /// Caret slope rise for italic angle calculation.
     pub caret_slope_rise: i16,
+    /// Caret slope run for italic angle calculation.
     pub caret_slope_run: i16,
 
-    // os/2 table (optional fields - 0 if not present)
+    // -- OS/2 table fields (0 if table not present) --
+    /// Average width of lowercase letters.
     pub x_avg_char_width: i16,
+    /// Visual weight class (100-900, 400=normal, 700=bold).
     pub us_weight_class: u16,
+    /// Visual width class (1-9, 5=normal).
     pub us_width_class: u16,
+    /// Thickness of strikeout stroke in font units.
     pub y_strikeout_size: i16,
+    /// Vertical position of strikeout stroke.
     pub y_strikeout_position: i16,
 }
 
@@ -130,11 +182,15 @@ impl FontMetrics {
     }
 }
 
-/// Result of font subsetting operation
+/// Result of font subsetting operation.
+///
+/// Contains the subsetted font bytes and a mapping from original
+/// glyph IDs to new glyph IDs in the subset.
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
+    /// The subsetted font file bytes (smaller than original).
     pub bytes: Vec<u8>,
-    /// Mapping (old glyph ID -> subset glyph ID + original char value)
+    /// Mapping: original glyph ID -> (new subset glyph ID, source character).
     pub glyph_mapping: BTreeMap<u16, (u16, char)>,
 }
 
@@ -217,39 +273,44 @@ impl fmt::Debug for ParsedFont {
     }
 }
 
-// NOTE: FontImpl trait removed with text2 - text3 uses ParsedFontTrait
-// #[cfg(feature = "text_layout")]
-// impl FontImpl for ParsedFont { ... }
-
-/// Warning message from font parsing
+/// Warning or error message generated during font parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontParseWarning {
+    /// Severity level of this warning.
     pub severity: FontParseWarningSeverity,
+    /// Human-readable description of the issue.
     pub message: String,
 }
 
+/// Severity level for font parsing warnings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontParseWarningSeverity {
+    /// Informational message (not an error).
     Info,
+    /// Warning that may affect font rendering.
     Warning,
+    /// Error that prevents proper font usage.
     Error,
 }
 
 impl FontParseWarning {
+    /// Creates an info-level message.
     pub fn info(message: String) -> Self {
         Self {
             severity: FontParseWarningSeverity::Info,
             message,
         }
     }
-    
+
+    /// Creates a warning-level message.
     pub fn warning(message: String) -> Self {
         Self {
             severity: FontParseWarningSeverity::Warning,
             message,
         }
     }
-    
+
+    /// Creates an error-level message.
     pub fn error(message: String) -> Self {
         Self {
             severity: FontParseWarningSeverity::Error,
@@ -602,27 +663,28 @@ impl ParsedFont {
 
         // Ensure space glyph is in glyph_records_decoded
         // Space glyphs often don't have outlines, so they may not be loaded by default
-        if let Some(space_gid) = font.lookup_glyph_index(' ' as u32) {
-            if font.glyph_records_decoded.get(&space_gid).is_none() {                
-                // Add a minimal space glyph record with the calculated advance width
-                if let Some(space_width_val) = space_width {
-                    let space_record = OwnedGlyph {
-                        bounding_box: OwnedGlyphBoundingBox {
-                            max_x: 0,
-                            max_y: 0,
-                            min_x: 0,
-                            min_y: 0,
-                        },
-                        horz_advance: space_width_val as u16,
-                        outline: Vec::new(), // Space has no visual outline
-                        unresolved_composite: Vec::new(),
-                        phantom_points: None,
-                    };
-                    font.glyph_records_decoded.insert(space_gid, space_record);
-                }
+        let _ = (|| {
+            let space_gid = font.lookup_glyph_index(' ' as u32)?;
+            if font.glyph_records_decoded.contains_key(&space_gid) {
+                return None; // Already exists
             }
-        }
-        
+            let space_width_val = space_width?;
+            let space_record = OwnedGlyph {
+                bounding_box: OwnedGlyphBoundingBox {
+                    max_x: 0,
+                    max_y: 0,
+                    min_x: 0,
+                    min_y: 0,
+                },
+                horz_advance: space_width_val as u16,
+                outline: Vec::new(),
+                unresolved_composite: Vec::new(),
+                phantom_points: None,
+            };
+            font.glyph_records_decoded.insert(space_gid, space_record);
+            Some(())
+        })();
+
         font.space_width = space_width;
 
         Some(font)
@@ -642,71 +704,62 @@ impl ParsedFont {
         let provider = font_file
             .as_ref()
             .and_then(|ff| ff.table_provider(font_index).ok());
-        
+
         let os2_table = provider
             .as_ref()
             .and_then(|p| p.table_data(tag::OS_2).ok())
             .and_then(|os2_data| {
                 let data = os2_data?;
                 let scope = ReadScope::new(&data);
-                // Os2 requires the table length as dependency parameter
                 scope.read_dep::<Os2>(data.len()).ok()
             });
-        
-        if let Some(os2) = os2_table {
-            FontMetrics {
-                units_per_em: head_table.units_per_em,
-                font_flags: head_table.flags,
-                x_min: head_table.x_min,
-                y_min: head_table.y_min,
-                x_max: head_table.x_max,
-                y_max: head_table.y_max,
-                ascender: hhea_table.ascender,
-                descender: hhea_table.descender,
-                line_gap: hhea_table.line_gap,
-                advance_width_max: hhea_table.advance_width_max,
-                caret_slope_rise: hhea_table.caret_slope_rise,
-                caret_slope_run: hhea_table.caret_slope_run,
-                x_avg_char_width: os2.x_avg_char_width,
-                us_weight_class: os2.us_weight_class,
-                us_width_class: os2.us_width_class,
-                y_strikeout_size: os2.y_strikeout_size,
-                y_strikeout_position: os2.y_strikeout_position,
-            }
-        } else {
-            // Fallback if OS/2 table is missing
-            FontMetrics {
-                units_per_em: head_table.units_per_em,
-                font_flags: head_table.flags,
-                x_min: head_table.x_min,
-                y_min: head_table.y_min,
-                x_max: head_table.x_max,
-                y_max: head_table.y_max,
-                ascender: hhea_table.ascender,
-                descender: hhea_table.descender,
-                line_gap: hhea_table.line_gap,
-                advance_width_max: hhea_table.advance_width_max,
-                caret_slope_rise: hhea_table.caret_slope_rise,
-                caret_slope_run: hhea_table.caret_slope_run,
-                ..FontMetrics::zero()
-            }
-        }
+
+        // Base metrics from HEAD and HHEA (always present)
+        let base = FontMetrics {
+            units_per_em: head_table.units_per_em,
+            font_flags: head_table.flags,
+            x_min: head_table.x_min,
+            y_min: head_table.y_min,
+            x_max: head_table.x_max,
+            y_max: head_table.y_max,
+            ascender: hhea_table.ascender,
+            descender: hhea_table.descender,
+            line_gap: hhea_table.line_gap,
+            advance_width_max: hhea_table.advance_width_max,
+            caret_slope_rise: hhea_table.caret_slope_rise,
+            caret_slope_run: hhea_table.caret_slope_run,
+            ..FontMetrics::zero()
+        };
+
+        // Add OS/2 metrics if available
+        os2_table.map(|os2| FontMetrics {
+            x_avg_char_width: os2.x_avg_char_width,
+            us_weight_class: os2.us_weight_class,
+            us_width_class: os2.us_width_class,
+            y_strikeout_size: os2.y_strikeout_size,
+            y_strikeout_position: os2.y_strikeout_position,
+            ..base
+        }).unwrap_or(base)
     }
 
-    pub fn get_space_width_internal(&self) -> Option<usize> {
+    /// Returns the width of the space character in font units.
+    ///
+    /// This is used internally for text layout calculations.
+    /// Returns `None` if the font has no space glyph or its width cannot be determined.
+    fn get_space_width_internal(&self) -> Option<usize> {
         if let Some(mock) = self.mock.as_ref() {
             return mock.space_width;
         }
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        
-        let advance_result = allsorts::glyph_info::advance(
+
+        allsorts::glyph_info::advance(
             &self.maxp_table,
             &self.hhea_table,
             &self.hmtx_data,
             glyph_index,
-        );
-        
-        advance_result.ok().map(|s| s as usize)
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
     /// Look up the glyph index for a Unicode codepoint
@@ -736,13 +789,15 @@ impl ParsedFont {
         self.lookup_glyph_index(codepoint).is_some()
     }
 
-    /// Get vertical metrics for a glyph (for vertical text layout)
-    /// Returns None because vertical layout tables (vhea, vmtx) are not parsed yet
+    /// Get vertical metrics for a glyph (for vertical text layout).
+    ///
+    /// Currently always returns `None` because vertical layout tables
+    /// (vhea, vmtx) are not parsed. Vertical text layout is not yet supported.
     pub fn get_vertical_metrics(
         &self,
         _glyph_id: u16,
     ) -> Option<crate::text3::cache::VerticalMetrics> {
-        // TODO: Parse vhea and vmtx tables to support vertical text layout
+        // Vertical text layout requires parsing vhea and vmtx tables
         None
     }
 
@@ -923,7 +978,8 @@ impl OwnedGlyph {
     }
 }
 
-fn translate_glyph_outline(glyph: &Glyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+/// Converts a glyph to its outline contours.
+fn translate_glyph_outline(glyph: &Glyph) -> Option<GlyphOutlineContours> {
     match glyph {
         Glyph::Empty(e) => translate_empty_glyph(e),
         Glyph::Simple(sg) => translate_simple_glyph(sg),
@@ -931,7 +987,8 @@ fn translate_glyph_outline(glyph: &Glyph) -> Option<Vec<Vec<GlyphOutlineOperatio
     }
 }
 
-fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+/// Translates an empty glyph (uses phantom points for bounds).
+fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<GlyphOutlineContours> {
     let f = glyph.phantom_points?;
     Some(vec![vec![
         GlyphOutlineOperation::MoveTo(OutlineMoveTo {
@@ -954,7 +1011,8 @@ fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<Vec<Vec<GlyphOutlineOpera
     ]])
 }
 
-fn translate_simple_glyph(glyph: &SimpleGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+/// Translates a simple glyph (TrueType outlines with quadratic curves).
+fn translate_simple_glyph(glyph: &SimpleGlyph) -> Option<GlyphOutlineContours> {
     let mut outlines = Vec::new();
 
     // Process each contour
@@ -1039,7 +1097,8 @@ fn translate_simple_glyph(glyph: &SimpleGlyph) -> Option<Vec<Vec<GlyphOutlineOpe
     Some(outlines)
 }
 
-fn translate_composite_glyph(glyph: &CompositeGlyph) -> Option<Vec<Vec<GlyphOutlineOperation>>> {
+/// Translates a composite glyph (placeholder, resolved in second pass).
+fn translate_composite_glyph(glyph: &CompositeGlyph) -> Option<GlyphOutlineContours> {
     // Composite glyphs will be resolved in a second pass
     // Return a placeholder based on bounding box for now
     let bbox = glyph.bounding_box;
@@ -1361,66 +1420,6 @@ fn transform_cubic_point(
             point.ctrl_2_y += offset_y;
             point.end_x += offset_x;
             point.end_y += offset_y;
-        }
-    }
-}
-
-pub mod mock {
-    use alloc::collections::btree_map::BTreeMap;
-
-    use azul_core::glyph::{Advance, GlyphInfo, GlyphOrigin, Placement, RawGlyph};
-
-    use crate::text3::cache::LayoutFontMetrics;
-
-    // NOTE: FontImpl removed with text2
-    // #[cfg(feature = "text_layout")]
-    // use super::FontImpl;
-
-    /// A mock font implementation for testing text layout functionality without requiring real
-    /// fonts
-    #[derive(Debug, Clone)]
-    pub struct MockFont {
-        pub font_metrics: LayoutFontMetrics,
-        pub space_width: Option<usize>,
-        pub glyph_advances: BTreeMap<u16, u16>,
-        pub glyph_sizes: BTreeMap<u16, (i32, i32)>,
-        pub glyph_indices: BTreeMap<u32, u16>,
-    }
-
-    impl MockFont {
-        /// Create a new MockFont with the given font metrics
-        pub fn new(font_metrics: LayoutFontMetrics) -> Self {
-            MockFont {
-                font_metrics,
-                space_width: Some(10), // Default space width
-                glyph_advances: BTreeMap::new(),
-                glyph_sizes: BTreeMap::new(),
-                glyph_indices: BTreeMap::new(),
-            }
-        }
-
-        /// Set the space width
-        pub fn with_space_width(mut self, width: usize) -> Self {
-            self.space_width = Some(width);
-            self
-        }
-
-        /// Add a glyph advance value
-        pub fn with_glyph_advance(mut self, glyph_index: u16, advance: u16) -> Self {
-            self.glyph_advances.insert(glyph_index, advance);
-            self
-        }
-
-        /// Add a glyph size
-        pub fn with_glyph_size(mut self, glyph_index: u16, size: (i32, i32)) -> Self {
-            self.glyph_sizes.insert(glyph_index, size);
-            self
-        }
-
-        /// Add a Unicode code point to glyph index mapping
-        pub fn with_glyph_index(mut self, unicode: u32, index: u16) -> Self {
-            self.glyph_indices.insert(unicode, index);
-            self
         }
     }
 }
