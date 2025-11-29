@@ -112,6 +112,13 @@ impl Default for LayoutWritingMode {
     }
 }
 
+impl LayoutWritingMode {
+    /// Returns true if the writing mode is vertical (VerticalRl or VerticalLr)
+    pub const fn is_vertical(self) -> bool {
+        matches!(self, Self::VerticalRl | Self::VerticalLr)
+    }
+}
+
 impl core::fmt::Debug for LayoutWritingMode {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
