@@ -19,12 +19,12 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 anyhow = "1.0"
 indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
-cargo_metadata = "0.23.1"
+cargo_metadata = "0.21"
 zip = "6.0.0"
 open = "5.3.2"
 tempfile = "3.19.1"
 comrak = { version = "0.48.0", features = ["syntect"] }
-azul-layout = { version = "0.0.5", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "font_loading", "cpurender"]}
+azul-layout = { version = "0.0.5", path = "../layout", default-features = false, features = ["std", "xml", "text_layout", "text_layout_hyphenation", "font_loading", "cpurender"]}
 azul-core = { version = "0.0.5", path = "../core", default-features = false, features = ["std"]}
 azul-css = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"]}
 chrono = "0.4.40"

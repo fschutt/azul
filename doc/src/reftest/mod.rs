@@ -14,7 +14,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::StyledDom,
     window::StringPairVec,
-    xml::{get_html_node, DomXml, XmlComponentMap, XmlNode},
+    xml::{get_html_node, DomXml, XmlComponentMap, XmlNode, XmlNodeChild},
 };
 use azul_css::{
     css::{Css, CssDeclaration},
@@ -445,7 +445,9 @@ fn generate_azul_rendering(
     // Format XML structure for debugging
     let mut xml_formatted = String::new();
     for node in xml {
-        xml_formatted.push_str(&EnhancedXmlParser::format_xml_for_display(&node, 0));
+        if let XmlNodeChild::Element(elem) = node {
+            xml_formatted.push_str(&EnhancedXmlParser::format_xml_for_display(&elem, 0));
+        }
     }
 
     // Extract and analyze CSS
@@ -699,7 +701,7 @@ impl EnhancedXmlParser {
     /// Parse an XHTML file and extract both the DOM and metadata
     pub fn parse_test_file(
         file_path: &Path,
-    ) -> Result<(DomXml, TestMetadata, Vec<XmlNode>), String> {
+    ) -> Result<(DomXml, TestMetadata, Vec<XmlNodeChild>), String> {
         // Read file content
         let xml_content = match fs::read_to_string(file_path) {
             Ok(content) => content,
@@ -722,15 +724,19 @@ impl EnhancedXmlParser {
     }
 
     /// Extract metadata from parsed XML nodes
-    pub fn extract_metadata(nodes: &[XmlNode]) -> TestMetadata {
+    pub fn extract_metadata(nodes: &[XmlNodeChild]) -> TestMetadata {
         let mut metadata = TestMetadata::default();
 
         // Find the <html> node
         if let Ok(html_node) = get_html_node(nodes) {
             // Look for <head> node
             for child in html_node.children.as_ref() {
-                if child.node_type.as_str().to_lowercase() == "head" {
-                    Self::extract_head_metadata(child, &mut metadata);
+                let elem = match child {
+                    XmlNodeChild::Element(e) => e,
+                    XmlNodeChild::Text(_) => continue,
+                };
+                if elem.node_type.as_str().to_lowercase() == "head" {
+                    Self::extract_head_metadata(elem, &mut metadata);
                 }
             }
         }
@@ -741,16 +747,25 @@ impl EnhancedXmlParser {
     /// Extract metadata from the <head> node
     fn extract_head_metadata(head_node: &XmlNode, metadata: &mut TestMetadata) {
         for child in head_node.children.as_ref() {
-            match child.node_type.as_str().to_lowercase().as_str() {
+            let elem = match child {
+                XmlNodeChild::Element(e) => e,
+                XmlNodeChild::Text(_) => continue, // Skip text nodes
+            };
+            
+            match elem.node_type.as_str().to_lowercase().as_str() {
                 "title" => {
-                    if let Some(text) = &child.text.into_option() {
-                        metadata.title = text.as_str().to_string();
+                    // Get text from children
+                    for title_child in elem.children.as_ref() {
+                        if let XmlNodeChild::Text(text) = title_child {
+                            metadata.title = text.as_str().to_string();
+                            break;
+                        }
                     }
                 }
                 "meta" => {
                     // Handle meta tags
-                    let name = Self::get_attribute_value(&child.attributes, "name");
-                    let content = Self::get_attribute_value(&child.attributes, "content");
+                    let name = Self::get_attribute_value(&elem.attributes, "name");
+                    let content = Self::get_attribute_value(&elem.attributes, "content");
 
                     if let (Some(name), Some(content)) = (name, content) {
                         match name.as_str() {
@@ -762,20 +777,20 @@ impl EnhancedXmlParser {
                 }
                 "link" => {
                     // Handle link tags
-                    let rel = Self::get_attribute_value(&child.attributes, "rel");
+                    let rel = Self::get_attribute_value(&elem.attributes, "rel");
 
                     if let Some(rel) = rel {
                         match rel.as_str() {
                             "help" => {
                                 if let Some(href) =
-                                    Self::get_attribute_value(&child.attributes, "href")
+                                    Self::get_attribute_value(&elem.attributes, "href")
                                 {
                                     metadata.help_link = href;
                                 }
                             }
                             "author" => {
                                 if let Some(title) =
-                                    Self::get_attribute_value(&child.attributes, "title")
+                                    Self::get_attribute_value(&elem.attributes, "title")
                                 {
                                     metadata.author = title;
                                 }
@@ -817,22 +832,25 @@ impl EnhancedXmlParser {
             }
         }
 
-        // Add text content
-        if let Some(text) = &node.text.into_option() {
-            if !text.as_str().trim().is_empty() {
-                output.push_str(&format!(
-                    "{}  Text: \"{}\"\n",
-                    indent_str,
-                    text.as_str().trim()
-                ));
-            }
-        }
-
-        // Add children
+        // Add children (can be text or element nodes)
         if !node.children.is_empty() {
             output.push_str(&format!("{}  Children:\n", indent_str));
             for child in node.children.as_ref() {
-                output.push_str(&Self::format_xml_for_display(child, indent + 4));
+                match child {
+                    XmlNodeChild::Text(text) => {
+                        let trimmed = text.as_str().trim();
+                        if !trimmed.is_empty() {
+                            output.push_str(&format!(
+                                "{}    Text: \"{}\"\n",
+                                indent_str,
+                                trimmed
+                            ));
+                        }
+                    }
+                    XmlNodeChild::Element(elem) => {
+                        output.push_str(&Self::format_xml_for_display(elem, indent + 4));
+                    }
+                }
             }
         }
 

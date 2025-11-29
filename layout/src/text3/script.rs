@@ -36,9 +36,64 @@ use hyphenation::Language as HyphenationLanguage;
 #[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation::Language;
 
+/// Stub Language enum for when hyphenation is not enabled.
+/// This mirrors the variants used in script detection functions.
 #[cfg(not(feature = "text_layout_hyphenation"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Language;
+#[allow(dead_code)]
+pub enum Language {
+    // Latin script languages
+    EnglishUS,
+    French,
+    German1996,
+    Spanish,
+    Portuguese,
+    Estonian,
+    Hungarian,
+    Polish,
+    Czech,
+    Slovak,
+    Latvian,
+    Lithuanian,
+    Romanian,
+    Turkish,
+    Croatian,
+    Icelandic,
+    Welsh,
+    NorwegianBokmal,
+    Swedish,
+    // Cyrillic script languages
+    Russian,
+    Ukrainian,
+    Belarusian,
+    Bulgarian,
+    Macedonian,
+    SerbianCyrillic,
+    Mongolian,
+    SlavonicChurch,
+    // Greek script languages
+    GreekMono,
+    GreekPoly,
+    Coptic,
+    // Indic script languages
+    Hindi,
+    Bengali,
+    Assamese,
+    Marathi,
+    Sanskrit,
+    Gujarati,
+    Panjabi,
+    Kannada,
+    Malayalam,
+    Oriya,
+    Tamil,
+    Telugu,
+    // Other scripts
+    Georgian,
+    Ethiopic,
+    Thai,
+    Chinese,
+}
 
 use rust_fontconfig::UnicodeRange;
 
