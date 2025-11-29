@@ -51,7 +51,8 @@ base64 = "0.22.1"
 
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading", "svg", "image_decoding", "cpurender", "a11y"]
+# Uses multithreaded font loading for faster startup on desktop
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y"]
 
 # Standard library support
 std = ["azul-core/std"]
@@ -74,6 +75,9 @@ pdf = ["text_layout"]
 
 # System font discovery (rust-fontconfig minimal, no parsing)
 font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/parsing"]
+
+# Multithreading for font cache building (faster on desktop, not available on WASM)
+font_loading_multithreaded = ["font_loading", "rust-fontconfig/multithreading"]
 
 # Font introspection (adds allsorts via rust-fontconfig/parsing)
 font_parsing = ["font_loading", "rust-fontconfig/parsing"]

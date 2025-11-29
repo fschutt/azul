@@ -52,7 +52,7 @@ pub fn matches_html_element(
     }
 
     let mut current_node = Some(node_id);
-    let mut direct_parent_has_to_match = false;
+    let mut next_match_requirement = Children; // Default: any ancestor can match
     let mut last_selector_matched = true;
 
     let mut iterator = CssGroupIterator::new(css_path.selectors.as_ref());
@@ -61,7 +61,7 @@ pub fn matches_html_element(
         let cur_node_id = match current_node {
             Some(c) => c,
             None => {
-                // The node has no parent, but the CSS path
+                // The node has no parent/sibling, but the CSS path
                 // still has an extra limitation - only valid if the
                 // next content group is a "*" element
                 return *content_group == [&CssPathSelector::Global];
@@ -76,23 +76,74 @@ pub fn matches_html_element(
             is_last_content_group,
         );
 
-        if direct_parent_has_to_match && !current_selector_matches {
-            // If the element was a ">" element and the current,
-            // direct parent does not match, return false
-            return false; // not executed (maybe this is the bug)
-        }
-
-        // If the current selector matches, but the previous one didn't,
-        // that means that the CSS path chain is broken and therefore doesn't match the element
-        if current_selector_matches && !last_selector_matched {
-            return false;
+        match next_match_requirement {
+            DirectChildren => {
+                // The element was a ">" element and the current direct parent must match
+                if !current_selector_matches {
+                    return false;
+                }
+            }
+            AdjacentSibling => {
+                // The element was a "+" element and the immediate previous sibling must match
+                if !current_selector_matches {
+                    return false;
+                }
+            }
+            GeneralSibling => {
+                // The element was a "~" element
+                // We need to search through all previous siblings until we find a match
+                if !current_selector_matches {
+                    // Try to find a matching previous sibling
+                    let mut found_match = false;
+                    let mut sibling = node_hierarchy[cur_node_id].previous_sibling_id();
+                    while let Some(sib_id) = sibling {
+                        if selector_group_matches(
+                            &content_group,
+                            &html_node_tree[sib_id],
+                            &node_data[sib_id],
+                            expected_path_ending,
+                            is_last_content_group,
+                        ) {
+                            found_match = true;
+                            current_node = Some(sib_id);
+                            break;
+                        }
+                        sibling = node_hierarchy[sib_id].previous_sibling_id();
+                    }
+                    if !found_match {
+                        return false;
+                    }
+                    // Update the reason for the next iteration based on what we found
+                    next_match_requirement = reason;
+                    continue;
+                }
+            }
+            Children => {
+                // Default descendant matching - if current doesn't match, that's okay
+                // as long as we find a match somewhere up the ancestor chain
+                if current_selector_matches && !last_selector_matched {
+                    // CSS path chain is broken
+                    return false;
+                }
+            }
         }
 
         // Important: Set if the current selector has matched the element
         last_selector_matched = current_selector_matches;
-        // Select if the next content group has to exactly match or if it can potentially be skipped
-        direct_parent_has_to_match = reason == DirectChildren;
-        current_node = node_hierarchy[cur_node_id].parent_id();
+        // Select how the next content group should be matched
+        next_match_requirement = reason;
+        
+        // Navigate to the next node based on the combinator type
+        match reason {
+            Children | DirectChildren => {
+                // Go to parent for descendant/child selectors
+                current_node = node_hierarchy[cur_node_id].parent_id();
+            }
+            AdjacentSibling | GeneralSibling => {
+                // Go to previous sibling for sibling selectors
+                current_node = node_hierarchy[cur_node_id].previous_sibling_id();
+            }
+        }
     }
 
     last_selector_matched
@@ -122,6 +173,10 @@ pub enum CssGroupSplitReason {
     Children,
     /// ".foo > .main" - match only direct children
     DirectChildren,
+    /// ".foo + .main" - match adjacent sibling (immediately preceding)
+    AdjacentSibling,
+    /// ".foo ~ .main" - match general sibling (any preceding sibling)
+    GeneralSibling,
 }
 
 impl<'a> CssGroupIterator<'a> {
@@ -160,6 +215,14 @@ impl<'a> Iterator for CssGroupIterator<'a> {
                 }
                 DirectChildren => {
                     self.last_reason = CssGroupSplitReason::DirectChildren;
+                    break;
+                }
+                AdjacentSibling => {
+                    self.last_reason = CssGroupSplitReason::AdjacentSibling;
+                    break;
+                }
+                GeneralSibling => {
+                    self.last_reason = CssGroupSplitReason::GeneralSibling;
                     break;
                 }
                 other => current_path.push(other),
@@ -357,8 +420,8 @@ pub fn selector_group_matches(
                     }
                 }
             }
-            DirectChildren | Children => {
-                // panic!("Unreachable: DirectChildren or Children in CSS path!");
+            DirectChildren | Children | AdjacentSibling | GeneralSibling => {
+                // panic!("Unreachable: combinator selectors in CSS path!");
                 return false;
             }
         }

@@ -656,6 +656,12 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
             Token::Combinator(Combinator::Space) => {
                 selectors.push(CssPathSelector::Children);
             }
+            Token::Combinator(Combinator::Plus) => {
+                selectors.push(CssPathSelector::AdjacentSibling);
+            }
+            Token::Combinator(Combinator::Tilde) => {
+                selectors.push(CssPathSelector::GeneralSibling);
+            }
             Token::PseudoClass { selector, value } => {
                 selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(
                     selector, value,
@@ -878,7 +884,44 @@ fn new_from_str_inner<'a>(
     let mut last_path = Vec::new();
     let mut last_error_location = ErrorLocation { original_pos: 0 };
 
+    // Safety: limit maximum iterations to prevent infinite loops
+    // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
+    let max_iterations = css_string.len().saturating_mul(10).max(1000);
+    let mut iterations = 0_usize;
+    let mut last_position = 0_usize;
+    let mut stuck_count = 0_usize;
+
     loop {
+        // Safety check 1: Maximum iterations
+        iterations += 1;
+        if iterations > max_iterations {
+            warnings.push(CssParseWarnMsg {
+                warning: CssParseWarnMsgInner::MalformedStructure {
+                    message: "Parser iteration limit exceeded - possible infinite loop"
+                },
+                location: (last_error_location, get_error_location(tokenizer)),
+            });
+            break;
+        }
+
+        // Safety check 2: Detect if parser is stuck (position not advancing)
+        let current_position = tokenizer.pos();
+        if current_position == last_position {
+            stuck_count += 1;
+            if stuck_count > 10 {
+                warnings.push(CssParseWarnMsg {
+                    warning: CssParseWarnMsgInner::MalformedStructure {
+                        message: "Parser stuck - position not advancing"
+                    },
+                    location: (last_error_location, get_error_location(tokenizer)),
+                });
+                break;
+            }
+        } else {
+            stuck_count = 0;
+            last_position = current_position;
+        }
+
         let token = match tokenizer.parse_next() {
             Ok(token) => token,
             Err(e) => {
@@ -887,15 +930,8 @@ fn new_from_str_inner<'a>(
                     warning: CssParseWarnMsgInner::ParseError(e.into()),
                     location: (last_error_location, error_location),
                 });
-
-                // Try to recover by skipping to the next token or block
-                if parser_in_block {
-                    // Continue searching for the end of this block
-                    continue;
-                } else {
-                    // Skip this token and continue
-                    continue;
-                }
+                // On error, break to avoid infinite loop - the tokenizer may be stuck
+                break;
             }
         };
 
@@ -1020,6 +1056,22 @@ fn new_from_str_inner<'a>(
                     });
                 }
                 last_path.push(CssPathSelector::Children);
+            }
+            Token::Combinator(Combinator::Plus) => {
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
+                last_path.push(CssPathSelector::AdjacentSibling);
+            }
+            Token::Combinator(Combinator::Tilde) => {
+                if parser_in_block {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Selector inside block"
+                    });
+                }
+                last_path.push(CssPathSelector::GeneralSibling);
             }
             Token::PseudoClass { selector, value } => {
                 if parser_in_block {

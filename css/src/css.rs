@@ -914,10 +914,14 @@ pub enum CssPathSelector {
     Id(AzString),
     /// `:something`
     PseudoSelector(CssPathPseudoSelector),
-    /// Represents the `>` selector
+    /// Represents the `>` selector (direct child)
     DirectChildren,
-    /// Represents the ` ` selector
+    /// Represents the ` ` selector (descendant)
     Children,
+    /// Represents the `+` selector (adjacent sibling)
+    AdjacentSibling,
+    /// Represents the `~` selector (general sibling)
+    GeneralSibling,
 }
 
 impl Default for CssPathSelector {
@@ -937,6 +941,8 @@ impl fmt::Display for CssPathSelector {
             PseudoSelector(p) => write!(f, ":{}", p),
             DirectChildren => write!(f, ">"),
             Children => write!(f, " "),
+            AdjacentSibling => write!(f, "+"),
+            GeneralSibling => write!(f, "~"),
         }
     }
 }
@@ -1332,6 +1338,8 @@ pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
         ),
         CssPathSelector::DirectChildren => format!("CssPathSelector::DirectChildren"),
         CssPathSelector::Children => format!("CssPathSelector::Children"),
+        CssPathSelector::AdjacentSibling => format!("CssPathSelector::AdjacentSibling"),
+        CssPathSelector::GeneralSibling => format!("CssPathSelector::GeneralSibling"),
     }
 }
 

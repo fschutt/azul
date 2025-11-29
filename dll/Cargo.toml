@@ -97,7 +97,7 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 ] }
 
 [features]
-default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y"]
+default = ["std", "desktop", "logging", "css_parser", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future
@@ -123,6 +123,7 @@ pnm = ["azul-layout", "azul-layout/pnm"]
 svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
+font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 gnome-menus = []
 cdylib = []
