@@ -26,8 +26,7 @@ use azul_css::props::basic::FontMetrics as CssFontMetrics;
 use crate::text3::cache::LayoutFontMetrics;
 
 // Mock font module for testing
-pub mod mock;
-pub use mock::MockFont;
+pub use crate::font::mock::MockFont;
 
 /// Cached GSUB table for glyph substitution operations.
 pub type GsubCache = Arc<LayoutCacheData<GSUB>>;

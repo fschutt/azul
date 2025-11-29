@@ -5,3 +5,4 @@ use rust_fontconfig::{FcFontCache, FontSource};
 
 pub mod loading;
 pub mod parsed;
+pub mod mock;
