@@ -12,7 +12,8 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect},
     id::NodeId,
     styled_dom::NodeHierarchyItemId,
-    task::Instant,
+    task::{Instant, SystemTick},
+    window::{CursorPosition, WindowPosition},
 };
 
 use crate::window_state::FullWindowState;
@@ -119,13 +120,12 @@ fn detect_window_state_events(
 
     // Window moved
     if current.position != previous.position {
-        use azul_core::window::WindowPosition as WinPos;
         let position = match current.position {
-            WinPos::Initialized(phys_pos) => Some(LogicalPosition {
+            WindowPosition::Initialized(phys_pos) => Some(LogicalPosition {
                 x: phys_pos.x as f32,
                 y: phys_pos.y as f32,
             }),
-            WinPos::Uninitialized => None,
+            WindowPosition::Uninitialized => None,
         };
 
         if let Some(pos) = position {
@@ -160,7 +160,6 @@ fn detect_window_state_events(
     }
 
     // Mouse entered window
-    use azul_core::window::CursorPosition;
     let prev_mouse_in_window = matches!(
         previous.mouse_state.cursor_position,
         CursorPosition::InWindow(_)
@@ -202,8 +201,6 @@ fn detect_window_state_events(
 
 #[cfg(test)]
 mod tests {
-    use azul_core::task::SystemTick;
-
     use super::*;
 
     #[test]
@@ -307,8 +304,6 @@ pub fn determine_all_events(
     managers: &[&dyn EventProvider],
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
-    use azul_core::window::CursorPosition;
-
     let mut events = Vec::new();
 
     // Get root node for window-level events
@@ -482,8 +477,7 @@ pub fn determine_all_events(
 
     // Window moved
     if current_state.position != previous_state.position {
-        use azul_core::window::WindowPosition as WinPos;
-        if let WinPos::Initialized(phys_pos) = current_state.position {
+        if let WindowPosition::Initialized(phys_pos) = current_state.position {
             events.push(SyntheticEvent::new(
                 EventType::WindowMove,
                 EventSource::User,

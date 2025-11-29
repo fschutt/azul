@@ -16,22 +16,24 @@ use std::{
 
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{FocusTarget, IFrameCallbackReason, Update},
-    dom::{Dom, DomId, DomNodeId, NodeId, NodeType},
-    events::EasingFunction,
+    callbacks::{FocusTarget, HidpiAdjustedBounds, IFrameCallbackReason, Update},
+    dom::{AccessibilityAction, AttributeType, Dom, DomId, DomNodeId, NodeId, NodeType, On},
+    events::{EasingFunction, EventFilter, FocusEventFilter, HoverEventFilter},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
-    gpu::GpuValueCache,
+    gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::RefAny,
     resources::{
         Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
-        RendererResources,
+        OpacityKey, RendererResources,
     },
-    selection::SelectionState,
+    selection::{
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
+    },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{Duration, Instant, SystemTimeDiff, ThreadId, ThreadSendMsg, TimerId},
-    window::{RawWindowHandle, RendererType},
+    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadSendMsg, TimerId},
+    window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
@@ -633,7 +635,6 @@ impl LayoutWindow {
         layout_tree: &LayoutTree,
         calculated_positions: &BTreeMap<usize, LogicalPosition>,
     ) -> Vec<(NodeId, LogicalRect)> {
-        use azul_core::dom::NodeType;
         layout_tree
             .nodes
             .iter()
@@ -1312,7 +1313,6 @@ impl LayoutWindow {
                     text,
                 } => {
                     // Record text input for the node
-                    use azul_core::styled_dom::NodeHierarchyItemId;
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                     let dom_node_id = DomNodeId {
                         dom: dom_id,
@@ -1339,7 +1339,6 @@ impl LayoutWindow {
                         let content = self.get_text_before_textinput(dom_id, node_id);
 
                         // Apply delete backward using text3::edit
-                        use azul_core::selection::Selection;
 
                         use crate::text3::edit::{delete_backward, TextEdit};
                         let mut new_content = content.clone();
@@ -1354,7 +1353,6 @@ impl LayoutWindow {
                         self.update_text_cache_after_edit(dom_id, node_id, updated_content);
 
                         // Mark node as dirty
-                        use azul_core::styled_dom::NodeHierarchyItemId;
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                         let dom_node_id = DomNodeId {
                             dom: dom_id,
@@ -1370,7 +1368,6 @@ impl LayoutWindow {
                         let content = self.get_text_before_textinput(dom_id, node_id);
 
                         // Apply delete forward using text3::edit
-                        use azul_core::selection::Selection;
 
                         use crate::text3::edit::{delete_forward, TextEdit};
                         let mut new_content = content.clone();
@@ -1399,7 +1396,6 @@ impl LayoutWindow {
                     selection,
                 } => {
                     // Update selection in SelectionManager
-                    use azul_core::styled_dom::NodeHierarchyItemId;
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                     let dom_node_id = DomNodeId {
                         dom: dom_id,
@@ -1635,8 +1631,6 @@ impl LayoutWindow {
         new_cursor: azul_core::selection::TextCursor,
         extend_selection: bool,
     ) {
-        use azul_core::styled_dom::NodeHierarchyItemId;
-
         if extend_selection {
             // Get the current cursor as the selection anchor
             if let Some(old_cursor) = self.cursor_manager.get_cursor() {
@@ -1795,8 +1789,6 @@ impl LayoutWindow {
         fade_delay: azul_core::task::Duration,
         fade_duration: azul_core::task::Duration,
     ) -> Vec<azul_core::gpu::GpuScrollbarOpacityEvent> {
-        use azul_core::{gpu::GpuScrollbarOpacityEvent, resources::OpacityKey};
-
         let mut events = Vec::new();
         let gpu_cache = gpu_state_manager.caches.entry(dom_id).or_default();
 
@@ -2001,8 +1993,6 @@ impl LayoutWindow {
         &self,
         node_id: azul_core::dom::DomNodeId,
     ) -> Option<azul_core::geom::LogicalRect> {
-        use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
 
@@ -2055,8 +2045,6 @@ impl LayoutWindow {
     /// For IME positioning (viewport-relative coordinates), use
     /// `get_focused_cursor_rect_viewport()`.
     pub fn get_focused_cursor_rect(&self) -> Option<azul_core::geom::LogicalRect> {
-        use azul_core::geom::{LogicalPosition, LogicalRect};
-
         // Get the focused node
         let focused_node = self.focus_manager.focused_node?;
 
@@ -2112,8 +2100,6 @@ impl LayoutWindow {
     ///
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
     pub fn get_focused_cursor_rect_viewport(&self) -> Option<azul_core::geom::LogicalRect> {
-        use azul_core::geom::{LogicalPosition, LogicalRect};
-
         // Start with absolute position
         let mut cursor_rect = self.get_focused_cursor_rect()?;
 
@@ -2584,8 +2570,6 @@ impl LayoutWindow {
     ) -> CallCallbacksResult {
         use std::collections::BTreeMap;
 
-        use azul_core::{callbacks::Update, task::TerminateTimer, FastBTreeSet, FastHashMap};
-
         use crate::callbacks::{CallCallbacksResult, CallbackInfo};
 
         let mut ret = CallCallbacksResult {
@@ -2756,8 +2740,6 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
         use std::collections::BTreeSet;
-
-        use azul_core::{callbacks::Update, refany::RefAny};
 
         use crate::{
             callbacks::{CallCallbacksResult, CallbackInfo},
@@ -3013,8 +2995,6 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use azul_core::{callbacks::Update, refany::RefAny};
-
         use crate::callbacks::{CallCallbacksResult, Callback, CallbackInfo};
 
         let hit_dom_node = DomNodeId {
@@ -3184,8 +3164,6 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use azul_core::callbacks::Update;
-
         use crate::callbacks::{CallCallbacksResult, CallbackInfo, MenuCallback};
 
         let mut ret = CallCallbacksResult {
@@ -3339,12 +3317,6 @@ impl LayoutWindow {
 
 #[cfg(test)]
 mod tests {
-    use azul_core::{
-        dom::DomId,
-        gpu::GpuValueCache,
-        task::{Instant, ThreadId, TimerId},
-    };
-
     use super::*;
     use crate::{thread::Thread, timer::Timer};
 
@@ -3497,8 +3469,6 @@ mod tests {
 
     #[test]
     fn test_scroll_manager_tick_updates_activity() {
-        use azul_core::task::{Duration, Instant, SystemTimeDiff};
-
         let fc_cache = FcFontCache::default();
         let mut window = LayoutWindow::new(fc_cache).unwrap();
 
@@ -3530,8 +3500,6 @@ mod tests {
 
     #[test]
     fn test_scroll_manager_programmatic_scroll() {
-        use azul_core::task::{Duration, Instant, SystemTimeDiff};
-
         let fc_cache = FcFontCache::default();
         let mut window = LayoutWindow::new(fc_cache).unwrap();
 
@@ -3733,8 +3701,6 @@ impl LayoutWindow {
 
     /// Checks if a node has text content.
     fn node_has_text_content(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
-        use azul_core::dom::NodeType;
-
         // Check if node itself is a text node
         let node_data_container = styled_dom.node_data.as_container();
         let node_type = node_data_container[node_id].get_node_type();
@@ -3803,13 +3769,6 @@ impl LayoutWindow {
         action: azul_core::dom::AccessibilityAction,
         now: std::time::Instant,
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
-        use azul_core::{
-            dom::{AccessibilityAction, AttributeType, DomNodeId, NodeType},
-            events::EventFilter,
-            geom::LogicalPosition,
-            styled_dom::NodeHierarchyItemId,
-        };
-
         use crate::managers::text_input::TextInputSource;
 
         let mut affected_nodes = BTreeMap::new();
@@ -3977,8 +3936,6 @@ impl LayoutWindow {
             // callback system
             AccessibilityAction::Default => {
                 // Default action → synthetic Click event
-                use azul_core::events::HoverEventFilter;
-
                 let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
@@ -4103,7 +4060,6 @@ impl LayoutWindow {
                     );
 
                     // Add TextInput event to affected nodes
-                    use azul_core::events::FocusEventFilter;
                     affected_nodes.insert(
                         dom_node_id,
                         (vec![EventFilter::Focus(FocusEventFilter::TextInput)], false),
@@ -4113,8 +4069,6 @@ impl LayoutWindow {
 
             AccessibilityAction::Collapse | AccessibilityAction::Expand => {
                 // Map to corresponding On:: events
-                use azul_core::dom::On;
-
                 let event_type = match action {
                     AccessibilityAction::Collapse => On::Collapse,
                     AccessibilityAction::Expand => On::Expand,
@@ -4147,7 +4101,6 @@ impl LayoutWindow {
                             affected_nodes.insert(dom_node_id, (vec![event_type.into()], false));
                         } else {
                             // No specific callback - fallback to regular Click
-                            use azul_core::events::HoverEventFilter;
                             affected_nodes.insert(
                                 dom_node_id,
                                 (vec![EventFilter::Hover(HoverEventFilter::MouseUp)], false),
@@ -4234,11 +4187,6 @@ impl LayoutWindow {
                         self.byte_offset_to_cursor(inline_layout.as_ref(), selection.end as u32);
 
                     if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
-                        use azul_core::{
-                            selection::{Selection, SelectionRange, SelectionState},
-                            styled_dom::NodeHierarchyItemId,
-                        };
-
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
                         let dom_node_id = DomNodeId {
                             dom: dom_id,
@@ -4317,8 +4265,6 @@ impl LayoutWindow {
         text_input: &str,
     ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
         use std::collections::BTreeMap;
-
-        use azul_core::events::{EventFilter, FocusEventFilter};
 
         use crate::managers::text_input::TextInputSource;
 
@@ -4425,8 +4371,7 @@ impl LayoutWindow {
             vec![azul_core::selection::Selection::Cursor(cursor.clone())]
         } else {
             // No cursor - create one at start of text
-            use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-            vec![azul_core::selection::Selection::Cursor(TextCursor {
+            vec![Selection::Cursor(TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: 0,
@@ -4476,7 +4421,6 @@ impl LayoutWindow {
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
 
         // Record this operation to the undo/redo manager AFTER successful mutation
-        use azul_core::window::CursorPosition;
 
         use crate::managers::changeset::{TextChangeset, TextOperation};
 
@@ -4538,8 +4482,6 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
     ) -> Vec<azul_core::dom::DomNodeId> {
-        use azul_core::styled_dom::NodeHierarchyItemId;
-
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
             None => return Vec::new(),
@@ -4603,8 +4545,6 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
     ) -> Vec<crate::text3::cache::InlineContent> {
-        use azul_core::dom::NodeType;
-
         use crate::text3::cache::{InlineContent, StyledRun};
 
         // Get the layout result for this DOM
@@ -4823,8 +4763,6 @@ impl LayoutWindow {
         node_id: NodeId,
         now: std::time::Instant,
     ) {
-        use azul_core::geom::LogicalPosition;
-
         // TODO: This should:
         // 1. Check if node is currently visible in viewport
         // 2. Find the nearest scrollable ancestor
@@ -4938,7 +4876,6 @@ impl LayoutWindow {
         }
 
         // Animate scroll to bring cursor into view
-        use azul_core::geom::LogicalPosition;
         self.scroll_manager.scroll_to(
             dom_id,
             node_id,
@@ -4971,8 +4908,6 @@ impl LayoutWindow {
         text_layout: &crate::text3::cache::UnifiedLayout,
         byte_offset: u32,
     ) -> Option<azul_core::selection::TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-
         // Handle offset 0 as special case (start of text)
         if byte_offset == 0 {
             // Find first cluster in items
@@ -5069,11 +5004,6 @@ impl LayoutWindow {
     ///
     /// This should be called whenever the cursor changes.
     pub fn sync_cursor_to_selection_manager(&mut self) {
-        use azul_core::{
-            selection::{Selection, SelectionState},
-            styled_dom::NodeHierarchyItemId,
-        };
-
         if let Some(cursor) = self.cursor_manager.get_cursor() {
             if let Some(location) = self.cursor_manager.get_cursor_location() {
                 // Convert cursor to Selection
@@ -5126,8 +5056,6 @@ impl LayoutWindow {
         node_id: NodeId,
         edit_type: TextEditType,
     ) -> Vec<azul_core::dom::DomNodeId> {
-        use azul_core::styled_dom::NodeHierarchyItemId;
-
         use crate::managers::text_input::TextInputSource;
 
         // Convert TextEditType to string
@@ -5198,8 +5126,6 @@ impl LayoutWindow {
         position: azul_core::geom::LogicalPosition,
         time_ms: u64,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
-        use azul_core::selection::{Selection, SelectionRange};
-
         use crate::{
             managers::hover::InputPointId,
             text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
@@ -5322,8 +5248,6 @@ impl LayoutWindow {
         target: azul_core::dom::DomNodeId,
         forward: bool,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
-        use azul_core::selection::SelectionRange;
-
         let dom_id = target.dom;
 
         // Get current selection ranges
@@ -5501,8 +5425,6 @@ impl LayoutWindow {
         image_callbacks_changed: &BTreeMap<DomId, FastBTreeSet<NodeId>>,
         gl_context: &OptionGlContextPtr,
     ) -> Vec<(DomId, NodeId, azul_core::gl::Texture)> {
-        use azul_core::{callbacks::HidpiAdjustedBounds, dom::NodeType};
-
         use crate::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
 
         let mut updated_textures = Vec::new();
@@ -5735,8 +5657,6 @@ impl LayoutWindow {
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<LogicalRect> {
-        use azul_core::dom::NodeType;
-
         let layout_result = layout_results.get(&dom_id)?;
 
         // Check if this is an IFrame node
