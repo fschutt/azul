@@ -7,118 +7,23 @@
 //!
 //! The manager translates between Azul's internal DOM representation and
 //! the platform-agnostic `accesskit` tree format.
-//!
-//! # Accessibility Action Flow Architecture
-//!
-//! This document explains how accessibility actions from assistive technologies
-//! flow through the various managers in the Azul layout system.
-//!
-//! ## Overview
-//!
-//! ```text
-//! Assistive Technology (accesskit)
-//!           ↓
-//! Platform Adapter (macos/windows/linux)
-//!           ↓
-//! LayoutWindow::process_accessibility_action()
-//!           ↓
-//!     ┌─────┴─────┬─────────┬──────────┬────────────┐
-//!     ↓           ↓         ↓          ↓            ↓
-//! FocusManager ScrollMgr SelectionMgr CursorMgr  Event System
-//!                                                (Callbacks)
-//! ```
-//!
-//! ## Manager Responsibilities
-//!
-//! ### FocusManager
-//! - Tracks currently focused DOM node
-//! - Handles tab navigation
-//! - Clears text selections when focus changes
-//! - Triggers FocusIn/FocusOut synthetic events
-//!
-//! ### ScrollManager
-//! - Tracks scroll positions for all scrollable nodes
-//! - Animates smooth scrolling (200-300ms, EaseOut)
-//! - Handles ScrollUp/Down/Left/Right/Forward/Backward/IntoView
-//!
-//! ### SelectionManager
-//! - Tracks text selection ranges across all DOMs
-//! - Cleared automatically when focus changes
-//! - Used for text editing operations
-//!
-//! ### CursorManager (TODO)
-//! - Tracks text cursor position in focused contenteditable node
-//! - Set to None when focus is on non-editable node
-//! - Set to end of text when focus moves to editable node
-//!
-//! ### Event System (Callbacks)
-//! - Default/Increment/Decrement/Collapse/Expand → Synthetic `HoverEvent::Click`
-//! - Uses `EventSource::Synthetic` (doesn't update mouse state)
-//! - Falls back to regular click if no specific callback registered
-//!
-//! ## Text Editing Flow
-//!
-//! ```text
-//! 1. Check contenteditable="true" attribute
-//! 2. Find NodeType::Text in node or immediate children
-//! 3. Look up layouted text in LayoutWindow.text_cache
-//! 4. Get current cursor/selection from managers
-//! 5. Apply edit using text3::edit::edit_text()
-//! 6. Update DOM with new text
-//! 7. Trigger re-layout
-//! 8. Update cursor position
-//! ```
-//!
-//! ## Focus Change and Cursor Reset
-//!
-//! When focus changes:
-//! ```rust
-//! focus_manager.set_focused_node(new_node);
-//! selection_manager.clear_all(); // Automatic
-//!
-//! if node.has_contenteditable() {
-//!     let text_length = get_text_length(node);
-//!     cursor_manager.set(TextCursor::at_end(text_length));
-//! } else {
-//!     cursor_manager.clear(); // No cursor for non-editable nodes
-//! }
-//! ```
-//!
-//! ## TODO List
-//!
-//! See GitHub issues for remaining accessibility work items.
-//! Search for label:accessibility in the issue tracker.
-//!
-//! ## Implementation Status Notes
-//!
-//! - **CursorManager**: Already implemented as `FocusManager.text_cursor` field!
-//! - **Text Editing**: Works through `text3::edit` + `managers::text_input` system
-//! - **Focus/Selection/Scroll**: All managers fully implemented and working
-//! - **Tree Generation**: Basic implementation done, needs property setting refinement
-//!
-//! ## Testing Strategy
-//!
-//! Test manager interactions with fake inputs on fake LayoutWindow:
-//! - Focus → Cursor: contenteditable initializes cursor
-//! - Focus → Selection: focus change clears selections
-//! - Edit → Cursor: text edit updates cursor position
-//! - Scroll → Focus: ScrollIntoView works with focused node
-//! - Synthetic Events: Default action triggers callback
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
+#[cfg(feature = "a11y")]
+use std::collections::HashMap;
 use azul_core::{
-    dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId},
+    dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId, NodeType},
     styled_dom::NodeHierarchyItemId,
 };
 
-#[cfg(feature = "accessibility")]
 /// Manager for accessibility tree state and updates.
 ///
 /// The `A11yManager` sits within `LayoutWindow` and is responsible for:
 /// 1. Maintaining the current accessibility tree state
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
+#[cfg(feature = "a11y")]
 pub struct A11yManager {
     /// The root node ID of the accessibility tree (represents the window).
     pub root_id: A11yNodeId,
@@ -128,7 +33,7 @@ pub struct A11yManager {
     pub last_tree_update: Option<TreeUpdate>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     pub fn new() -> Self {
@@ -153,10 +58,6 @@ impl A11yManager {
         window_title: &azul_css::AzString,
         window_size: azul_core::geom::LogicalSize,
     ) -> TreeUpdate {
-        use std::collections::HashMap;
-
-        use accesskit::{Node, Rect};
-
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
 
@@ -197,24 +98,24 @@ impl A11yManager {
                 let should_create_node = a11y_info.is_some()
                     || matches!(
                         node_type,
-                        azul_core::dom::NodeType::Button
-                            | azul_core::dom::NodeType::Input
-                            | azul_core::dom::NodeType::TextArea
-                            | azul_core::dom::NodeType::Select
-                            | azul_core::dom::NodeType::A
-                            | azul_core::dom::NodeType::H1
-                            | azul_core::dom::NodeType::H2
-                            | azul_core::dom::NodeType::H3
-                            | azul_core::dom::NodeType::H4
-                            | azul_core::dom::NodeType::H5
-                            | azul_core::dom::NodeType::H6
-                            | azul_core::dom::NodeType::Article
-                            | azul_core::dom::NodeType::Section
-                            | azul_core::dom::NodeType::Nav
-                            | azul_core::dom::NodeType::Main
-                            | azul_core::dom::NodeType::Header
-                            | azul_core::dom::NodeType::Footer
-                            | azul_core::dom::NodeType::Aside
+                        NodeType::Button
+                            | NodeType::Input
+                            | NodeType::TextArea
+                            | NodeType::Select
+                            | NodeType::A
+                            | NodeType::H1
+                            | NodeType::H2
+                            | NodeType::H3
+                            | NodeType::H4
+                            | NodeType::H5
+                            | NodeType::H6
+                            | NodeType::Article
+                            | NodeType::Section
+                            | NodeType::Nav
+                            | NodeType::Main
+                            | NodeType::Header
+                            | NodeType::Footer
+                            | NodeType::Aside
                     );
 
                 if !should_create_node {
@@ -232,7 +133,7 @@ impl A11yManager {
             }
         }
 
-        // SECOND PASS: Build parent-child relationships
+        // Second pass: Build parent-child relationships
         for (dom_id, layout_result) in layout_results {
             let styled_dom = &layout_result.styled_dom;
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
@@ -280,7 +181,7 @@ impl A11yManager {
             }
         }
 
-        // THIRD PASS: Set children on all nodes
+        // Third pass: Set children on all nodes
         for (node_id, node) in nodes.iter_mut() {
             if let Some(children) = parent_children_map.get(node_id) {
                 node.set_children(children.clone());
@@ -313,34 +214,11 @@ impl A11yManager {
         layout_node: &crate::solver3::layout_tree::LayoutNode,
         a11y_info: Option<&azul_core::dom::AccessibilityInfo>,
     ) -> Node {
-        use azul_core::dom::NodeType;
-
         // Set role based on NodeType or AccessibilityInfo
         let role = if let Some(info) = a11y_info {
             Self::map_role(&info.role)
         } else {
-            // Infer role from NodeType
-            match &node_data.node_type {
-                NodeType::Button => Role::Button,
-                NodeType::Input => Role::TextInput,
-                NodeType::TextArea => Role::MultilineTextInput,
-                NodeType::Select => Role::ComboBox,
-                NodeType::A => Role::Link,
-                NodeType::H1
-                | NodeType::H2
-                | NodeType::H3
-                | NodeType::H4
-                | NodeType::H5
-                | NodeType::H6 => Role::Heading,
-                NodeType::Article => Role::Article,
-                NodeType::Section => Role::Section,
-                NodeType::Nav => Role::Navigation,
-                NodeType::Main => Role::Main,
-                NodeType::Header => Role::Header,
-                NodeType::Footer => Role::Footer,
-                NodeType::Aside => Role::Complementary,
-                _ => Role::GenericContainer,
-            }
+            Self::node_type_to_role(&node_data.node_type)
         };
 
         let mut builder = Node::new(role);
@@ -402,6 +280,34 @@ impl A11yManager {
         builder
     }
 
+    /// Maps an HTML `NodeType` to an accesskit `Role`.
+    ///
+    /// Used when no explicit accessibility info is provided to infer
+    /// the appropriate role from semantic HTML elements.
+    const fn node_type_to_role(node_type: &NodeType) -> Role {
+        match node_type {
+            NodeType::Button => Role::Button,
+            NodeType::Input => Role::TextInput,
+            NodeType::TextArea => Role::MultilineTextInput,
+            NodeType::Select => Role::ComboBox,
+            NodeType::A => Role::Link,
+            NodeType::H1
+            | NodeType::H2
+            | NodeType::H3
+            | NodeType::H4
+            | NodeType::H5
+            | NodeType::H6 => Role::Heading,
+            NodeType::Article => Role::Article,
+            NodeType::Section => Role::Section,
+            NodeType::Nav => Role::Navigation,
+            NodeType::Main => Role::Main,
+            NodeType::Header => Role::Header,
+            NodeType::Footer => Role::Footer,
+            NodeType::Aside => Role::Complementary,
+            _ => Role::GenericContainer,
+        }
+    }
+
     /// Maps Azul's AccessibilityRole to accesskit's Role.
     fn map_role(role: &AccessibilityRole) -> Role {
         match role {
@@ -425,8 +331,7 @@ impl A11yManager {
             AccessibilityRole::Dialog => Role::Dialog,
             AccessibilityRole::Border => Role::GenericContainer,
             AccessibilityRole::Grouping => Role::Group,
-            AccessibilityRole::Separator => Role::GenericContainer, /* No Separator in accesskit */
-            // 0.17
+            AccessibilityRole::Separator => Role::GenericContainer,
             AccessibilityRole::Toolbar => Role::Toolbar,
             AccessibilityRole::StatusBar => Role::Status,
             AccessibilityRole::Table => Role::Table,
@@ -459,8 +364,7 @@ impl A11yManager {
             AccessibilityRole::Slider => Role::Slider,
             AccessibilityRole::SpinButton => Role::SpinButton,
             AccessibilityRole::Diagram => Role::Figure,
-            AccessibilityRole::Animation => Role::GenericContainer, /* No Animation in accesskit */
-            // 0.17
+            AccessibilityRole::Animation => Role::GenericContainer,
             AccessibilityRole::Equation => Role::Math,
             AccessibilityRole::ButtonDropdown => Role::Button,
             AccessibilityRole::ButtonMenu => Role::Button, // No MenuButton in accesskit 0.17
@@ -483,12 +387,15 @@ impl A11yManager {
         &self,
         request: ActionRequest,
     ) -> Option<(DomNodeId, AccessibilityAction)> {
-        // Decode the A11yNodeId back into DomId + NodeId
-        // NodeId format: ((dom_id as u64) << 32) | node_id as u64
+        // Decode the A11yNodeId back into DomId + NodeId.
+        // The A11yNodeId encodes both values in a single u64:
+        //   - Upper 32 bits: DomId (which DOM tree the node belongs to)
+        //   - Lower 32 bits: NodeId (index within that DOM tree)
+        // This encoding matches the format used in update_tree().
         let dom_id = DomId {
             inner: (request.target.0 >> 32) as usize,
         };
-        let node_id = NodeId::new((request.target.0 & 0xFFFFFFFF) as usize);
+        let node_id = NodeId::new((request.target.0 & 0xFFFF_FFFF) as usize);
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         let dom_node_id = DomNodeId {
             dom: dom_id,
@@ -576,14 +483,15 @@ impl A11yManager {
     }
 }
 
-#[cfg(not(feature = "accessibility"))]
 /// Stub implementation when accessibility feature is disabled.
+#[cfg(not(feature = "a11y"))]
 pub struct A11yManager {
     _private: (),
 }
 
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 impl A11yManager {
+    /// Creates a new stub `A11yManager` (no-op when accessibility is disabled).
     pub fn new() -> Self {
         Self { _private: () }
     }

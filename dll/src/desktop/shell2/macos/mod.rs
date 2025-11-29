@@ -1257,7 +1257,7 @@ pub struct MacOSWindow {
 
     // Accessibility support
     /// Accessibility adapter for NSAccessibility integration (macOS screen readers)
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     accessibility_adapter: Option<accessibility::MacOSAccessibilityAdapter>,
 
     // Multi-window support
@@ -2234,7 +2234,7 @@ impl MacOSWindow {
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
-            #[cfg(feature = "accessibility")]
+            #[cfg(feature = "a11y")]
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
             tooltip: None,         // Created lazily when first needed
@@ -2266,7 +2266,7 @@ impl MacOSWindow {
         }
 
         // Initialize accessibility adapter after first layout
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         {
             eprintln!("[Window Init] Initializing accessibility support");
             window.init_accessibility();
@@ -2324,7 +2324,7 @@ impl MacOSWindow {
         self.frame_needs_regeneration = true;
 
         // Update accessibility tree after layout
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         self.update_accessibility();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
@@ -4159,7 +4159,7 @@ impl MacOSWindow {
     ///
     /// This should be called once after the first layout pass to set up
     /// the accesskit adapter with the initial accessibility tree.
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     fn init_accessibility(&mut self) {
         if self.accessibility_adapter.is_some() {
             return; // Already initialized
@@ -4197,7 +4197,7 @@ impl MacOSWindow {
     ///
     /// This should be called after regenerate_layout() to keep the
     /// accessibility tree synchronized with the visual representation.
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     fn update_accessibility(&mut self) {
         let adapter = match self.accessibility_adapter.as_mut() {
             Some(a) => a,
@@ -4225,7 +4225,7 @@ impl MacOSWindow {
     ///
     /// This should be called in the event loop to check if screen readers
     /// have requested any actions (focus, click, scroll, etc.)
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub fn poll_accessibility_actions(
         &mut self,
     ) -> Vec<(

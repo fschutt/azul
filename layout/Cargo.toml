@@ -51,7 +51,7 @@ base64 = "0.22.1"
 
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading", "svg", "image_decoding", "cpurender", "accessibility"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading", "svg", "image_decoding", "cpurender", "a11y"]
 
 # Standard library support
 std = ["azul-core/std"]
@@ -112,4 +112,4 @@ svg = [
 cpurender = ["dep:tiny-skia", "dep:allsorts", "dep:gl-context-loader"]
 
 # Accessibility support (accesskit)
-accessibility = ["dep:accesskit"]
+a11y = ["dep:accesskit"]

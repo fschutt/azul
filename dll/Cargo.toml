@@ -97,7 +97,7 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 ] }
 
 [features]
-default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static", "accessibility"]
+default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future
@@ -108,7 +108,7 @@ use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
-accessibility = ["accesskit", "azul-layout/accessibility", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
+a11y = ["accesskit", "azul-layout/a11y", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
 desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "x11-clipboard", "clipboard-win", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]

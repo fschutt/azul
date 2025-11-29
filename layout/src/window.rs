@@ -467,7 +467,7 @@ impl LayoutWindow {
         );
 
         // After successful layout, update the accessibility tree
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         if result.is_ok() {
             let tree_update = crate::managers::a11y::A11yManager::update_tree(
                 self.a11y_manager.root_id,
@@ -3793,7 +3793,7 @@ impl LayoutWindow {
     ///   re-layout)
     ///
     /// Empty map = action was not applicable or nothing changed
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub fn process_accessibility_action(
         &mut self,
         dom_id: DomId,
@@ -4773,7 +4773,7 @@ impl LayoutWindow {
     }
 
     /// Helper to get node used_size for accessibility actions
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     fn get_node_used_size_a11y(
         &self,
         dom_id: DomId,
@@ -4814,7 +4814,7 @@ impl LayoutWindow {
     }
 
     /// Scroll a node into view if it's not currently visible in the viewport
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     fn scroll_to_node_if_needed(
         &mut self,
         dom_id: DomId,
@@ -5114,7 +5114,7 @@ impl LayoutWindow {
     /// Returns a Vec of DomNodeIds (node + parent) that need to be marked dirty
     /// for re-layout. The caller MUST use this return value to trigger layout.
     #[must_use = "Returned nodes must be marked dirty for re-layout"]
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub fn edit_text_node(
         &mut self,
         dom_id: DomId,
@@ -5155,7 +5155,7 @@ impl LayoutWindow {
         self.apply_text_changeset()
     }
 
-    #[cfg(not(feature = "accessibility"))]
+    #[cfg(not(feature = "a11y"))]
     pub fn process_accessibility_action(
         &mut self,
         _dom_id: DomId,
@@ -5763,7 +5763,7 @@ impl LayoutWindow {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 #[derive(Debug, Clone)]
 pub enum TextEditType {
     ReplaceSelection(String),

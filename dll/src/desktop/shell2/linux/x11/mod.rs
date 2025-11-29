@@ -121,7 +121,7 @@ pub struct X11Window {
 
     // Accessibility
     /// Linux accessibility adapter
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub accessibility_adapter: accessibility::LinuxAccessibilityAdapter,
 }
 
@@ -577,12 +577,12 @@ impl X11Window {
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // New dlopen-based implementation
             resources,
-            #[cfg(feature = "accessibility")]
+            #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
 
         // Initialize accessibility adapter
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         {
             let window_name = format!("Azul Window ({})", window.window);
             window
@@ -785,7 +785,7 @@ impl X11Window {
         )?;
 
         // Update accessibility tree after layout
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
                 self.accessibility_adapter.update_tree(tree_update);

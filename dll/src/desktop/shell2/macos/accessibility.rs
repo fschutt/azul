@@ -3,45 +3,45 @@
 //! This module handles the integration between Azul's accessibility tree
 //! and macOS's NSAccessibility API through accesskit_macos.
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use std::sync::mpsc::{channel, Receiver, Sender};
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit::{ActionRequest, NodeId as A11yNodeId, TreeUpdate};
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit_macos::SubclassingAdapter;
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use azul_core::dom::{AccessibilityAction, DomId, NodeId};
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 /// Activation handler that provides the initial accessibility tree on demand
 struct TreeActivationHandler {
     tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl accesskit::ActivationHandler for TreeActivationHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         self.tree_provider.lock().unwrap().take()
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 /// Action handler that queues actions for later processing
 struct ChannelActionHandler {
     sender: Sender<ActionRequest>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl accesskit::ActionHandler for ChannelActionHandler {
     fn do_action(&mut self, request: ActionRequest) {
         let _ = self.sender.send(request);
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 /// macOS accessibility adapter that bridges Azul's accessibility tree
 /// with NSAccessibility via accesskit
 pub struct MacOSAccessibilityAdapter {
@@ -53,7 +53,7 @@ pub struct MacOSAccessibilityAdapter {
     tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl MacOSAccessibilityAdapter {
     /// Create a new accessibility adapter for a macOS NSView
     ///
@@ -204,10 +204,10 @@ impl MacOSAccessibilityAdapter {
 }
 
 // Stub for when accessibility feature is disabled
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 pub struct MacOSAccessibilityAdapter;
 
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 impl MacOSAccessibilityAdapter {
     pub fn new(_view: *mut std::ffi::c_void, _initial_tree: ()) -> Self {
         Self

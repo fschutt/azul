@@ -6,16 +6,16 @@
 
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
     Node as AccesskitNode, NodeId as AccesskitNodeId, Role, Tree, TreeUpdate,
 };
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit_unix::Adapter;
 
 /// Linux accessibility adapter that bridges Azul and AT-SPI
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 pub struct LinuxAccessibilityAdapter {
     /// accesskit adapter for Linux
     adapter: Arc<Mutex<Option<Adapter>>>,
@@ -23,7 +23,7 @@ pub struct LinuxAccessibilityAdapter {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl LinuxAccessibilityAdapter {
     /// Create a new Linux accessibility adapter
     pub fn new() -> Self {
@@ -82,12 +82,12 @@ impl LinuxAccessibilityAdapter {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 struct AccessibilityActionHandler {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl ActivationHandler for AccessibilityActionHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         // Return None - initial tree will be set after first layout
@@ -95,7 +95,7 @@ impl ActivationHandler for AccessibilityActionHandler {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl ActionHandler for AccessibilityActionHandler {
     fn do_action(&mut self, request: ActionRequest) {
         // Queue the action for processing by the main event loop
@@ -103,10 +103,10 @@ impl ActionHandler for AccessibilityActionHandler {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 struct AccessibilityDeactivationHandler;
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl DeactivationHandler for AccessibilityDeactivationHandler {
     fn deactivate_accessibility(&mut self) {
         // Called when accessibility is deactivated
@@ -115,10 +115,10 @@ impl DeactivationHandler for AccessibilityDeactivationHandler {
 }
 
 /// Stub implementation when accessibility feature is disabled
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 pub struct LinuxAccessibilityAdapter;
 
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 impl LinuxAccessibilityAdapter {
     pub fn new() -> Self {
         Self

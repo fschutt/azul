@@ -168,7 +168,7 @@ pub struct Win32Window {
 
     // Accessibility
     /// Windows accessibility adapter
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub accessibility_adapter: accessibility::WindowsAccessibilityAdapter,
 }
 
@@ -431,12 +431,12 @@ impl Win32Window {
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
-            #[cfg(feature = "accessibility")]
+            #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
         };
 
         // Initialize accessibility adapter
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         {
             result.accessibility_adapter.initialize(hwnd).map_err(|e| {
                 WindowError::PlatformError(format!("Accessibility init failed: {}", e))
@@ -563,7 +563,7 @@ impl Win32Window {
         )?;
 
         // Update accessibility tree after layout
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
                 self.accessibility_adapter.update_tree(tree_update);

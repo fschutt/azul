@@ -5,19 +5,19 @@
 
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, Node as AccesskitNode,
     NodeId as AccesskitNodeId, Role, Tree, TreeUpdate,
 };
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use accesskit_windows::{Adapter, SubclassingAdapter};
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 use crate::desktop::shell2::windows::dlopen::HWND;
 
 /// Windows accessibility adapter that bridges Azul and UI Automation
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 pub struct WindowsAccessibilityAdapter {
     /// accesskit adapter for Windows
     adapter: Arc<Mutex<Option<SubclassingAdapter>>>,
@@ -25,7 +25,7 @@ pub struct WindowsAccessibilityAdapter {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl WindowsAccessibilityAdapter {
     /// Create a new Windows accessibility adapter
     pub fn new() -> Self {
@@ -87,12 +87,12 @@ impl WindowsAccessibilityAdapter {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 struct AccessibilityActionHandler {
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl ActivationHandler for AccessibilityActionHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         // Return None - initial tree will be set after first layout
@@ -100,7 +100,7 @@ impl ActivationHandler for AccessibilityActionHandler {
     }
 }
 
-#[cfg(feature = "accessibility")]
+#[cfg(feature = "a11y")]
 impl ActionHandler for AccessibilityActionHandler {
     fn do_action(&mut self, request: ActionRequest) {
         // Queue the action for processing by the main event loop
@@ -109,10 +109,10 @@ impl ActionHandler for AccessibilityActionHandler {
 }
 
 /// Stub implementation when accessibility feature is disabled
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 pub struct WindowsAccessibilityAdapter;
 
-#[cfg(not(feature = "accessibility"))]
+#[cfg(not(feature = "a11y"))]
 impl WindowsAccessibilityAdapter {
     pub fn new() -> Self {
         Self

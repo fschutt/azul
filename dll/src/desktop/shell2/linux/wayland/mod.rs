@@ -176,7 +176,7 @@ pub struct WaylandWindow {
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
 
     // Accessibility
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     pub accessibility_adapter: LinuxAccessibilityAdapter,
 
     // Multi-window support
@@ -984,7 +984,7 @@ impl WaylandWindow {
             last_hovered_node: None,
             frame_needs_regeneration: false,
             frame_callback_pending: false,
-            #[cfg(feature = "accessibility")]
+            #[cfg(feature = "a11y")]
             accessibility_adapter: LinuxAccessibilityAdapter::new(),
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
@@ -1728,7 +1728,7 @@ impl WaylandWindow {
         self.frame_needs_regeneration = true;
 
         // Update accessibility tree on Wayland
-        #[cfg(feature = "accessibility")]
+        #[cfg(feature = "a11y")]
         {
             if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
                 self.accessibility_adapter.update_tree(tree_update);

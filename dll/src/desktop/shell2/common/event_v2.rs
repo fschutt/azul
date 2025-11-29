@@ -941,7 +941,7 @@ pub trait PlatformWindowV2 {
     /// let affected_nodes = self.record_accessibility_action(dom_id, node_id, action);
     /// // Process affected_nodes: dispatch events and mark dirty nodes for re-layout
     /// ```
-    #[cfg(feature = "accessibility")]
+    #[cfg(feature = "a11y")]
     fn record_accessibility_action(
         &mut self,
         dom_id: azul_core::dom::DomId,
