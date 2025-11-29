@@ -279,98 +279,97 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         let node = &tree.nodes[node_index];
         let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
-        if position_type == LayoutPosition::Relative {
-            // Determine the containing block size for resolving percentages.
-            // For `position: relative`, this is the parent's content box size.
-            let containing_block_size = if let Some(parent_idx) = node.parent {
-                if let Some(parent_node) = tree.get(parent_idx) {
-                    // Get parent's writing mode to correctly calculate its inner (content) size.
-                    let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
-                    let parent_node_state =
-                        &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].state;
-                    let parent_wm =
-                        get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state).unwrap_or_default();
-                    let parent_used_size = parent_node.used_size.unwrap_or_default();
-                    parent_node
-                        .box_props
-                        .inner_size(parent_used_size, parent_wm)
-                } else {
-                    // This should not happen in a valid tree, but handle gracefully.
-                    LogicalSize::zero()
-                }
-            } else {
-                // The root element is relatively positioned. Its containing block is the viewport.
-                viewport.size
-            };
+        // Early continue for non-relative positioning
+        if position_type != LayoutPosition::Relative {
+            continue;
+        }
 
-            // Resolve offsets using the calculated containing block size.
-            let offsets =
-                resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
+        // Determine the containing block size for resolving percentages.
+        // For `position: relative`, this is the parent's content box size.
+        let containing_block_size = node.parent
+            .and_then(|parent_idx| tree.get(parent_idx))
+            .map(|parent_node| {
+                // Get parent's writing mode to correctly calculate its inner (content) size.
+                let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
+                let parent_node_state =
+                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].state;
+                let parent_wm =
+                    get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state).unwrap_or_default();
+                let parent_used_size = parent_node.used_size.unwrap_or_default();
+                parent_node.box_props.inner_size(parent_used_size, parent_wm)
+            })
+            // The root element is relatively positioned. Its containing block is the viewport.
+            .unwrap_or(viewport.size);
 
-            // Get a mutable reference to the position and apply the offsets.
-            if let Some(current_pos) = calculated_positions.get_mut(&node_index) {
-                let initial_pos = *current_pos;
+        // Resolve offsets using the calculated containing block size.
+        let offsets =
+            resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
 
-                // top/bottom/left/right offsets are applied relative to the static position.
-                let mut delta_x = 0.0;
-                let mut delta_y = 0.0;
+        // Get a mutable reference to the position and apply the offsets.
+        let Some(current_pos) = calculated_positions.get_mut(&node_index) else {
+            continue;
+        };
+        
+        let initial_pos = *current_pos;
 
-                // According to CSS 2.1 Section 9.3.2:
-                // - For `top` and `bottom`: if both are specified, `top` wins and `bottom` is ignored
-                // - For `left` and `right`: depends on direction (ltr/rtl)
-                //   - In LTR: if both specified, `left` wins and `right` is ignored
-                //   - In RTL: if both specified, `right` wins and `left` is ignored
-                
-                // Vertical positioning: `top` takes precedence over `bottom`
-                if let Some(top) = offsets.top {
-                    delta_y = top;
-                } else if let Some(bottom) = offsets.bottom {
-                    delta_y = -bottom;
-                }
-                
-                // Horizontal positioning: depends on direction
-                // Get the direction for this element
-                let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
-                let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
-                let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].state;
-                let direction = ctx.styled_dom
-                    .css_property_cache
-                    .ptr
-                    .get_direction(node_data, &node_dom_id, node_state)
-                    .and_then(|s| s.get_property().copied())
-                    .unwrap_or(azul_css::props::style::StyleDirection::Ltr);
-                
-                use azul_css::props::style::StyleDirection;
-                match direction {
-                    StyleDirection::Ltr => {
-                        // In LTR mode: `left` takes precedence over `right`
-                        if let Some(left) = offsets.left {
-                            delta_x = left;
-                        } else if let Some(right) = offsets.right {
-                            delta_x = -right;
-                        }
-                    }
-                    StyleDirection::Rtl => {
-                        // In RTL mode: `right` takes precedence over `left`
-                        if let Some(right) = offsets.right {
-                            delta_x = -right;
-                        } else if let Some(left) = offsets.left {
-                            delta_x = left;
-                        }
-                    }
-                }
+        // top/bottom/left/right offsets are applied relative to the static position.
+        let mut delta_x = 0.0;
+        let mut delta_y = 0.0;
 
-                // Only apply the shift if there is a non-zero delta.
-                if delta_x != 0.0 || delta_y != 0.0 {
-                    current_pos.x += delta_x;
-                    current_pos.y += delta_y;
-
-                    ctx.debug_log(&format!(
-                        "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
-                        node_index, initial_pos, *current_pos, delta_x, delta_y
-                    ));
+        // According to CSS 2.1 Section 9.3.2:
+        // - For `top` and `bottom`: if both are specified, `top` wins and `bottom` is ignored
+        // - For `left` and `right`: depends on direction (ltr/rtl)
+        //   - In LTR: if both specified, `left` wins and `right` is ignored
+        //   - In RTL: if both specified, `right` wins and `left` is ignored
+        
+        // Vertical positioning: `top` takes precedence over `bottom`
+        if let Some(top) = offsets.top {
+            delta_y = top;
+        } else if let Some(bottom) = offsets.bottom {
+            delta_y = -bottom;
+        }
+        
+        // Horizontal positioning: depends on direction
+        // Get the direction for this element
+        let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
+        let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].state;
+        let direction = ctx.styled_dom
+            .css_property_cache
+            .ptr
+            .get_direction(node_data, &node_dom_id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or(azul_css::props::style::StyleDirection::Ltr);
+        
+        use azul_css::props::style::StyleDirection;
+        match direction {
+            StyleDirection::Ltr => {
+                // In LTR mode: `left` takes precedence over `right`
+                if let Some(left) = offsets.left {
+                    delta_x = left;
+                } else if let Some(right) = offsets.right {
+                    delta_x = -right;
                 }
             }
+            StyleDirection::Rtl => {
+                // In RTL mode: `right` takes precedence over `left`
+                if let Some(right) = offsets.right {
+                    delta_x = -right;
+                } else if let Some(left) = offsets.left {
+                    delta_x = left;
+                }
+            }
+        }
+
+        // Only apply the shift if there is a non-zero delta.
+        if delta_x != 0.0 || delta_y != 0.0 {
+            current_pos.x += delta_x;
+            current_pos.y += delta_y;
+
+            ctx.debug_log(&format!(
+                "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
+                node_index, initial_pos, *current_pos, delta_x, delta_y
+            ));
         }
     }
     Ok(())

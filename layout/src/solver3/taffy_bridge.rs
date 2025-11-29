@@ -781,19 +781,19 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let node_state =
                     &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id].state;
 
-                if let Some(display_prop) = self.ctx.styled_dom.css_property_cache.ptr.get_property(
+                let display_prop = self.ctx.styled_dom.css_property_cache.ptr.get_property(
                     node_data,
                     &child_dom_id,
                     node_state,
                     &CssPropertyType::Display,
-                ) {
-                    if let CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None)) =
-                        display_prop
-                    {
-                        return false;
-                    }
-                }
-                true
+                );
+                
+                let is_display_none = matches!(
+                    display_prop,
+                    Some(CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None)))
+                );
+                
+                !is_display_none
             })
             .copied()
             .collect()

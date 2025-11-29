@@ -2312,104 +2312,93 @@ fn get_border_info<T: ParsedFontTrait>(
         source,
     );
     
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = StyledNodeState::default();
-        
-        // Create resolution context for border-width (em/rem support, no % support)
-        let element_font_size = get_element_font_size(ctx.styled_dom, dom_id, &node_state);
-        let parent_font_size = get_parent_font_size(ctx.styled_dom, dom_id, &node_state);
-        let root_font_size = get_root_font_size(ctx.styled_dom, &node_state);
-        
-        let resolution_context = ResolutionContext {
-            element_font_size,
-            parent_font_size,
-            root_font_size,
-            containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-width
-            element_size: None, // Not used for border-width
-            viewport_size: PhysicalSize::new(0.0, 0.0),
-        };
-        
-        // Top border
-        let top = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_top_style(node_data, &dom_id, &node_state) {
-            if let Some(style_val) = style.get_property() {
-                let width = ctx.styled_dom.css_property_cache.ptr.get_border_top_width(node_data, &dom_id, &node_state)
-                    .and_then(|w| w.get_property())
-                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
-                    .unwrap_or(0.0);
-                let color = ctx.styled_dom.css_property_cache.ptr.get_border_top_color(node_data, &dom_id, &node_state)
-                    .and_then(|c| c.get_property())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
-                BorderInfo::new(width, style_val.inner, color, source)
-            } else {
-                default_border.clone()
-            }
-        } else {
-            default_border.clone()
-        };
-        
-        // Right border
-        let right = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_right_style(node_data, &dom_id, &node_state) {
-            if let Some(style_val) = style.get_property() {
-                let width = ctx.styled_dom.css_property_cache.ptr.get_border_right_width(node_data, &dom_id, &node_state)
-                    .and_then(|w| w.get_property())
-                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
-                    .unwrap_or(0.0);
-                let color = ctx.styled_dom.css_property_cache.ptr.get_border_right_color(node_data, &dom_id, &node_state)
-                    .and_then(|c| c.get_property())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
-                BorderInfo::new(width, style_val.inner, color, source)
-            } else {
-                default_border.clone()
-            }
-        } else {
-            default_border.clone()
-        };
-        
-        // Bottom border
-        let bottom = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_style(node_data, &dom_id, &node_state) {
-            if let Some(style_val) = style.get_property() {
-                let width = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_width(node_data, &dom_id, &node_state)
-                    .and_then(|w| w.get_property())
-                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
-                    .unwrap_or(0.0);
-                let color = ctx.styled_dom.css_property_cache.ptr.get_border_bottom_color(node_data, &dom_id, &node_state)
-                    .and_then(|c| c.get_property())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
-                BorderInfo::new(width, style_val.inner, color, source)
-            } else {
-                default_border.clone()
-            }
-        } else {
-            default_border.clone()
-        };
-        
-        // Left border
-        let left = if let Some(style) = ctx.styled_dom.css_property_cache.ptr.get_border_left_style(node_data, &dom_id, &node_state) {
-            if let Some(style_val) = style.get_property() {
-                let width = ctx.styled_dom.css_property_cache.ptr.get_border_left_width(node_data, &dom_id, &node_state)
-                    .and_then(|w| w.get_property())
-                    .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
-                    .unwrap_or(0.0);
-                let color = ctx.styled_dom.css_property_cache.ptr.get_border_left_color(node_data, &dom_id, &node_state)
-                    .and_then(|c| c.get_property())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
-                BorderInfo::new(width, style_val.inner, color, source)
-            } else {
-                default_border.clone()
-            }
-        } else {
-            default_border.clone()
-        };
-        
-        (top, right, bottom, left)
-    } else {
-        (default_border.clone(), default_border.clone(), default_border.clone(), default_border)
-    }
+    let Some(dom_id) = node.dom_node_id else {
+        return (default_border.clone(), default_border.clone(), default_border.clone(), default_border.clone());
+    };
+    
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = StyledNodeState::default();
+    let cache = &ctx.styled_dom.css_property_cache.ptr;
+    
+    // Create resolution context for border-width (em/rem support, no % support)
+    let element_font_size = get_element_font_size(ctx.styled_dom, dom_id, &node_state);
+    let parent_font_size = get_parent_font_size(ctx.styled_dom, dom_id, &node_state);
+    let root_font_size = get_root_font_size(ctx.styled_dom, &node_state);
+    
+    let resolution_context = ResolutionContext {
+        element_font_size,
+        parent_font_size,
+        root_font_size,
+        containing_block_size: PhysicalSize::new(0.0, 0.0), // Not used for border-width
+        element_size: None, // Not used for border-width
+        viewport_size: PhysicalSize::new(0.0, 0.0),
+    };
+    
+    // Top border
+    let top = cache.get_border_top_style(node_data, &dom_id, &node_state)
+        .and_then(|s| s.get_property())
+        .map(|style_val| {
+            let width = cache.get_border_top_width(node_data, &dom_id, &node_state)
+                .and_then(|w| w.get_property())
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
+                .unwrap_or(0.0);
+            let color = cache.get_border_top_color(node_data, &dom_id, &node_state)
+                .and_then(|c| c.get_property())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+            BorderInfo::new(width, style_val.inner, color, source)
+        })
+        .unwrap_or_else(|| default_border.clone());
+    
+    // Right border
+    let right = cache.get_border_right_style(node_data, &dom_id, &node_state)
+        .and_then(|s| s.get_property())
+        .map(|style_val| {
+            let width = cache.get_border_right_width(node_data, &dom_id, &node_state)
+                .and_then(|w| w.get_property())
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
+                .unwrap_or(0.0);
+            let color = cache.get_border_right_color(node_data, &dom_id, &node_state)
+                .and_then(|c| c.get_property())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+            BorderInfo::new(width, style_val.inner, color, source)
+        })
+        .unwrap_or_else(|| default_border.clone());
+    
+    // Bottom border
+    let bottom = cache.get_border_bottom_style(node_data, &dom_id, &node_state)
+        .and_then(|s| s.get_property())
+        .map(|style_val| {
+            let width = cache.get_border_bottom_width(node_data, &dom_id, &node_state)
+                .and_then(|w| w.get_property())
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
+                .unwrap_or(0.0);
+            let color = cache.get_border_bottom_color(node_data, &dom_id, &node_state)
+                .and_then(|c| c.get_property())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+            BorderInfo::new(width, style_val.inner, color, source)
+        })
+        .unwrap_or_else(|| default_border.clone());
+    
+    // Left border
+    let left = cache.get_border_left_style(node_data, &dom_id, &node_state)
+        .and_then(|s| s.get_property())
+        .map(|style_val| {
+            let width = cache.get_border_left_width(node_data, &dom_id, &node_state)
+                .and_then(|w| w.get_property())
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
+                .unwrap_or(0.0);
+            let color = cache.get_border_left_color(node_data, &dom_id, &node_state)
+                .and_then(|c| c.get_property())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 });
+            BorderInfo::new(width, style_val.inner, color, source)
+        })
+        .unwrap_or_else(|| default_border.clone());
+    
+    (top, right, bottom, left)
 }
 
 /// Get the table-layout property for a table node
@@ -2420,18 +2409,17 @@ fn get_table_layout_property<T: ParsedFontTrait>(
     use azul_css::props::layout::LayoutTableLayout;
     use azul_core::styled_dom::StyledNodeState;
     
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = StyledNodeState::default();
-        
-        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_table_layout(node_data, &dom_id, &node_state) {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
-    }
+    let Some(dom_id) = node.dom_node_id else {
+        return LayoutTableLayout::Auto;
+    };
     
-    LayoutTableLayout::Auto // Default
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = StyledNodeState::default();
+    
+    ctx.styled_dom.css_property_cache.ptr
+        .get_table_layout(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
+        .unwrap_or(LayoutTableLayout::Auto)
 }
 
 /// Get the border-collapse property for a table node
@@ -2442,18 +2430,17 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
     use azul_css::props::layout::StyleBorderCollapse;
     use azul_core::styled_dom::StyledNodeState;
     
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = StyledNodeState::default();
-        
-        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_collapse(node_data, &dom_id, &node_state) {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
-    }
+    let Some(dom_id) = node.dom_node_id else {
+        return StyleBorderCollapse::Separate;
+    };
     
-    StyleBorderCollapse::Separate // Default
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = StyledNodeState::default();
+    
+    ctx.styled_dom.css_property_cache.ptr
+        .get_border_collapse(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
+        .unwrap_or(StyleBorderCollapse::Separate)
 }
 
 /// Get the border-spacing property for a table node

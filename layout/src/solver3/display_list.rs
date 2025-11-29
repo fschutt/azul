@@ -92,6 +92,8 @@ use crate::{
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
+#[cfg(feature = "text_layout")]
+use crate::text3::cache::{PositionedItem, InlineShape};
 use std::sync::Arc;
 
 /// Border widths for all four sides
@@ -1126,19 +1128,17 @@ where
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
 
-        if let Some(parent_idx) = node.parent {
-            if let Some(parent_dom_id) = self
-                .positioned_tree
-                .tree
-                .get(parent_idx)
-                .and_then(|p| p.dom_node_id)
-            {
-                if let Some(scroll) = self.scroll_offsets.get(&parent_dom_id) {
-                    pos.x -= scroll.children_rect.origin.x;
-                    pos.y -= scroll.children_rect.origin.y;
-                }
-            }
+        // Apply scroll offset from parent if present
+        let scroll_offset = node.parent
+            .and_then(|parent_idx| self.positioned_tree.tree.get(parent_idx))
+            .and_then(|p| p.dom_node_id)
+            .and_then(|parent_dom_id| self.scroll_offsets.get(&parent_dom_id));
+        
+        if let Some(scroll) = scroll_offset {
+            pos.x -= scroll.children_rect.origin.x;
+            pos.y -= scroll.children_rect.origin.y;
         }
+        
         Some(LogicalRect::new(pos, size))
     }
 
@@ -1363,23 +1363,28 @@ where
             return Ok(());
         };
         
-        let node = self.positioned_tree.tree.get(node_index);
-        if let Some(node) = node {
-            if let Some(dom_id) = node.dom_node_id {
-                let styled_node_state = self.get_styled_node_state(dom_id);
-                let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-                let element_size = PhysicalSizeImport {
-                    width: paint_rect.size.width,
-                    height: paint_rect.size.height,
-                };
-                let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
-                
-                // Only paint if background color has alpha > 0 (optimization)
-                if bg_color.a > 0 {
-                    builder.push_rect(paint_rect, bg_color, border_radius);
-                }
-            }
+        let Some(node) = self.positioned_tree.tree.get(node_index) else {
+            return Ok(());
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(());
+        };
+        
+        let styled_node_state = self.get_styled_node_state(dom_id);
+        let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
+        
+        // Only paint if background color has alpha > 0 (optimization)
+        if bg_color.a == 0 {
+            return Ok(());
         }
+        
+        let element_size = PhysicalSizeImport {
+            width: paint_rect.size.width,
+            height: paint_rect.size.height,
+        };
+        let border_radius = get_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state, element_size, self.ctx.viewport_size);
+        
+        builder.push_rect(paint_rect, bg_color, border_radius);
         
         Ok(())
     }
@@ -1630,64 +1635,88 @@ where
         // Render inline objects (images, shapes/inline-blocks, etc.)
         // These are positioned by the text3 engine and need to be rendered at their calculated positions
         for positioned_item in &layout.items {
-            let base_pos = container_rect.origin;
-            match &positioned_item.item {
-                ShapedItem::Object {
-                    content, bounds, baseline_offset, source, ..
-                } => {
-                    // Calculate the absolute position of this object
-                    // positioned_item.position is relative to the container
-                    let object_bounds = LogicalRect::new(
-                        LogicalPosition::new(
-                            base_pos.x + positioned_item.position.x,
-                            base_pos.y + positioned_item.position.y,
-                        ),
-                        LogicalSize::new(bounds.width, bounds.height),
-                    );
-                    
-                    match content {
-                        InlineContent::Image(image) => {
-                            if let Some(image_key) =
-                                get_image_key_for_image_source(&image.source, self.id_namespace)
-                            {
-                                builder.push_image(object_bounds, image_key);
-                            }
-                        }
-                        InlineContent::Shape(shape) => {
-                            // Render inline-block backgrounds using their CSS styling
-                            // The text3 engine positions these correctly in the inline flow
-                            if let Some(node_id) = shape.source_node_id {
-                                let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].state;
-                                let bg_color = get_background_color(
-                                    self.ctx.styled_dom,
-                                    node_id,
-                                    styled_node_state,
-                                );
-                                
-                                // Only render if there's a visible background
-                                if bg_color.a > 0 {
-                                    let element_size = PhysicalSizeImport {
-                                        width: bounds.width,
-                                        height: bounds.height,
-                                    };
-                                    let border_radius = get_border_radius(
-                                        self.ctx.styled_dom,
-                                        node_id,
-                                        styled_node_state,
-                                        element_size,
-                                        self.ctx.viewport_size,
-                                    );
-                                    
-                                    builder.push_rect(object_bounds, bg_color, border_radius);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {} // Other item types (e.g., breaks) don't produce painted output.
-            }
+            self.paint_inline_object(builder, container_rect.origin, positioned_item)?;
         }
+        Ok(())
+    }
+
+    /// Paints a single inline object (image, shape, or inline-block)
+    fn paint_inline_object(
+        &self,
+        builder: &mut DisplayListBuilder,
+        base_pos: LogicalPosition,
+        positioned_item: &PositionedItem,
+    ) -> Result<()> {
+        let ShapedItem::Object { content, bounds, .. } = &positioned_item.item else {
+            // Other item types (e.g., breaks) don't produce painted output.
+            return Ok(());
+        };
+
+        // Calculate the absolute position of this object
+        // positioned_item.position is relative to the container
+        let object_bounds = LogicalRect::new(
+            LogicalPosition::new(
+                base_pos.x + positioned_item.position.x,
+                base_pos.y + positioned_item.position.y,
+            ),
+            LogicalSize::new(bounds.width, bounds.height),
+        );
+        
+        match content {
+            InlineContent::Image(image) => {
+                if let Some(image_key) =
+                    get_image_key_for_image_source(&image.source, self.id_namespace)
+                {
+                    builder.push_image(object_bounds, image_key);
+                }
+            }
+            InlineContent::Shape(shape) => {
+                self.paint_inline_shape(builder, object_bounds, shape, bounds)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Paints an inline shape (inline-block background)
+    fn paint_inline_shape(
+        &self,
+        builder: &mut DisplayListBuilder,
+        object_bounds: LogicalRect,
+        shape: &InlineShape,
+        bounds: &crate::text3::cache::Rect,
+    ) -> Result<()> {
+        // Render inline-block backgrounds using their CSS styling
+        // The text3 engine positions these correctly in the inline flow
+        let Some(node_id) = shape.source_node_id else {
+            return Ok(());
+        };
+        
+        let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].state;
+        let bg_color = get_background_color(
+            self.ctx.styled_dom,
+            node_id,
+            styled_node_state,
+        );
+        
+        // Only render if there's a visible background
+        if bg_color.a == 0 {
+            return Ok(());
+        }
+        
+        let element_size = PhysicalSizeImport {
+            width: bounds.width,
+            height: bounds.height,
+        };
+        let border_radius = get_border_radius(
+            self.ctx.styled_dom,
+            node_id,
+            styled_node_state,
+            element_size,
+            self.ctx.viewport_size,
+        );
+        
+        builder.push_rect(object_bounds, bg_color, border_radius);
         Ok(())
     }
 
@@ -1715,31 +1744,25 @@ where
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
 
             // Opacity < 1
-            if let Some(opacity_val) = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
+            let opacity = self.ctx.styled_dom.css_property_cache.ptr
                 .get_opacity(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property())
-            {
-                if opacity_val.inner.normalized() < 1.0 {
-                    return true;
-                }
+                .map(|v| v.inner.normalized())
+                .unwrap_or(1.0);
+            
+            if opacity < 1.0 {
+                return true;
             }
 
             // Transform != none
-            if let Some(transform_val) = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
+            let has_transform = self.ctx.styled_dom.css_property_cache.ptr
                 .get_transform(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property())
-            {
-                if !transform_val.is_empty() {
-                    return true;
-                }
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            
+            if has_transform {
+                return true;
             }
         }
 

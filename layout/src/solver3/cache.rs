@@ -59,6 +59,36 @@ fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBeh
     }
 }
 
+/// Collects DOM child IDs from the node hierarchy into a Vec.
+/// 
+/// This is a helper function that flattens the sibling iteration into a simple loop.
+fn collect_children_dom_ids(
+    styled_dom: &StyledDom,
+    parent_dom_id: NodeId,
+) -> Vec<NodeId> {
+    let hierarchy_container = styled_dom.node_hierarchy.as_container();
+    let mut children = Vec::new();
+    
+    let Some(hierarchy_item) = hierarchy_container.get(parent_dom_id) else {
+        return children;
+    };
+    
+    let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
+        return children;
+    };
+    
+    children.push(child_id);
+    while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
+        let Some(next) = hierarchy_item.next_sibling_id() else {
+            break;
+        };
+        children.push(next);
+        child_id = next;
+    }
+    
+    children
+}
+
 /// The persistent cache that holds the layout state between frames.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
@@ -398,35 +428,18 @@ pub fn reconcile_recursive(
         let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].state;
         let cache = &styled_dom.css_property_cache.ptr;
         
-        if let Some(display_value) = cache.get_display(node_data, &new_dom_id, node_state) {
-            if let Some(display) = display_value.get_property() {
-                if *display == LayoutDisplay::ListItem {
-                    // Create ::marker pseudo-element for this list-item
-                    new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
-                }
-            }
+        let display = cache
+            .get_display(node_data, &new_dom_id, node_state)
+            .and_then(|v| v.get_property().copied());
+        
+        if matches!(display, Some(LayoutDisplay::ListItem)) {
+            // Create ::marker pseudo-element for this list-item
+            new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
         }
     }
 
     // Reconcile children to check for structural changes and build the new tree structure.
-    let hierarchy_container = styled_dom.node_hierarchy.as_container();
-    let new_children_dom_ids: Vec<_> = {
-        let mut children = Vec::new();
-        if let Some(hierarchy_item) = hierarchy_container.get(new_dom_id) {
-            if let Some(mut child_id) = hierarchy_item.first_child_id(new_dom_id) {
-                children.push(child_id);
-                while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
-                    if let Some(next) = hierarchy_item.next_sibling_id() {
-                        children.push(next);
-                        child_id = next;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        children
-    };
+    let new_children_dom_ids: Vec<_> = collect_children_dom_ids(styled_dom, new_dom_id);
     let old_children_indices: Vec<_> = old_node.map(|n| n.children.clone()).unwrap_or_default();
 
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
@@ -1194,41 +1207,43 @@ fn compute_counters_recursive(
     let is_list_item = matches!(display, Some(azul_css::props::layout::LayoutDisplay::ListItem));
     
     // Process counter-reset (now properly typed)
-    if let Some(counter_reset_value) = cache.get_counter_reset(node_data, &dom_id, node_state) {
-        if let Some(counter_reset) = counter_reset_value.get_property() {
-            let counter_name_str = counter_reset.counter_name.as_str();
-            if counter_name_str != "none" {
-                let counter_name = counter_name_str.to_string();
-                let reset_value = counter_reset.value;
-                
-                // Reset the counter by pushing a new scope
-                counter_stacks
-                    .entry(counter_name.clone())
-                    .or_default()
-                    .push(reset_value);
-                reset_counters_at_this_level.push(counter_name);
-            }
+    let counter_reset = cache
+        .get_counter_reset(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property());
+    
+    if let Some(counter_reset) = counter_reset {
+        let counter_name_str = counter_reset.counter_name.as_str();
+        if counter_name_str != "none" {
+            let counter_name = counter_name_str.to_string();
+            let reset_value = counter_reset.value;
+            
+            // Reset the counter by pushing a new scope
+            counter_stacks
+                .entry(counter_name.clone())
+                .or_default()
+                .push(reset_value);
+            reset_counters_at_this_level.push(counter_name);
         }
     }
     
     // Process counter-increment (now properly typed)
-    if let Some(counter_inc_value) = cache.get_counter_increment(node_data, &dom_id, node_state) {
-        if let Some(counter_inc) = counter_inc_value.get_property() {
-            let counter_name_str = counter_inc.counter_name.as_str();
-            if counter_name_str != "none" {
-                let counter_name = counter_name_str.to_string();
-                let inc_value = counter_inc.value;
-                
-                // Increment the counter in the current scope
-                let stack = counter_stacks.entry(counter_name.clone()).or_default();
-                if stack.is_empty() {
-                    // Auto-initialize if counter doesn't exist
-                    stack.push(inc_value);
-                } else {
-                    if let Some(current) = stack.last_mut() {
-                        *current += inc_value;
-                    }
-                }
+    let counter_inc = cache
+        .get_counter_increment(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property());
+    
+    if let Some(counter_inc) = counter_inc {
+        let counter_name_str = counter_inc.counter_name.as_str();
+        if counter_name_str != "none" {
+            let counter_name = counter_name_str.to_string();
+            let inc_value = counter_inc.value;
+            
+            // Increment the counter in the current scope
+            let stack = counter_stacks.entry(counter_name.clone()).or_default();
+            if stack.is_empty() {
+                // Auto-initialize if counter doesn't exist
+                stack.push(inc_value);
+            } else if let Some(current) = stack.last_mut() {
+                *current += inc_value;
             }
         }
     }

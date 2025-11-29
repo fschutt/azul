@@ -506,12 +506,36 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     
     // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
     // We need to check the DOM children for text content.
-    if let Some(dom_id) = node.dom_node_id {
-        // First check if THIS node is a text node
-        if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-            let style_props = get_style_properties(ctx.styled_dom, dom_id);
+    let Some(dom_id) = node.dom_node_id else {
+        // No DOM ID means this is a synthetic node, skip text extraction
+        return process_layout_children(ctx, tree, node, content);
+    };
+    
+    // First check if THIS node is a text node
+    if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
+        let style_props = get_style_properties(ctx.styled_dom, dom_id);
+        ctx.debug_log(&format!(
+            "Found text in node {}: '{}'",
+            node_index, text
+        ));
+        content.push(InlineContent::Text(StyledRun {
+            text,
+            style: Arc::new(style_props),
+            logical_start_byte: 0,
+        }));
+    }
+    
+    // CRITICAL: Also check DOM children for text nodes!
+    // Text nodes are often not represented as separate layout nodes.
+    let node_hierarchy = &ctx.styled_dom.node_hierarchy.as_container();
+    for child_id in dom_id.az_children(node_hierarchy) {
+        // Check if this DOM child is a text node
+        let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
+        if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
+            let text = text_data.as_str().to_string();
+            let style_props = get_style_properties(ctx.styled_dom, child_id);
             ctx.debug_log(&format!(
-                "Found text in node {}: '{}'",
+                "Found text in DOM child of node {}: '{}'",
                 node_index, text
             ));
             content.push(InlineContent::Text(StyledRun {
@@ -520,29 +544,18 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
                 logical_start_byte: 0,
             }));
         }
-        
-        // CRITICAL: Also check DOM children for text nodes!
-        // Text nodes are often not represented as separate layout nodes.
-        let node_hierarchy = &ctx.styled_dom.node_hierarchy.as_container();
-        for child_id in dom_id.az_children(node_hierarchy) {
-            // Check if this DOM child is a text node
-            let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
-            if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
-                let text = text_data.as_str().to_string();
-                let style_props = get_style_properties(ctx.styled_dom, child_id);
-                ctx.debug_log(&format!(
-                    "Found text in DOM child of node {}: '{}'",
-                    node_index, text
-                ));
-                content.push(InlineContent::Text(StyledRun {
-                    text,
-                    style: Arc::new(style_props),
-                    logical_start_byte: 0,
-                }));
-            }
-        }
     }
 
+    process_layout_children(ctx, tree, node, content)
+}
+
+/// Helper to process layout tree children for inline content collection
+fn process_layout_children<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node: &LayoutNode,
+    content: &mut Vec<InlineContent>,
+) -> Result<()> {
     // Process layout tree children (these are elements with layout properties)
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;

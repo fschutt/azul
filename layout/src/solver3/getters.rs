@@ -30,12 +30,12 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
     let cache = &styled_dom.css_property_cache.ptr;
     
     // Try to get from dependency chain first (proper resolution)
-    if let Some(node_chains) = cache.dependency_chains.get(&dom_id) {
-        if let Some(chain) = node_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
-            if let Some(cached) = chain.cached_pixels {
-                return cached;
-            }
-        }
+    let cached_font_size = cache.dependency_chains.get(&dom_id)
+        .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
+        .and_then(|chain| chain.cached_pixels);
+    
+    if let Some(cached) = cached_font_size {
+        return cached;
     }
     
     // Fallback: get from property cache and resolve manually
@@ -50,14 +50,9 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
         })
         .and_then(|parent_id| {
             // Check parent's dependency chain first (avoids recursion)
-            if let Some(parent_chains) = cache.dependency_chains.get(&parent_id) {
-                if let Some(chain) = parent_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
-                    if let Some(cached) = chain.cached_pixels {
-                        return Some(cached);
-                    }
-                }
-            }
-            None
+            cache.dependency_chains.get(&parent_id)
+                .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
+                .and_then(|chain| chain.cached_pixels)
         })
         .unwrap_or_else(|| {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
@@ -66,23 +61,12 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
     
     // Get root font-size (avoid recursion by checking cache first)
     let root_font_size = {
+        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
         let root_id = NodeId::new(0);
-        if let Some(root_chains) = cache.dependency_chains.get(&root_id) {
-            if let Some(chain) = root_chains.get(&azul_css::props::property::CssPropertyType::FontSize) {
-                if let Some(cached) = chain.cached_pixels {
-                    cached
-                } else {
-                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-                    DEFAULT_FONT_SIZE
-                }
-            } else {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-                DEFAULT_FONT_SIZE
-            }
-        } else {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-            DEFAULT_FONT_SIZE
-        }
+        cache.dependency_chains.get(&root_id)
+            .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
+            .and_then(|chain| chain.cached_pixels)
+            .unwrap_or(DEFAULT_FONT_SIZE)
     };
     
     // Resolve font-size with proper context
@@ -771,33 +755,29 @@ pub fn get_background_color(
     // CSS Background Propagation: Special handling for <html> root element
     // Only check propagation if this is an Html node AND has transparent background (no color/image)
     use azul_core::dom::NodeType;
-    if matches!(node_data.node_type, NodeType::Html) && own_bg.is_none() {
-        // Html node with transparent background - check if we should propagate from <body>
-        
-        // Find first child of <html>
-        if let Some(first_child) = styled_dom.node_hierarchy.as_container()
-            .get(node_id)
-            .and_then(|node| node.first_child_id(node_id))
-        {
-            let first_child_data = &styled_dom.node_data.as_container()[first_child];
-            
-            // Check if first child is <body>
-            if matches!(first_child_data.node_type, NodeType::Body) {
-                // Propagate <body>'s background to <html> (canvas)
-                if let Some(body_bg) = get_node_bg(first_child, first_child_data) {
-                    return body_bg;
-                }
-            }
-        }
+    if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
+        // Not Html or has its own background - return own background or transparent
+        return own_bg.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 });
     }
     
-    // Return own background or transparent default
-    own_bg.unwrap_or(ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0, // Transparent by default
-    })
+    // Html node with transparent background - check if we should propagate from <body>
+    let first_child = styled_dom.node_hierarchy.as_container()
+        .get(node_id)
+        .and_then(|node| node.first_child_id(node_id));
+    
+    let Some(first_child) = first_child else {
+        return ColorU { r: 0, g: 0, b: 0, a: 0 };
+    };
+    
+    let first_child_data = &styled_dom.node_data.as_container()[first_child];
+    
+    // Check if first child is <body>
+    if !matches!(first_child_data.node_type, NodeType::Body) {
+        return ColorU { r: 0, g: 0, b: 0, a: 0 };
+    }
+    
+    // Propagate <body>'s background to <html> (canvas)
+    get_node_bg(first_child, first_child_data).unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 })
 }
 
 /// Information about border rendering
