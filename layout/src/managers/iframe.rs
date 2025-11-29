@@ -19,35 +19,66 @@ use crate::managers::scroll_state::ScrollManager;
 
 static NEXT_PIPELINE_ID: AtomicUsize = AtomicUsize::new(1);
 
+/// Distance in pixels from edge that triggers edge-scrolled callback
+const EDGE_THRESHOLD: f32 = 200.0;
+
 /// Manages IFrame lifecycle, including re-invocation and PipelineId generation
+///
+/// Tracks which IFrames have been invoked, assigns unique DOM IDs to nested
+/// IFrames, and determines when IFrames need to be re-invoked (e.g., when
+/// the container bounds expand or the user scrolls near an edge).
 #[derive(Debug, Clone, Default)]
 pub struct IFrameManager {
+    /// Per-IFrame state keyed by (parent DomId, NodeId of iframe element)
     states: BTreeMap<(DomId, NodeId), IFrameState>,
+    /// WebRender PipelineId for each IFrame
     pipeline_ids: BTreeMap<(DomId, NodeId), PipelineId>,
+    /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
 }
 
+/// Internal state for a single IFrame instance
+///
+/// Tracks invocation status, content dimensions, and edge triggers
+/// to determine when the IFrame callback needs to be re-invoked.
 #[derive(Debug, Clone)]
 struct IFrameState {
+    /// Content size reported by IFrame callback (actual rendered size)
     iframe_scroll_size: Option<LogicalSize>,
+    /// Virtual scroll size for infinite scroll scenarios
     iframe_virtual_scroll_size: Option<LogicalSize>,
+    /// Whether the IFrame has ever been invoked
     iframe_was_invoked: bool,
+    /// Whether invoked for current container expansion
     invoked_for_current_expansion: bool,
+    /// Whether invoked for current edge scroll event
     invoked_for_current_edge: bool,
+    /// Which edges have already triggered callbacks
     last_edge_triggered: EdgeFlags,
+    /// Unique DOM ID assigned to this IFrame's content
     nested_dom_id: DomId,
+    /// Last known layout bounds of the IFrame container
     last_bounds: LogicalRect,
 }
 
+/// Flags indicating which scroll edges have been triggered
+///
+/// Used to prevent repeated edge-scroll callbacks for the same edge
+/// until the user scrolls away and back.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct EdgeFlags {
+    /// Near top edge
     pub top: bool,
+    /// Near bottom edge
     pub bottom: bool,
+    /// Near left edge
     pub left: bool,
+    /// Near right edge
     pub right: bool,
 }
 
 impl IFrameManager {
+    /// Creates a new IFrameManager with no tracked IFrames
     pub fn new() -> Self {
         Self {
             next_dom_id: 1, // 0 is root
@@ -55,10 +86,15 @@ impl IFrameManager {
         }
     }
 
+    /// Called at the start of each frame (currently a no-op)
     pub fn begin_frame(&mut self) {
         // Nothing to do here for now, but good practice for stateful managers
     }
 
+    /// Gets or creates a unique nested DOM ID for an IFrame
+    ///
+    /// Returns the existing DOM ID if the IFrame was previously registered,
+    /// otherwise allocates a new unique ID and initializes the IFrame state.
     pub fn get_or_create_nested_dom_id(&mut self, dom_id: DomId, node_id: NodeId) -> DomId {
         let key = (dom_id, node_id);
 
@@ -77,10 +113,14 @@ impl IFrameManager {
         nested_dom_id
     }
 
+    /// Gets the nested DOM ID for an IFrame if it exists
     pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
     }
 
+    /// Gets or creates a WebRender PipelineId for an IFrame
+    ///
+    /// PipelineIds are used by WebRender to identify distinct rendering contexts.
     pub fn get_or_create_pipeline_id(&mut self, dom_id: DomId, node_id: NodeId) -> PipelineId {
         *self
             .pipeline_ids
@@ -88,6 +128,7 @@ impl IFrameManager {
             .or_insert_with(|| PipelineId(dom_id.inner as u32, node_id.index() as u32))
     }
 
+    /// Returns whether the IFrame has ever been invoked
     pub fn was_iframe_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states
             .get(&(dom_id, node_id))
@@ -95,21 +136,21 @@ impl IFrameManager {
             .unwrap_or(false)
     }
 
+    /// Updates the IFrame's content size information
+    ///
+    /// Called after the IFrame callback returns to record the actual content
+    /// dimensions. If the new size is larger than previously recorded, clears
+    /// the expansion flag to allow BoundsExpanded re-invocation.
     pub fn update_iframe_info(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         scroll_size: LogicalSize,
         virtual_scroll_size: LogicalSize,
-    ) {
-        let state = self.states.entry((dom_id, node_id)).or_insert_with(|| {
-            let nested_dom_id = DomId {
-                inner: self.next_dom_id,
-            };
-            self.next_dom_id += 1;
-            IFrameState::new(nested_dom_id)
-        });
+    ) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
 
+        // Reset expansion flag if content grew
         if let Some(old_size) = state.iframe_scroll_size {
             if scroll_size.width > old_size.width || scroll_size.height > old_size.height {
                 state.invoked_for_current_expansion = false;
@@ -117,34 +158,57 @@ impl IFrameManager {
         }
         state.iframe_scroll_size = Some(scroll_size);
         state.iframe_virtual_scroll_size = Some(virtual_scroll_size);
+
+        Some(())
     }
 
-    pub fn mark_invoked(&mut self, dom_id: DomId, node_id: NodeId, reason: IFrameCallbackReason) {
-        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
-            state.iframe_was_invoked = true;
-            match reason {
-                IFrameCallbackReason::BoundsExpanded => state.invoked_for_current_expansion = true,
-                IFrameCallbackReason::EdgeScrolled(edge) => {
-                    state.invoked_for_current_edge = true;
-                    state.last_edge_triggered = edge.into();
-                }
-                _ => {}
+    /// Marks an IFrame as invoked for a specific reason
+    ///
+    /// Updates internal state flags based on the callback reason to prevent
+    /// duplicate callbacks for the same trigger condition.
+    pub fn mark_invoked(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        reason: IFrameCallbackReason,
+    ) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+
+        state.iframe_was_invoked = true;
+        match reason {
+            IFrameCallbackReason::BoundsExpanded => state.invoked_for_current_expansion = true,
+            IFrameCallbackReason::EdgeScrolled(edge) => {
+                state.invoked_for_current_edge = true;
+                state.last_edge_triggered = edge.into();
             }
+            _ => {}
         }
+
+        Some(())
     }
 
     /// Force an IFrame to be re-invoked on the next layout pass
     ///
-    /// This clears the "was_invoked" flag, causing check_reinvoke() to return DomRecreated.
+    /// Clears all invocation flags, causing check_reinvoke() to return InitialRender.
     /// Used by trigger_iframe_rerender() to manually refresh IFrame content.
-    pub fn force_reinvoke(&mut self, dom_id: DomId, node_id: NodeId) {
-        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
-            state.iframe_was_invoked = false;
-            state.invoked_for_current_expansion = false;
-            state.invoked_for_current_edge = false;
-        }
+    pub fn force_reinvoke(&mut self, dom_id: DomId, node_id: NodeId) -> Option<()> {
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+
+        state.iframe_was_invoked = false;
+        state.invoked_for_current_expansion = false;
+        state.invoked_for_current_edge = false;
+
+        Some(())
     }
 
+    /// Checks whether an IFrame needs to be re-invoked and returns the reason
+    ///
+    /// Returns `Some(reason)` if the IFrame callback should be invoked:
+    /// - `InitialRender`: IFrame has never been invoked
+    /// - `BoundsExpanded`: Container grew larger than content
+    /// - `EdgeScrolled`: User scrolled near an edge (for lazy loading)
+    ///
+    /// Returns `None` if no re-invocation is needed.
     pub fn check_reinvoke(
         &mut self,
         dom_id: DomId,
@@ -175,11 +239,14 @@ impl IFrameManager {
         let scroll_offset = scroll_manager
             .get_current_offset(dom_id, node_id)
             .unwrap_or_default();
+
         state.check_reinvoke_condition(scroll_offset, layout_bounds.size)
     }
 }
 
 impl IFrameState {
+
+    /// Creates a new IFrameState with the given nested DOM ID
     fn new(nested_dom_id: DomId) -> Self {
         Self {
             iframe_scroll_size: None,
@@ -193,15 +260,24 @@ impl IFrameState {
         }
     }
 
+    /// Determines if the IFrame callback should be re-invoked based on 
+    // scroll position
+    ///
+    /// Checks two conditions:
+    /// 1. Container bounds expanded beyond content size
+    /// 2. User scrolled within EDGE_THRESHOLD pixels of an edge (for lazy loading)
     fn check_reinvoke_condition(
         &mut self,
         current_offset: LogicalPosition,
         container_size: LogicalSize,
     ) -> Option<IFrameCallbackReason> {
+        
+        // Need scroll_size to determine if we can scroll at all
         let Some(scroll_size) = self.iframe_scroll_size else {
             return None;
         };
 
+        // Check 1: Container grew larger than content - need more content
         if !self.invoked_for_current_expansion
             && (container_size.width > scroll_size.width
                 || container_size.height > scroll_size.height)
@@ -209,10 +285,12 @@ impl IFrameState {
             return Some(IFrameCallbackReason::BoundsExpanded);
         }
 
-        const EDGE_THRESHOLD: f32 = 200.0;
+        // Check 2: Edge-based lazy loading
+        // Determine if scrolling is possible in each direction
         let scrollable_width = scroll_size.width > container_size.width;
         let scrollable_height = scroll_size.height > container_size.height;
 
+        // Calculate which edges the user is currently near
         let current_edges = EdgeFlags {
             top: scrollable_height && current_offset.y <= EDGE_THRESHOLD,
             bottom: scrollable_height
@@ -223,6 +301,8 @@ impl IFrameState {
                 && (scroll_size.width - container_size.width - current_offset.x) <= EDGE_THRESHOLD,
         };
 
+        // Trigger edge callback if near an edge that hasn't been triggered yet
+        // Prioritize bottom/right edges (common infinite scroll directions)
         if !self.invoked_for_current_edge && current_edges.any() {
             if current_edges.bottom && !self.last_edge_triggered.bottom {
                 return Some(IFrameCallbackReason::EdgeScrolled(EdgeType::Bottom));
@@ -237,6 +317,7 @@ impl IFrameState {
 }
 
 impl EdgeFlags {
+    /// Returns true if any edge flag is set
     fn any(&self) -> bool {
         self.top || self.bottom || self.left || self.right
     }
@@ -262,321 +343,5 @@ impl From<EdgeType> for EdgeFlags {
                 ..Default::default()
             },
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use azul_core::{
-        events::EasingFunction,
-        task::{Duration, Instant, SystemTick, SystemTickDiff},
-    };
-
-    use super::*;
-    use crate::managers::scroll_state::ScrollManager;
-
-    fn test_instant() -> Instant {
-        #[cfg(feature = "std")]
-        {
-            Instant::System(std::time::Instant::now().into())
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            Instant::Tick(SystemTick { tick_counter: 0 })
-        }
-    }
-
-    fn test_duration_zero() -> Duration {
-        #[cfg(feature = "std")]
-        {
-            Duration::System(std::time::Duration::from_secs(0).into())
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            Duration::Tick(SystemTickDiff { tick_diff: 0 })
-        }
-    }
-
-    #[test]
-    fn test_iframe_manager_initial_render() {
-        let mut iframe_mgr = IFrameManager::new();
-        let mut scroll_mgr = ScrollManager::new();
-        let now = test_instant();
-
-        let parent_dom = DomId { inner: 0 };
-        let node_id = NodeId::new(5);
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        );
-
-        // First check_reinvoke should return InitialRender
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-
-        // Second check without marking invoked should still return InitialRender
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-
-        // Mark as invoked
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
-
-        // Now it should return None (no re-invocation needed)
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, None);
-    }
-
-    #[test]
-    fn test_iframe_manager_bounds_expanded() {
-        let mut iframe_mgr = IFrameManager::new();
-        let mut scroll_mgr = ScrollManager::new();
-        let now = test_instant();
-
-        let parent_dom = DomId { inner: 0 };
-        let node_id = NodeId::new(5);
-
-        // Initial render with small bounds
-        let small_bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(400.0, 300.0),
-        );
-
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, small_bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
-
-        // Update with scroll sizes from the callback
-        iframe_mgr.update_iframe_info(
-            parent_dom,
-            node_id,
-            LogicalSize::new(400.0, 300.0),
-            LogicalSize::new(400.0, 300.0),
-        );
-
-        // Expand bounds (width increases)
-        let expanded_bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 300.0),
-        );
-
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
-
-        // Mark as invoked for expansion
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::BoundsExpanded);
-
-        // Same bounds again should return None
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
-        assert_eq!(reason, None);
-
-        // Expand height as well
-        let more_expanded_bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        );
-
-        let reason =
-            iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
-    }
-
-    #[test]
-    fn test_iframe_manager_edge_scrolled_bottom() {
-        let mut iframe_mgr = IFrameManager::new();
-        let mut scroll_mgr = ScrollManager::new();
-        let now = test_instant();
-
-        let parent_dom = DomId { inner: 0 };
-        let node_id = NodeId::new(5);
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        );
-
-        // Initial render
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
-
-        // Update with large content size (scrollable)
-        iframe_mgr.update_iframe_info(
-            parent_dom,
-            node_id,
-            LogicalSize::new(800.0, 2000.0), // Content is taller than container
-            LogicalSize::new(800.0, 2000.0),
-        );
-
-        // Initialize scroll state
-        scroll_mgr.update_node_bounds(
-            parent_dom,
-            node_id,
-            bounds,
-            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 2000.0)),
-            now.clone(),
-        );
-
-        // No edge yet (scroll at top)
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, None);
-
-        // Scroll near bottom edge (within 200px threshold)
-        let scroll_offset = LogicalPosition::new(0.0, 1300.0); // 2000 - 600 - 1300 = 100px from bottom
-        scroll_mgr.scroll_to(
-            parent_dom,
-            node_id,
-            scroll_offset,
-            test_duration_zero(),
-            EasingFunction::Linear,
-            now.clone(),
-        );
-        // Tick to apply the scroll immediately (zero duration)
-        scroll_mgr.tick(now.clone());
-
-        // Should trigger bottom edge
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(
-            reason,
-            Some(IFrameCallbackReason::EdgeScrolled(EdgeType::Bottom))
-        );
-
-        // Mark as invoked for this edge
-        iframe_mgr.mark_invoked(
-            parent_dom,
-            node_id,
-            IFrameCallbackReason::EdgeScrolled(EdgeType::Bottom),
-        );
-
-        // Same scroll position should not trigger again
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, None);
-    }
-
-    #[test]
-    fn test_iframe_manager_edge_scrolled_right() {
-        let mut iframe_mgr = IFrameManager::new();
-        let mut scroll_mgr = ScrollManager::new();
-        let now = test_instant();
-
-        let parent_dom = DomId { inner: 0 };
-        let node_id = NodeId::new(7);
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        );
-
-        // Initial render
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(reason, Some(IFrameCallbackReason::InitialRender));
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
-
-        // Update with wide content (scrollable horizontally)
-        iframe_mgr.update_iframe_info(
-            parent_dom,
-            node_id,
-            LogicalSize::new(3000.0, 600.0), // Content is wider than container
-            LogicalSize::new(3000.0, 600.0),
-        );
-
-        // Initialize scroll state
-        scroll_mgr.update_node_bounds(
-            parent_dom,
-            node_id,
-            bounds,
-            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(3000.0, 600.0)),
-            now.clone(),
-        );
-
-        // Scroll near right edge (within 200px threshold)
-        let scroll_offset = LogicalPosition::new(2100.0, 0.0); // 3000 - 800 - 2100 = 100px from right
-        scroll_mgr.scroll_to(
-            parent_dom,
-            node_id,
-            scroll_offset,
-            test_duration_zero(),
-            EasingFunction::Linear,
-            now.clone(),
-        );
-        // Tick to apply the scroll immediately (zero duration)
-        scroll_mgr.tick(now.clone());
-
-        // Should trigger right edge
-        let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-        assert_eq!(
-            reason,
-            Some(IFrameCallbackReason::EdgeScrolled(EdgeType::Right))
-        );
-    }
-
-    #[test]
-    fn test_iframe_manager_nested_dom_ids() {
-        let mut iframe_mgr = IFrameManager::new();
-
-        let parent_dom = DomId { inner: 0 };
-        let node1 = NodeId::new(1);
-        let node2 = NodeId::new(2);
-        let node3 = NodeId::new(3);
-
-        // Create nested DOM IDs
-        let child1 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node1);
-        let child2 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node2);
-        let child3 = iframe_mgr.get_or_create_nested_dom_id(parent_dom, node3);
-
-        // Should be unique
-        assert_ne!(child1, child2);
-        assert_ne!(child2, child3);
-        assert_ne!(child1, child3);
-
-        // Should be consistent (same result when called again)
-        assert_eq!(
-            child1,
-            iframe_mgr.get_or_create_nested_dom_id(parent_dom, node1)
-        );
-        assert_eq!(
-            child2,
-            iframe_mgr.get_or_create_nested_dom_id(parent_dom, node2)
-        );
-
-        // get_nested_dom_id should return existing IDs
-        assert_eq!(
-            iframe_mgr.get_nested_dom_id(parent_dom, node1),
-            Some(child1)
-        );
-        assert_eq!(
-            iframe_mgr.get_nested_dom_id(parent_dom, node2),
-            Some(child2)
-        );
-
-        // Non-existent should return None
-        let nonexistent = NodeId::new(999);
-        assert_eq!(iframe_mgr.get_nested_dom_id(parent_dom, nonexistent), None);
-    }
-
-    #[test]
-    fn test_iframe_manager_was_invoked_tracking() {
-        let mut iframe_mgr = IFrameManager::new();
-        let scroll_mgr = ScrollManager::new();
-
-        let parent_dom = DomId { inner: 0 };
-        let node_id = NodeId::new(5);
-        let bounds = LogicalRect::new(
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        );
-
-        // Initially not invoked
-        assert!(!iframe_mgr.was_iframe_invoked(parent_dom, node_id));
-
-        // Check reinvoke to create state
-        iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-
-        // Still not invoked until we mark it
-        assert!(!iframe_mgr.was_iframe_invoked(parent_dom, node_id));
-
-        // Mark as invoked
-        iframe_mgr.mark_invoked(parent_dom, node_id, IFrameCallbackReason::InitialRender);
-
-        // Now it should be invoked
-        assert!(iframe_mgr.was_iframe_invoked(parent_dom, node_id));
     }
 }

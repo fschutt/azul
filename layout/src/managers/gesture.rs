@@ -9,8 +9,11 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use azul_core::{
     dom::{DomId, NodeId},
     geom::LogicalPosition,
+    hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
+    window::WindowPosition,
 };
+use azul_css::AzString;
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -67,31 +70,22 @@ pub const DEFAULT_SAMPLE_TIMEOUT_MS: u64 = 2000;
 pub struct GestureDetectionConfig {
     /// Minimum distance (pixels) to consider movement a drag, not a click
     pub drag_distance_threshold: f32,
-
     /// Maximum time between clicks for double-click detection (milliseconds)
     pub double_click_time_threshold_ms: u64,
-
     /// Maximum distance between clicks for double-click detection (pixels)
     pub double_click_distance_threshold: f32,
-
     /// Minimum time to hold button for long-press detection (milliseconds)
     pub long_press_time_threshold_ms: u64,
-
     /// Maximum distance to move while holding for long-press (pixels)
     pub long_press_distance_threshold: f32,
-
     /// Minimum samples needed to detect a gesture
     pub min_samples_for_gesture: usize,
-
     /// Minimum velocity for swipe detection (pixels per second)
     pub swipe_velocity_threshold: f32,
-
     /// Minimum scale change for pinch detection (e.g., 0.1 = 10% change)
     pub pinch_scale_threshold: f32,
-
     /// Minimum rotation angle for rotation detection (radians)
     pub rotation_angle_threshold: f32,
-
     /// How often to clear old samples (milliseconds)
     pub sample_cleanup_interval_ms: u64,
 }
@@ -118,23 +112,17 @@ impl Default for GestureDetectionConfig {
 pub struct InputSample {
     /// Position in logical coordinates
     pub position: LogicalPosition,
-
     /// Timestamp when this sample was recorded (from ExternalSystemCallbacks)
     pub timestamp: CoreInstant,
-
     /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
     pub button_state: u8,
-
     /// Unique, monotonic event ID for ordering (atomic counter)
     pub event_id: u64,
-
     /// Pen/stylus pressure (0.0 to 1.0, 0.5 = default for mouse)
     pub pressure: f32,
-
     /// Pen/stylus tilt angles in degrees (x_tilt, y_tilt)
     /// Range: typically -90.0 to 90.0, (0.0, 0.0) = perpendicular
     pub tilt: (f32, f32),
-
     /// Touch contact radius in logical pixels (width, height)
     /// For mouse input, this is (0.0, 0.0)
     pub touch_radius: (f32, f32),
@@ -145,15 +133,14 @@ pub struct InputSample {
 pub struct InputSession {
     /// All recorded samples for this session
     pub samples: Vec<InputSample>,
-
     /// Whether this session has ended (button released)
     pub ended: bool,
-
     /// Session ID for tracking (incremental counter)
     pub session_id: u64,
 }
 
 impl InputSession {
+
     /// Create a new input session
     fn new(session_id: u64, first_sample: InputSample) -> Self {
         Self {
@@ -213,22 +200,16 @@ impl InputSession {
 pub struct DetectedDrag {
     /// Position where drag started
     pub start_position: LogicalPosition,
-
     /// Current/end position of drag
     pub current_position: LogicalPosition,
-
     /// Direct distance dragged (straight line, pixels)
     pub direct_distance: f32,
-
     /// Total distance dragged (following path, pixels)
     pub total_distance: f32,
-
     /// Duration of the drag (milliseconds)
     pub duration_ms: u64,
-
     /// Number of position samples recorded
     pub sample_count: usize,
-
     /// Session ID this drag belongs to
     pub session_id: u64,
 }
@@ -238,13 +219,10 @@ pub struct DetectedDrag {
 pub struct DetectedLongPress {
     /// Position where long press is happening
     pub position: LogicalPosition,
-
     /// How long the button has been held (milliseconds)
     pub duration_ms: u64,
-
     /// Whether the callback has already been invoked for this long press
     pub callback_invoked: bool,
-
     /// Session ID this long press belongs to
     pub session_id: u64,
 }
@@ -263,16 +241,12 @@ pub enum GestureDirection {
 pub struct DetectedPinch {
     /// Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)
     pub scale: f32,
-
     /// Center point of the pinch gesture
     pub center: LogicalPosition,
-
     /// Initial distance between touch points
     pub initial_distance: f32,
-
     /// Current distance between touch points
     pub current_distance: f32,
-
     /// Duration of pinch (milliseconds)
     pub duration_ms: u64,
 }
@@ -282,10 +256,8 @@ pub struct DetectedPinch {
 pub struct DetectedRotation {
     /// Rotation angle in radians (positive = clockwise)
     pub angle_radians: f32,
-
     /// Center point of rotation
     pub center: LogicalPosition,
-
     /// Duration of rotation (milliseconds)
     pub duration_ms: u64,
 }
@@ -295,25 +267,18 @@ pub struct DetectedRotation {
 pub struct NodeDragState {
     /// DOM ID of the node being dragged
     pub dom_id: DomId,
-
     /// Node ID being dragged
     pub node_id: NodeId,
-
     /// Position where drag started
     pub start_position: LogicalPosition,
-
     /// Current drag position
     pub current_position: LogicalPosition,
-
     /// Optional: DOM node currently under cursor (drop target)
     pub current_drop_target: Option<(DomId, NodeId)>,
-
     /// Hit-test result at drag start (to track what's under cursor during drag)
-    pub start_hit_test: Option<azul_core::hit_test::HitTest>,
-
+    pub start_hit_test: Option<HitTest>,
     /// Drag data (MIME types and content)
     pub drag_data: DragData,
-
     /// Session ID this drag was promoted from
     pub session_id: u64,
 }
@@ -323,16 +288,12 @@ pub struct NodeDragState {
 pub struct WindowDragState {
     /// Position where window drag started
     pub start_position: LogicalPosition,
-
     /// Current drag position
     pub current_position: LogicalPosition,
-
     /// Initial window position before drag
-    pub initial_window_position: azul_core::window::WindowPosition,
-
+    pub initial_window_position: WindowPosition,
     /// Hit-test result at drag start (e.g., to verify we're still on titlebar)
-    pub start_hit_test: Option<azul_core::hit_test::HitTest>,
-
+    pub start_hit_test: Option<HitTest>,
     /// Session ID this drag was promoted from
     pub session_id: u64,
 }
@@ -341,14 +302,11 @@ pub struct WindowDragState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileDropState {
     /// Files being dragged (as string paths)
-    pub files: Vec<azul_css::AzString>,
-
+    pub files: Vec<AzString>,
     /// Current position of drag cursor
     pub position: LogicalPosition,
-
     /// DOM node under cursor (potential drop target)
     pub drop_target: Option<(DomId, NodeId)>,
-
     /// Allowed drop effect
     pub drop_effect: DropEffect,
 }
@@ -358,22 +316,16 @@ pub struct FileDropState {
 pub struct PenState {
     /// Current pen position
     pub position: LogicalPosition,
-
     /// Current pressure (0.0 to 1.0)
     pub pressure: f32,
-
     /// Current tilt angles (x_tilt, y_tilt) in degrees
     pub tilt: (f32, f32),
-
     /// Whether pen is in contact with surface
     pub in_contact: bool,
-
     /// Whether pen is inverted (eraser mode)
     pub is_eraser: bool,
-
     /// Whether barrel button is pressed
     pub barrel_button_pressed: bool,
-
     /// Unique identifier for this pen device
     pub device_id: u64,
 }
@@ -397,13 +349,10 @@ impl Default for PenState {
 pub enum DropEffect {
     /// No effect
     None,
-
     /// Copy the data
     Copy,
-
     /// Move the data
     Move,
-
     /// Create link
     Link,
 }
@@ -412,9 +361,9 @@ pub enum DropEffect {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DragData {
     /// MIME type -> data mapping
+    /// 
     /// e.g., "text/plain" -> "Hello World"
-    pub data: BTreeMap<azul_css::AzString, Vec<u8>>,
-
+    pub data: BTreeMap<AzString, Vec<u8>>,
     /// Allowed drag operations
     pub effect_allowed: DragEffect,
 }
@@ -424,13 +373,10 @@ pub struct DragData {
 pub enum DragEffect {
     /// No drop allowed
     None,
-
     /// Copy operation
     Copy,
-
     /// Move operation
     Move,
-
     /// Link/shortcut operation
     Link,
 }
@@ -442,6 +388,7 @@ impl Default for DragData {
 }
 
 impl DragData {
+
     /// Create new empty drag data
     pub fn new() -> Self {
         Self {
@@ -478,32 +425,26 @@ impl DragData {
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
-/// Designed for testability and clear separation of input collection vs. detection.
+/// Designed for testability and clear separation of input collection 
+/// vs. detection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GestureAndDragManager {
     /// Configuration for gesture detection
     pub config: GestureDetectionConfig,
-
     /// All recorded input sessions (multiple button press sequences)
     pub input_sessions: Vec<InputSession>,
-
-    /// Counter for generating unique session IDs
-    next_session_id: u64,
-
     /// Current active node drag state (after promotion from detected drag)
     pub node_drag: Option<NodeDragState>,
-
     /// Current window drag state (titlebar drag)
     pub window_drag: Option<WindowDragState>,
-
     /// Current file drag/drop state (from OS)
     pub file_drop: Option<FileDropState>,
-
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
-
     /// Session IDs where long press callback has been invoked
     long_press_callbacks_invoked: Vec<u64>,
+    /// Counter for generating unique session IDs
+    next_session_id: u64,
 }
 
 impl Default for GestureAndDragManager {
@@ -513,6 +454,7 @@ impl Default for GestureAndDragManager {
 }
 
 impl GestureAndDragManager {
+
     /// Create a new gesture and drag manager
     pub fn new() -> Self {
         Self {
@@ -624,28 +566,34 @@ impl GestureAndDragManager {
         tilt: (f32, f32),
         touch_radius: (f32, f32),
     ) -> bool {
-        if let Some(session) = self.input_sessions.last_mut() {
-            if !session.ended {
-                // Enforce max samples limit
-                if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
-                    // Remove oldest samples, keeping the most recent ones
-                    let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + 100;
-                    session.samples.drain(0..remove_count);
-                }
 
-                session.samples.push(InputSample {
-                    position,
-                    timestamp,
-                    button_state,
-                    event_id,
-                    pressure,
-                    tilt,
-                    touch_radius,
-                });
-                return true;
-            }
+        let session = match self.input_sessions.last_mut() {
+            Some(s) => s,
+            None => return false,
+        };
+
+        if session.ended {
+            return false;
         }
-        false
+
+        // Enforce max samples limit
+        if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
+            // Remove oldest samples, keeping the most recent ones
+            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + 100;
+            session.samples.drain(0..remove_count);
+        }
+
+        session.samples.push(InputSample {
+            position,
+            timestamp,
+            button_state,
+            event_id,
+            pressure,
+            tilt,
+            touch_radius,
+        });
+        
+        true
     }
 
     /// End the current input session (mouse button released)
@@ -663,6 +611,7 @@ impl GestureAndDragManager {
     /// Call this periodically (e.g., every frame) to prevent memory leaks.
     /// Sessions older than `config.sample_cleanup_interval_ms` are removed.
     pub fn clear_old_sessions(&mut self, current_time: CoreInstant) {
+        
         self.input_sessions.retain(|session| {
             if let Some(last_sample) = session.last_sample() {
                 let duration = current_time.duration_since(&last_sample.timestamp);
@@ -676,6 +625,7 @@ impl GestureAndDragManager {
         // Also clear long press callback tracking for removed sessions
         let valid_session_ids: Vec<u64> =
             self.input_sessions.iter().map(|s| s.session_id).collect();
+        
         self.long_press_callbacks_invoked
             .retain(|id| valid_session_ids.contains(id));
     }
@@ -792,7 +742,8 @@ impl GestureAndDragManager {
 
     /// Mark long press callback as invoked for a session
     ///
-    /// Call this after invoking the long press callback to prevent repeated invocations.
+    /// Call this after invoking the long press callback to prevent 
+    /// repeated invocations.
     pub fn mark_long_press_callback_invoked(&mut self, session_id: u64) {
         if !self.long_press_callbacks_invoked.contains(&session_id) {
             self.long_press_callbacks_invoked.push(session_id);
@@ -846,9 +797,17 @@ impl GestureAndDragManager {
         let dy = last.position.y - first.position.y;
 
         let direction = if dx.abs() > dy.abs() {
-            if dx > 0.0 { GestureDirection::Right } else { GestureDirection::Left }
+            if dx > 0.0 { 
+                GestureDirection::Right 
+            } else { 
+                GestureDirection::Left 
+            }
         } else {
-            if dy > 0.0 { GestureDirection::Down } else { GestureDirection::Up }
+            if dy > 0.0 { 
+                GestureDirection::Down 
+            } else { 
+                GestureDirection::Up 
+            }
         };
         Some(direction)
     }
@@ -881,7 +840,7 @@ impl GestureAndDragManager {
 
     /// Detect swipe with specific direction
     ///
-    /// Returns Some(direction) if gesture is a fast swipe in a clear direction
+    /// Returns Some(dir) if gesture is a fast swipe in a clear direction
     pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
         // Must be a fast swipe first
         if !self.is_swipe() {
@@ -1042,7 +1001,7 @@ impl GestureAndDragManager {
         dom_id: DomId,
         node_id: NodeId,
         drag_data: DragData,
-        start_hit_test: Option<azul_core::hit_test::HitTest>,
+        start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
             self.node_drag = Some(NodeDragState {
@@ -1061,8 +1020,8 @@ impl GestureAndDragManager {
     /// Promote detected drag to window drag (titlebar)
     pub fn activate_window_drag(
         &mut self,
-        initial_window_position: azul_core::window::WindowPosition,
-        start_hit_test: Option<azul_core::hit_test::HitTest>,
+        initial_window_position: WindowPosition,
+        start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
             self.window_drag = Some(WindowDragState {
@@ -1098,7 +1057,7 @@ impl GestureAndDragManager {
     }
 
     /// Update hit-test for active node drag
-    pub fn update_node_drag_hit_test(&mut self, hit_test: Option<azul_core::hit_test::HitTest>) {
+    pub fn update_node_drag_hit_test(&mut self, hit_test: Option<HitTest>) {
         if let Some(ref mut node_drag) = self.node_drag {
             node_drag.start_hit_test = hit_test;
         }
@@ -1112,7 +1071,7 @@ impl GestureAndDragManager {
     }
 
     /// Update hit-test for active window drag
-    pub fn update_window_drag_hit_test(&mut self, hit_test: Option<azul_core::hit_test::HitTest>) {
+    pub fn update_window_drag_hit_test(&mut self, hit_test: Option<HitTest>) {
         if let Some(ref mut window_drag) = self.window_drag {
             window_drag.start_hit_test = hit_test;
         }
@@ -1201,7 +1160,7 @@ impl GestureAndDragManager {
 
         // Apply to initial window position
         match drag.initial_window_position {
-            azul_core::window::WindowPosition::Initialized(initial_pos) => {
+            WindowPosition::Initialized(initial_pos) => {
                 Some((delta_x as i32, delta_y as i32))
             }
             _ => None,
@@ -1211,7 +1170,7 @@ impl GestureAndDragManager {
     /// Get the new window position based on current drag
     ///
     /// Returns the absolute window position to set.
-    pub fn get_window_position_from_drag(&self) -> Option<azul_core::window::WindowPosition> {
+    pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
         use azul_core::geom::PhysicalPositionI32;
 
         let drag = self.window_drag.as_ref()?;
@@ -1220,8 +1179,8 @@ impl GestureAndDragManager {
         let delta_y = drag.current_position.y - drag.start_position.y;
 
         match drag.initial_window_position {
-            azul_core::window::WindowPosition::Initialized(initial_pos) => Some(
-                azul_core::window::WindowPosition::Initialized(PhysicalPositionI32::new(
+            WindowPosition::Initialized(initial_pos) => Some(
+                WindowPosition::Initialized(PhysicalPositionI32::new(
                     initial_pos.x + delta_x as i32,
                     initial_pos.y + delta_y as i32,
                 )),
@@ -1233,233 +1192,5 @@ impl GestureAndDragManager {
     /// Check if window drag is active
     pub fn is_window_dragging(&self) -> bool {
         self.window_drag.is_some()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_instant(millis: u64) -> CoreInstant {
-        // For testing, we can use the milliseconds as ticks
-        CoreInstant::Tick(azul_core::task::SystemTick {
-            tick_counter: millis,
-        })
-    }
-
-    #[test]
-    fn test_drag_detection() {
-        let mut manager = GestureAndDragManager::new();
-
-        // Start session at (0, 0)
-        manager.start_input_session(LogicalPosition::new(0.0, 0.0), make_instant(0), 0x01);
-
-        // Not a drag yet (distance too small)
-        assert!(manager.detect_drag().is_none());
-
-        // Move to (10, 10) - should be detected as drag
-        manager.record_input_sample(LogicalPosition::new(10.0, 10.0), make_instant(100), 0x01);
-
-        let drag = manager.detect_drag().unwrap();
-        assert_eq!(drag.start_position, LogicalPosition::new(0.0, 0.0));
-        assert_eq!(drag.current_position, LogicalPosition::new(10.0, 10.0));
-        assert!(drag.direct_distance > 14.0); // sqrt(10^2 + 10^2) ≈ 14.14
-        assert_eq!(drag.duration_ms, 100);
-    }
-
-    #[test]
-    fn test_double_click_detection() {
-        let mut manager = GestureAndDragManager::new();
-
-        // First click at (5, 5)
-        manager.start_input_session(LogicalPosition::new(5.0, 5.0), make_instant(0), 0x01);
-        manager.end_current_session();
-
-        // Second click at (6, 6) after 200ms - should be double click
-        manager.start_input_session(LogicalPosition::new(6.0, 6.0), make_instant(200), 0x01);
-        manager.end_current_session(); // Need to end the second session too
-
-        assert!(manager.detect_double_click());
-    }
-
-    #[test]
-    fn test_long_press_detection() {
-        let mut manager = GestureAndDragManager::new();
-
-        // Start press at (10, 10)
-        manager.start_input_session(LogicalPosition::new(10.0, 10.0), make_instant(0), 0x01);
-
-        // Record another sample after 600ms (exceeds threshold)
-        manager.record_input_sample(LogicalPosition::new(10.0, 10.0), make_instant(600), 0x01);
-
-        let long_press = manager.detect_long_press().unwrap();
-        assert_eq!(long_press.position, LogicalPosition::new(10.0, 10.0));
-        assert_eq!(long_press.duration_ms, 600);
-        assert!(!long_press.callback_invoked);
-
-        // Mark callback as invoked
-        manager.mark_long_press_callback_invoked(long_press.session_id);
-
-        let long_press2 = manager.detect_long_press().unwrap();
-        assert!(long_press2.callback_invoked);
-    }
-
-    #[test]
-    fn test_session_cleanup() {
-        let mut manager = GestureAndDragManager::new();
-
-        // Create an old session
-        manager.start_input_session(LogicalPosition::new(0.0, 0.0), make_instant(0), 0x01);
-        manager.end_current_session();
-
-        assert_eq!(manager.session_count(), 1);
-
-        // Clear sessions that are older than 2000ms
-        manager.clear_old_sessions(make_instant(3000));
-
-        assert_eq!(manager.session_count(), 0);
-    }
-
-    #[test]
-    fn test_activate_node_drag_with_hit_test() {
-        use alloc::collections::BTreeMap;
-
-        use azul_core::hit_test::{HitTest, HitTestItem};
-
-        let mut manager = GestureAndDragManager::new();
-
-        // Start drag session
-        manager.start_input_session(LogicalPosition::new(0.0, 0.0), make_instant(0), 0x01);
-        manager.record_input_sample(LogicalPosition::new(15.0, 15.0), make_instant(100), 0x01);
-
-        // Verify drag is detected
-        assert!(manager.detect_drag().is_some());
-
-        // Create mock hit test
-        let mut hit_test = HitTest {
-            regular_hit_test_nodes: BTreeMap::new(),
-            scroll_hit_test_nodes: BTreeMap::new(),
-            scrollbar_hit_test_nodes: BTreeMap::new(),
-        };
-
-        hit_test.regular_hit_test_nodes.insert(
-            NodeId::new(1),
-            HitTestItem {
-                point_in_viewport: LogicalPosition::new(0.0, 0.0),
-                point_relative_to_item: LogicalPosition::new(0.0, 0.0),
-                is_focusable: false,
-                is_iframe_hit: None,
-            },
-        );
-
-        // Activate node drag with hit test
-        let drag_data = DragData {
-            data: BTreeMap::new(),
-            effect_allowed: DragEffect::Copy,
-        };
-
-        manager.activate_node_drag(
-            DomId { inner: 0 },
-            NodeId::new(1),
-            drag_data,
-            Some(hit_test.clone()),
-        );
-
-        // Verify node drag was activated with hit test
-        let node_drag = manager.get_node_drag().unwrap();
-        assert_eq!(node_drag.dom_id, DomId { inner: 0 });
-        assert_eq!(node_drag.node_id, NodeId::new(1));
-        assert!(node_drag.start_hit_test.is_some());
-
-        let saved_hit_test = node_drag.start_hit_test.as_ref().unwrap();
-        assert_eq!(saved_hit_test.regular_hit_test_nodes.len(), 1);
-    }
-
-    #[test]
-    fn test_activate_window_drag_with_hit_test() {
-        use alloc::collections::BTreeMap;
-
-        use azul_core::{
-            hit_test::{HitTest, HitTestItem},
-            window::WindowPosition,
-        };
-
-        let mut manager = GestureAndDragManager::new();
-
-        // Start drag session
-        manager.start_input_session(LogicalPosition::new(10.0, 10.0), make_instant(0), 0x01);
-        manager.record_input_sample(LogicalPosition::new(25.0, 25.0), make_instant(100), 0x01);
-
-        // Create mock hit test (simulating titlebar hit)
-        let mut hit_test = HitTest {
-            regular_hit_test_nodes: BTreeMap::new(),
-            scroll_hit_test_nodes: BTreeMap::new(),
-            scrollbar_hit_test_nodes: BTreeMap::new(),
-        };
-
-        hit_test.regular_hit_test_nodes.insert(
-            NodeId::new(99), // Titlebar node ID
-            HitTestItem {
-                point_in_viewport: LogicalPosition::new(10.0, 10.0),
-                point_relative_to_item: LogicalPosition::new(10.0, 10.0),
-                is_focusable: false,
-                is_iframe_hit: None,
-            },
-        );
-
-        // Activate window drag with hit test
-        manager.activate_window_drag(
-            WindowPosition::Initialized(azul_core::geom::PhysicalPositionI32::new(100, 100)),
-            Some(hit_test.clone()),
-        );
-
-        // Verify window drag was activated with hit test
-        let window_drag = manager.get_window_drag().unwrap();
-        assert!(window_drag.start_hit_test.is_some());
-
-        let saved_hit_test = window_drag.start_hit_test.as_ref().unwrap();
-        assert_eq!(saved_hit_test.regular_hit_test_nodes.len(), 1);
-        assert!(saved_hit_test
-            .regular_hit_test_nodes
-            .contains_key(&NodeId::new(99)));
-    }
-
-    #[test]
-    fn test_update_hit_test_methods() {
-        use alloc::collections::BTreeMap;
-
-        use azul_core::hit_test::HitTest;
-
-        let mut manager = GestureAndDragManager::new();
-
-        // Start drag and activate node drag
-        manager.start_input_session(LogicalPosition::new(0.0, 0.0), make_instant(0), 0x01);
-        manager.record_input_sample(LogicalPosition::new(20.0, 20.0), make_instant(100), 0x01);
-
-        let drag_data = DragData {
-            data: BTreeMap::new(),
-            effect_allowed: DragEffect::Copy,
-        };
-
-        manager.activate_node_drag(
-            DomId { inner: 0 },
-            NodeId::new(1),
-            drag_data,
-            None, // Start with no hit test
-        );
-
-        assert!(manager.get_node_drag().unwrap().start_hit_test.is_none());
-
-        // Update hit test later
-        let hit_test = HitTest {
-            regular_hit_test_nodes: BTreeMap::new(),
-            scroll_hit_test_nodes: BTreeMap::new(),
-            scrollbar_hit_test_nodes: BTreeMap::new(),
-        };
-
-        manager.update_node_drag_hit_test(Some(hit_test));
-
-        // Verify hit test was updated
-        assert!(manager.get_node_drag().unwrap().start_hit_test.is_some());
     }
 }

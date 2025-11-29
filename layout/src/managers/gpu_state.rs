@@ -1,11 +1,11 @@
 //! Centralized GPU state management.
 //!
-//! This module provides management of GPU property keys (opacity, transforms, etc.),
-//! fade-in/fade-out animations for scrollbar opacity, and a single source of truth
-//! for the GPU cache.
+//! This module provides management of GPU property keys 
+//! (opacity, transforms, etc.), fade-in/fade-out animations 
+//! for scrollbar opacity - as a single source of truth for 
+//! the GPU cache.
 
 use alloc::collections::BTreeMap;
-
 use azul_core::{
     dom::{DomId, NodeId},
     geom::LogicalSize,
@@ -14,12 +14,16 @@ use azul_core::{
     task::{Duration, Instant, SystemTimeDiff},
     transform::{ComputedTransform3D, RotationMode},
 };
-
 use crate::{
     managers::scroll_state::{FrameScrollInfo, ScrollManager},
     solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarInfo},
     text3::cache::ParsedFontTrait,
 };
+
+/// Default delay before scrollbars start fading out (500ms)
+pub const DEFAULT_FADE_DELAY_MS: u64 = 500;
+/// Default duration of scrollbar fade-out animation (200ms)
+pub const DEFAULT_FADE_DURATION_MS: u64 = 200;
 
 /// Manages GPU-accelerated properties across all DOMs.
 ///
@@ -42,8 +46,8 @@ pub struct GpuStateManager {
 impl Default for GpuStateManager {
     fn default() -> Self {
         Self::new(
-            Duration::System(SystemTimeDiff::from_millis(500)),
-            Duration::System(SystemTimeDiff::from_millis(200)),
+            Duration::System(SystemTimeDiff::from_millis(DEFAULT_FADE_DELAY_MS)),
+            Duration::System(SystemTimeDiff::from_millis(DEFAULT_FADE_DURATION_MS)),
         )
     }
 }
@@ -77,12 +81,8 @@ pub struct GpuTickResult {
 }
 
 impl GpuStateManager {
+    
     /// Creates a new GPU state manager with specified fade timing.
-    ///
-    /// # Arguments
-    ///
-    /// * `fade_delay` - Time after last activity before fade-out starts
-    /// * `fade_duration` - Duration of the fade-out animation
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
         Self {
             caches: BTreeMap::new(),
