@@ -6,7 +6,8 @@ use alloc::collections::BTreeMap;
 use core::time::Duration;
 
 use azul_core::{
-    dom::DomId,
+    dom::{DomId, DomNodeId},
+    events::SelectionManagerQuery,
     geom::LogicalPosition,
     selection::{Selection, SelectionRange, SelectionState, TextCursor},
 };
@@ -15,7 +16,7 @@ use azul_core::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClickState {
     /// Last clicked node
-    pub last_node: Option<azul_core::dom::DomNodeId>,
+    pub last_node: Option<DomNodeId>,
     /// Last click position
     pub last_position: LogicalPosition,
     /// Last click time (as milliseconds since some epoch)
@@ -69,7 +70,7 @@ impl SelectionManager {
     /// Returns the new click count (1=single, 2=double, 3=triple)
     pub fn update_click_count(
         &mut self,
-        node_id: azul_core::dom::DomNodeId,
+        node_id: DomNodeId,
         position: LogicalPosition,
         current_time_ms: u64,
     ) -> u8 {
@@ -121,7 +122,7 @@ impl SelectionManager {
     /// Reset click count to 1 (new click sequence)
     fn reset_click_count(
         &mut self,
-        node_id: azul_core::dom::DomNodeId,
+        node_id: DomNodeId,
         position: LogicalPosition,
         current_time_ms: u64,
     ) -> u8 {
@@ -150,12 +151,7 @@ impl SelectionManager {
     }
 
     /// Set a single cursor for a DOM, replacing all existing selections
-    pub fn set_cursor(
-        &mut self,
-        dom_id: DomId,
-        node_id: azul_core::dom::DomNodeId,
-        cursor: TextCursor,
-    ) {
+    pub fn set_cursor(&mut self, dom_id: DomId, node_id: DomNodeId, cursor: TextCursor) {
         let mut state = SelectionState {
             selections: alloc::vec![Selection::Cursor(cursor)],
             node_id,
@@ -164,12 +160,7 @@ impl SelectionManager {
     }
 
     /// Set a selection range for a DOM, replacing all existing selections
-    pub fn set_range(
-        &mut self,
-        dom_id: DomId,
-        node_id: azul_core::dom::DomNodeId,
-        range: SelectionRange,
-    ) {
+    pub fn set_range(&mut self, dom_id: DomId, node_id: DomNodeId, range: SelectionRange) {
         let state = SelectionState {
             selections: alloc::vec![Selection::Range(range)],
             node_id,
@@ -178,12 +169,7 @@ impl SelectionManager {
     }
 
     /// Add a selection to an existing selection state (for multi-cursor support)
-    pub fn add_selection(
-        &mut self,
-        dom_id: DomId,
-        node_id: azul_core::dom::DomNodeId,
-        selection: Selection,
-    ) {
+    pub fn add_selection(&mut self, dom_id: DomId, node_id: DomNodeId, selection: Selection) {
         self.selections
             .entry(dom_id)
             .or_insert_with(|| SelectionState {
@@ -261,7 +247,7 @@ impl SelectionManager {
     /// - `None` - Not a text selection click (click count > 3 or timeout/distance exceeded)
     pub fn analyze_click_for_selection(
         &self,
-        node_id: azul_core::dom::DomNodeId,
+        node_id: DomNodeId,
         position: LogicalPosition,
         current_time_ms: u64,
     ) -> Option<u8> {
@@ -370,12 +356,12 @@ impl ClipboardContent {
 
 // Trait Implementations for Event Filtering
 
-impl azul_core::events::SelectionManagerQuery for SelectionManager {
+impl SelectionManagerQuery for SelectionManager {
     fn get_click_count(&self) -> u8 {
         self.click_state.click_count
     }
 
-    fn get_drag_start_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+    fn get_drag_start_position(&self) -> Option<LogicalPosition> {
         // If left mouse button is down and we have a last click position,
         // that's our drag start position
         if self.click_state.click_count > 0 {

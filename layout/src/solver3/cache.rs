@@ -18,7 +18,7 @@ use std::{
 };
 
 use azul_core::{
-    dom::{FormattingContext, NodeId},
+    dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::{StyledDom, StyledNode},
 };
@@ -35,7 +35,7 @@ use azul_css::{
 };
 
 use crate::{
-    font_traits::{FontLoaderTrait, ParsedFontTrait},
+    font_traits::{FontLoaderTrait, ParsedFontTrait, TextLayoutCache},
     solver3::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
@@ -44,6 +44,9 @@ use crate::{
             get_wrap, get_writing_mode, MultiValue,
         },
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
+        positioning::get_position_type,
+        scrollbar::ScrollbarInfo,
+        sizing::calculate_used_size_for_node,
         LayoutContext, LayoutError, LayoutTree, Result,
     },
     text3::cache::AvailableSpace as Text3AvailableSpace,
@@ -400,8 +403,6 @@ pub fn reconcile_recursive(
     recon: &mut ReconciliationResult,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<usize> {
-    use azul_core::dom::NodeType;
-
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
@@ -514,7 +515,7 @@ pub fn reconcile_recursive(
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
     // The absolute position of the containing block's content-box origin.
     containing_block_pos: LogicalPosition,
@@ -534,7 +535,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         // This size is based on the node's CSS properties (width, height, etc.) and
         // its containing block. If height is 'auto', this is a temporary value.
         let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
-        let mut final_used_size = crate::solver3::sizing::calculate_used_size_for_node(
+        let mut final_used_size = calculate_used_size_for_node(
             ctx.styled_dom,
             Some(dom_id),
             containing_block_size,
@@ -638,7 +639,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
     let scrollbar_info = if skip_scrollbar_check {
         // For PDF/paged media, never add scrollbars
-        crate::solver3::scrollbar::ScrollbarInfo {
+        ScrollbarInfo {
             needs_horizontal: false,
             needs_vertical: false,
             scrollbar_width: 0.0,
@@ -701,7 +702,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     let merged_scrollbar_info = {
         let current_node = tree.get(node_index).unwrap();
         match &current_node.scrollbar_info {
-            Some(old) => crate::solver3::scrollbar::ScrollbarInfo {
+            Some(old) => ScrollbarInfo {
                 needs_horizontal: old.needs_horizontal || scrollbar_info.needs_horizontal,
                 needs_vertical: old.needs_vertical || scrollbar_info.needs_vertical,
                 scrollbar_width: if old.needs_vertical || scrollbar_info.needs_vertical {
@@ -932,8 +933,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
     for (child_index, child_dom_id_opt) in out_of_flow_children {
         if let Some(child_dom_id) = child_dom_id_opt {
-            let position_type =
-                crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            let position_type = get_position_type(ctx.styled_dom, Some(child_dom_id));
             if position_type == azul_css::props::layout::LayoutPosition::Absolute
                 || position_type == azul_css::props::layout::LayoutPosition::Fixed
             {
@@ -968,7 +968,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 fn position_flex_child_descendants<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    text_cache: &mut crate::font_traits::TextLayoutCache,
+    text_cache: &mut TextLayoutCache,
     node_index: usize,
     content_box_pos: LogicalPosition,
     available_size: LogicalSize,
@@ -1073,7 +1073,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
 fn set_static_positions_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    _text_cache: &mut crate::font_traits::TextLayoutCache,
+    _text_cache: &mut TextLayoutCache,
     node_index: usize,
     parent_content_box_pos: LogicalPosition,
     calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
@@ -1095,8 +1095,7 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
 
     for (child_index, child_dom_id_opt) in out_of_flow_children {
         if let Some(child_dom_id) = child_dom_id_opt {
-            let position_type =
-                crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            let position_type = get_position_type(ctx.styled_dom, Some(child_dom_id));
             if position_type == azul_css::props::layout::LayoutPosition::Absolute
                 || position_type == azul_css::props::layout::LayoutPosition::Fixed
             {

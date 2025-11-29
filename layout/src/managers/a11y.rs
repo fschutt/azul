@@ -15,9 +15,16 @@ use std::collections::HashMap;
 #[cfg(feature = "a11y")]
 use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
 use azul_core::{
-    dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId, NodeType},
+    dom::{
+        AccessibilityAction, AccessibilityInfo, AccessibilityRole, AccessibilityState, DomId,
+        DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
+    },
+    geom::{LogicalPosition, LogicalSize},
     styled_dom::NodeHierarchyItemId,
 };
+use azul_css::AzString;
+
+use crate::{solver3::layout_tree::LayoutNode, window::DomLayoutResult};
 
 /// Manager for accessibility tree state and updates.
 ///
@@ -54,12 +61,9 @@ impl A11yManager {
     /// accessibility tree with the visual representation.
     pub fn update_tree(
         root_id: A11yNodeId,
-        layout_results: &std::collections::BTreeMap<
-            azul_core::dom::DomId,
-            crate::window::DomLayoutResult,
-        >,
-        window_title: &azul_css::AzString,
-        window_size: azul_core::geom::LogicalSize,
+        layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
+        window_title: &AzString,
+        window_size: LogicalSize,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
         let mut root_children = Vec::new();
@@ -192,12 +196,10 @@ impl A11yManager {
 
     /// Builds an accesskit Node from Azul's NodeData and layout information.
     fn build_node(
-        node_data: &azul_core::dom::NodeData,
-        layout_node: &crate::solver3::layout_tree::LayoutNode,
-        a11y_info: Option<&azul_core::dom::AccessibilityInfo>,
+        node_data: &NodeData,
+        layout_node: &LayoutNode,
+        a11y_info: Option<&AccessibilityInfo>,
     ) -> Node {
-        use azul_core::dom::AccessibilityState;
-
         // Set role based on NodeType or AccessibilityInfo
         let role = if let Some(info) = a11y_info {
             Self::map_role(&info.role)
@@ -372,7 +374,6 @@ impl A11yManager {
         &self,
         request: ActionRequest,
     ) -> Option<(DomNodeId, AccessibilityAction)> {
-        use azul_core::geom::LogicalPosition;
         use azul_css::{props::basic::FloatValue, AzString};
 
         // Decode the A11yNodeId back into DomId + NodeId.
@@ -402,7 +403,6 @@ impl A11yManager {
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
 fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
-    use azul_core::geom::LogicalPosition;
     use azul_css::{props::basic::FloatValue, AzString};
 
     let action = match request.action {
@@ -452,7 +452,7 @@ fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
             let accesskit::ActionData::SetTextSelection(selection) = request.data? else {
                 return None;
             };
-            AccessibilityAction::SetTextSelection(azul_core::dom::TextSelectionStartEnd {
+            AccessibilityAction::SetTextSelection(TextSelectionStartEnd {
                 start: selection.anchor.character_index,
                 end: selection.focus.character_index,
             })

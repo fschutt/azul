@@ -33,6 +33,7 @@ use azul_core::{
     geom::LogicalPosition,
     selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor},
     task::Instant,
+    window::CursorPosition,
 };
 
 use super::changeset::{TextChangeset, TextOperation};
@@ -324,10 +325,6 @@ impl UndoRedoManager {
 ///
 /// Returns: `TextChangeset` - The changeset that reverts the operation
 pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant) -> TextChangeset {
-    use azul_core::window::CursorPosition;
-
-    use crate::managers::changeset::{TextChangeset, TextOperation};
-
     // Create the inverse operation based on what was done
     let revert_operation = match &operation.changeset.operation {
         // InsertText → DeleteText (remove what was inserted)

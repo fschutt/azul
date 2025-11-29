@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
     dom::{DomId, NodeId},
-    geom::LogicalPosition,
+    geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
@@ -1165,8 +1165,6 @@ impl GestureAndDragManager {
     ///
     /// Returns the absolute window position to set.
     pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
-        use azul_core::geom::PhysicalPositionI32;
-
         let drag = self.window_drag.as_ref()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;

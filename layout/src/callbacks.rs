@@ -4,27 +4,36 @@
 //! UI callbacks. Callbacks need access to layout information (node sizes, positions,
 //! hierarchy), which is why this module lives in azul-layout instead of azul-core.
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
-
 // Re-export callback macro from azul-core
-use azul_core::impl_callback;
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::BTreeMap, VecDeque},
+    sync::Arc,
+    vec::Vec,
+};
+
 use azul_core::{
     animation::UpdateImageType,
-    callbacks::{CoreCallback, FocusTarget, FocusTargetPath, Update},
-    dom::{DomId, DomNodeId, NodeId, NodeType},
+    callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
+    dom::{DomId, DomNodeId, IdOrClass, NodeId, NodeType},
+    events::CallbackResultRef,
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
+    gpu::GpuValueCache,
     hit_test::ScrollPosition,
+    id::NodeId as CoreNodeId,
+    impl_callback,
     menu::Menu,
     refany::RefAny,
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
-    selection::SelectionRange,
+    selection::{Selection, SelectionRange, SelectionState, TextCursor},
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{ThreadId, TimerId},
+    task::{self, GetSystemTimeCallback, Instant, ThreadId, TimerId},
     window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
+    css::CssPath,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyType},
@@ -35,10 +44,24 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    managers::{hover::InputPointId, selection::ClipboardContent},
-    thread::Thread,
+    hit_test::FullHitTest,
+    managers::{
+        drag_drop::{DragDropManager, DragState, DragType},
+        file_drop::FileDropManager,
+        focus_cursor::FocusManager,
+        gesture::{GestureAndDragManager, InputSample, PenState},
+        gpu_state::GpuStateManager,
+        hover::{HoverManager, InputPointId},
+        iframe::IFrameManager,
+        scroll_state::{ScrollManager, ScrollState},
+        selection::{ClipboardContent, SelectionManager},
+        text_input::{TextChangeset, TextInputManager},
+        undo_redo::{UndoRedoManager, UndoableOperation},
+    },
+    text3::cache::{LayoutCache as TextLayoutCache, UnifiedLayout},
+    thread::{CreateThreadCallback, Thread},
     timer::Timer,
-    window::LayoutWindow,
+    window::{DomLayoutResult, LayoutWindow},
     window_state::{FullWindowState, WindowCreateOptions},
 };
 
@@ -171,19 +194,17 @@ pub enum CallbackChange {
     MoveCursor {
         dom_id: DomId,
         node_id: NodeId,
-        cursor: azul_core::selection::TextCursor,
+        cursor: TextCursor,
     },
     /// Set text selection range
     SetSelection {
         dom_id: DomId,
         node_id: NodeId,
-        selection: azul_core::selection::Selection,
+        selection: Selection,
     },
     /// Set/override the text changeset for the current text input operation
     /// This allows callbacks to modify what text will be inserted during text input events
-    SetTextChangeset {
-        changeset: crate::managers::text_input::TextChangeset,
-    },
+    SetTextChangeset { changeset: TextChangeset },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -582,7 +603,7 @@ impl CallbackInfo {
         // Search through all nodes to find one with matching ID attribute
         for (node_idx, node_data) in styled_dom.node_data.as_ref().iter().enumerate() {
             for id_or_class in node_data.ids_and_classes.as_ref() {
-                if let azul_core::dom::IdOrClass::Id(node_id_str) = id_or_class {
+                if let IdOrClass::Id(node_id_str) = id_or_class {
                     if node_id_str.as_str() == id {
                         return Some(NodeId::new(node_idx));
                     }
@@ -730,7 +751,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn get_text_changeset(&self) -> Option<&crate::managers::text_input::TextChangeset> {
+    pub fn get_text_changeset(&self) -> Option<&TextChangeset> {
         self.get_layout_window()
             .text_input_manager
             .get_pending_changeset()
@@ -765,7 +786,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn set_text_changeset(&mut self, changeset: crate::managers::text_input::TextChangeset) {
+    pub fn set_text_changeset(&mut self, changeset: TextChangeset) {
         self.push_change(CallbackChange::SetTextChangeset { changeset });
     }
 
@@ -929,12 +950,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn move_cursor(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        cursor: azul_core::selection::TextCursor,
-    ) {
+    pub fn move_cursor(&mut self, dom_id: DomId, node_id: NodeId, cursor: TextCursor) {
         self.push_change(CallbackChange::MoveCursor {
             dom_id,
             node_id,
@@ -968,12 +984,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn set_selection(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        selection: azul_core::selection::Selection,
-    ) {
+    pub fn set_selection(&mut self, dom_id: DomId, node_id: NodeId, selection: Selection) {
         self.push_change(CallbackChange::SetSelection {
             dom_id,
             node_id,
@@ -1044,10 +1055,7 @@ impl CallbackInfo {
     /// - The DOM doesn't exist in layout_results
     /// - The node doesn't have a layout node mapping
     /// - The layout node doesn't have inline text layout
-    fn get_inline_layout_for_node(
-        &self,
-        node_id: &DomNodeId,
-    ) -> Option<&Arc<crate::text3::cache::UnifiedLayout>> {
+    fn get_inline_layout_for_node(&self, node_id: &DomNodeId) -> Option<&Arc<UnifiedLayout>> {
         let layout_window = self.get_layout_window();
 
         // Get the layout result for this DOM
@@ -1127,14 +1135,14 @@ impl CallbackInfo {
     // Gpu Value Cache Management (Query APIs)
 
     /// Get the GPU value cache for a specific DOM
-    pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&azul_core::gpu::GpuValueCache> {
+    pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&GpuValueCache> {
         self.get_layout_window().get_gpu_cache(dom_id)
     }
 
     // Layout Result Access (Query APIs)
 
     /// Get a layout result for a specific DOM
-    pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&crate::window::DomLayoutResult> {
+    pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&DomLayoutResult> {
         self.get_layout_window().get_layout_result(dom_id)
     }
 
@@ -1354,7 +1362,7 @@ impl CallbackInfo {
     // Text Selection Management
 
     /// Get the current selection state for a DOM
-    pub fn get_selection(&self, dom_id: &DomId) -> Option<&azul_core::selection::SelectionState> {
+    pub fn get_selection(&self, dom_id: &DomId) -> Option<&SelectionState> {
         self.get_layout_window()
             .selection_manager
             .get_selection(dom_id)
@@ -1368,17 +1376,14 @@ impl CallbackInfo {
     }
 
     /// Get the primary cursor for a DOM (first in selection list)
-    pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<azul_core::selection::TextCursor> {
+    pub fn get_primary_cursor(&self, dom_id: &DomId) -> Option<TextCursor> {
         self.get_layout_window()
             .selection_manager
             .get_primary_cursor(dom_id)
     }
 
     /// Get all selection ranges (excludes plain cursors)
-    pub fn get_selection_ranges(
-        &self,
-        dom_id: &DomId,
-    ) -> Vec<azul_core::selection::SelectionRange> {
+    pub fn get_selection_ranges(&self, dom_id: &DomId) -> Vec<SelectionRange> {
         self.get_layout_window()
             .selection_manager
             .get_ranges(dom_id)
@@ -1396,7 +1401,7 @@ impl CallbackInfo {
     /// - `get_selection()`, `get_primary_cursor()` for reading selections
     ///
     /// Future: Add NodeId -> CacheId mapping to enable node-specific layout access
-    pub fn get_text_cache(&self) -> &crate::text3::cache::LayoutCache {
+    pub fn get_text_cache(&self) -> &TextLayoutCache {
         &self.get_layout_window().text_cache
     }
 
@@ -1469,17 +1474,17 @@ impl CallbackInfo {
 
     /// Get the system style (for menu rendering, CSD, etc.)
     /// This is useful for creating custom menus or other system-styled UI.
-    pub fn get_system_style(&self) -> alloc::sync::Arc<azul_css::system::SystemStyle> {
+    pub fn get_system_style(&self) -> Arc<SystemStyle> {
         self.system_style.clone()
     }
 
     /// Get the current cursor position in logical coordinates relative to the window
-    pub fn get_cursor_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+    pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
         self.cursor_in_viewport.into_option()
     }
 
     /// Get the layout rectangle of the currently hit node (in logical coordinates)
-    pub fn get_hit_node_layout_rect(&self) -> Option<azul_core::geom::LogicalRect> {
+    pub fn get_hit_node_layout_rect(&self) -> Option<LogicalRect> {
         self.get_layout_window()
             .get_node_layout_rect(self.hit_dom_node)
     }
@@ -1503,24 +1508,11 @@ impl CallbackInfo {
     /// # Returns
     /// * `Some(CssProperty)` if the property is set on this node
     /// * `None` if the property is not set (will use default value)
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use azul_layout::callbacks::CallbackInfo;
-    /// # use azul_core::dom::DomNodeId;
-    /// # use azul_css::props::property::CssPropertyType;
-    /// # fn example(info: &CallbackInfo) {
-    /// let node = info.get_hit_node();
-    /// if let Some(width) = info.get_computed_css_property(node, CssPropertyType::Width) {
-    ///     println!("Node width: {:?}", width);
-    /// }
-    /// # }
-    /// ```
     pub fn get_computed_css_property(
         &self,
         node_id: DomNodeId,
-        property_type: azul_css::props::property::CssPropertyType,
-    ) -> Option<azul_css::props::property::CssProperty> {
+        property_type: CssPropertyType,
+    ) -> Option<CssProperty> {
         let layout_window = self.get_layout_window();
 
         // Get the layout result for this DOM
@@ -1530,7 +1522,7 @@ impl CallbackInfo {
         let styled_dom = &layout_result.styled_dom;
 
         // Convert DomNodeId to NodeId
-        let internal_node_id = azul_core::id::NodeId::from_usize(node_id.node.inner)?;
+        let internal_node_id = CoreNodeId::from_usize(node_id.node.inner)?;
 
         // Get the node data
         let node_data_container = styled_dom.node_data.as_container();
@@ -1551,30 +1543,24 @@ impl CallbackInfo {
     /// Get the computed width of a node from CSS
     ///
     /// Convenience method for getting the CSS width property.
-    pub fn get_computed_width(
-        &self,
-        node_id: DomNodeId,
-    ) -> Option<azul_css::props::property::CssProperty> {
-        self.get_computed_css_property(node_id, azul_css::props::property::CssPropertyType::Width)
+    pub fn get_computed_width(&self, node_id: DomNodeId) -> Option<CssProperty> {
+        self.get_computed_css_property(node_id, CssPropertyType::Width)
     }
 
     /// Get the computed height of a node from CSS
     ///
     /// Convenience method for getting the CSS height property.
-    pub fn get_computed_height(
-        &self,
-        node_id: DomNodeId,
-    ) -> Option<azul_css::props::property::CssProperty> {
-        self.get_computed_css_property(node_id, azul_css::props::property::CssPropertyType::Height)
+    pub fn get_computed_height(&self, node_id: DomNodeId) -> Option<CssProperty> {
+        self.get_computed_css_property(node_id, CssPropertyType::Height)
     }
 
     // System Callbacks
 
-    pub fn get_system_time_fn(&self) -> azul_core::task::GetSystemTimeCallback {
+    pub fn get_system_time_fn(&self) -> GetSystemTimeCallback {
         unsafe { (*self.ref_data).system_callbacks.get_system_time_fn }
     }
 
-    pub fn get_current_time(&self) -> azul_core::task::Instant {
+    pub fn get_current_time(&self) -> task::Instant {
         let cb = self.get_system_time_fn();
         (cb.cb)()
     }
@@ -1585,7 +1571,7 @@ impl CallbackInfo {
     ///
     /// Use this to query scroll state for nodes without modifying it.
     /// To request programmatic scrolling, use `nodes_scrolled_in_callback`.
-    pub fn get_scroll_manager(&self) -> &crate::managers::scroll_state::ScrollManager {
+    pub fn get_scroll_manager(&self) -> &ScrollManager {
         unsafe { &(*self.ref_data).layout_window.scroll_manager }
     }
 
@@ -1596,7 +1582,7 @@ impl CallbackInfo {
     ///
     /// The manager is updated by the event loop and provides read-only query access
     /// to callbacks for gesture-aware UI behavior.
-    pub fn get_gesture_drag_manager(&self) -> &crate::managers::gesture::GestureAndDragManager {
+    pub fn get_gesture_drag_manager(&self) -> &GestureAndDragManager {
         unsafe { &(*self.ref_data).layout_window.gesture_drag_manager }
     }
 
@@ -1604,7 +1590,7 @@ impl CallbackInfo {
     ///
     /// Use this to query which node currently has focus and whether focus
     /// is being moved to another node.
-    pub fn get_focus_manager(&self) -> &crate::managers::focus_cursor::FocusManager {
+    pub fn get_focus_manager(&self) -> &FocusManager {
         &self.get_layout_window().focus_manager
     }
 
@@ -1627,7 +1613,7 @@ impl CallbackInfo {
     ///     }
     /// }
     /// ```
-    pub fn get_undo_redo_manager(&self) -> &crate::managers::undo_redo::UndoRedoManager {
+    pub fn get_undo_redo_manager(&self) -> &UndoRedoManager {
         &self.get_layout_window().undo_redo_manager
     }
 
@@ -1635,21 +1621,21 @@ impl CallbackInfo {
     ///
     /// Use this to query which nodes are currently hovered at various input points
     /// (mouse, touch points, pen).
-    pub fn get_hover_manager(&self) -> &crate::managers::hover::HoverManager {
+    pub fn get_hover_manager(&self) -> &HoverManager {
         &self.get_layout_window().hover_manager
     }
 
     /// Get immutable reference to the text input manager
     ///
     /// Use this to query text selection state, cursor positions, and IME composition.
-    pub fn get_text_input_manager(&self) -> &crate::managers::text_input::TextInputManager {
+    pub fn get_text_input_manager(&self) -> &TextInputManager {
         &self.get_layout_window().text_input_manager
     }
 
     /// Get immutable reference to the selection manager
     ///
     /// Use this to query text selections across multiple nodes.
-    pub fn get_selection_manager(&self) -> &crate::managers::selection::SelectionManager {
+    pub fn get_selection_manager(&self) -> &SelectionManager {
         &self.get_layout_window().selection_manager
     }
 
@@ -1668,7 +1654,7 @@ impl CallbackInfo {
     // Pen/Stylus Query Methods
 
     /// Get current pen/stylus state if a pen is active
-    pub fn get_pen_state(&self) -> Option<&crate::managers::gesture::PenState> {
+    pub fn get_pen_state(&self) -> Option<&PenState> {
         self.get_gesture_drag_manager().get_pen_state()
     }
 
@@ -1706,7 +1692,7 @@ impl CallbackInfo {
     }
 
     /// Get the last recorded input sample (for event_id and detailed input data)
-    pub fn get_last_input_sample(&self) -> Option<&crate::managers::gesture::InputSample> {
+    pub fn get_last_input_sample(&self) -> Option<&InputSample> {
         let manager = self.get_gesture_drag_manager();
         manager
             .get_current_session()
@@ -1729,7 +1715,7 @@ impl CallbackInfo {
     }
 
     /// Set focus to a node matching a CSS path
-    pub fn set_focus_to_path(&mut self, dom_id: DomId, css_path: azul_css::css::CssPath) {
+    pub fn set_focus_to_path(&mut self, dom_id: DomId, css_path: CssPath) {
         self.set_focus(FocusTarget::Path(FocusTargetPath {
             dom: dom_id,
             css_path,
@@ -1829,19 +1815,19 @@ impl CallbackInfo {
     /// Get the current drag/drop state (if any)
     ///
     /// Returns None if no drag is active, or Some with drag details.
-    pub fn get_drag_state(&self) -> Option<&crate::managers::drag_drop::DragState> {
+    pub fn get_drag_state(&self) -> Option<&DragState> {
         self.get_layout_window().drag_drop_manager.get_drag_state()
     }
 
     // Hover Manager Access
 
     /// Get the current mouse cursor hit test result (most recent frame)
-    pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
+    pub fn get_current_hit_test(&self) -> Option<&FullHitTest> {
         self.get_hover_manager().get_current(&InputPointId::Mouse)
     }
 
     /// Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)
-    pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&crate::hit_test::FullHitTest> {
+    pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&FullHitTest> {
         self.get_hover_manager()
             .get_frame(&InputPointId::Mouse, frames_ago)
     }
@@ -1849,9 +1835,7 @@ impl CallbackInfo {
     /// Get the full mouse cursor hit test history (up to 5 frames)
     ///
     /// Returns None if no mouse history exists yet
-    pub fn get_hit_test_history(
-        &self,
-    ) -> Option<&alloc::collections::VecDeque<crate::hit_test::FullHitTest>> {
+    pub fn get_hit_test_history(&self) -> Option<&VecDeque<FullHitTest>> {
         self.get_hover_manager().get_history(&InputPointId::Mouse)
     }
 
@@ -1864,19 +1848,19 @@ impl CallbackInfo {
     // File Drop Manager Access
 
     /// Get immutable reference to the file drop manager
-    pub fn get_file_drop_manager(&self) -> &crate::managers::file_drop::FileDropManager {
+    pub fn get_file_drop_manager(&self) -> &FileDropManager {
         &self.get_layout_window().file_drop_manager
     }
 
     /// Get all selections across all DOMs
-    pub fn get_all_selections(&self) -> &BTreeMap<DomId, azul_core::selection::SelectionState> {
+    pub fn get_all_selections(&self) -> &BTreeMap<DomId, SelectionState> {
         self.get_selection_manager().get_all_selections()
     }
 
     // Drag-Drop Manager Access
 
     /// Get immutable reference to the drag-drop manager
-    pub fn get_drag_drop_manager(&self) -> &crate::managers::drag_drop::DragDropManager {
+    pub fn get_drag_drop_manager(&self) -> &DragDropManager {
         &self.get_layout_window().drag_drop_manager
     }
 
@@ -1885,7 +1869,7 @@ impl CallbackInfo {
         self.get_drag_drop_manager()
             .get_drag_state()
             .and_then(|state| {
-                if state.drag_type == crate::managers::drag_drop::DragType::Node {
+                if state.drag_type == DragType::Node {
                     state.source_node
                 } else {
                     None
@@ -1894,11 +1878,11 @@ impl CallbackInfo {
     }
 
     /// Get the file path being dragged (if any)
-    pub fn get_dragged_file(&self) -> Option<&azul_css::AzString> {
+    pub fn get_dragged_file(&self) -> Option<&AzString> {
         self.get_drag_drop_manager()
             .get_drag_state()
             .and_then(|state| {
-                if state.drag_type == crate::managers::drag_drop::DragType::File {
+                if state.drag_type == DragType::File {
                     state.file_path.as_ref()
                 } else {
                     None
@@ -1926,25 +1910,21 @@ impl CallbackInfo {
     }
 
     /// Get the scroll state (container rect, content rect, current offset) for a node
-    pub fn get_scroll_state(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<&crate::managers::scroll_state::ScrollState> {
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&ScrollState> {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
     // Gpu State Manager Access
 
     /// Get immutable reference to the GPU state manager
-    pub fn get_gpu_state_manager(&self) -> &crate::managers::gpu_state::GpuStateManager {
+    pub fn get_gpu_state_manager(&self) -> &GpuStateManager {
         &self.get_layout_window().gpu_state_manager
     }
 
     // IFrame Manager Access
 
     /// Get immutable reference to the IFrame manager
-    pub fn get_iframe_manager(&self) -> &crate::managers::iframe::IFrameManager {
+    pub fn get_iframe_manager(&self) -> &IFrameManager {
         &self.get_layout_window().iframe_manager
     }
 
@@ -2063,8 +2043,6 @@ impl CallbackInfo {
         target: DomNodeId,
         forward: bool,
     ) -> Option<(SelectionRange, String)> {
-        use azul_core::selection::Selection;
-
         let layout_window = self.get_layout_window();
         let dom_id = &target.dom;
         let node_id = target.node.into_crate_internal()?;
@@ -2103,20 +2081,14 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn inspect_undo_operation(
-        &self,
-        node_id: NodeId,
-    ) -> Option<&crate::managers::undo_redo::UndoableOperation> {
+    pub fn inspect_undo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_undo(node_id)
     }
 
     /// Inspect a pending redo operation
     ///
     /// Returns the operation that would be reapplied.
-    pub fn inspect_redo_operation(
-        &self,
-        node_id: NodeId,
-    ) -> Option<&crate::managers::undo_redo::UndoableOperation> {
+    pub fn inspect_redo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_redo(node_id)
     }
 
@@ -2232,10 +2204,7 @@ impl CallbackInfo {
     /// Get the current cursor position in a node
     ///
     /// Returns the text cursor position if the node is focused.
-    pub fn get_node_cursor_position(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn get_node_cursor_position(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
 
         // Check if this node is focused
@@ -2283,6 +2252,7 @@ impl CallbackInfo {
     /// * `target` - The node containing the cursor
     ///
     /// # Example
+    ///
     /// ```ignore
     /// On::KeyDown(VirtualKeyCode::Left) -> |info| {
     ///     if let Some(new_pos) = info.inspect_move_cursor_left(target) {
@@ -2294,10 +2264,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn inspect_move_cursor_left(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2320,10 +2287,7 @@ impl CallbackInfo {
     ///
     /// Returns the new cursor position that would result from moving right.
     /// Returns None if the cursor is already at the end of the document.
-    pub fn inspect_move_cursor_right(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_right(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2346,10 +2310,7 @@ impl CallbackInfo {
     ///
     /// Returns the new cursor position that would result from moving up one line.
     /// Returns None if the cursor is already on the first line.
-    pub fn inspect_move_cursor_up(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_up(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2373,10 +2334,7 @@ impl CallbackInfo {
     ///
     /// Returns the new cursor position that would result from moving down one line.
     /// Returns None if the cursor is already on the last line.
-    pub fn inspect_move_cursor_down(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_down(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2399,10 +2357,7 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing Home key
     ///
     /// Returns the cursor position at the start of the current line.
-    pub fn inspect_move_cursor_to_line_start(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_to_line_start(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2420,10 +2375,7 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing End key
     ///
     /// Returns the cursor position at the end of the current line.
-    pub fn inspect_move_cursor_to_line_end(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_to_line_end(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
 
@@ -2441,13 +2393,10 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing Ctrl+Home
     ///
     /// Returns the cursor position at the start of the document.
-    pub fn inspect_move_cursor_to_document_start(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_to_document_start(&self, target: DomNodeId) -> Option<TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId};
 
-        Some(azul_core::selection::TextCursor {
+        Some(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -2459,15 +2408,12 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing Ctrl+End
     ///
     /// Returns the cursor position at the end of the document.
-    pub fn inspect_move_cursor_to_document_end(
-        &self,
-        target: DomNodeId,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn inspect_move_cursor_to_document_end(&self, target: DomNodeId) -> Option<TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId};
 
         let text_len = self.get_node_text_length(target)?;
 
-        Some(azul_core::selection::TextCursor {
+        Some(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: text_len as u32,
@@ -2607,8 +2553,8 @@ impl CallbackInfo {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ExternalSystemCallbacks {
-    pub create_thread_fn: crate::thread::CreateThreadCallback,
-    pub get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    pub create_thread_fn: CreateThreadCallback,
+    pub get_system_time_fn: GetSystemTimeCallback,
 }
 
 impl ExternalSystemCallbacks {
@@ -2617,10 +2563,10 @@ impl ExternalSystemCallbacks {
         use crate::thread::create_thread_libstd;
 
         Self {
-            create_thread_fn: crate::thread::CreateThreadCallback {
+            create_thread_fn: CreateThreadCallback {
                 cb: create_thread_libstd,
             },
-            get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+            get_system_time_fn: GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
         }
@@ -2631,10 +2577,10 @@ impl ExternalSystemCallbacks {
         use crate::thread::create_thread_libstd;
 
         Self {
-            create_thread_fn: crate::thread::CreateThreadCallback {
+            create_thread_fn: CreateThreadCallback {
                 cb: create_thread_libstd,
             },
-            get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+            get_system_time_fn: GetSystemTimeCallback {
                 cb: azul_core::task::get_system_time_libstd,
             },
         }
@@ -2830,7 +2776,7 @@ impl From<OptionMenuCallback> for Option<MenuCallback> {
     }
 }
 
-// -- render image callback
+// -- RenderImage callbacks
 
 /// Callback type that renders an OpenGL texture
 ///
@@ -2875,7 +2821,7 @@ pub struct RenderImageCallbackInfo {
     /// The ID of the DOM node that the ImageCallback was attached to
     callback_node_id: DomNodeId,
     /// Bounds of the laid-out node
-    bounds: azul_core::callbacks::HidpiAdjustedBounds,
+    bounds: HidpiAdjustedBounds,
     /// Optional OpenGL context pointer
     gl_context: *const OptionGlContextPtr,
     /// Image cache for looking up images
@@ -2905,7 +2851,7 @@ impl Clone for RenderImageCallbackInfo {
 impl RenderImageCallbackInfo {
     pub fn new<'a>(
         callback_node_id: DomNodeId,
-        bounds: azul_core::callbacks::HidpiAdjustedBounds,
+        bounds: HidpiAdjustedBounds,
         gl_context: &'a OptionGlContextPtr,
         image_cache: &'a ImageCache,
         system_fonts: &'a FcFontCache,
@@ -2925,7 +2871,7 @@ impl RenderImageCallbackInfo {
         self.callback_node_id
     }
 
-    pub fn get_bounds(&self) -> azul_core::callbacks::HidpiAdjustedBounds {
+    pub fn get_bounds(&self) -> HidpiAdjustedBounds {
         self.bounds
     }
 

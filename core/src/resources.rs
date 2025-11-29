@@ -10,8 +10,8 @@ use core::{
 use azul_css::{
     format_rust_code::GetHash,
     props::basic::{
-        ColorU, FloatValue, FontRef, LayoutRect, LayoutSize, StyleFontFamily, StyleFontFamilyVec,
-        StyleFontSize,
+        pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
+        StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
     },
     AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec,
 };
@@ -615,7 +615,6 @@ pub fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -
 }
 
 pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
-    use azul_css::format_rust_code::GetHash;
     fr.get_hash()
 }
 
@@ -1605,7 +1604,6 @@ impl_option!(
 );
 
 pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
     Au::from_px(font_size.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
 }
 

@@ -38,7 +38,7 @@ use core::fmt;
 use azul_css::{
     props::{
         basic::{
-            ColorF, ColorU, OptionColorU, OptionLayoutSize, SvgCubicCurve, SvgPoint,
+            ColorF, ColorU, OptionColorU, OptionLayoutSize, PixelValue, SvgCubicCurve, SvgPoint,
             SvgQuadraticCurve, SvgRect, SvgVector,
         },
         style::{StyleTransformOrigin, StyleTransformVec},
@@ -49,8 +49,8 @@ use azul_css::{
 use crate::{
     geom::PhysicalSizeU32,
     gl::{
-        GlContextPtr, IndexBufferFormat, Texture, VertexAttribute, VertexAttributeType,
-        VertexBuffer, VertexLayout, VertexLayoutDescription,
+        GlContextPtr, GlShader, IndexBufferFormat, Texture, Uniform, UniformType, VertexAttribute,
+        VertexAttributeType, VertexBuffer, VertexLayout, VertexLayoutDescription,
     },
     transform::{ComputedTransform3D, RotationMode},
     xml::XmlError,
@@ -838,10 +838,6 @@ impl TessellatedGPUSvgNode {
         color: ColorU,
         transforms: StyleTransformVec,
     ) -> bool {
-        use azul_css::props::basic::PixelValue;
-
-        use crate::gl::{GlShader, Uniform, UniformType};
-
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
             y: PixelValue::px(target_size.height as f32 / 2.0),
