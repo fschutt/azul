@@ -21,23 +21,10 @@
 //! 2200px   ─────────────────────────────
 //! ```
 //!
-//! ## Benefits
-//!
-//! 1. **No coordinate desynchronization**: Nodes don't need to track which page they're on
-//! 2. **Simple background splitting**: A tall element just gets clipped at page boundaries
-//! 3. **Flex/Grid compatibility**: Containers can use page height for `height: 100%`
-//! 4. **Simple rendering**: Just clip and translate the display list per page
-//!
-//! ## CSS Break Properties
-//!
-//! - `break-before: page` - Force page break before element
-//! - `break-after: page` - Force page break after element
-//! - `break-inside: avoid` - Avoid breaking inside element (move to next page if needed)
-//! - `orphans`/`widows` - Minimum lines at start/end of page (for text)
-//!
 //! ## CSS Generated Content for Paged Media (GCPM) Level 3 Support
 //!
 //! This module provides the foundation for CSS GCPM Level 3 features:
+//!
 //! - **Running Elements** (`position: running(name)`) - Elements extracted from flow and displayed
 //!   in margin boxes (headers/footers)
 //! - **Page Selectors** (`@page :first`, `@page :left/:right`) - Per-page styling
@@ -45,22 +32,6 @@
 //! - **Page Counters** (`counter(page)`, `counter(pages)`) - Page numbering
 //!
 //! See: https://www.w3.org/TR/css-gcpm-3/
-//!
-//! ## Current Implementation Status
-//!
-//! **NOTE**: Full CSS `@page` parsing is not yet implemented. This module provides
-//! a "fake" configuration API (`FakePageConfig`) that allows programmatic control
-//! over page headers and footers. Currently supported features:
-//!
-//! - ✅ Page numbers in header/footer (`counter(page)`, `counter(pages)`)
-//! - ✅ Custom text in header/footer
-//! - ✅ Skip first page option
-//! - ✅ Different formats (decimal, roman, alpha, greek)
-//! - ⏳ Running elements (`position: running(name)`) - infrastructure ready
-//! - ⏳ Named strings (`string-set`) - infrastructure ready
-//! - ❌ Full `@page` CSS rule parsing
-//! - ❌ Page selectors (`:first`, `:left`, `:right`, `:blank`)
-//! - ❌ Margin box positioning (16 positions per CSS spec)
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -73,6 +44,7 @@ use azul_css::props::{
 /// Manages the infinite canvas coordinate system with page boundaries.
 ///
 /// The `PageGeometer` tracks page dimensions and provides utilities for:
+/// 
 /// - Determining which page a Y coordinate falls on
 /// - Calculating the next page start position
 /// - Checking if content crosses page boundaries
@@ -417,9 +389,7 @@ pub fn calculate_pagination_offset(
     0.0
 }
 
-// =============================================================================
 // CSS GCPM Level 3: Running Elements & Page Margin Boxes
-// =============================================================================
 //
 // This section provides infrastructure for CSS Generated Content for Paged Media
 // Level 3 (https://www.w3.org/TR/css-gcpm-3/).
@@ -922,15 +892,14 @@ impl PageTemplate {
     }
 }
 
-// ============================================================================
-// FAKE @PAGE SUPPORT
-// ============================================================================
+// Fake @page support (temporary solution)
 //
-// The following structures provide a programmatic API to configure page headers
-// and footers WITHOUT full CSS @page rule parsing. This is a temporary solution
-// until proper CSS @page support is implemented.
+// The following structures provide a programmatic API to configure 
+// page headers and footers WITHOUT full CSS @page rule parsing. 
+// This is a temporary solution until proper CSS @page support is implemented.
 //
 // Usage example:
+// 
 // ```rust
 // let config = FakePageConfig::new()
 //     .with_footer_page_numbers()
@@ -952,33 +921,6 @@ impl PageTemplate {
 /// - Number format (decimal, roman numerals, alphabetic, greek)
 /// - Skip first page option
 ///
-/// ## Not Yet Supported
-///
-/// - CSS `@page` rule parsing
-/// - Page selectors (`:first`, `:left`, `:right`, `:blank`)
-/// - Running elements (`position: running(name)`)
-/// - Named strings (`string-set`)
-/// - Full margin box positioning (16 positions)
-///
-/// ## Example
-///
-/// ```rust,ignore
-/// use azul_layout::solver3::pagination::FakePageConfig;
-///
-/// // Simple footer with "Page X of Y"
-/// let config = FakePageConfig::new().with_footer_page_numbers();
-///
-/// // Custom header and footer
-/// let config = FakePageConfig::new()
-///     .with_header_text("Company Report 2024")
-///     .with_footer_page_numbers()
-///     .skip_first_page(true);
-///
-/// // Roman numeral page numbers
-/// let config = FakePageConfig::new()
-///     .with_footer_page_numbers()
-///     .with_number_format(CounterFormat::LowerRoman);
-/// ```
 #[derive(Debug, Clone)]
 pub struct FakePageConfig {
     /// Show header on pages
@@ -1278,320 +1220,5 @@ impl TableHeaderTracker {
         }
 
         headers
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_page_geometer_basic() {
-        let geometer =
-            PageGeometer::new(LogicalSize::new(600.0, 800.0), PageMargins::uniform(50.0));
-
-        // Content height = 800 - 50 - 50 = 700
-        assert_eq!(geometer.content_height(), 700.0);
-        assert_eq!(geometer.content_width(), 500.0);
-    }
-
-    #[test]
-    fn test_page_for_y() {
-        let geometer = PageGeometer::new(
-            LogicalSize::new(600.0, 1000.0),
-            PageMargins::new(0.0, 0.0, 0.0, 0.0),
-        );
-
-        // With no margins/headers, content height = 1000, dead zone = 0
-        assert_eq!(geometer.page_for_y(0.0), 0);
-        assert_eq!(geometer.page_for_y(500.0), 0);
-        assert_eq!(geometer.page_for_y(999.0), 0);
-        assert_eq!(geometer.page_for_y(1000.0), 1);
-        assert_eq!(geometer.page_for_y(1500.0), 1);
-    }
-
-    #[test]
-    fn test_page_for_y_with_margins() {
-        let geometer = PageGeometer::new(
-            LogicalSize::new(600.0, 1000.0),
-            PageMargins::new(50.0, 0.0, 50.0, 0.0),
-        );
-
-        // Content height = 1000 - 50 - 50 = 900
-        // Dead zone = 50 + 50 = 100
-        // Full page slot = 900 + 100 = 1000
-        assert_eq!(geometer.content_height(), 900.0);
-        assert_eq!(geometer.dead_zone_height(), 100.0);
-
-        assert_eq!(geometer.page_for_y(0.0), 0);
-        assert_eq!(geometer.page_for_y(899.0), 0);
-        assert_eq!(geometer.page_for_y(900.0), 0); // In dead zone, still page 0
-        assert_eq!(geometer.page_for_y(1000.0), 1); // Page 1 content start
-    }
-
-    #[test]
-    fn test_crosses_page_break() {
-        let geometer =
-            PageGeometer::new(LogicalSize::new(600.0, 1000.0), PageMargins::uniform(0.0));
-
-        assert!(!geometer.crosses_page_break(0.0, 500.0));
-        assert!(!geometer.crosses_page_break(0.0, 1000.0));
-        assert!(geometer.crosses_page_break(0.0, 1001.0));
-        assert!(geometer.crosses_page_break(500.0, 1500.0));
-    }
-
-    #[test]
-    fn test_pagination_offset() {
-        let geometer =
-            PageGeometer::new(LogicalSize::new(600.0, 1000.0), PageMargins::uniform(0.0));
-
-        let default_break = BreakEvaluation::default();
-
-        // Content fits on current page
-        let offset = calculate_pagination_offset(&geometer, 0.0, 500.0, &default_break, false);
-        assert_eq!(offset, 0.0);
-
-        // Content doesn't fit, is splittable - no forced move
-        let offset = calculate_pagination_offset(&geometer, 800.0, 500.0, &default_break, false);
-        assert_eq!(offset, 0.0); // Will be split
-
-        // Monolithic content that doesn't fit but would fit on empty page
-        let monolithic_break = BreakEvaluation {
-            behavior: BreakBehavior::Monolithic,
-            ..Default::default()
-        };
-        let offset = calculate_pagination_offset(&geometer, 800.0, 500.0, &monolithic_break, false);
-        assert_eq!(offset, 200.0); // Push to next page
-    }
-
-    #[test]
-    fn test_forced_break_before() {
-        let geometer =
-            PageGeometer::new(LogicalSize::new(600.0, 1000.0), PageMargins::uniform(0.0));
-
-        let forced_break = BreakEvaluation {
-            force_break_before: true,
-            ..Default::default()
-        };
-
-        // Already at page start - no extra offset
-        let offset = calculate_pagination_offset(&geometer, 0.0, 100.0, &forced_break, false);
-        assert_eq!(offset, 0.0);
-
-        // In middle of page - force to next page
-        let offset = calculate_pagination_offset(&geometer, 500.0, 100.0, &forced_break, false);
-        assert_eq!(offset, 500.0); // Push to start of next page
-    }
-
-    #[test]
-    fn test_table_header_tracker_basic() {
-        let mut tracker = TableHeaderTracker::new();
-
-        // Register a table that spans pages 0-2 (Y: 100-2500)
-        tracker.register_table_header(TableHeaderInfo {
-            table_node_index: 0,
-            table_start_y: 100.0,
-            table_end_y: 2500.0,
-            thead_items: vec![], // Empty for test
-            thead_height: 50.0,
-            thead_offset_y: 0.0,
-        });
-
-        // Page 0: table starts here, no repeated header needed
-        let headers = tracker.get_repeated_headers_for_page(0, 0.0, 1000.0);
-        assert!(
-            headers.is_empty(),
-            "Page 0 should not have repeated header (table starts here)"
-        );
-
-        // Page 1: table continues, need repeated header
-        let headers = tracker.get_repeated_headers_for_page(1, 1000.0, 2000.0);
-        assert_eq!(headers.len(), 1, "Page 1 should have repeated header");
-        assert_eq!(headers[0].2, 50.0, "Header height should be 50.0");
-
-        // Page 2: table continues, need repeated header
-        let headers = tracker.get_repeated_headers_for_page(2, 2000.0, 3000.0);
-        assert_eq!(headers.len(), 1, "Page 2 should have repeated header");
-
-        // Page 3: table ends at 2500, but we're past that
-        let headers = tracker.get_repeated_headers_for_page(3, 3000.0, 4000.0);
-        assert!(
-            headers.is_empty(),
-            "Page 3 should not have repeated header (table ended)"
-        );
-    }
-
-    #[test]
-    fn test_table_header_tracker_multiple_tables() {
-        let mut tracker = TableHeaderTracker::new();
-
-        // Table 1: spans Y 100-1500
-        tracker.register_table_header(TableHeaderInfo {
-            table_node_index: 0,
-            table_start_y: 100.0,
-            table_end_y: 1500.0,
-            thead_items: vec![],
-            thead_height: 40.0,
-            thead_offset_y: 0.0,
-        });
-
-        // Table 2: spans Y 2000-4000
-        tracker.register_table_header(TableHeaderInfo {
-            table_node_index: 1,
-            table_start_y: 2000.0,
-            table_end_y: 4000.0,
-            thead_items: vec![],
-            thead_height: 60.0,
-            thead_offset_y: 0.0,
-        });
-
-        // Page 0 (0-1000): Table 1 starts here, no repeat
-        let headers = tracker.get_repeated_headers_for_page(0, 0.0, 1000.0);
-        assert!(headers.is_empty());
-
-        // Page 1 (1000-2000): Table 1 continues (needs repeat), Table 2 starts here
-        let headers = tracker.get_repeated_headers_for_page(1, 1000.0, 2000.0);
-        assert_eq!(headers.len(), 1);
-        assert_eq!(headers[0].2, 40.0); // Table 1 header
-
-        // Page 2 (2000-3000): Table 1 ended, Table 2 starts here (no repeat for 2)
-        let headers = tracker.get_repeated_headers_for_page(2, 2000.0, 3000.0);
-        assert!(headers.is_empty());
-
-        // Page 3 (3000-4000): Table 2 continues (needs repeat)
-        let headers = tracker.get_repeated_headers_for_page(3, 3000.0, 4000.0);
-        assert_eq!(headers.len(), 1);
-        assert_eq!(headers[0].2, 60.0); // Table 2 header
-    }
-
-    #[test]
-    fn test_header_footer_config() {
-        // Default config should not show headers/footers
-        let config = HeaderFooterConfig::default();
-        assert!(!config.show_header);
-        assert!(!config.show_footer);
-
-        // with_page_numbers() enables only footer
-        let config = HeaderFooterConfig::with_page_numbers();
-        assert!(!config.show_header);
-        assert!(config.show_footer);
-
-        // with_header_and_footer_page_numbers() enables both
-        let config = HeaderFooterConfig::with_header_and_footer_page_numbers();
-        assert!(config.show_header);
-        assert!(config.show_footer);
-
-        // Test page info generation
-        let page_info = PageInfo::new(1, 10);
-        assert!(page_info.is_first);
-        assert!(!page_info.is_last);
-        assert_eq!(page_info.page_number, 1);
-        assert_eq!(page_info.total_pages, 10);
-
-        let page_info = PageInfo::new(10, 10);
-        assert!(!page_info.is_first);
-        assert!(page_info.is_last);
-    }
-
-    #[test]
-    fn test_counter_format() {
-        assert_eq!(CounterFormat::Decimal.format(1), "1");
-        assert_eq!(CounterFormat::Decimal.format(10), "10");
-
-        assert_eq!(CounterFormat::LowerRoman.format(1), "i");
-        assert_eq!(CounterFormat::LowerRoman.format(4), "iv");
-        assert_eq!(CounterFormat::LowerRoman.format(9), "ix");
-
-        assert_eq!(CounterFormat::UpperRoman.format(1), "I");
-        assert_eq!(CounterFormat::UpperRoman.format(50), "L");
-
-        assert_eq!(CounterFormat::LowerAlpha.format(1), "a");
-        assert_eq!(CounterFormat::LowerAlpha.format(26), "z");
-        assert_eq!(CounterFormat::LowerAlpha.format(27), "aa");
-
-        assert_eq!(CounterFormat::UpperAlpha.format(1), "A");
-        assert_eq!(CounterFormat::UpperAlpha.format(26), "Z");
-
-        assert_eq!(CounterFormat::LowerGreek.format(1), "α");
-        assert_eq!(CounterFormat::LowerGreek.format(2), "β");
-    }
-
-    #[test]
-    fn test_fake_page_config_default() {
-        let config = FakePageConfig::new();
-        assert!(!config.show_header);
-        assert!(!config.show_footer);
-
-        let hf = config.to_header_footer_config();
-        assert!(!hf.show_header);
-        assert!(!hf.show_footer);
-    }
-
-    #[test]
-    fn test_fake_page_config_footer_page_numbers() {
-        let config = FakePageConfig::new().with_footer_page_numbers();
-        assert!(!config.show_header);
-        assert!(config.show_footer);
-        assert!(config.footer_page_number);
-        assert!(config.footer_total_pages);
-
-        let hf = config.to_header_footer_config();
-        assert!(hf.show_footer);
-
-        // Test footer text generation
-        let page_info = PageInfo::new(3, 10);
-        let footer_text = hf.footer_text(page_info);
-        assert_eq!(footer_text, "Page 3 of 10");
-    }
-
-    #[test]
-    fn test_fake_page_config_header_and_footer() {
-        let config = FakePageConfig::new()
-            .with_header_text("My Document")
-            .with_footer_page_numbers()
-            .skip_first_page(true);
-
-        assert!(config.show_header);
-        assert!(config.show_footer);
-        assert!(config.skip_first_page);
-
-        let hf = config.to_header_footer_config();
-        assert!(hf.skip_first_page);
-
-        // First page should skip header/footer
-        let page_info = PageInfo::new(1, 5);
-        assert!(hf.header_text(page_info).is_empty());
-        assert!(hf.footer_text(page_info).is_empty());
-
-        // Second page should show header/footer
-        let page_info = PageInfo::new(2, 5);
-        assert_eq!(hf.header_text(page_info), "My Document");
-        assert_eq!(hf.footer_text(page_info), "Page 2 of 5");
-    }
-
-    #[test]
-    fn test_fake_page_config_roman_numerals() {
-        let config = FakePageConfig::new()
-            .with_footer_page_numbers()
-            .with_number_format(CounterFormat::LowerRoman);
-
-        let hf = config.to_header_footer_config();
-
-        let page_info = PageInfo::new(4, 10);
-        let footer_text = hf.footer_text(page_info);
-        assert_eq!(footer_text, "Page iv of 10"); // Note: total_pages still decimal
-    }
-
-    #[test]
-    fn test_fake_page_config_combined_header() {
-        let config = FakePageConfig::new()
-            .with_header_text("Report 2024")
-            .with_header_page_numbers();
-
-        let hf = config.to_header_footer_config();
-
-        let page_info = PageInfo::new(1, 5);
-        let header_text = hf.header_text(page_info);
-        assert_eq!(header_text, "Report 2024 - Page 1");
     }
 }

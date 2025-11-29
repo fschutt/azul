@@ -2224,7 +2224,7 @@ impl LayoutWindow {
     /// 5. Apply scroll with appropriate animation
     ///
     /// ## Distance-Based Acceleration (ScrollMode::Accelerated)
-    /// ```
+    /// ```text
     /// Distance from edge:  Scroll speed per frame:
     /// 0-20px              Dead zone (no scroll)
     /// 20-50px             Slow (2px/frame)

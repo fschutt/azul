@@ -423,9 +423,7 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
-        let node_idx = self.create_node_from_dom(
-            styled_dom, dom_id, parent_idx, debug_messages
-        )?;
+        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
         let display_type = get_display_type(styled_dom, dom_id);
 
         // If this is a list-item, inject a ::marker pseudo-element as its first child
@@ -528,9 +526,7 @@ impl LayoutTreeBuilder {
                 },
             );
             for inline_child_id in inline_run {
-                self.process_node(
-                    styled_dom, inline_child_id, Some(anon_idx), debug_messages
-                )?;
+                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
             }
         }
 
@@ -871,7 +867,7 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
 /// Checks if a node is inline-level (including text nodes).
 /// According to CSS spec, inline-level content includes:
-/// 
+///
 /// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
 /// - Text nodes
 /// - Generated content

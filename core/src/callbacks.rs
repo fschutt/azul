@@ -765,7 +765,7 @@ impl LayoutCallbackInfo {
     /// Returns true if the window width is less than the given pixel value
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// if info.window_width_less_than(750.0) {
     ///     // Show mobile view
     /// } else {

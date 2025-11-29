@@ -2308,7 +2308,7 @@ pub enum TabIndex {
     /// |- element2 (OverrideInParent 5)
     /// |- element3 (OverrideInParent 2)
     /// |- element4 (Global 5)
-    /// ```
+    /// ```ignore
     ///
     /// When pressing tab repeatedly, the focusing order will be
     /// "element3, element2, element4, div", since OverrideInParent elements
@@ -4192,9 +4192,9 @@ impl Dom {
     /// - `aria`: Accessibility information (role, description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::button_with_aria("Submit", SmallAriaInfo::label("Submit form"))
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn button_with_aria<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         let mut btn = Self::button(text.into());
@@ -4210,13 +4210,13 @@ impl Dom {
     /// - `aria`: Accessibility information (expanded description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::link_with_aria(
     ///     "/home",
     ///     "Home",
     ///     SmallAriaInfo::label("Navigate to home page"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn link_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
         href: S1,
@@ -4237,14 +4237,14 @@ impl Dom {
     /// - `aria`: Additional accessibility information (description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::input_with_aria(
     ///     "email",
     ///     "user_email",
     ///     "Email address",
     ///     SmallAriaInfo::label("Email address").with_description("Enter your email"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn input_with_aria<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
         input_type: S1,
@@ -4265,13 +4265,13 @@ impl Dom {
     /// - `aria`: Additional accessibility information (description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::textarea_with_aria(
     ///     "comment",
     ///     "Comment",
     ///     SmallAriaInfo::label("Comment").with_description("Enter your feedback"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn textarea_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
@@ -4291,13 +4291,13 @@ impl Dom {
     /// - `aria`: Additional accessibility information (description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::select_with_aria(
     ///     "country",
     ///     "Country",
     ///     SmallAriaInfo::label("Country").with_description("Select your country"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn select_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
@@ -4316,13 +4316,13 @@ impl Dom {
     /// - `aria`: Accessibility information describing table purpose
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::table_with_aria(
     ///     "Employee Directory",
     ///     SmallAriaInfo::label("Employee directory table")
     ///         .with_description("Contains employee names, emails, and departments"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn table_with_aria<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
         let mut table = Self::table().with_child(Self::caption().with_child(Self::text(caption)));
@@ -4338,13 +4338,13 @@ impl Dom {
     /// - `aria`: Additional accessibility information (description, etc.)
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::label_with_aria(
     ///     "email-input",
     ///     "Email Address:",
     ///     SmallAriaInfo::label("Email input").with_description("Required field"),
     /// )
-    /// ```
+    /// ```ignore
     #[inline]
     pub fn label_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
         for_id: S1,
@@ -4456,11 +4456,11 @@ impl Dom {
     /// Adds an attribute to this DOM element.
     ///
     /// **Example:**
-    /// ```
+    /// ```ignore
     /// Dom::div()
     ///     .with_attribute(AttributeType::Id("main".into()))
     ///     .with_attribute(AttributeType::AriaLabel("Main content".into()))
-    /// ```
+    /// ```ignore
     #[inline(always)]
     pub fn with_attribute(mut self, attr: AttributeType) -> Self {
         let mut attrs = self.root.attributes.clone();

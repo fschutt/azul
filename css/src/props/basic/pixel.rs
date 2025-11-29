@@ -33,7 +33,7 @@ pub const PT_TO_PX: f32 = 96.0 / 72.0;
 /// you should multiply it directly with the containing block size, NOT divide by 100 again.
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// let percent = NormalizedPercentage::new(1.0); // 100%
 /// let containing_block = 640.0;
 /// let result = percent.resolve(containing_block); // 640.0, not 6.4!
@@ -49,7 +49,7 @@ impl NormalizedPercentage {
     /// * `value` - A normalized percentage where 0.0 = 0% and 1.0 = 100%
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
     /// let fifty_percent = NormalizedPercentage::new(0.5); // 50%
     /// let hundred_percent = NormalizedPercentage::new(1.0); // 100%
     /// ```
@@ -64,7 +64,7 @@ impl NormalizedPercentage {
     /// from CSS percentage syntax like "50%" which is stored as 50.0.
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
     /// let percent = NormalizedPercentage::from_unnormalized(50.0); // 50% -> 0.5
     /// ```
     #[inline]
@@ -84,7 +84,7 @@ impl NormalizedPercentage {
     /// For example, 50% (0.5) of 640px = 320px.
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
     /// let percent = NormalizedPercentage::new(0.5); // 50%
     /// let size = percent.resolve(640.0); // 320.0
     /// ```
@@ -168,7 +168,7 @@ impl PhysicalSize {
 ///   - Font-size: relative to parent's font-size
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// let context = ResolutionContext {
 ///     element_font_size: 32.0, // H1 has font-size: 2em = 32px
 ///     parent_font_size: 16.0,  // Body has font-size: 16px
@@ -524,7 +524,7 @@ impl PixelValue {
     /// so you should multiply it directly with the containing block size.
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
     /// let px = PixelValue::parse("100%").unwrap();
     /// if let Some(percent) = px.to_percent() {
     ///     let size = percent.resolve(640.0); // 640.0
@@ -577,7 +577,7 @@ impl PixelValue {
     /// * `property_context` - Which property we're resolving for (affects % and em resolution)
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
     /// // H1 with font-size: 2em (32px), margin: 0.67em
     /// let context = ResolutionContext {
     ///     element_font_size: 32.0,

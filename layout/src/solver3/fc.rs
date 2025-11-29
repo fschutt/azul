@@ -1,6 +1,28 @@
-//! solver3/fc/mod.rs
+//! solver3/fc.rs - Formatting Context Layout
 //!
-//! Formatting context managers for different CSS display types
+//! This module implements the CSS Visual Formatting Model's formatting contexts:
+//!
+//! - **Block Formatting Context (BFC)**: CSS 2.2 § 9.4.1 Block-level boxes in normal flow, with
+//!   margin collapsing and float positioning.
+//!
+//! - **Inline Formatting Context (IFC)**: CSS 2.2 § 9.4.2 Inline-level content (text,
+//!   inline-blocks) laid out in line boxes.
+//!
+//! - **Table Formatting Context**: CSS 2.2 § 17 Table layout with column width calculation and cell
+//!   positioning.
+//!
+//! - **Flex/Grid Formatting Contexts**: CSS Flexbox/Grid via Taffy Delegated to the Taffy layout
+//!   engine for modern layout modes.
+//!
+//! # Module Organization
+//!
+//! 1. **Constants & Types** - Magic numbers as named constants, core types
+//! 2. **Entry Point** - `layout_formatting_context` dispatcher
+//! 3. **BFC Layout** - Block formatting context implementation
+//! 4. **IFC Layout** - Inline formatting context implementation
+//! 5. **Table Layout** - Table formatting context implementation
+//! 6. **Flex/Grid Layout** - Taffy bridge wrappers
+//! 7. **Helper Functions** - Property getters, margin collapsing, utilities
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -25,11 +47,21 @@ use azul_css::{
             LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight, LayoutJustifyContent,
             LayoutOverflow, LayoutPosition, LayoutTextJustify, LayoutWidth, LayoutWritingMode,
         },
-        property::CssProperty,
+        property::{CssProperty, CssPropertyType},
         style::{StyleHyphens, StyleTextAlign, StyleVerticalAlign},
     },
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+/// Default scrollbar width in pixels (CSS Overflow Module Level 3).
+/// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
+const SCROLLBAR_WIDTH_PX: f32 = 16.0;
+
+// Note: DEFAULT_FONT_SIZE and PT_TO_PX are imported from azul_css::props::basic::pixel
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
@@ -412,7 +444,19 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
     false
 }
 
+// =============================================================================
+// Entry Point & Dispatcher
+// =============================================================================
+
 /// Main dispatcher for formatting context layout.
+///
+/// Routes layout to the appropriate formatting context handler based on the node's
+/// `formatting_context` property. This is the main entry point for all layout operations.
+///
+/// # CSS Spec References
+/// - CSS 2.2 § 9.4: Formatting contexts
+/// - CSS Flexbox § 3: Flex formatting contexts
+/// - CSS Grid § 5: Grid formatting contexts
 pub fn layout_formatting_context<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -436,141 +480,14 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             layout_bfc(ctx, tree, text_cache, node_index, constraints, float_cache)
         }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
-            .map(|output| BfcLayoutResult::from_output(output)),
+            .map(BfcLayoutResult::from_output),
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
-            .map(|output| BfcLayoutResult::from_output(output)),
+            .map(BfcLayoutResult::from_output),
         FormattingContext::Flex | FormattingContext::Grid => {
-            let available_space = TaffySize {
-                width: AvailableSpace::Definite(constraints.available_size.width),
-                height: AvailableSpace::Definite(constraints.available_size.height),
-            };
-
-            // Check if the container has explicit width/height set in CSS
-            // Per CSS spec: Flex containers with explicit sizes should use InherentSize mode,
-            // not ContentSize (which is for shrink-to-fit behavior)
-            let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-
-            // Resolve explicit CSS dimensions to pixel values
-            // This is CRITICAL for align-items: stretch to work correctly!
-            // Taffy uses known_dimensions to calculate cross_axis_available_space for children
-            let (explicit_width, has_explicit_width) = node
-                .dom_node_id
-                .map(|id| {
-                    let width = get_css_width(
-                        &ctx.styled_dom,
-                        id,
-                        &ctx.styled_dom.styled_nodes.as_container()[id].state,
-                    );
-                    match width.unwrap_or_default() {
-                        LayoutWidth::Auto => (None, false),
-                        LayoutWidth::Px(px) => {
-                            // Resolve to pixels using containing block (parent) size
-                            let pixels = match px.metric {
-                                SizeMetric::Px => px.number.get(),
-                                SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                                SizeMetric::Percent => {
-                                    px.number.get() / 100.0 * constraints.available_size.width
-                                }
-                                SizeMetric::Em | SizeMetric::Rem => {
-                                    px.number.get() * DEFAULT_FONT_SIZE
-                                }
-                                _ => px.number.get(), // Fallback
-                            };
-                            (Some(pixels), true)
-                        }
-                        LayoutWidth::MinContent | LayoutWidth::MaxContent => (None, false),
-                    }
-                })
-                .unwrap_or((None, false));
-
-            let (explicit_height, has_explicit_height) = node
-                .dom_node_id
-                .map(|id| {
-                    let height = get_css_height(
-                        &ctx.styled_dom,
-                        id,
-                        &ctx.styled_dom.styled_nodes.as_container()[id].state,
-                    );
-                    match height.unwrap_or_default() {
-                        LayoutHeight::Auto => (None, false),
-                        LayoutHeight::Px(px) => {
-                            // Resolve to pixels using containing block (parent) size
-                            let pixels = match px.metric {
-                                SizeMetric::Px => px.number.get(),
-                                SizeMetric::Pt => px.number.get() * PT_TO_PX,
-                                SizeMetric::Percent => {
-                                    px.number.get() / 100.0 * constraints.available_size.height
-                                }
-                                SizeMetric::Em | SizeMetric::Rem => {
-                                    px.number.get() * DEFAULT_FONT_SIZE
-                                }
-                                _ => px.number.get(), // Fallback
-                            };
-                            (Some(pixels), true)
-                        }
-                        LayoutHeight::MinContent | LayoutHeight::MaxContent => (None, false),
-                    }
-                })
-                .unwrap_or((None, false));
-
-            // Use InherentSize when explicit dimensions are set (per CSS spec)
-            // Use ContentSize for auto-sizing (shrink-to-fit)
-            let sizing_mode = if has_explicit_width || has_explicit_height {
-                taffy::SizingMode::InherentSize
-            } else {
-                taffy::SizingMode::ContentSize
-            };
-
-            // CRITICAL FIX: Pass explicit dimensions as known_dimensions to Taffy
-            // This allows Taffy's flexbox to correctly calculate cross_axis_available_space
-            // for align-items: stretch to work properly
-            let known_dimensions = TaffySize {
-                width: explicit_width,
-                height: explicit_height,
-            };
-
-            let taffy_inputs = LayoutInput {
-                known_dimensions,
-                parent_size: translate_taffy_size(constraints.containing_block_size),
-                available_space,
-                run_mode: taffy::RunMode::PerformLayout,
-                sizing_mode,
-                // We are in the main layout pass, not a measurement pass. We need Taffy
-                // to compute the final size and position for both axes.
-                axis: taffy::RequestedAxis::Both,
-                // Flex and Grid containers establish a new Block Formatting Context (BFC),
-                // which prevents the margins of their children from collapsing with their own.
-                vertical_margins_are_collapsible: Line::FALSE,
-            };
-
-            debug_info!(
-                ctx,
-                "CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}",
-                node_index
-            );
-            // Pass text_cache to Taffy bridge so IFC layout happens inline during measure
-            let taffy_output =
-                taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
-
-            // The bridge has already updated the positions and sizes of the children in the tree.
-            // IFC layout is now done inline during Taffy's compute_child_layout callbacks,
-            // so no post-processing is needed.
-            let mut output = LayoutOutput::default();
-            output.overflow_size = translate_taffy_size_back(taffy_output.size);
-
-            // Taffy's results are stored directly on the nodes, so we read them back here.
-            let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
-            for &child_idx in &children {
-                if let Some(child_node) = tree.get(child_idx) {
-                    if let Some(pos) = child_node.relative_position {
-                        output.positions.insert(child_idx, pos);
-                    }
-                }
-            }
-
-            Ok(BfcLayoutResult::from_output(output))
+            layout_flex_grid(ctx, tree, text_cache, node_index, constraints)
         }
         _ => {
+            // Unknown formatting context - fall back to BFC
             let mut temp_float_cache = std::collections::BTreeMap::new();
             layout_bfc(
                 ctx,
@@ -581,6 +498,161 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
                 &mut temp_float_cache,
             )
         }
+    }
+}
+
+// =============================================================================
+// FLEX/GRID LAYOUT (Taffy Bridge)
+// =============================================================================
+
+/// Lays out a Flex or Grid formatting context using the Taffy layout engine.
+///
+/// # CSS Spec References
+/// - CSS Flexbox § 9: Flex Layout Algorithm
+/// - CSS Grid § 12: Grid Layout Algorithm
+///
+/// # Implementation Notes
+/// - Resolves explicit CSS dimensions to pixel values for `known_dimensions`
+/// - Uses `InherentSize` mode when explicit dimensions are set
+/// - Uses `ContentSize` mode for auto-sizing (shrink-to-fit)
+fn layout_flex_grid<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut crate::font_traits::TextLayoutCache,
+    node_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<BfcLayoutResult> {
+    let available_space = TaffySize {
+        width: AvailableSpace::Definite(constraints.available_size.width),
+        height: AvailableSpace::Definite(constraints.available_size.height),
+    };
+
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+
+    // Resolve explicit CSS dimensions to pixel values.
+    // This is CRITICAL for align-items: stretch to work correctly!
+    // Taffy uses known_dimensions to calculate cross_axis_available_space for children.
+    let (explicit_width, has_explicit_width) =
+        resolve_explicit_dimension_width(ctx, node, constraints);
+    let (explicit_height, has_explicit_height) =
+        resolve_explicit_dimension_height(ctx, node, constraints);
+
+    // CSS Flexbox § 9.2: Use InherentSize when explicit dimensions are set,
+    // ContentSize for auto-sizing (shrink-to-fit behavior).
+    let sizing_mode = if has_explicit_width || has_explicit_height {
+        taffy::SizingMode::InherentSize
+    } else {
+        taffy::SizingMode::ContentSize
+    };
+
+    let known_dimensions = TaffySize {
+        width: explicit_width,
+        height: explicit_height,
+    };
+
+    let taffy_inputs = LayoutInput {
+        known_dimensions,
+        parent_size: translate_taffy_size(constraints.containing_block_size),
+        available_space,
+        run_mode: taffy::RunMode::PerformLayout,
+        sizing_mode,
+        axis: taffy::RequestedAxis::Both,
+        // Flex and Grid containers establish a new BFC, preventing margin collapse.
+        vertical_margins_are_collapsible: Line::FALSE,
+    };
+
+    debug_info!(
+        ctx,
+        "CALLING LAYOUT_TAFFY FOR FLEX/GRID FC node_index={:?}",
+        node_index
+    );
+
+    let taffy_output =
+        taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
+
+    // Collect child positions from the tree (Taffy stores results directly on nodes).
+    let mut output = LayoutOutput::default();
+    output.overflow_size = translate_taffy_size_back(taffy_output.size);
+
+    let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
+    for &child_idx in &children {
+        if let Some(child_node) = tree.get(child_idx) {
+            if let Some(pos) = child_node.relative_position {
+                output.positions.insert(child_idx, pos);
+            }
+        }
+    }
+
+    Ok(BfcLayoutResult::from_output(output))
+}
+
+/// Resolves explicit CSS width to pixel value for Taffy layout.
+fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
+    constraints: &LayoutConstraints,
+) -> (Option<f32>, bool) {
+    node.dom_node_id
+        .map(|id| {
+            let width = get_css_width(
+                ctx.styled_dom,
+                id,
+                &ctx.styled_dom.styled_nodes.as_container()[id].state,
+            );
+            match width.unwrap_or_default() {
+                LayoutWidth::Auto => (None, false),
+                LayoutWidth::Px(px) => {
+                    let pixels = resolve_size_metric(
+                        px.metric,
+                        px.number.get(),
+                        constraints.available_size.width,
+                    );
+                    (Some(pixels), true)
+                }
+                LayoutWidth::MinContent | LayoutWidth::MaxContent => (None, false),
+            }
+        })
+        .unwrap_or((None, false))
+}
+
+/// Resolves explicit CSS height to pixel value for Taffy layout.
+fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNode,
+    constraints: &LayoutConstraints,
+) -> (Option<f32>, bool) {
+    node.dom_node_id
+        .map(|id| {
+            let height = get_css_height(
+                ctx.styled_dom,
+                id,
+                &ctx.styled_dom.styled_nodes.as_container()[id].state,
+            );
+            match height.unwrap_or_default() {
+                LayoutHeight::Auto => (None, false),
+                LayoutHeight::Px(px) => {
+                    let pixels = resolve_size_metric(
+                        px.metric,
+                        px.number.get(),
+                        constraints.available_size.height,
+                    );
+                    (Some(pixels), true)
+                }
+                LayoutHeight::MinContent | LayoutHeight::MaxContent => (None, false),
+            }
+        })
+        .unwrap_or((None, false))
+}
+
+/// Resolves a CSS size metric to pixels.
+#[inline]
+fn resolve_size_metric(metric: SizeMetric, value: f32, containing_block_size: f32) -> f32 {
+    match metric {
+        SizeMetric::Px => value,
+        SizeMetric::Pt => value * PT_TO_PX,
+        SizeMetric::Percent => value / 100.0 * containing_block_size,
+        SizeMetric::Em | SizeMetric::Rem => value * DEFAULT_FONT_SIZE,
+        _ => value, // Fallback
     }
 }
 
@@ -671,6 +743,10 @@ fn position_float(
         size,
     }
 }
+
+// =============================================================================
+// Block Formatting Context (CSS 2.2 § 9.4.1)
+// =============================================================================
 
 /// Lays out a Block Formatting Context (BFC).
 ///
@@ -1738,6 +1814,10 @@ fn layout_bfc<T: ParsedFontTrait>(
     })
 }
 
+// =============================================================================
+// Inline Formatting Context (CSS 2.2 § 9.4.2)
+// =============================================================================
+
 /// Lays out an Inline Formatting Context (IFC) by delegating to the `text3` engine.
 ///
 /// This function acts as a bridge between the box-tree world of `solver3` and the
@@ -2452,6 +2532,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
     }
 }
+
+// =============================================================================
+// Table Formatting Context (CSS 2.2 § 17)
+// =============================================================================
 
 /// Lays out a Table Formatting Context.
 /// Table column information for layout calculations
@@ -4747,13 +4831,13 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     use azul_css::props::basic::SizeMetric;
                     match px.metric {
                         SizeMetric::Px => px.number.get(),
-                        SizeMetric::Pt => px.number.get() * 1.33333, // PT_TO_PX
+                        SizeMetric::Pt => px.number.get() * PT_TO_PX,
                         SizeMetric::In => px.number.get() * 96.0,
                         SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
                         SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
                         SizeMetric::Em | SizeMetric::Rem => {
                             // TODO: Resolve em/rem properly with font-size
-                            px.number.get() * 16.0 // DEFAULT_FONT_SIZE
+                            px.number.get() * DEFAULT_FONT_SIZE
                         }
                         _ => intrinsic_size.max_content_width, // Percent/viewport - use intrinsic
                     }
@@ -4805,11 +4889,11 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 use azul_css::props::basic::SizeMetric;
                 final_height = match px.metric {
                     SizeMetric::Px => px.number.get(),
-                    SizeMetric::Pt => px.number.get() * 1.33333,
+                    SizeMetric::Pt => px.number.get() * PT_TO_PX,
                     SizeMetric::In => px.number.get() * 96.0,
                     SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
                     SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
-                    SizeMetric::Em | SizeMetric::Rem => px.number.get() * 16.0,
+                    SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
                     _ => final_height, // Percent/viewport - use layout result
                 };
             }
@@ -5149,7 +5233,11 @@ fn position_floated_child(
     }
 }
 
-// STUB: Functions to get CSS properties
+// =============================================================================
+// CSS Property Getters
+// =============================================================================
+
+/// Get the CSS `float` property for a node.
 fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutFloat {
     let Some(id) = dom_id else {
         return LayoutFloat::None;
@@ -5181,12 +5269,7 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
     styled_dom
         .css_property_cache
         .ptr
-        .get_property(
-            node_data,
-            &id,
-            node_state,
-            &azul_css::props::property::CssPropertyType::Clear,
-        )
+        .get_property(node_data, &id, node_state, &CssPropertyType::Clear)
         .and_then(|p| p.as_clear())
         .and_then(|v| v.get_property())
         .map(|clear| match clear {
@@ -5198,7 +5281,10 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
         .unwrap_or(LayoutClear::None)
 }
 
-/// Helper to determine if scrollbars are needed
+/// Helper to determine if scrollbars are needed.
+///
+/// # CSS Spec Reference
+/// CSS Overflow Module Level 3 § 3: Scrollable overflow
 pub fn check_scrollbar_necessity(
     content_size: LogicalSize,
     container_size: LogicalSize,
@@ -5221,13 +5307,12 @@ pub fn check_scrollbar_necessity(
     // causing a horizontal scrollbar to appear, which can reduce vertical space...
     // A full solution involves a loop, but this two-pass check handles most cases.
     if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
-        if content_size.width > (container_size.width - 16.0) {
-            // Assuming 16px scrollbar
+        if content_size.width > (container_size.width - SCROLLBAR_WIDTH_PX) {
             needs_horizontal = true;
         }
     }
     if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
-        if content_size.height > (container_size.height - 16.0) {
+        if content_size.height > (container_size.height - SCROLLBAR_WIDTH_PX) {
             needs_vertical = true;
         }
     }
@@ -5235,8 +5320,16 @@ pub fn check_scrollbar_necessity(
     ScrollbarInfo {
         needs_horizontal,
         needs_vertical,
-        scrollbar_width: if needs_vertical { 16.0 } else { 0.0 },
-        scrollbar_height: if needs_horizontal { 16.0 } else { 0.0 },
+        scrollbar_width: if needs_vertical {
+            SCROLLBAR_WIDTH_PX
+        } else {
+            0.0
+        },
+        scrollbar_height: if needs_horizontal {
+            SCROLLBAR_WIDTH_PX
+        } else {
+            0.0
+        },
     }
 }
 
