@@ -28,7 +28,7 @@ log = "0.4"
 num-traits = "0.2"
 plane-split = "0.18"
 rayon = "1"
-smallvec = "1"
+smallvec = "1.15.1"
 time = "0.3"
 api = { version = "0.62.0", path = "../api", package = "webrender_api" }
 webrender_build = { path = "../build" }

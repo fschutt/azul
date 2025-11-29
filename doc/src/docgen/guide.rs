@@ -1,4 +1,4 @@
-use comrak::{ExtensionOptions, ParseOptions, Plugins, RenderOptions, RenderPlugins};
+use comrak::options::{Extension, Parse, Plugins, Render, RenderPlugins};
 
 use super::HTML_ROOT;
 
@@ -130,9 +130,9 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let content = comrak::markdown_to_html_with_plugins(
         &guide.content,
         &comrak::Options {
-            render: RenderOptions::default(),
-            parse: ParseOptions::default(),
-            extension: ExtensionOptions {
+            render: Render::default(),
+            parse: Parse::default(),
+            extension: Extension {
                 strikethrough: true,
                 tagfilter: true,
                 table: true,

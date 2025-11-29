@@ -1130,7 +1130,7 @@ pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
         if let Some(version_data) = api_data.0.get_mut(&version_name) {
             // Rename in the class map
             if let Some(module_data) = version_data.api.get_mut(&module_name) {
-                if let Some(class_data) = module_data.classes.remove(&old_name) {
+                if let Some(class_data) = module_data.classes.shift_remove(&old_name) {
                     module_data.classes.insert(new_name.clone(), class_data);
                 }
             }

@@ -712,7 +712,7 @@ fn sort_structs_by_dependencies<'a>(
 
     // Move primitives to sorted list
     for name in &to_remove {
-        if let Some(data) = remaining_structs.remove(name) {
+        if let Some(data) = remaining_structs.shift_remove(name) {
             sorted_structs.insert(name.clone(), data);
         }
     }
@@ -848,7 +848,7 @@ fn sort_structs_by_dependencies<'a>(
 
         // Move resolved structs to sorted list
         for name in &resolved_this_iteration {
-            if let Some(data) = remaining_structs.remove(name) {
+            if let Some(data) = remaining_structs.shift_remove(name) {
                 sorted_structs.insert(name.clone(), data);
             }
         }
