@@ -13,6 +13,3 @@ pub mod scroll_state;
 pub mod selection;
 pub mod text_input;
 pub mod undo_redo;
-
-// Re-export commonly used types
-pub use hover::InputPointId;

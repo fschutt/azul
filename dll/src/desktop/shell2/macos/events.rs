@@ -14,8 +14,8 @@ use azul_core::{
 use azul_layout::{
     callbacks::CallbackInfo,
     managers::{
+        hover::InputPointId,
         scroll_state::{ScrollbarComponent, ScrollbarHit, ScrollbarOrientation},
-        InputPointId,
     },
     solver3::display_list::DisplayList,
     window::LayoutWindow,
@@ -334,7 +334,7 @@ impl MacOSWindow {
             CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
-        use azul_layout::managers::InputPointId;
+        use azul_layout::managers::hover::InputPointId;
         if let Some(ref mut layout_window) = self.layout_window {
             layout_window
                 .hover_manager
@@ -385,7 +385,7 @@ impl MacOSWindow {
         if (delta_x.abs() > 0.01 || delta_y.abs() > 0.01) {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 use azul_core::task::Instant;
-                use azul_layout::managers::InputPointId;
+                use azul_layout::managers::hover::InputPointId;
 
                 let now = Instant::from(std::time::Instant::now());
                 let _scroll_node = layout_window.scroll_manager.record_sample(
@@ -1165,7 +1165,7 @@ impl MacOSWindow {
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            use azul_layout::managers::InputPointId;
+            use azul_layout::managers::hover::InputPointId;
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
@@ -1174,7 +1174,7 @@ impl MacOSWindow {
 
     /// Get the first hovered node from current mouse hit test.
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        use azul_layout::managers::InputPointId;
+        use azul_layout::managers::hover::InputPointId;
         self.layout_window
             .as_ref()?
             .hover_manager

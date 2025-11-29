@@ -5196,7 +5196,7 @@ impl LayoutWindow {
         use azul_core::selection::{Selection, SelectionRange};
 
         use crate::{
-            managers::InputPointId,
+            managers::hover::InputPointId,
             text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
         };
 

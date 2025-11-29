@@ -226,7 +226,8 @@ impl SelectionManager {
             .first()
             .and_then(|s| match s {
                 Selection::Cursor(c) => Some(*c),
-                Selection::Range(r) => Some(r.end), // Primary cursor is at the end of selection
+                // Primary cursor is at the end of selection
+                Selection::Range(r) => Some(r.end),
             })
     }
 
@@ -253,6 +254,7 @@ impl SelectionManager {
     /// text selection (single/double/triple click).
     ///
     /// ## Returns
+    /// 
     /// - `Some(1)` - Single click (place cursor)
     /// - `Some(2)` - Double click (select word)
     /// - `Some(3)` - Triple click (select paragraph/line)

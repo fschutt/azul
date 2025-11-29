@@ -1051,7 +1051,7 @@ pub trait PlatformWindowV2 {
         }
 
         // Get mouse hit test if available (clone early to avoid borrow conflicts)
-        use azul_layout::managers::InputPointId;
+        use azul_layout::managers::hover::InputPointId;
         let hit_test_for_dispatch = self
             .get_layout_window()
             .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))

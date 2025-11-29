@@ -3,6 +3,7 @@
 //! Centralizes all text editing logic for contenteditable nodes.
 //!
 //! This manager handles text input from multiple sources:
+//! 
 //! - Keyboard input (character insertion, backspace, etc.)
 //! - IME composition (multi-character input for Asian languages)
 //! - Accessibility actions (screen readers, voice control)
@@ -13,17 +14,20 @@
 //! The text input system uses a two-phase approach:
 //!
 //! 1. **Record Phase**: When text input occurs, record what changed (old_text + inserted_text)
+//! 
 //!    - Store in `pending_changeset`
 //!    - Do NOT modify any caches yet
 //!    - Return affected nodes so callbacks can be invoked
 //!
 //! 2. **Apply Phase**: After callbacks, if preventDefault was not set:
+//! 
 //!    - Compute new text using text3::edit
 //!    - Update cursor position
 //!    - Update text cache
 //!    - Mark nodes dirty for re-layout
 //!
 //! This separation allows:
+//! 
 //! - User callbacks to inspect the changeset before it's applied
 //! - preventDefault to cancel the edit
 //! - Consistent behavior across keyboard/IME/A11y sources
@@ -49,6 +53,7 @@ pub struct TextChangeset {
 }
 
 impl TextChangeset {
+
     /// Compute the resulting text after applying the edit
     ///
     /// This is a pure function that applies the inserted_text to old_text
@@ -90,12 +95,12 @@ pub struct TextInputManager {
     /// The pending text changeset that hasn't been applied yet.
     /// This is set during the "record" phase and cleared after the "apply" phase.
     pub pending_changeset: Option<TextChangeset>,
-
     /// Source of the current text input
     pub input_source: Option<TextInputSource>,
 }
 
 impl TextInputManager {
+
     /// Create a new TextInputManager
     pub fn new() -> Self {
         Self {
@@ -110,13 +115,13 @@ impl TextInputManager {
     /// The changes are applied later in `apply_changeset()` if preventDefault is not set.
     ///
     /// # Arguments
-    /// * `node` - The DOM node being edited
-    /// * `inserted_text` - The text being inserted
-    /// * `old_text` - The current text before the edit
-    /// * `source` - Where the input came from (keyboard, IME, A11y, etc.)
+    /// 
+    /// - `node` - The DOM node being edited
+    /// - `inserted_text` - The text being inserted
+    /// - `old_text` - The current text before the edit
+    /// - `source` - Where the input came from (keyboard, IME, A11y, etc.)
     ///
-    /// # Returns
-    /// The affected node for event generation
+    /// Returns the affected node for event generation.
     pub fn record_input(
         &mut self,
         node: DomNodeId,
@@ -124,6 +129,7 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
+
         // Clear any previous changeset
         self.pending_changeset = None;
 
@@ -165,6 +171,7 @@ impl Default for TextInputManager {
 }
 
 impl EventProvider for TextInputManager {
+
     /// Get pending text input events.
     ///
     /// If there's a pending changeset, returns an Input event for the affected node.
@@ -190,8 +197,9 @@ impl EventProvider for TextInputManager {
                 event_source,
                 changeset.node,
                 timestamp,
-                EventData::None, /* Callbacks can query changeset via
-                                  * text_input_manager.get_pending_changeset() */
+                // Callbacks can query changeset via
+                // text_input_manager.get_pending_changeset()
+                EventData::None,
             ));
 
             // Note: We don't generate Change events here - those are generated

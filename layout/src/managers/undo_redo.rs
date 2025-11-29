@@ -27,16 +27,19 @@
 //! 10. Post-callback: Push original changeset to redo stack
 
 use alloc::{collections::VecDeque, vec::Vec};
-
-use azul_core::{dom::NodeId, task::Instant};
-
+use azul_core::{
+    dom::NodeId,
+    task::Instant,
+    selection::{TextCursor, SelectionRange, GraphemeClusterId, CursorAffinity},
+    geom::LogicalPosition,
+};
 use super::changeset::{TextChangeset, TextOperation};
 
 /// Maximum number of undo operations to keep per node
-const MAX_UNDO_HISTORY: usize = 10;
+pub const MAX_UNDO_HISTORY: usize = 10;
 
 /// Maximum number of redo operations to keep per node
-const MAX_REDO_HISTORY: usize = 10;
+pub const MAX_REDO_HISTORY: usize = 10;
 
 /// Snapshot of a text node's state before a changeset was applied.
 ///
@@ -45,17 +48,13 @@ const MAX_REDO_HISTORY: usize = 10;
 pub struct NodeStateSnapshot {
     /// The node this snapshot belongs to
     pub node_id: NodeId,
-
     /// Full text content before changeset
     pub text_content: String,
-
     /// Cursor position before changeset (if applicable)
     /// For now, we store the logical position, not the TextCursor
-    pub cursor_position: Option<azul_core::selection::TextCursor>,
-
+    pub cursor_position: Option<TextCursor>,
     /// Selection range before changeset (if applicable)
-    pub selection_range: Option<azul_core::selection::SelectionRange>,
-
+    pub selection_range: Option<SelectionRange>,
     /// When this snapshot was taken
     pub timestamp: Instant,
 }
@@ -67,26 +66,23 @@ pub struct NodeStateSnapshot {
 pub struct UndoableOperation {
     /// The changeset that was applied
     pub changeset: TextChangeset,
-
     /// Node state BEFORE the changeset was applied
     pub pre_state: NodeStateSnapshot,
 }
 
 /// Per-node undo/redo stack
 #[derive(Debug, Clone)]
-struct NodeUndoRedoStack {
+pub struct NodeUndoRedoStack {
     /// Node ID this stack belongs to
-    node_id: NodeId,
-
+    pub node_id: NodeId,
     /// Undo stack (most recent at back)
-    undo_stack: VecDeque<UndoableOperation>,
-
+    pub undo_stack: VecDeque<UndoableOperation>,
     /// Redo stack (most recent at back)
-    redo_stack: VecDeque<UndoableOperation>,
+    pub redo_stack: VecDeque<UndoableOperation>,
 }
 
 impl NodeUndoRedoStack {
-    fn new(node_id: NodeId) -> Self {
+    pub fn new(node_id: NodeId) -> Self {
         Self {
             node_id,
             undo_stack: VecDeque::with_capacity(MAX_UNDO_HISTORY),
@@ -95,7 +91,7 @@ impl NodeUndoRedoStack {
     }
 
     /// Push a new operation to the undo stack
-    fn push_undo(&mut self, operation: UndoableOperation) {
+    pub fn push_undo(&mut self, operation: UndoableOperation) {
         // Clear redo stack when new operation is performed
         self.redo_stack.clear();
 
@@ -109,12 +105,12 @@ impl NodeUndoRedoStack {
     }
 
     /// Pop the most recent operation from undo stack
-    fn pop_undo(&mut self) -> Option<UndoableOperation> {
+    pub fn pop_undo(&mut self) -> Option<UndoableOperation> {
         self.undo_stack.pop_back()
     }
 
     /// Push an operation to the redo stack (after undo)
-    fn push_redo(&mut self, operation: UndoableOperation) {
+    pub fn push_redo(&mut self, operation: UndoableOperation) {
         self.redo_stack.push_back(operation);
 
         // Limit stack size
@@ -124,7 +120,7 @@ impl NodeUndoRedoStack {
     }
 
     /// Pop the most recent operation from redo stack
-    fn pop_redo(&mut self) -> Option<UndoableOperation> {
+    pub fn pop_redo(&mut self) -> Option<UndoableOperation> {
         self.redo_stack.pop_back()
     }
 
@@ -134,17 +130,17 @@ impl NodeUndoRedoStack {
     }
 
     /// Check if redo is available
-    fn can_redo(&self) -> bool {
+    pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
     }
 
     /// Peek at the most recent undo operation without removing it
-    fn peek_undo(&self) -> Option<&UndoableOperation> {
+    pub fn peek_undo(&self) -> Option<&UndoableOperation> {
         self.undo_stack.back()
     }
 
     /// Peek at the most recent redo operation without removing it
-    fn peek_redo(&self) -> Option<&UndoableOperation> {
+    pub fn peek_redo(&self) -> Option<&UndoableOperation> {
         self.redo_stack.back()
     }
 }
@@ -154,10 +150,11 @@ impl NodeUndoRedoStack {
 pub struct UndoRedoManager {
     /// Per-node undo/redo stacks
     /// Using Vec instead of HashMap for no_std compatibility
-    node_stacks: Vec<NodeUndoRedoStack>,
+    pub node_stacks: Vec<NodeUndoRedoStack>,
 }
 
 impl UndoRedoManager {
+
     /// Create a new empty undo/redo manager
     pub fn new() -> Self {
         Self {
@@ -166,7 +163,7 @@ impl UndoRedoManager {
     }
 
     /// Get or create a stack for a specific node
-    fn get_or_create_stack_mut(&mut self, node_id: NodeId) -> &mut NodeUndoRedoStack {
+    pub fn get_or_create_stack_mut(&mut self, node_id: NodeId) -> &mut NodeUndoRedoStack {
         // Check if stack exists
         let stack_exists = self.node_stacks.iter().any(|s| s.node_id == node_id);
 
@@ -184,7 +181,7 @@ impl UndoRedoManager {
     }
 
     /// Get a stack for a specific node (immutable)
-    fn get_stack(&self, node_id: NodeId) -> Option<&NodeUndoRedoStack> {
+    pub fn get_stack(&self, node_id: NodeId) -> Option<&NodeUndoRedoStack> {
         self.node_stacks.iter().find(|s| s.node_id == node_id)
     }
 
@@ -320,14 +317,14 @@ impl UndoRedoManager {
 /// restore the pre_state.
 ///
 /// ## Arguments
+/// 
 /// * `operation` - The operation to create a revert for
 /// * `timestamp` - Current time for the revert changeset
 ///
-/// ## Returns
-/// * `TextChangeset` - The changeset that reverts the operation
+/// Returns: `TextChangeset` - The changeset that reverts the operation
 pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant) -> TextChangeset {
+    
     use azul_core::window::CursorPosition;
-
     use crate::managers::changeset::{TextChangeset, TextOperation};
 
     // Create the inverse operation based on what was done
@@ -341,22 +338,22 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
             // To revert an insert, we need to delete the inserted text
             // The range is from old position to new position
             // For now, we use a simplified approach - restore the old text completely
-            let dummy_cursor = azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId {
+            let dummy_cursor = TextCursor {
+                cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: 0,
                 },
-                affinity: azul_core::selection::CursorAffinity::Leading,
+                affinity: CursorAffinity::Leading,
             };
-            let end_cursor = azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId {
+            let end_cursor = TextCursor {
+                cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: operation.pre_state.text_content.len() as u32,
                 },
-                affinity: azul_core::selection::CursorAffinity::Leading,
+                affinity: CursorAffinity::Leading,
             };
             TextOperation::ReplaceText {
-                range: azul_core::selection::SelectionRange {
+                range: SelectionRange {
                     start: dummy_cursor,
                     end: end_cursor,
                 },
@@ -379,20 +376,23 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
             deleted_text,
             new_cursor,
         } => {
-            let dummy_cursor = azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId {
+            let dummy_cursor = TextCursor {
+                cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: 0,
                 },
-                affinity: azul_core::selection::CursorAffinity::Leading,
+                affinity: CursorAffinity::Leading,
             };
             TextOperation::ReplaceText {
-                range: azul_core::selection::SelectionRange {
+                range: SelectionRange {
                     start: dummy_cursor,
-                    end: dummy_cursor, // Empty current content
+                    // Empty current content
+                    end: dummy_cursor,
                 },
-                old_text: String::new(), // What's currently there (nothing)
-                new_text: operation.pre_state.text_content.clone(), // Restore full text
+                // What's currently there (nothing)
+                old_text: String::new(),
+                // Restore full text
+                new_text: operation.pre_state.text_content.clone(),
                 new_cursor: operation
                     .pre_state
                     .cursor_position
@@ -411,32 +411,34 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
             new_text,
             new_cursor,
         } => {
-            let end_cursor = azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId {
+            let end_cursor = TextCursor {
+                cluster_id: GraphemeClusterId {
                     source_run: 0,
                     start_byte_in_run: new_text.len() as u32,
                 },
-                affinity: azul_core::selection::CursorAffinity::Leading,
+                affinity: CursorAffinity::Leading,
             };
             TextOperation::ReplaceText {
-                range: azul_core::selection::SelectionRange {
-                    start: azul_core::selection::TextCursor {
-                        cluster_id: azul_core::selection::GraphemeClusterId {
+                range: SelectionRange {
+                    start: TextCursor {
+                        cluster_id: GraphemeClusterId {
                             source_run: 0,
                             start_byte_in_run: 0,
                         },
-                        affinity: azul_core::selection::CursorAffinity::Leading,
+                        affinity: CursorAffinity::Leading,
                     },
                     end: end_cursor,
                 },
-                old_text: new_text.clone(), // What's currently there
-                new_text: operation.pre_state.text_content.clone(), // Restore to pre-state
+                // What's currently there
+                old_text: new_text.clone(),
+                // Restore to pre-state
+                new_text: operation.pre_state.text_content.clone(),
                 new_cursor: operation
                     .pre_state
                     .cursor_position
                     .as_ref()
                     .map(|_| {
-                        CursorPosition::InWindow(azul_core::geom::LogicalPosition::new(0.0, 0.0))
+                        CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0))
                     })
                     .unwrap_or(CursorPosition::Uninitialized),
             }
@@ -490,16 +492,16 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
             } else {
                 // If there was no selection, clear it
                 // We use a zero-width selection at start
-                let dummy_cursor = azul_core::selection::TextCursor {
-                    cluster_id: azul_core::selection::GraphemeClusterId {
+                let dummy_cursor = TextCursor {
+                    cluster_id: GraphemeClusterId {
                         source_run: 0,
                         start_byte_in_run: 0,
                     },
-                    affinity: azul_core::selection::CursorAffinity::Leading,
+                    affinity: CursorAffinity::Leading,
                 };
                 TextOperation::SetSelection {
                     old_range: Some(*new_range),
-                    new_range: azul_core::selection::SelectionRange {
+                    new_range: SelectionRange {
                         start: dummy_cursor,
                         end: dummy_cursor,
                     },

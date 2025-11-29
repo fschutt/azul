@@ -2607,7 +2607,7 @@ impl MacOSWindow {
         }
 
         // Mouse cursor synchronization - compute from current hit test
-        use azul_layout::managers::InputPointId;
+        use azul_layout::managers::hover::InputPointId;
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager

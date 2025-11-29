@@ -1369,7 +1369,7 @@ impl WaylandWindow {
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager
-                .get_current(&azul_layout::managers::InputPointId::Mouse)
+                .get_current(&azul_layout::managers::hover::InputPointId::Mouse)
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type

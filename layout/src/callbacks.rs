@@ -35,7 +35,7 @@ use azul_css::{
 use rust_fontconfig::FcFontCache;
 
 use crate::{
-    managers::selection::ClipboardContent,
+    managers::{hover::InputPointId, selection::ClipboardContent},
     thread::Thread,
     timer::Timer,
     window::LayoutWindow,
@@ -1836,13 +1836,11 @@ impl CallbackInfo {
 
     /// Get the current mouse cursor hit test result (most recent frame)
     pub fn get_current_hit_test(&self) -> Option<&crate::hit_test::FullHitTest> {
-        use crate::managers::InputPointId;
         self.get_hover_manager().get_current(&InputPointId::Mouse)
     }
 
     /// Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)
     pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&crate::hit_test::FullHitTest> {
-        use crate::managers::InputPointId;
         self.get_hover_manager()
             .get_frame(&InputPointId::Mouse, frames_ago)
     }
@@ -1853,13 +1851,11 @@ impl CallbackInfo {
     pub fn get_hit_test_history(
         &self,
     ) -> Option<&alloc::collections::VecDeque<crate::hit_test::FullHitTest>> {
-        use crate::managers::InputPointId;
         self.get_hover_manager().get_history(&InputPointId::Mouse)
     }
 
     /// Check if there's sufficient mouse history for gesture detection (at least 2 frames)
     pub fn has_sufficient_history_for_gestures(&self) -> bool {
-        use crate::managers::InputPointId;
         self.get_hover_manager()
             .has_sufficient_history_for_gestures(&InputPointId::Mouse)
     }

@@ -20,6 +20,8 @@ use azul_core::{
     task::{Duration, Instant},
 };
 
+use crate::managers::hover::InputPointId;
+
 // Scrollbar Component Types
 
 /// Which component of a scrollbar was hit during hit-testing
@@ -35,10 +37,12 @@ pub enum ScrollbarComponent {
     BottomButton,
 }
 
-/// Orientation of a scrollbar
+/// Orientation of a scrollbar (vertical or horizontal)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ScrollbarOrientation {
+    /// Vertical scrollbar (right edge of container)
     Vertical,
+    /// Horizontal scrollbar (bottom edge of container)
     Horizontal,
 }
 
@@ -124,23 +128,26 @@ impl ScrollbarState {
             }
         }
     }
-
-    // NOTE: This method is deprecated - WebRender hit-testing is used instead
-    // /// Check if a global position is inside this scrollbar's track
-    // pub fn contains(&self, global_pos: LogicalPosition) -> bool {
-    //     self.track_rect.contains(global_pos)
-    // }
 }
 
 /// Result of a scrollbar hit-test
+///
+/// Contains information about which scrollbar component was hit
+/// and the position relative to both the track and the window.
 #[derive(Debug, Clone, Copy)]
 pub struct ScrollbarHit {
+    /// DOM containing the scrollable node
     pub dom_id: DomId,
+    /// Node with the scrollbar
     pub node_id: NodeId,
+    /// Whether this is a vertical or horizontal scrollbar
     pub orientation: ScrollbarOrientation,
+    /// Which component was hit (track, thumb, buttons)
     pub component: ScrollbarComponent,
-    pub local_position: LogicalPosition, // Position relative to track_rect origin
-    pub global_position: LogicalPosition, // Original global position
+    /// Position relative to track_rect origin
+    pub local_position: LogicalPosition,
+    /// Original global window position
+    pub global_position: LogicalPosition,
 }
 
 // Core Scroll Manager
@@ -184,29 +191,43 @@ pub struct ScrollState {
 /// Details of an in-progress smooth scroll animation
 #[derive(Debug, Clone)]
 struct ScrollAnimation {
+    /// When the animation started
     start_time: Instant,
+    /// Total duration of the animation
     duration: Duration,
+    /// Scroll offset at animation start
     start_offset: LogicalPosition,
+    /// Target scroll offset at animation end
     target_offset: LogicalPosition,
+    /// Easing function for interpolation
     easing: EasingFunction,
 }
 
-/// Information about what happened during a frame
+/// Summary of scroll-related events that occurred during a frame
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FrameScrollInfo {
+    /// Whether any scroll input occurred this frame
     pub had_scroll_activity: bool,
+    /// Whether programmatic scroll (scrollTo) occurred
     pub had_programmatic_scroll: bool,
+    /// Whether new scrollable DOMs were added
     pub had_new_doms: bool,
 }
 
-/// Scroll event to be processed, now with source tracking
+/// Scroll event to be processed with source tracking
 #[derive(Debug, Clone)]
 pub struct ScrollEvent {
+    /// DOM containing the scrollable node
     pub dom_id: DomId,
+    /// Target scroll node
     pub node_id: NodeId,
+    /// Scroll delta (positive = scroll down/right)
     pub delta: LogicalPosition,
+    /// Event source (User, Programmatic, etc.)
     pub source: EventSource,
+    /// Animation duration (None = instant)
     pub duration: Option<Duration>,
+    /// Easing function for smooth scrolling
     pub easing: EasingFunction,
 }
 
@@ -222,10 +243,12 @@ pub struct ScrollTickResult {
 // ScrollManager Implementation
 
 impl ScrollManager {
+    /// Creates a new empty ScrollManager
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Prepares state for a new frame by saving current offsets as previous
     pub fn begin_frame(&mut self) {
         self.had_scroll_activity = false;
         self.had_programmatic_scroll = false;
@@ -237,6 +260,7 @@ impl ScrollManager {
         }
     }
 
+    /// Returns scroll activity summary for the completed frame
     pub fn end_frame(&self) -> FrameScrollInfo {
         FrameScrollInfo {
             had_scroll_activity: self.had_scroll_activity,
@@ -245,6 +269,7 @@ impl ScrollManager {
         }
     }
 
+    /// Advances scroll animations by one tick, returns repaint info
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
         let mut result = ScrollTickResult::default();
         for ((dom_id, node_id), state) in self.states.iter_mut() {
@@ -268,6 +293,7 @@ impl ScrollManager {
         result
     }
 
+    /// Processes a scroll event, applying immediate or animated scroll
     pub fn process_scroll_event(&mut self, event: ScrollEvent, now: Instant) -> bool {
         self.had_scroll_activity = true;
         if event.source == EventSource::Programmatic || event.source == EventSource::User {
@@ -296,45 +322,24 @@ impl ScrollManager {
         true
     }
 
-    /// Record a scroll input sample from user interaction (mouse wheel, touch, etc.)
+    /// Records a scroll input sample and applies it to the first scrollable node under the cursor
     ///
-    /// This method:
-    /// 1. Takes scroll delta and the input point that caused it
-    /// 2. Checks if there was a hit test for that input point (via HoverManager)
-    /// 3. Finds the first scrollable ancestor node
-    /// 4. Applies the scroll if a valid target is found
-    /// 5. Returns the affected node if scroll was applied
-    ///
-    /// This is called during event processing BEFORE event filtering.
-    ///
-    /// # Arguments
-    /// * `delta_x` - Horizontal scroll delta (positive = scroll right)
-    /// * `delta_y` - Vertical scroll delta (positive = scroll down)
-    /// * `hover_manager` - Reference to HoverManager to get hit test results
-    /// * `input_point_id` - Which input point caused the scroll (Mouse, Touch(id))
-    /// * `now` - Current timestamp
-    ///
-    /// # Returns
-    /// Option<(DomId, NodeId)> - The node that was scrolled, if any
+    /// Finds the first scrollable node in the hit test hierarchy and applies
+    /// the scroll delta. Returns the scrolled node if successful.
     pub fn record_sample(
         &mut self,
         delta_x: f32,
         delta_y: f32,
         hover_manager: &crate::managers::hover::HoverManager,
-        input_point_id: &crate::managers::InputPointId,
+        input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId)> {
-        // Get hit test for this input point
         let hit_test = hover_manager.get_current(input_point_id)?;
 
         // Find first scrollable node in hit test hierarchy
-        // Iterate through hovered nodes (should be ordered from innermost to outermost)
         for (dom_id, hit_node) in &hit_test.hovered_nodes {
-            // Check scroll_hit_test_nodes first (nodes with overflow:scroll/auto)
             for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
-                // This node is registered as scrollable, check if it actually has overflow
                 if self.is_node_scrollable(*dom_id, *node_id) {
-                    // Apply scroll to this node
                     let delta = LogicalPosition {
                         x: delta_x,
                         y: delta_y,
@@ -361,46 +366,29 @@ impl ScrollManager {
 
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        // Get scroll state for this node
-        let state = match self.states.get(&(dom_id, node_id)) {
-            Some(s) => s,
-            None => return false, // Not registered as scrollable
-        };
-
-        // Check if content exceeds container (i.e., actually scrollable)
-        let has_horizontal_overflow =
-            state.content_rect.size.width > state.container_rect.size.width;
-        let has_vertical_overflow =
-            state.content_rect.size.height > state.container_rect.size.height;
-
-        // Node must have some overflow to be scrollable
-        has_horizontal_overflow || has_vertical_overflow
+        self.states.get(&(dom_id, node_id)).map_or(false, |state| {
+            let has_horizontal = state.content_rect.size.width > state.container_rect.size.width;
+            let has_vertical = state.content_rect.size.height > state.container_rect.size.height;
+            has_horizontal || has_vertical
+        })
     }
 
-    /// Get the scroll delta that was applied to a node in the current frame
-    /// (for generating scroll events in callbacks)
+    /// Returns the scroll delta applied this frame, if non-zero
     pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         let state = self.states.get(&(dom_id, node_id))?;
-
         let delta = LogicalPosition {
             x: state.current_offset.x - state.previous_offset.x,
             y: state.current_offset.y - state.previous_offset.y,
         };
-
-        // Only return delta if non-zero
-        if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
-            Some(delta)
-        } else {
-            None
-        }
+        (delta.x.abs() > 0.001 || delta.y.abs() > 0.001).then_some(delta)
     }
 
-    /// Check if a node had scroll activity this frame
+    /// Returns true if the node had scroll activity this frame
     pub fn had_scroll_activity_for_node(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        // Check if there's a non-zero delta this frame
         self.get_scroll_delta(dom_id, node_id).is_some()
     }
 
+    /// Sets scroll position immediately (no animation)
     pub fn set_scroll_position(
         &mut self,
         dom_id: DomId,
@@ -417,6 +405,7 @@ impl ScrollManager {
         state.last_activity = now;
     }
 
+    /// Scrolls by a delta amount with animation
     pub fn scroll_by(
         &mut self,
         dom_id: DomId,
@@ -434,6 +423,7 @@ impl ScrollManager {
         self.scroll_to(dom_id, node_id, target, duration, easing, now);
     }
 
+    /// Scrolls to an absolute position with animation
     pub fn scroll_to(
         &mut self,
         dom_id: DomId,
@@ -458,6 +448,7 @@ impl ScrollManager {
         state.last_activity = now;
     }
 
+    /// Updates the container and content bounds for a scrollable node
     pub fn update_node_bounds(
         &mut self,
         dom_id: DomId,
@@ -478,41 +469,41 @@ impl ScrollManager {
         state.current_offset = state.clamp(state.current_offset);
     }
 
+    /// Returns the current scroll offset for a node
     pub fn get_current_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.current_offset)
     }
 
+    /// Returns the timestamp of last scroll activity for a node
     pub fn get_last_activity_time(&self, dom_id: DomId, node_id: NodeId) -> Option<Instant> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
     }
 
-    /// Get the internal scroll state for a node (container and content rects, current offset)
+    /// Returns the internal scroll state for a node
     pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&ScrollState> {
         self.states.get(&(dom_id, node_id))
     }
 
+    /// Returns all scroll positions for nodes in a specific DOM
     pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
         self.states
             .iter()
-            .filter_map(|((d, node_id), state)| {
-                if *d == dom_id {
-                    Some((
-                        *node_id,
-                        ScrollPosition {
-                            parent_rect: state.container_rect,
-                            children_rect: LogicalRect::new(
-                                state.current_offset,
-                                state.content_rect.size,
-                            ),
-                        },
-                    ))
-                } else {
-                    None
-                }
+            .filter(|((d, _), _)| *d == dom_id)
+            .map(|((_, node_id), state)| {
+                (
+                    *node_id,
+                    ScrollPosition {
+                        parent_rect: state.container_rect,
+                        children_rect: LogicalRect::new(
+                            state.current_offset,
+                            state.content_rect.size,
+                        ),
+                    },
+                )
             })
             .collect()
     }
@@ -565,36 +556,38 @@ impl ScrollManager {
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
-        for ((dom_id, node_id), scroll_state) in self.states.iter() {
-            // Check if vertical scrollbar is needed
-            let needs_vertical =
-                scroll_state.content_rect.size.height > scroll_state.container_rect.size.height;
-            if needs_vertical {
-                let v_state = self.calculate_vertical_scrollbar(*dom_id, *node_id, scroll_state);
-                self.scrollbar_states
-                    .insert((*dom_id, *node_id, ScrollbarOrientation::Vertical), v_state);
-            }
+        // Collect vertical scrollbar states
+        let vertical_states: Vec<_> = self
+            .states
+            .iter()
+            .filter(|(_, s)| s.content_rect.size.height > s.container_rect.size.height)
+            .map(|((dom_id, node_id), scroll_state)| {
+                let v_state = Self::calculate_vertical_scrollbar_static(scroll_state);
+                ((*dom_id, *node_id, ScrollbarOrientation::Vertical), v_state)
+            })
+            .collect();
 
-            // Check if horizontal scrollbar is needed
-            let needs_horizontal =
-                scroll_state.content_rect.size.width > scroll_state.container_rect.size.width;
-            if needs_horizontal {
-                let h_state = self.calculate_horizontal_scrollbar(*dom_id, *node_id, scroll_state);
-                self.scrollbar_states.insert(
+        // Collect horizontal scrollbar states
+        let horizontal_states: Vec<_> = self
+            .states
+            .iter()
+            .filter(|(_, s)| s.content_rect.size.width > s.container_rect.size.width)
+            .map(|((dom_id, node_id), scroll_state)| {
+                let h_state = Self::calculate_horizontal_scrollbar_static(scroll_state);
+                (
                     (*dom_id, *node_id, ScrollbarOrientation::Horizontal),
                     h_state,
-                );
-            }
-        }
+                )
+            })
+            .collect();
+
+        // Insert all states
+        self.scrollbar_states.extend(vertical_states);
+        self.scrollbar_states.extend(horizontal_states);
     }
 
     /// Calculate vertical scrollbar geometry
-    fn calculate_vertical_scrollbar(
-        &self,
-        _dom_id: DomId,
-        _node_id: NodeId,
-        scroll_state: &ScrollState,
-    ) -> ScrollbarState {
+    fn calculate_vertical_scrollbar_static(scroll_state: &ScrollState) -> ScrollbarState {
         const SCROLLBAR_WIDTH: f32 = 12.0; // Base size (1:1 square)
 
         let container_height = scroll_state.container_rect.size.height;
@@ -615,12 +608,12 @@ impl ScrollManager {
         let scale = LogicalPosition::new(1.0, container_height / SCROLLBAR_WIDTH);
 
         // Track rect (positioned at right edge of container)
+        let track_x = scroll_state.container_rect.origin.x
+            + scroll_state.container_rect.size.width
+            - SCROLLBAR_WIDTH;
+        let track_y = scroll_state.container_rect.origin.y;
         let track_rect = LogicalRect::new(
-            LogicalPosition::new(
-                scroll_state.container_rect.origin.x + scroll_state.container_rect.size.width
-                    - SCROLLBAR_WIDTH,
-                scroll_state.container_rect.origin.y,
-            ),
+            LogicalPosition::new(track_x, track_y),
             LogicalSize::new(SCROLLBAR_WIDTH, container_height),
         );
 
@@ -636,12 +629,7 @@ impl ScrollManager {
     }
 
     /// Calculate horizontal scrollbar geometry
-    fn calculate_horizontal_scrollbar(
-        &self,
-        _dom_id: DomId,
-        _node_id: NodeId,
-        scroll_state: &ScrollState,
-    ) -> ScrollbarState {
+    fn calculate_horizontal_scrollbar_static(scroll_state: &ScrollState) -> ScrollbarState {
         const SCROLLBAR_HEIGHT: f32 = 12.0; // Base size (1:1 square)
 
         let container_width = scroll_state.container_rect.size.width;
@@ -658,12 +646,12 @@ impl ScrollManager {
 
         let scale = LogicalPosition::new(container_width / SCROLLBAR_HEIGHT, 1.0);
 
+        let track_x = scroll_state.container_rect.origin.x;
+        let track_y = scroll_state.container_rect.origin.y
+            + scroll_state.container_rect.size.height
+            - SCROLLBAR_HEIGHT;
         let track_rect = LogicalRect::new(
-            LogicalPosition::new(
-                scroll_state.container_rect.origin.x,
-                scroll_state.container_rect.origin.y + scroll_state.container_rect.size.height
-                    - SCROLLBAR_HEIGHT,
-            ),
+            LogicalPosition::new(track_x, track_y),
             LogicalSize::new(container_width, SCROLLBAR_HEIGHT),
         );
 
@@ -697,35 +685,8 @@ impl ScrollManager {
 
     // Scrollbar Hit-Testing
 
-    /// Perform hit-testing for scrollbars at the given global position.
-    ///
-    /// This should be called AFTER WebRender hit-testing to check if the hit position
-    /// is actually inside a scrollbar overlay. If this returns Some, the event should
-    /// be handled as a scrollbar interaction (thumb drag, track click, etc.) instead
-    /// of a regular DOM event.
-    ///
-    /// Returns the first scrollbar hit (highest z-order).
-    ///
-    /// ## Usage Pattern
-    ///
-    /// ```ignore
-    /// // 1. Perform WebRender hit-test to find hovered nodes
-    /// let hit_test = fullhittest_new_webrender(...);
-    ///
-    /// // 2. Check if any hovered scrollable node has a scrollbar at this position
-    /// for (dom_id, node_test) in &hit_test.hovered_nodes {
-    ///     for (node_id, _) in &node_test.regular_hit_test_nodes {
-    ///         if let Some(scrollbar_hit) = scroll_manager.hit_test_scrollbar(
-    ///             *dom_id, *node_id, cursor_position
-    ///         ) {
-    ///             // Handle scrollbar interaction
-    ///             return handle_scrollbar_event(scrollbar_hit);
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// // 3. No scrollbar hit - handle as regular DOM event
-    /// ```
+    /// Hit-test scrollbars for a specific node at the given position.
+    /// Returns Some if the position is inside a scrollbar for this node.
     pub fn hit_test_scrollbar(
         &self,
         dom_id: DomId,
@@ -816,6 +777,7 @@ impl ScrollManager {
 // ScrollState Implementation
 
 impl ScrollState {
+    /// Create a new scroll state initialized at offset (0, 0).
     pub fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
@@ -827,6 +789,7 @@ impl ScrollState {
         }
     }
 
+    /// Clamp a scroll position to valid bounds (0 to max_scroll).
     pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
         let max_x = (self.content_rect.size.width - self.container_rect.size.width).max(0.0);
         let max_y = (self.content_rect.size.height - self.container_rect.size.height).max(0.0);
@@ -839,6 +802,8 @@ impl ScrollState {
 
 // Easing Functions
 
+/// Apply an easing function to a normalized time value (0.0 to 1.0).
+/// Used by ScrollAnimation::tick() for smooth scroll animations.
 pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
