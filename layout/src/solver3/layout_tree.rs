@@ -22,7 +22,7 @@ use azul_css::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
-        property::CssProperty,
+        property::{CssProperty, CssPropertyType},
     },
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
@@ -345,7 +345,8 @@ impl LayoutTree {
             return;
         }
 
-        // Using a stack for an iterative traversal to avoid deep recursion on large subtrees.
+        // Using a stack for an iterative traversal to avoid deep recursion
+        // on large subtrees.
         let mut stack = vec![start_index];
         while let Some(index) = stack.pop() {
             if let Some(node) = self.get_mut(index) {
@@ -422,7 +423,9 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
-        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
+        let node_idx = self.create_node_from_dom(
+            styled_dom, dom_id, parent_idx, debug_messages
+        )?;
         let display_type = get_display_type(styled_dom, dom_id);
 
         // If this is a list-item, inject a ::marker pseudo-element as its first child
@@ -496,7 +499,8 @@ impl LayoutTreeBuilder {
                         parent_idx,
                         AnonymousBoxType::InlineWrapper,
                         FormattingContext::Block {
-                            establishes_new_context: true, // Anonymous wrappers are BFC roots
+                            // Anonymous wrappers are BFC roots
+                            establishes_new_context: true,
                         },
                     );
                     for inline_child_id in inline_run.drain(..) {
@@ -524,7 +528,9 @@ impl LayoutTreeBuilder {
                 },
             );
             for inline_child_id in inline_run {
-                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
+                self.process_node(
+                    styled_dom, inline_child_id, Some(anon_idx), debug_messages
+                )?;
             }
         }
 
@@ -690,19 +696,23 @@ impl LayoutTreeBuilder {
         // CSS 2.2 Section 17.2.1: Anonymous boxes inherit properties from their
         // enclosing non-anonymous box
         let parent_fc = self.nodes.get(parent).map(|n| n.formatting_context.clone());
+
         self.nodes.push(LayoutNode {
-            dom_node_id: None, // Anonymous boxes have no DOM correspondence
+            // Anonymous boxes have no DOM correspondence
+            dom_node_id: None,
             pseudo_element: None,
             parent: Some(parent),
             formatting_context: fc,
             parent_formatting_context: parent_fc,
-            box_props: BoxProps::default(), // Anonymous boxes inherit from parent
+            // Anonymous boxes inherit from parent
+            box_props: BoxProps::default(),
             taffy_cache: TaffyCache::new(),
             is_anonymous: true,
             anonymous_type: Some(anon_type),
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
-            node_data_hash: 0, // Anonymous boxes don't have style/data
+            // Anonymous boxes don't have style/data
+            node_data_hash: 0,
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
             used_size: None,
@@ -744,15 +754,19 @@ impl LayoutTreeBuilder {
             dom_node_id: Some(list_item_dom_id),
             pseudo_element: Some(PseudoElement::Marker),
             parent: Some(list_item_idx),
-            formatting_context: FormattingContext::Inline, // Markers contain inline text
+            // Markers contain inline text
+            formatting_context: FormattingContext::Inline,
             parent_formatting_context: parent_fc,
-            box_props: BoxProps::default(), // Will be resolved from ::marker styles
+            // Will be resolved from ::marker styles
+            box_props: BoxProps::default(),
             taffy_cache: TaffyCache::new(),
-            is_anonymous: false, // Pseudo-elements are not anonymous boxes
+            // Pseudo-elements are not anonymous boxes
+            is_anonymous: false,
             anonymous_type: None,
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
-            node_data_hash: 0, // Pseudo-elements don't have separate style in current impl
+            // Pseudo-elements don't have separate style in current impl
+            node_data_hash: 0,
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
             used_size: None,
@@ -857,6 +871,7 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
 /// Checks if a node is inline-level (including text nodes).
 /// According to CSS spec, inline-level content includes:
+/// 
 /// - Elements with display: inline, inline-block, inline-table, inline-flex, inline-grid
 /// - Text nodes
 /// - Generated content
@@ -945,8 +960,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
 
     // Try to get from dependency chain first (proper resolution)
     if let Some(node_chains) = cache.dependency_chains.get(&dom_id) {
-        if let Some(chain) = node_chains.get(&azul_css::props::property::CssPropertyType::FontSize)
-        {
+        if let Some(chain) = node_chains.get(&CssPropertyType::FontSize) {
             if let Some(cached) = chain.cached_pixels {
                 return cached;
             }
@@ -1223,14 +1237,10 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 
         // 2. Check User Agent CSS (always returns a value for display)
         let node_type = &styled_dom.node_data.as_container()[node_id].node_type;
-        if let Some(ua_prop) = azul_core::ua_css::get_ua_property(
-            node_type,
-            azul_css::props::property::CssPropertyType::Display,
-        ) {
-            if let azul_css::props::property::CssProperty::Display(
-                azul_css::css::CssPropertyValue::Exact(d),
-            ) = ua_prop
-            {
+        if let Some(ua_prop) =
+            azul_core::ua_css::get_ua_property(node_type, CssPropertyType::Display)
+        {
+            if let CssProperty::Display(azul_css::css::CssPropertyValue::Exact(d)) = ua_prop {
                 return *d;
             }
         }

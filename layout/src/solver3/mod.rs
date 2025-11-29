@@ -138,7 +138,7 @@ use azul_css::{
 };
 
 use self::{
-    display_list::{generate_display_list, generate_display_lists_paged},
+    display_list::generate_display_list,
     geometry::IntrinsicSizes,
     getters::get_writing_mode,
     layout_tree::{generate_layout_tree, LayoutTree},
