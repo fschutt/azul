@@ -1,9 +1,8 @@
-//! Centralized GPU state management
+//! Centralized GPU state management.
 //!
-//! This module provides:
-//! - Management of all GPU property keys (opacity, transforms, etc.)
-//! - Fade-in/fade-out animations for scrollbar opacity
-//! - A single source of truth for the GPU cache
+//! This module provides management of GPU property keys (opacity, transforms, etc.),
+//! fade-in/fade-out animations for scrollbar opacity, and a single source of truth
+//! for the GPU cache.
 
 use alloc::collections::BTreeMap;
 
@@ -22,10 +21,21 @@ use crate::{
     text3::cache::ParsedFontTrait,
 };
 
+/// Manages GPU-accelerated properties across all DOMs.
+///
+/// The `GpuStateManager` maintains caches for transform and opacity keys
+/// that are used by the GPU renderer. It handles:
+///
+/// - Scrollbar thumb position transforms (updated on scroll)
+/// - Opacity fading for scrollbars (fade in on activity, fade out after delay)
+/// - Per-DOM GPU value caches for efficient rendering
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
+    /// GPU value caches indexed by DOM ID
     pub caches: BTreeMap<DomId, GpuValueCache>,
+    /// Delay before scrollbars start fading out after last activity
     pub fade_delay: Duration,
+    /// Duration of the fade-out animation
     pub fade_duration: Duration,
 }
 
@@ -38,21 +48,41 @@ impl Default for GpuStateManager {
     }
 }
 
+/// Internal state for tracking opacity transitions.
+///
+/// Used to implement smooth fade-in/fade-out animations for scrollbar opacity.
+/// The opacity interpolates from `current_value` to `target_value` over time.
 #[derive(Debug, Clone)]
 struct OpacityState {
+    /// Current opacity value (0.0 = transparent, 1.0 = opaque)
     current_value: f32,
+    /// Target opacity value to transition towards
     target_value: f32,
+    /// Timestamp of last scroll or hover activity
     last_activity_time: Instant,
+    /// When the transition animation started (None if not transitioning)
     transition_start_time: Option<Instant>,
 }
 
+/// Result of a GPU state tick operation.
+///
+/// Contains information about whether the GPU state changed and
+/// what specific changes occurred for the renderer to process.
 #[derive(Debug, Default)]
 pub struct GpuTickResult {
+    /// Whether any GPU state changed requiring a repaint
     pub needs_repaint: bool,
+    /// Detailed changes to transform and opacity keys
     pub changes: GpuEventChanges,
 }
 
 impl GpuStateManager {
+    /// Creates a new GPU state manager with specified fade timing.
+    ///
+    /// # Arguments
+    ///
+    /// * `fade_delay` - Time after last activity before fade-out starts
+    /// * `fade_duration` - Duration of the fade-out animation
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
         Self {
             caches: BTreeMap::new(),
@@ -61,17 +91,26 @@ impl GpuStateManager {
         }
     }
 
+    /// Advances GPU state by one tick, interpolating animated values.
+    ///
+    /// This should be called each frame to update opacity transitions
+    /// for smooth scrollbar fading.
     pub fn tick(&mut self, now: Instant) -> GpuTickResult {
         // For now, this is a placeholder. A full implementation would
         // interpolate opacity values for smooth fading.
         GpuTickResult::default()
     }
 
+    /// Gets or creates the GPU cache for a specific DOM.
     pub fn get_or_create_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
         self.caches.entry(dom_id).or_default()
     }
 
-    /// Updates scrollbar transforms based on current scroll positions.
+    /// Updates scrollbar thumb transforms based on current scroll positions.
+    ///
+    /// Calculates the transform needed to position scrollbar thumbs correctly
+    /// based on the scroll offset and content/container sizes. Returns the
+    /// GPU event changes that need to be applied by the renderer.
     pub fn update_scrollbar_transforms(
         &mut self,
         dom_id: DomId,
@@ -106,57 +145,71 @@ impl GpuStateManager {
                 .unwrap_or(container_size);
 
             if scrollbar_info.needs_vertical {
-                let track_height = container_size.height - scrollbar_info.scrollbar_height;
-                let thumb_height = (container_size.height / content_size.height) * track_height;
-                let scrollable_dist = content_size.height - container_size.height;
-                let thumb_dist = track_height - thumb_height;
+                let transform =
+                    compute_vertical_thumb_transform(scrollbar_info, &container_size, &content_size, scroll_offset.y);
 
-                let scroll_ratio = if scrollable_dist > 0.0 {
-                    scroll_offset.y / scrollable_dist
-                } else {
-                    0.0
-                };
-                let thumb_offset_y = scroll_ratio * thumb_dist;
-
-                let transform = ComputedTransform3D::new_translation(0.0, thumb_offset_y, 0.0);
-                let key = (dom_id, node_id);
-
-                if let Some(existing_transform) = gpu_cache.current_transform_values.get(&node_id) {
-                    if *existing_transform != transform {
-                        let transform_key = gpu_cache.transform_keys[&node_id];
-                        changes
-                            .transform_key_changes
-                            .push(GpuTransformKeyEvent::Changed(
-                                node_id,
-                                transform_key,
-                                *existing_transform,
-                                transform,
-                            ));
-                        gpu_cache
-                            .current_transform_values
-                            .insert(node_id, transform);
-                    }
-                } else {
-                    let transform_key = TransformKey::unique();
-                    gpu_cache.transform_keys.insert(node_id, transform_key);
-                    gpu_cache
-                        .current_transform_values
-                        .insert(node_id, transform);
-                    changes
-                        .transform_key_changes
-                        .push(GpuTransformKeyEvent::Added(
-                            node_id,
-                            transform_key,
-                            transform,
-                        ));
-                }
+                update_transform_key(gpu_cache, &mut changes, dom_id, node_id, transform);
             }
         }
 
         changes
     }
 
+    /// Returns a clone of all GPU value caches.
     pub fn get_gpu_value_cache(&self) -> BTreeMap<DomId, GpuValueCache> {
         self.caches.clone()
+    }
+}
+
+/// Computes the transform for a vertical scrollbar thumb.
+fn compute_vertical_thumb_transform(
+    scrollbar_info: &ScrollbarInfo,
+    container_size: &LogicalSize,
+    content_size: &LogicalSize,
+    scroll_y: f32,
+) -> ComputedTransform3D {
+    let track_height = container_size.height - scrollbar_info.scrollbar_height;
+    let thumb_height = (container_size.height / content_size.height) * track_height;
+    let scrollable_dist = content_size.height - container_size.height;
+    let thumb_dist = track_height - thumb_height;
+
+    let scroll_ratio = if scrollable_dist > 0.0 {
+        scroll_y / scrollable_dist
+    } else {
+        0.0
+    };
+    let thumb_offset_y = scroll_ratio * thumb_dist;
+
+    ComputedTransform3D::new_translation(0.0, thumb_offset_y, 0.0)
+}
+
+/// Updates or creates a transform key in the GPU cache.
+fn update_transform_key(
+    gpu_cache: &mut GpuValueCache,
+    changes: &mut GpuEventChanges,
+    dom_id: DomId,
+    node_id: NodeId,
+    transform: ComputedTransform3D,
+) {
+    if let Some(existing_transform) = gpu_cache.current_transform_values.get(&node_id) {
+        if *existing_transform != transform {
+            let transform_key = gpu_cache.transform_keys[&node_id];
+            changes
+                .transform_key_changes
+                .push(GpuTransformKeyEvent::Changed(
+                    node_id,
+                    transform_key,
+                    *existing_transform,
+                    transform,
+                ));
+            gpu_cache.current_transform_values.insert(node_id, transform);
+        }
+    } else {
+        let transform_key = TransformKey::unique();
+        gpu_cache.transform_keys.insert(node_id, transform_key);
+        gpu_cache.current_transform_values.insert(node_id, transform);
+        changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Added(node_id, transform_key, transform));
     }
 }
