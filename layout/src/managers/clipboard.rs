@@ -50,74 +50,57 @@ impl ClipboardManager {
 
     // Paste Operations (System → Application)
 
-    /// Set content from system clipboard (called by event handler before paste callbacks)
-    ///
-    /// This is called by the event loop when Ctrl+V is pressed, BEFORE firing user callbacks.
-    /// The content becomes available to user callbacks via `get_clipboard_content()`.
+    /// Sets content from the system clipboard (called before paste callbacks).
     pub fn set_paste_content(&mut self, content: ClipboardContent) {
         self.pending_paste_content = Some(content);
     }
 
-    /// Get content available for pasting (called by user callbacks)
-    ///
-    /// Returns the content from the system clipboard if a paste operation is in progress.
-    /// This is typically called from On::Paste callbacks to inspect what will be pasted.
-    ///
-    /// Returns `None` if no paste operation is active.
+    /// Returns the pending paste content, if any.
     pub fn get_paste_content(&self) -> Option<&ClipboardContent> {
         self.pending_paste_content.as_ref()
     }
 
     // Copy Operations (Application → System)
 
-    /// Set content to be copied to system clipboard (called by user callbacks)
-    ///
-    /// This is called by user callbacks (via `CallbackInfo::set_copy_content()`) to override
-    /// the default clipboard content. If not set, the default selected text is used.
+    /// Sets content to be copied to the system clipboard.
     pub fn set_copy_content(&mut self, content: ClipboardContent) {
         self.pending_copy_content = Some(content);
     }
 
-    /// Get content to be copied to system clipboard (called by event handler after callbacks)
-    ///
-    /// Returns the overridden content if user callback set it, otherwise `None`.
-    /// The event loop should use this if available, otherwise fall back to selected text.
+    /// Returns the pending copy content, if any.
     pub fn get_copy_content(&self) -> Option<&ClipboardContent> {
         self.pending_copy_content.as_ref()
     }
 
-    /// Take the copy content, consuming it (for event handler after writing to clipboard)
+    /// Takes the copy content, consuming it.
     pub fn take_copy_content(&mut self) -> Option<ClipboardContent> {
         self.pending_copy_content.take()
     }
 
     // Lifecycle Management
 
-    /// Clear all pending clipboard content
-    ///
-    /// This should be called after clipboard operations are complete to reset the manager
-    /// for the next operation. Typically called by the platform's `sync_clipboard()` method.
+    /// Clears all pending clipboard content.
     pub fn clear(&mut self) {
         self.pending_paste_content = None;
         self.pending_copy_content = None;
     }
 
-    /// Clear only paste content (after paste operation completes)
+    /// Clears only paste content.
     pub fn clear_paste(&mut self) {
         self.pending_paste_content = None;
     }
 
-    /// Clear only copy content (after copy operation completes)
+    /// Clears only copy content.
     pub fn clear_copy(&mut self) {
         self.pending_copy_content = None;
     }
 
-    /// Check if there's pending paste content
+    /// Returns `true` if there's pending paste content.
     pub fn has_paste_content(&self) -> bool {
         self.pending_paste_content.is_some()
     }
 
-    /// Check if there's pending copy content
+    /// Returns `true` if there's pending copy content.
     pub fn has_copy_content(&self) -> bool {
         self.pending_copy_content.is_some()
     }
