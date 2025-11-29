@@ -2360,9 +2360,7 @@ pub enum Win32Event {
     Other,
 }
 
-// ============================================================================
 // PlatformWindow trait implementation
-// ============================================================================
 
 use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
 
@@ -2674,12 +2672,10 @@ impl Win32Window {
     }
 }
 
-// ========================= PlatformWindowV2 Trait Implementation =========================
+// PlatformWindowV2 Trait Implementation
 
 impl PlatformWindowV2 for Win32Window {
-    // =========================================================================
     // REQUIRED: Simple Getter Methods
-    // =========================================================================
 
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
         self.layout_window.as_mut()
@@ -2822,9 +2818,7 @@ impl PlatformWindowV2 for Win32Window {
         }
     }
 
-    // =========================================================================
     // Timer Management (Win32 Implementation)
-    // =========================================================================
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         let interval_ms = timer.tick_millis().min(u32::MAX as u64) as u32;
@@ -2859,9 +2853,7 @@ impl PlatformWindowV2 for Win32Window {
         }
     }
 
-    // =========================================================================
     // Thread Management (Win32 Implementation)
-    // =========================================================================
 
     fn start_thread_poll_timer(&mut self) {
         if self.thread_timer_running.is_none() {
@@ -2908,9 +2900,7 @@ impl PlatformWindowV2 for Win32Window {
         }
     }
 
-    // =========================================================================
     // REQUIRED: Menu Display
-    // =========================================================================
 
     fn show_menu_from_callback(
         &mut self,
@@ -3063,7 +3053,7 @@ fn position_window_on_monitor(
     }
 }
 
-// ===== IME Position Management =====
+// IME Position Management
 
 impl Win32Window {
     /// Set IME composition window position and area

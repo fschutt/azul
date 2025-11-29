@@ -93,9 +93,7 @@ use corevideo::CoreVideoFunctions;
 use events::HitTestNode;
 use gl::GlFunctions;
 
-// ============================================================================
 // IOKit FFI - Power Management (IOPMAssertion)
-// ============================================================================
 
 type IOPMAssertionID = u32;
 type IOReturn = i32;
@@ -126,9 +124,7 @@ pub enum RenderBackend {
     CPU,
 }
 
-// ============================================================================
 // GLView - OpenGL rendering view
-// ============================================================================
 
 /// Instance variables for GLView
 pub struct GLViewIvars {
@@ -212,7 +208,7 @@ define_class!(
             self.ivars().needs_reshape.set(false);
         }
 
-        // ===== Event Handling =====
+        // Event Handling
 
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
@@ -265,7 +261,7 @@ define_class!(
             // Event handled by MacOSWindow
         }
 
-        // ===== NSResponder Undo/Redo Support =====
+        // NSResponder Undo/Redo Support
         // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
 
         #[unsafe(method(undo:))]
@@ -386,7 +382,7 @@ define_class!(
             // Event will be handled by MacOSWindow
         }
 
-        // ===== NSTextInputClient Protocol =====
+        // NSTextInputClient Protocol
         // Basic IME support for Unicode composition (e.g., Japanese, Chinese, accented characters)
 
         #[unsafe(method(hasMarkedText))]
@@ -516,9 +512,7 @@ define_class!(
     }
 );
 
-// ============================================================================
 // CPUView - CPU rendering view
-// ============================================================================
 
 /// Instance variables for CPUView
 pub struct CPUViewIvars {
@@ -612,7 +606,7 @@ define_class!(
             true
         }
 
-        // ===== Event Handling =====
+        // Event Handling
 
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
@@ -664,7 +658,7 @@ define_class!(
             // Event handled by MacOSWindow
         }
 
-        // ===== NSResponder Undo/Redo Support =====
+        // NSResponder Undo/Redo Support
         // These methods are called automatically by macOS when Cmd+Z / Cmd+Shift+Z are pressed
 
         #[unsafe(method(undo:))]
@@ -786,7 +780,7 @@ define_class!(
             // Event will be handled by MacOSWindow
         }
 
-        // ===== NSTextInputClient Protocol =====
+        // NSTextInputClient Protocol
         // Same IME implementation as GLView
 
         #[unsafe(method(hasMarkedText))]
@@ -909,9 +903,7 @@ define_class!(
     }
 );
 
-// ============================================================================
 // GLView Helper Methods (outside define_class!)
-// ============================================================================
 
 impl GLView {
     /// Set the back-pointer to the owning MacOSWindow
@@ -926,9 +918,7 @@ impl GLView {
     }
 }
 
-// ============================================================================
 // CPUView Helper Methods (outside define_class!)
-// ============================================================================
 
 impl CPUView {
     /// Set the back-pointer to the owning MacOSWindow
@@ -943,9 +933,7 @@ impl CPUView {
     }
 }
 
-// ============================================================================
 // WindowDelegate - Handles window lifecycle events (close, resize, etc.)
-// ============================================================================
 
 /// Instance variables for WindowDelegate
 pub struct WindowDelegateIvars {
@@ -1159,9 +1147,7 @@ impl WindowDelegate {
     }
 }
 
-// ============================================================================
 // Helper Functions
-// ============================================================================
 
 /// Create OpenGL pixel format with proper attributes
 fn create_opengl_pixel_format(
@@ -1186,9 +1172,7 @@ fn create_opengl_pixel_format(
     }
 }
 
-// ============================================================================
 // MacOSWindow - Main window implementation
-// ============================================================================
 
 /// macOS window implementation with dual rendering backend support
 pub struct MacOSWindow {
@@ -1290,14 +1274,10 @@ pub struct MacOSWindow {
     current_display_id: Option<u32>,
 }
 
-// ============================================================================
 // Implement PlatformWindowV2 trait for cross-platform event processing
-// ============================================================================
 
 impl event_v2::PlatformWindowV2 for MacOSWindow {
-    // =========================================================================
     // REQUIRED: Simple Getter Methods
-    // =========================================================================
 
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
         self.layout_window.as_mut()
@@ -1440,9 +1420,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         }
     }
 
-    // =========================================================================
     // Timer Management (macOS/NSTimer Implementation)
-    // =========================================================================
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         use block2::RcBlock;
@@ -1489,9 +1467,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         }
     }
 
-    // =========================================================================
     // Thread Management (macOS/NSTimer Implementation)
-    // =========================================================================
 
     fn start_thread_poll_timer(&mut self) {
         use block2::RcBlock;
@@ -1548,9 +1524,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         }
     }
 
-    // =========================================================================
     // REQUIRED: Menu Display
-    // =========================================================================
 
     fn show_menu_from_callback(
         &mut self,
@@ -3454,9 +3428,7 @@ impl MacOSWindow {
         self.set_cursor("arrow");
     }
 
-    // =========================================================================
     // RENDERING METHODS - macOS Drawing Model Integration
-    // =========================================================================
 
     /// Set up the GLView's back-pointer to this MacOSWindow.
     ///
@@ -3563,7 +3535,7 @@ impl MacOSWindow {
 
         // Build everything into this transaction (resources, display lists, etc.)
 
-        eprintln!("[build_atomic_txn] ========== START ==========");
+        eprintln!("[build_atomic_txn] START ");
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
@@ -3598,7 +3570,7 @@ impl MacOSWindow {
             WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
         })?;
 
-        eprintln!("[build_atomic_txn] ========== BUILD COMPLETE ==========");
+        eprintln!("[build_atomic_txn] BUILD COMPLETE ");
 
         // Send the complete atomic transaction
         if let Some(layout_window) = self.layout_window.as_ref() {
@@ -3680,7 +3652,7 @@ impl MacOSWindow {
             }
         }
 
-        eprintln!("[render_and_present_in_draw_rect] ========== FRAME COMPLETE ==========\n");
+        eprintln!("[render_and_present_in_draw_rect] FRAME COMPLETE \n");
         Ok(())
     }
 }
@@ -4006,9 +3978,7 @@ impl MacOSEvent {
 }
 
 impl MacOSWindow {
-    // =========================================================================
     // NSResponder Undo/Redo Integration (macOS Native)
-    // =========================================================================
 
     /// Perform undo operation (called by NSResponder undo: selector)
     pub fn perform_undo(&mut self) {
@@ -4151,9 +4121,7 @@ impl MacOSWindow {
         false
     }
 
-    // =========================================================================
     // Accessibility Support
-    // =========================================================================
 
     /// Initialize accessibility support for the window
     ///
@@ -4421,7 +4389,7 @@ fn position_window_on_monitor(
     }
 }
 
-// ===== IME Position Management =====
+// IME Position Management
 
 impl MacOSWindow {
     /// Sync ime_position from window state to OS

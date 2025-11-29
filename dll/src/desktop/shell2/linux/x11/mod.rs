@@ -1104,12 +1104,10 @@ impl X11Window {
     }
 }
 
-// ========================= PlatformWindowV2 Trait Implementation =========================
+// PlatformWindowV2 Trait Implementation
 
 impl PlatformWindowV2 for X11Window {
-    // =========================================================================
     // REQUIRED: Simple Getter Methods
-    // =========================================================================
 
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
         self.layout_window.as_mut()
@@ -1260,9 +1258,7 @@ impl PlatformWindowV2 for X11Window {
         }
     }
 
-    // =========================================================================
     // Timer Management (X11 Implementation - Stored in LayoutWindow)
-    // =========================================================================
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         // X11 has no native timer API, so we just store timers in layout_window
@@ -1285,9 +1281,7 @@ impl PlatformWindowV2 for X11Window {
         }
     }
 
-    // =========================================================================
     // Thread Management (X11 Implementation - Stored in LayoutWindow)
-    // =========================================================================
 
     fn start_thread_poll_timer(&mut self) {
         // For X11, we don't need a separate timer - threads are checked
@@ -1326,9 +1320,7 @@ impl PlatformWindowV2 for X11Window {
         }
     }
 
-    // =========================================================================
     // REQUIRED: Menu Display
-    // =========================================================================
 
     fn show_menu_from_callback(
         &mut self,
@@ -1349,9 +1341,7 @@ impl PlatformWindowV2 for X11Window {
         }
     }
 
-    // =========================================================================
     // Tooltip Methods (X11 Implementation)
-    // =========================================================================
 
     fn show_tooltip_from_callback(
         &mut self,
@@ -1457,7 +1447,7 @@ impl Drop for X11Window {
     }
 }
 
-// ===== IME Position Management =====
+// IME Position Management
 
 impl X11Window {
     /// Sync ime_position from window state to OS

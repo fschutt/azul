@@ -635,7 +635,7 @@ pub fn fullhittest_new_webrender(
     ret
 }
 
-// ==================== DISPLAY LIST TRANSLATION STUBS ====================
+// DISPLAY LIST TRANSLATION STUBS
 //
 // These functions are stubs for now and will be fully implemented later.
 // They provide the basic structure for translating azul layout results
@@ -1545,7 +1545,7 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     }
 }
 
-// ========== Additional Translation Functions ==========
+// Additional Translation Functions
 
 use azul_core::{
     geom::LogicalSize,

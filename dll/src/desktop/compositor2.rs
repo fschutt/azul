@@ -782,7 +782,7 @@ pub fn translate_displaylist_to_wr(
     Ok((wr_resources, dl, nested_pipelines))
 }
 
-// ========== Helper Functions ==========
+// Helper Functions
 
 /// Convert DisplayList BorderRadius to StyleBorderRadius
 #[inline]
@@ -795,7 +795,7 @@ fn convert_border_radius_to_style(br: &BorderRadius) -> StyleBorderRadius {
     }
 }
 
-// ========== Helper Functions from wr_translate.rs ==========
+// Helper Functions from wr_translate.rs
 
 /// Define a clip region with optional border radius
 #[inline]

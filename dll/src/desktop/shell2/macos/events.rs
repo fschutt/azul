@@ -1147,9 +1147,7 @@ impl MacOSWindow {
         }
     }
 
-    // ========================================================================
     // Helper Functions for V2 Event System
-    // ========================================================================
 
     /// Update hit test at given position and store in current_window_state.
     fn update_hit_test(&mut self, position: LogicalPosition) {
@@ -1210,9 +1208,7 @@ impl MacOSWindow {
         }
     }
 
-    // ========================================================================
     // V2 Cross-Platform Event Processing
-    // ========================================================================
     // NOTE: All V2 event processing methods are now provided by the
     // PlatformWindowV2 trait in common/event_v2.rs. The trait provides:
     // - process_window_events_v2() - Entry point (public API)

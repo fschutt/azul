@@ -31,9 +31,7 @@ use azul_layout::{
 use super::{defines::*, dlopen::Xlib, X11Window};
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
-// ============================================================================
 // IME Support (X Input Method)
-// ============================================================================
 
 pub(super) struct ImeManager {
     xlib: Rc<Xlib>,
@@ -140,9 +138,7 @@ impl Drop for ImeManager {
     }
 }
 
-// ============================================================================
 // Event Handler - Main Implementation
-// ============================================================================
 
 /// Target for callback dispatch - either a specific node or all root nodes.
 #[derive(Debug, Clone, Copy)]
@@ -162,9 +158,7 @@ pub struct HitTestNode {
 }
 
 impl X11Window {
-    // ========================================================================
     // V2 Cross-Platform Event Processing (from macOS/Windows)
-    // ========================================================================
 
     /// V2: Process window events using cross-platform dispatch system.
     ///
@@ -254,9 +248,7 @@ impl X11Window {
         event_result
     }
 
-    // ========================================================================
     // Event Handlers (State-Diffing Pattern)
-    // ========================================================================
 
     /// Handle mouse button press/release events
     pub fn handle_mouse_button(&mut self, event: &XButtonEvent) -> ProcessEventResult {
@@ -541,9 +533,7 @@ impl X11Window {
         self.process_window_events_recursive_v2(0)
     }
 
-    // ========================================================================
     // Helper Functions for V2 Event System
-    // ========================================================================
 
     /// Update hit test at given position and store in current_window_state
     fn update_hit_test(&mut self, position: LogicalPosition) {
@@ -593,9 +583,7 @@ impl X11Window {
         })
     }
 
-    // ========================================================================
     // Scrollbar Handling (from Windows/macOS)
-    // ========================================================================
 
     /// Query WebRender hit-tester for scrollbar hits at given position
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
@@ -677,9 +665,7 @@ impl X11Window {
         Ok(())
     }
 
-    // ========================================================================
     // Context Menu Support
-    // ========================================================================
 
     /// Try to show context menu for the given node at position
     ///
@@ -767,9 +753,7 @@ impl X11Window {
     }
 }
 
-// ============================================================================
 // Extension Trait for Callback Conversion
-// ============================================================================
 
 trait CallbackExt {
     fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self;
@@ -782,9 +766,7 @@ impl CallbackExt for azul_layout::callbacks::Callback {
     }
 }
 
-// ============================================================================
 // Keycode Conversion
-// ============================================================================
 
 pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
     // This is a partial mapping based on X11/keysymdef.h

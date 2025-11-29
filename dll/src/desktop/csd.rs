@@ -18,9 +18,7 @@ use azul_layout::callbacks::CallbackInfo;
 
 use crate::desktop::menu_renderer::SystemStyleMenuExt; // Import trait for menu stylesheet
 
-// =============================================================================
 // CSD Button Callbacks
-// =============================================================================
 
 /// Callback for the minimize button - minimizes the window
 extern "C" fn csd_minimize_callback(_data: &mut RefAny, info: &mut CallbackInfo) -> Update {

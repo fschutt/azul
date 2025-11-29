@@ -200,9 +200,7 @@ pub enum WaylandEvent {
     Other,
 }
 
-// ============================================================================
 // Wayland Popup Window (for menus using xdg_popup)
-// ============================================================================
 
 /// Wayland popup window using xdg_popup protocol
 ///
@@ -259,9 +257,7 @@ pub struct WaylandPopup {
     app_data: Arc<RefCell<RefAny>>,
 }
 
-// ============================================================================
 // Event Handler Types
-// ============================================================================
 
 /// Target for callback dispatch - either a specific node or all root nodes.
 #[derive(Debug, Clone, Copy)]
@@ -280,9 +276,7 @@ struct HitTestNode {
     node_id: u64,
 }
 
-// ============================================================================
 // XKB Keyboard Translation
-// ============================================================================
 
 /// Translate XKB keysym to Azul VirtualKeyCode
 ///
@@ -469,9 +463,7 @@ fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::Virtua
     }
 }
 
-// ============================================================================
 // PlatformWindow Implementation
-// ============================================================================
 
 impl PlatformWindow for WaylandWindow {
     type EventType = WaylandEvent;
@@ -578,9 +570,7 @@ impl PlatformWindow for WaylandWindow {
     }
 }
 
-// ============================================================================
 // PlatformWindowV2 Trait Implementation (Cross-platform V2 Event System)
-// ============================================================================
 
 impl PlatformWindowV2 for WaylandWindow {
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
@@ -732,9 +722,7 @@ impl PlatformWindowV2 for WaylandWindow {
         }
     }
 
-    // =========================================================================
     // Timer Management (Wayland Implementation - Stored in LayoutWindow)
-    // =========================================================================
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         // Wayland has no native timer API, so we just store timers in layout_window
@@ -757,9 +745,7 @@ impl PlatformWindowV2 for WaylandWindow {
         }
     }
 
-    // =========================================================================
     // Thread Management (Wayland Implementation - Stored in LayoutWindow)
-    // =========================================================================
 
     fn start_thread_poll_timer(&mut self) {
         // For Wayland, we don't need a separate timer - threads are checked
@@ -798,9 +784,7 @@ impl PlatformWindowV2 for WaylandWindow {
         }
     }
 
-    // =========================================================================
     // REQUIRED: Menu Display
-    // =========================================================================
 
     fn show_menu_from_callback(
         &mut self,
@@ -821,9 +805,7 @@ impl PlatformWindowV2 for WaylandWindow {
         }
     }
 
-    // =========================================================================
     // Tooltip Methods (Wayland Implementation)
-    // =========================================================================
 
     fn show_tooltip_from_callback(
         &mut self,
@@ -2437,9 +2419,7 @@ impl WaylandWindow {
     }
 }
 
-// ============================================================================
 // WaylandPopup Implementation
-// ============================================================================
 
 impl WaylandPopup {
     /// Create a new popup window using xdg_popup protocol
@@ -2705,9 +2685,7 @@ impl Drop for WaylandPopup {
     }
 }
 
-// ============================================================================
 // XDG Popup Listener Callbacks
-// ============================================================================
 
 /// Context passed to popup listener callbacks
 struct PopupListenerContext {
@@ -2734,7 +2712,7 @@ extern "C" fn popup_xdg_surface_configure(
     }
 }
 
-// ===== IME Position Management =====
+// IME Position Management
 
 impl WaylandWindow {
     /// Sync ime_position from window state to OS

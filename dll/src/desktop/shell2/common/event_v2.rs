@@ -26,19 +26,19 @@
 //!                                      ┌───────────────────────────────┘
 //!                                      ↓
 //!                          PRE-EVENT-DISPATCH PROCESSING
-//!                          ============================
+//! =
 //!                          1. Scroll: record_sample() on ScrollManager
 //!                          2. Text: process_text_input() on LayoutWindow
 //!                          3. A11y: record_state_changes() on A11yManager
 //!                          ↓
 //!                          EVENT FILTERING & DISPATCH
-//!                          ==========================
+//! =
 //!                          4. State diffing (window_state::create_events_from_states)
 //!                          5. Event filtering (dispatch_events)
 //!                          6. Callback invocation (invoke_callbacks_v2)
 //!                          ↓
 //!                          POST-CALLBACK PROCESSING
-//!                          ========================
+//! =
 //!                          7. Process callback results (update DOM, layout, etc.)
 //!                          8. Re-layout if necessary
 //!                          9. Mark dirty nodes for re-render
@@ -187,9 +187,7 @@ use rust_fontconfig::FcFontCache;
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 
 /// Maximum depth for recursive event processing (prevents infinite loops from callbacks)
-// ============================================================================
 // Event Processing Configuration
-// ============================================================================
 
 /// Maximum recursion depth for event processing.
 ///
@@ -203,9 +201,7 @@ const MAX_EVENT_RECURSION_DEPTH: usize = 5;
 /// be used by user code. Value chosen to avoid conflicts with typical timer IDs.
 const AUTO_SCROLL_TIMER_ID: usize = 0xABCD_1234;
 
-// ============================================================================
 // Platform-specific Clipboard Helpers
-// ============================================================================
 
 /// Get clipboard text content (platform-specific)
 #[inline]
@@ -316,9 +312,7 @@ extern "C" fn auto_scroll_timer_callback(
     azul_layout::timer::TimerCallbackReturn::continue_unchanged()
 }
 
-// ============================================================================
 // Platform-Specific Timer Management
-// ============================================================================
 
 /// Hit test node structure for event routing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -400,11 +394,9 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// 3. Call `self.process_window_events_recursive_v2(0)` after updating window state
 /// 4. Done! All event processing is now unified.
 pub trait PlatformWindowV2 {
-    // =========================================================================
     // REQUIRED: Simple Getter Methods (Platform Must Implement)
-    // =========================================================================
 
-    // === Layout Window Access ===
+    // Layout Window Access
 
     /// Get mutable access to the layout window
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow>;
@@ -412,7 +404,7 @@ pub trait PlatformWindowV2 {
     /// Get immutable access to the layout window
     fn get_layout_window(&self) -> Option<&LayoutWindow>;
 
-    // === Window State Access ===
+    // Window State Access
 
     /// Get the current window state
     fn get_current_window_state(&self) -> &FullWindowState;
@@ -426,7 +418,7 @@ pub trait PlatformWindowV2 {
     /// Set the previous window state
     fn set_previous_window_state(&mut self, state: FullWindowState);
 
-    // === Resource Access ===
+    // Resource Access
 
     /// Get mutable access to image cache
     fn get_image_cache_mut(&mut self) -> &mut ImageCache;
@@ -446,7 +438,7 @@ pub trait PlatformWindowV2 {
     /// Get the shared application data
     fn get_app_data(&self) -> &Arc<RefCell<RefAny>>;
 
-    // === Scrollbar State ===
+    // Scrollbar State
 
     /// Get the current scrollbar drag state
     fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState>;
@@ -457,7 +449,7 @@ pub trait PlatformWindowV2 {
     /// Set scrollbar drag state
     fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>);
 
-    // === Hit Testing ===
+    // Hit Testing
 
     /// Get the async hit tester
     fn get_hit_tester(&self) -> &AsyncHitTester;
@@ -471,7 +463,7 @@ pub trait PlatformWindowV2 {
     /// Set the last hovered node
     fn set_last_hovered_node(&mut self, node: Option<HitTestNode>);
 
-    // === WebRender Infrastructure ===
+    // WebRender Infrastructure
 
     /// Get the document ID
     fn get_document_id(&self) -> DocumentId;
@@ -491,12 +483,12 @@ pub trait PlatformWindowV2 {
     /// Get mutable access to renderer
     fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer>;
 
-    // === Timers and Threads ===
+    // Timers and Threads
 
     /// Get raw window handle for spawning child windows
     fn get_raw_window_handle(&self) -> RawWindowHandle;
 
-    // === Frame Regeneration ===
+    // Frame Regeneration
 
     /// Check if frame needs regeneration
     fn needs_frame_regeneration(&self) -> bool;
@@ -507,7 +499,7 @@ pub trait PlatformWindowV2 {
     /// Clear frame regeneration flag
     fn clear_frame_regeneration_flag(&mut self);
 
-    // === Callback Invocation Preparation ===
+    // Callback Invocation Preparation
 
     /// Borrow all resources needed for `invoke_single_callback` in one call.
     ///
@@ -518,9 +510,7 @@ pub trait PlatformWindowV2 {
     /// * `InvokeSingleCallbackBorrows` - All borrowed resources needed for callback invocation
     fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
 
-    // =========================================================================
     // REQUIRED: Timer Management (Platform-Specific Implementation)
-    // =========================================================================
 
     /// Start a timer with the given ID and interval.
     ///
@@ -552,9 +542,7 @@ pub trait PlatformWindowV2 {
     /// * `timer_id` - Timer identifier to stop
     fn stop_timer(&mut self, timer_id: usize);
 
-    // =========================================================================
     // REQUIRED: Thread Management (Platform-Specific Implementation)
-    // =========================================================================
 
     /// Start the thread polling timer (typically 16ms interval).
     ///
@@ -602,9 +590,7 @@ pub trait PlatformWindowV2 {
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     );
 
-    // =========================================================================
     // REQUIRED: Menu Display (Platform-Specific Implementation)
-    // =========================================================================
 
     /// Show a menu at the specified position.
     ///
@@ -628,9 +614,7 @@ pub trait PlatformWindowV2 {
         position: azul_core::geom::LogicalPosition,
     );
 
-    // =========================================================================
     // REQUIRED: Tooltip Display (Platform-Specific Implementation)
-    // =========================================================================
 
     /// Show a tooltip with the given text at the specified position.
     ///
@@ -667,9 +651,7 @@ pub trait PlatformWindowV2 {
     /// - **Wayland**: Destroy the tooltip surface
     fn hide_tooltip_from_callback(&mut self);
 
-    // =========================================================================
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
-    // =========================================================================
 
     /// Invoke callbacks for a given target and event filter.
     ///
@@ -786,9 +768,7 @@ pub trait PlatformWindowV2 {
         results
     }
 
-    // =========================================================================
     // PROVIDED: Complete Logic (Default Implementations)
-    // =========================================================================
 
     /// GPU-accelerated smooth scrolling.
     ///
@@ -849,9 +829,7 @@ pub trait PlatformWindowV2 {
         Ok(())
     }
 
-    // =========================================================================
     // PROVIDED: Input Recording for Gesture Detection
-    // =========================================================================
 
     /// Record input sample for gesture detection.
     ///
@@ -908,9 +886,7 @@ pub trait PlatformWindowV2 {
         manager.clear_old_sessions(current_time);
     }
 
-    // =========================================================================
     // PROVIDED: Event Processing (Cross-Platform Implementation)
-    // =========================================================================
 
     /// V2: Record accessibility action and return affected nodes.
     ///
@@ -1081,9 +1057,7 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // ========================================================================
         // PRE-EVENT-DISPATCH PROCESSING
-        // ========================================================================
         // Process input BEFORE event filtering and callback invocation.
         // This ensures framework state (scroll, text, a11y) is updated before
         // callbacks see the events.
@@ -1118,9 +1092,7 @@ pub trait PlatformWindowV2 {
         //     layout_window.a11y_manager.record_state_changes(...);
         // }
 
-        // ========================================================================
         // PRE-CALLBACK INTERNAL EVENT FILTERING
-        // ========================================================================
         // Analyze events BEFORE user callbacks to extract internal system events
         // (text selection, etc.) that the framework handles.
         //
@@ -1407,9 +1379,7 @@ pub trait PlatformWindowV2 {
             result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
-        // ========================================================================
         // EVENT FILTERING AND CALLBACK DISPATCH
-        // ========================================================================
 
         // Dispatch user events to callbacks (internal events already processed)
         let dispatch_result = azul_core::events::dispatch_synthetic_events(
@@ -1436,9 +1406,7 @@ pub trait PlatformWindowV2 {
             })
             .collect();
 
-        // ========================================================================
         // USER CALLBACK INVOCATION
-        // ========================================================================
 
         // Capture focus state before callbacks for post-callback filtering
         let old_focus = self
@@ -1495,9 +1463,7 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // ========================================================================
         // POST-CALLBACK INTERNAL EVENT FILTERING
-        // ========================================================================
         // Process callback results to determine what internal processing continues
 
         let new_focus = self
@@ -1635,9 +1601,7 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // ========================================================================
         // POST-CALLBACK TEXT INPUT PROCESSING
-        // ========================================================================
         // Apply text changeset if preventDefault was not set.
         // This is where we:
         // 1. Compute and cache the text changes (reshape glyphs)
