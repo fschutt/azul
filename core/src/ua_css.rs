@@ -713,16 +713,17 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY),
 
         // Table Elements
-        // Per CSS Fragmentation Level 3: tables and table header groups should avoid breaks inside
+        // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
+        // Tables themselves should NOT have break-inside: avoid (they can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
         (NT::Table, PT::Width) => Some(&WIDTH_100_PERCENT),
-        (NT::Table, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
         (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::THead, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
         (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
-        (NT::TBody, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        // NOTE: Removed break-inside: avoid from TBody - tbody CAN break across pages
         (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
         (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
         (NT::TFoot, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
