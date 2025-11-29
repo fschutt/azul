@@ -5,7 +5,7 @@
 use azul_dll::desktop::display::{get_displays, get_primary_display, DisplayInfo};
 
 fn main() {
-    println!("=== Display/Monitor Enumeration Test ===\n");
+    println!("Display/Monitor Enumeration Test\n");
     
     // Get all displays
     let displays = get_displays();
@@ -47,5 +47,5 @@ fn main() {
         println!("No primary display found!");
     }
     
-    println!("\n=== Test Complete ===");
+    println!("\nTest Complete!");
 }

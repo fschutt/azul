@@ -2703,12 +2703,11 @@ where
         normal_page_content_height
     };
 
-    // =========================================================================
-    // STEP 1: Calculate page break positions based on CSS properties
-    // =========================================================================
-    //
+    // Step 1: Calculate page break positions based on CSS properties
+    // 
     // Instead of using regular intervals, we calculate where page breaks
     // should occur based on:
+    // 
     // - break-before: always → force break before this item
     // - break-after: always → force break after this item
     // - break-inside: avoid → don't break inside this item (push to next page if needed)

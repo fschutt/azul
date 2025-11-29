@@ -13,9 +13,7 @@ struct AppData {
 extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
 
-    eprintln!("\n========================================");
-    eprintln!("  DISPLAY LIST DEBUG TEST");
-    eprintln!("========================================\n");
+    eprintln!("DISPLAY LIST DEBUG TEST");
 
     // Create a simple DOM with text and styled rectangles
     let mut dom = Dom::body()

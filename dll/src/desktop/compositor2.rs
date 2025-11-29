@@ -770,14 +770,14 @@ pub fn translate_displaylist_to_wr(
     );
 
     // Print detailed display list summary before returning
-    eprintln!("=== Display List Summary ===");
-    eprintln!("Pipeline: {:?}", pipeline_id);
-    eprintln!("Viewport: {:?}", viewport_size);
-    eprintln!("Total items in source: {}", display_list.items.len());
+    eprintln!("Display List Summary:");
+    eprintln!("  Pipeline: {:?}", pipeline_id);
+    eprintln!("  Viewport: {:?}", viewport_size);
+    eprintln!("  Total items in source: {}", display_list.items.len());
     for (idx, item) in display_list.items.iter().enumerate() {
-        eprintln!("  Item {}: {:?}", idx + 1, item);
+        eprintln!("    Item {}: {:?}", idx + 1, item);
     }
-    eprintln!("============================");
+    eprintln!("");
 
     Ok((wr_resources, dl, nested_pipelines))
 }

@@ -305,9 +305,7 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
 
-// ============================================================================
-// CORE MENU CALLBACK TYPES (usize-based placeholders)
-// ============================================================================
+// Core menu callback types (usize-based placeholders)
 //
 // Similar to CoreCallback, these use usize instead of function pointers
 // to avoid circular dependencies. Will be converted to real function

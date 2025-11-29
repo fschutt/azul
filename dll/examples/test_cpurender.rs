@@ -16,9 +16,7 @@ struct AppData {
 extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
 
-    eprintln!("\n========================================");
     eprintln!("  CPU RENDER TEST");
-    eprintln!("========================================\n");
 
     // Create the same DOM as test_display_list
     let mut dom = Dom::body()
@@ -85,7 +83,7 @@ fn main() {
     };
     use rust_fontconfig::FcFontCache;
 
-    eprintln!("\n=== CPU Render Test ===\n");
+    eprintln!("\nCPU Render Test\n");
 
     // Build font cache
     eprintln!("[main] Building font cache...");
@@ -158,11 +156,11 @@ fn main() {
         eprintln!("[main] Display list has {} items", display_list.items.len());
 
         // Print display list for debugging
-        eprintln!("\n=== Display List Items ===");
+        eprintln!("\nDisplay List Items");
         for (idx, item) in display_list.items.iter().enumerate() {
             eprintln!("  Item {}: {:?}", idx + 1, item);
         }
-        eprintln!("===========================\n");
+        eprintln!("\n");
 
         // Render to pixmap
         eprintln!("[main] Rendering to pixmap...");

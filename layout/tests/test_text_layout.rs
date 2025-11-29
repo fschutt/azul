@@ -14,7 +14,7 @@ fn test_text_node_in_div_creates_ifc() {
     let mut dom = Dom::div().with_children(vec![Dom::text("Hello World")].into());
     let styled_dom = dom.style(CssApiWrapper { css: Css::empty() });
 
-    eprintln!("=== Test: text_node_in_div_creates_ifc ===");
+    eprintln!("Test: text_node_in_div_creates_ifc");
     eprintln!("DOM structure:");
     eprintln!(
         "  Node 0 (root): {:?}",
@@ -49,7 +49,7 @@ fn test_nested_text_nodes() {
     let mut dom = Dom::div().with_children(vec![Dom::text("Hello "), Dom::text("World")].into());
     let styled_dom = dom.style(CssApiWrapper { css: Css::empty() });
 
-    eprintln!("\n=== Test: nested_text_nodes ===");
+    eprintln!("\nTest: nested_text_nodes");
     eprintln!(
         "DOM has {} nodes",
         styled_dom.node_data.as_container().len()
@@ -74,7 +74,7 @@ fn test_div_with_explicit_font_size() {
 
     let styled_dom = dom.style(CssApiWrapper { css: Css::empty() });
 
-    eprintln!("\n=== Test: div_with_explicit_font_size ===");
+    eprintln!("\nTest: div_with_explicit_font_size");
     eprintln!("This matches our failing test_display_list example");
     eprintln!(
         "DOM has {} nodes",

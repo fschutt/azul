@@ -903,7 +903,6 @@ pub enum On {
     Decrement,
 }
 
-// ============================================================================
 // NOTE: EventFilter types moved to core/src/events.rs (Phase 3.5)
 //
 // The following types are now defined in events.rs and re-exported above:
@@ -916,7 +915,6 @@ pub enum On {
 // - ApplicationEventFilter
 //
 // This consolidates all event-related logic in one place.
-// ============================================================================
 
 /// Contains the necessary information to render an embedded `IFrame` node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2902,7 +2900,7 @@ impl Dom {
         }
     }
 
-    // === Document Structure Elements ===
+    // Document Structure Elements
 
     /// Creates the root HTML element.
     ///
@@ -2951,7 +2949,7 @@ impl Dom {
         }
     }
 
-    // === Semantic Structure Elements ===
+    // Semantic Structure Elements
 
     /// Creates an article element.
     ///
@@ -3073,7 +3071,7 @@ impl Dom {
         }
     }
 
-    // === Interactive Elements ===
+    // Interactive Elements
 
     /// Creates a details disclosure element.
     ///
@@ -3116,7 +3114,7 @@ impl Dom {
         }
     }
 
-    // === Basic Structural Elements ===
+    // Basic Structural Elements
 
     #[inline(always)]
     pub const fn br() -> Self {
@@ -3142,7 +3140,7 @@ impl Dom {
         }))
     }
 
-    // === Semantic HTML Elements with Accessibility Guidance ===
+    // Semantic HTML Elements with Accessibility Guidance
 
     /// Creates a paragraph element.
     ///
@@ -3730,7 +3728,7 @@ impl Dom {
         Self::new(NodeType::Hr)
     }
 
-    // === Additional Element Constructors ===
+    // Additional Element Constructors
 
     /// Creates an address element.
     ///
@@ -3921,7 +3919,7 @@ impl Dom {
         }
     }
 
-    // === Embedded Content Elements ===
+    // Embedded Content Elements
 
     /// Creates a canvas element for graphics.
     ///
@@ -4058,7 +4056,7 @@ impl Dom {
         }
     }
 
-    // === Metadata Elements ===
+    // Metadata Elements
 
     /// Creates a title element for document title.
     ///
@@ -4129,7 +4127,7 @@ impl Dom {
         Self::new(NodeType::Base).with_attribute(AttributeType::Href(href))
     }
 
-    // === Advanced Constructors with Parameters ===
+    // Advanced Constructors with Parameters
 
     /// Creates a table header cell with scope.
     ///
@@ -4181,8 +4179,7 @@ impl Dom {
         Self::p().with_child(Self::text(text))
     }
 
-    /// Creates a heading level 1 with text.
-    // ===== Accessibility-Aware Constructors =====
+    // Accessibility-Aware Constructors
     // These constructors require explicit accessibility information.
 
     /// Creates a button with text content and accessibility information.

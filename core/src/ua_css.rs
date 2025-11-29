@@ -438,7 +438,8 @@ static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(La
 static COUNTER_RESET_LIST_ITEM: CssProperty =
     CssProperty::CounterReset(CssPropertyValue::Exact(CounterReset::list_item()));
 
-// === CSS Fragmentation (Page Breaking) Properties ===
+// CSS Fragmentation (Page Breaking) Properties
+// 
 // Per CSS Fragmentation Level 3 and paged media best practices,
 // certain elements should avoid page breaks inside them
 

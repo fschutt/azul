@@ -427,7 +427,7 @@ fn test_visibility_collapse_documentation() {
     assert_eq!(row_height_after, 0.0);
 }
 
-// ==================== Column Width Calculation Tests ====================
+// Column Width Calculation Tests
 
 #[test]
 fn test_fixed_width_with_collapsed_columns() {

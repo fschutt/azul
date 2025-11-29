@@ -164,7 +164,7 @@ fn demonstrate_css_generation() {
 }
 
 fn main() {
-    println!("=== Menu Rendering Demo ===\n");
+    println!("Menu Rendering Demo\n");
 
     println!("1. Simple context menu:");
     let simple = create_simple_context_menu();
@@ -187,7 +187,7 @@ fn main() {
     println!("\n5. CSS generation:");
     demonstrate_css_generation();
 
-    println!("\n=== Demo Complete ===");
+    println!("\nDemo Complete!");
     println!("\nFor integration:");
     println!("1. Use create_menu_styled_dom() in layout callbacks");
     println!("2. SystemStyle provides native look and feel");

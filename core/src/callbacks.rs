@@ -876,9 +876,7 @@ pub struct FocusTargetPath {
 
 // -- normal callback
 
-// ============================================================================
-// CORE CALLBACK TYPES (usize-based placeholders)
-// ============================================================================
+// core callback types (usize-based placeholders)
 //
 // These types use `usize` instead of function pointers to avoid creating
 // a circular dependency between azul-core and azul-layout.

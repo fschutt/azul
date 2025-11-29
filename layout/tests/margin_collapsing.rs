@@ -341,10 +341,9 @@ mod margin_collapse_blocker_tests {
 
 // Integration tests commented out until layout system can be properly initialized
 
-/*
 #[test]
 fn test_sibling_margin_collapsing() {
-    println!("\n=== Test: Sibling Margin Collapsing ===");
+    println!("\nTest: Sibling Margin Collapsing");
     println!("HTML equivalent:");
     println!("  <body>");
     println!("    <h1 style='margin-bottom: 0.67em'>Heading</h1>");
@@ -402,7 +401,7 @@ fn test_sibling_margin_collapsing() {
 
 #[test]
 fn test_parent_child_margin_collapsing() {
-    println!("\n=== Test: Parent-Child Margin Collapsing ===");
+    println!("\nTest: Parent-Child Margin Collapsing");
     println!("HTML equivalent:");
     println!("  <body style='margin-top: 20px'>");
     println!("    <h1 style='margin-top: 0.67em'>Heading</h1>");
@@ -453,7 +452,7 @@ fn test_parent_child_margin_collapsing() {
 
 #[test]
 fn test_ua_css_margin_collapsing() {
-    println!("\n=== Test: UA CSS Margin Collapsing (Real-world scenario) ===");
+    println!("\nTest: UA CSS Margin Collapsing (Real-world scenario)");
     println!("HTML equivalent:");
     println!("  <body>");
     println!("    <h1>Heading</h1>");
@@ -517,7 +516,7 @@ fn test_ua_css_margin_collapsing() {
 
 #[test]
 fn test_three_consecutive_blocks() {
-    println!("\n=== Test: Three Consecutive Blocks ===");
+    println!("\nTest: Three Consecutive Blocks");
     println!("Testing multiple margin collapses in sequence");
 
     let mut dom = Dom::body()
@@ -577,7 +576,7 @@ fn test_three_consecutive_blocks() {
 
 #[test]
 fn test_margin_collapsing_with_border() {
-    println!("\n=== Test: Margins Don't Collapse When Border Present ===");
+    println!("\nTest: Margins Don't Collapse When Border Present");
     println!("Parent with border should NOT collapse margins with child");
 
     let mut dom = Dom::body()
@@ -609,4 +608,3 @@ fn test_margin_collapsing_with_border() {
         }
     }
 }
-*/

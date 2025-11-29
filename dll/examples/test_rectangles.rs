@@ -120,7 +120,7 @@ extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
 
 #[cfg(feature = "desktop")]
 fn main() {
-    eprintln!("=== Rectangle Rendering Test (NO TEXT) ===");
+    eprintln!("Rectangle Rendering Test (NO TEXT)\n");
 
     // Load XHTML content using include_bytes!
     let data = XhtmlData {

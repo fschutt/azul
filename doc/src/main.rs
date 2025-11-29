@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
 
                 stats.print_summary();
 
-                if stats.successful > 0 {
+                if stats.successful > 0 || stats.total_changes > 0 {
                     // Normalize class names where external path differs from API name
                     match patch::normalize_class_names(&mut api_data) {
                         Ok(count) if count > 0 => {
@@ -162,7 +162,7 @@ fn main() -> anyhow::Result<()> {
                     println!("\n💾 Saved updated api.json");
                 }
 
-                if stats.failed > 0 {
+                if stats.has_errors() {
                     std::process::exit(1);
                 }
             } else {
@@ -172,8 +172,12 @@ fn main() -> anyhow::Result<()> {
                 })?;
 
                 match patch.apply(&mut api_data) {
-                    Ok(count) => {
-                        println!("✅ Applied {} changes\n", count);
+                    Ok((count, errors)) => {
+                        if errors.is_empty() {
+                            println!("✅ Applied {} changes\n", count);
+                        } else {
+                            println!("⚠️  Applied {} changes with {} errors\n", count, errors.len());
+                        }
 
                         // Normalize class names where external path differs from API name
                         match patch::normalize_class_names(&mut api_data) {
@@ -190,6 +194,14 @@ fn main() -> anyhow::Result<()> {
                         let api_json = serde_json::to_string_pretty(&api_data)?;
                         fs::write(&api_path, api_json)?;
                         println!("💾 Saved updated api.json\n");
+
+                        if !errors.is_empty() {
+                            println!("\n❌ Patch errors:");
+                            for error in &errors {
+                                println!("  • {}", error);
+                            }
+                            std::process::exit(1);
+                        }
                     }
                     Err(e) => {
                         eprintln!("❌ Error applying patch: {}", e);

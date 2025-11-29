@@ -16,9 +16,7 @@ use crate::text3::{
 
 #[test]
 fn test_available_width_should_produce_nonzero_bounds() {
-    println!("\n========================================");
-    println!("=== TEST: available_width -> bounds ===");
-    println!("========================================\n");
+    println!("TEST: available_width -> bounds");
 
     let font_manager = create_mock_font_manager();
     let mut text_cache = LayoutCache::new();
@@ -87,9 +85,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
         }
     }
 
-    println!("\n========================================");
-    println!("=== TEST ASSERTIONS                  ===");
-    println!("========================================\n");
+    println!("TEST ASSERTIONS");
 
     // CRITICAL ASSERTION: bounds.width should NOT be zero!
     // With available_width=800.0 and text "Hello World" (11 chars),
@@ -141,7 +137,6 @@ fn test_available_width_should_produce_nonzero_bounds() {
     }
 
     println!("\n✓ All assertions passed!");
-    println!("========================================\n");
 }
 
 #[test]

@@ -4,7 +4,7 @@
 use azul_css::props::{basic::ColorU, style::BorderStyle};
 use azul_layout::solver3::fc::{BorderInfo, BorderSource, TableCellInfo, TableColumnInfo};
 
-// ==================== Border Conflict Resolution Tests ====================
+// Border Conflict Resolution Tests
 
 #[test]
 fn test_border_conflict_hidden_wins() {
@@ -367,7 +367,7 @@ fn test_border_conflict_complex_scenario() {
     assert_eq!(border.source, BorderSource::Row);
 }
 
-// ==================== TableColumnInfo Tests ====================
+// TableColumnInfo Tests
 
 #[test]
 fn test_table_column_info_creation() {
@@ -410,7 +410,7 @@ fn test_table_column_info_width_constraints() {
     assert!(cols[2].computed_width.unwrap() <= cols[2].max_width);
 }
 
-// ==================== TableCellInfo Tests ====================
+// TableCellInfo Tests
 
 #[test]
 fn test_table_cell_info_single_cell() {
@@ -479,7 +479,7 @@ fn test_table_cell_info_complex_span() {
     assert_eq!(cell.rowspan, 3);
 }
 
-// ==================== Border Source Ordering Tests ====================
+// Border Source Ordering Tests
 
 #[test]
 fn test_border_source_ordering() {
@@ -502,7 +502,7 @@ fn test_border_source_as_priority() {
     assert_eq!(BorderSource::Cell as u8, 5);
 }
 
-// ==================== Border Style Priority Tests ====================
+//  Border Style Priority Tests
 
 #[test]
 fn test_border_style_priority_full_hierarchy() {
@@ -676,7 +676,7 @@ fn test_border_style_outset_vs_inset() {
     assert_eq!(border.style, BorderStyle::Outset);
 }
 
-// ==================== Edge Cases ====================
+//  Edge Cases
 
 #[test]
 fn test_border_conflict_same_border() {
@@ -768,7 +768,7 @@ fn test_border_conflict_very_thick_border() {
     assert_eq!(border.width, 100.0);
 }
 
-// ==================== Integration Scenarios ====================
+// Integration Scenarios
 
 #[test]
 fn test_realistic_table_scenario_1() {

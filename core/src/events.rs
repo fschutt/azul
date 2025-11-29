@@ -102,9 +102,7 @@ impl ProcessEventResult {
     }
 }
 
-// ============================================================================
 // Phase 3.5: New Event System Types
-// ============================================================================
 
 /// Tracks the origin of an event for proper handling.
 ///
@@ -334,7 +332,9 @@ pub enum EventData {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum EventType {
-    // ========== Mouse Events ==========
+
+    // Mouse Events
+
     /// Mouse cursor is over the element
     MouseOver,
     /// Mouse cursor entered the element
@@ -352,7 +352,8 @@ pub enum EventType {
     /// Right-click / context menu
     ContextMenu,
 
-    // ========== Keyboard Events ==========
+    // Keyboard Events
+
     /// Key pressed down
     KeyDown,
     /// Key released
@@ -360,7 +361,8 @@ pub enum EventType {
     /// Character input (respects locale/keyboard layout)
     KeyPress,
 
-    // ========== Focus Events ==========
+    // Focus Events
+
     /// Element received focus
     Focus,
     /// Element lost focus
@@ -370,7 +372,8 @@ pub enum EventType {
     /// Focus left element and its children
     FocusOut,
 
-    // ========== Input Events ==========
+    // Input Events
+
     /// Input value is being changed (fires on every keystroke)
     Input,
     /// Input value has changed (fires after editing complete)
@@ -382,7 +385,8 @@ pub enum EventType {
     /// Form validation failed
     Invalid,
 
-    // ========== Scroll Events ==========
+    // Scroll Events
+
     /// Element is being scrolled
     Scroll,
     /// Scroll started
@@ -390,7 +394,8 @@ pub enum EventType {
     /// Scroll ended
     ScrollEnd,
 
-    // ========== Drag Events ==========
+    // Drag Events
+
     /// Drag operation started
     DragStart,
     /// Element is being dragged
@@ -406,7 +411,8 @@ pub enum EventType {
     /// Element was dropped
     Drop,
 
-    // ========== Touch Events ==========
+    // Touch Events
+
     /// Touch started
     TouchStart,
     /// Touch moved
@@ -416,7 +422,8 @@ pub enum EventType {
     /// Touch cancelled
     TouchCancel,
 
-    // ========== Clipboard Events (NEW!) ==========
+    // Clipboard Events
+
     /// Content copied to clipboard
     Copy,
     /// Content cut to clipboard
@@ -424,7 +431,8 @@ pub enum EventType {
     /// Content pasted from clipboard
     Paste,
 
-    // ========== Media Events (NEW!) ==========
+    // Media Events
+
     /// Media playback started
     Play,
     /// Media playback paused
@@ -438,7 +446,8 @@ pub enum EventType {
     /// Media error occurred
     MediaError,
 
-    // ========== Lifecycle Events (NEW!) ==========
+    // Lifecycle Events
+
     /// Component was mounted to the DOM
     Mount,
     /// Component will be unmounted from the DOM
@@ -448,7 +457,8 @@ pub enum EventType {
     /// Component layout bounds changed
     Resize,
 
-    // ========== Window Events ==========
+    // Window Events
+
     /// Window resized
     WindowResize,
     /// Window moved
@@ -462,7 +472,8 @@ pub enum EventType {
     /// System theme changed
     ThemeChange,
 
-    // ========== File Events ==========
+    // File Events
+
     /// File is being hovered
     FileHover,
     /// File was dropped
@@ -575,9 +586,7 @@ impl SyntheticEvent {
     }
 }
 
-// ============================================================================
 // Phase 3.5, Step 3: Event Propagation System
-// ============================================================================
 
 /// Result of event propagation through DOM tree.
 #[derive(Debug, Clone)]
@@ -994,9 +1003,7 @@ fn matches_window_filter(
     }
 }
 
-// ============================================================================
 // Phase 3.5, Step 4: Lifecycle Event Detection
-// ============================================================================
 
 /// Detect lifecycle events by comparing old and new DOM state.
 ///
@@ -1138,9 +1145,7 @@ pub fn detect_lifecycle_events(
     events
 }
 
-// ============================================================================
-// Phase 3.5: Event Filter System (moved from dom.rs)
-// ============================================================================
+// Phase 3.5: Event Filter System
 
 /// Event filter that only fires when an element is hovered over.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1202,10 +1207,12 @@ pub enum HoverEventFilter {
     RotateClockwise,
     RotateCounterClockwise,
 
-    // ========== Internal System Events ==========
+    // Internal System Events
+    //
     // These events are used internally by the framework for text selection
     // and other system-level features. They are NOT exposed to user callbacks
     // via the On enum and should be filtered out before callback dispatch.
+    
     /// Internal: Single click detected (for text cursor placement)
     /// This is distinct from MouseDown - it fires after MouseUp on the same element
     #[doc(hidden)]
@@ -1636,9 +1643,7 @@ impl From<On> for EventFilter {
     }
 }
 
-// ============================================================================
 // Cross-Platform Event Dispatch System
-// ============================================================================
 
 /// Target for event dispatch - either a specific node or all root nodes
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1723,9 +1728,7 @@ pub trait CallbackResultRef {
     fn should_regenerate_dom(&self) -> bool;
 }
 
-// ============================================================================
 // Unified Event Determination System (Phase 3.5+)
-// ============================================================================
 
 /// Trait for managers to provide their pending events.
 ///
@@ -2401,9 +2404,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // Internal System Event Processing
-// ============================================================================
 
 /// Internal system event generated from click detection
 #[derive(Debug, Clone, PartialEq)]
@@ -2580,7 +2581,7 @@ where
 
     for event in events {
         match event.event_type {
-            // ========== Mouse Events ==========
+            // Mouse Events
             EventType::MouseDown => {
                 // Handle click for text selection
                 if click_count > 0 && click_count <= 3 {
@@ -2645,7 +2646,7 @@ where
                 user_events.push(event.clone());
             }
 
-            // ========== Keyboard Events ==========
+            // Keyboard Events
             EventType::KeyDown => {
                 if let Some(target) = focused_node {
                     if let EventData::Keyboard(kbd_data) = &event.data {

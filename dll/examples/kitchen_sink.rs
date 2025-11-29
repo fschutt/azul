@@ -91,10 +91,7 @@ use azul_dll::desktop::{
 };
 use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions, xml::DomXmlExt};
 
-// ============================================================================
-// APPLICATION STATE
-// ============================================================================
-
+// Application state
 struct KitchenSinkApp {
     /// Currently active tab (stored but not yet interactive)
     active_tab: usize,
@@ -193,9 +190,7 @@ impl KitchenSinkApp {
     }
 }
 
-// ============================================================================
-// MAIN LAYOUT
-// ============================================================================
+// Main layout
 
 // Dataset for tab buttons - stores which tab this button represents
 // Dataset for tab buttons - stores which tab this button represents
@@ -279,9 +274,7 @@ extern "C" fn on_dropdown_button_click(data: &mut RefAny, info: &mut CallbackInf
     Update::DoNothing
 }
 
-// ============================================================================
-// CODE EXPORT MENU CALLBACKS
-// ============================================================================
+// Code export menu callbacks
 
 // Export code to Rust
 extern "C" fn on_export_rust(_data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
@@ -353,9 +346,7 @@ extern "C" fn on_export_python(_data: &mut RefAny, _info: &mut CallbackInfo) -> 
     Update::DoNothing
 }
 
-// ============================================================================
-// CODE COMPILATION FUNCTIONS
-// ============================================================================
+// Code compilation functions
 
 fn compile_to_rust(xml_content: &str) -> String {
     #[cfg(feature = "xml")]
@@ -717,9 +708,7 @@ fn create_tab_button(text: &str, tab_id: usize, is_active: bool) -> Dom {
     button
 }
 
-// ============================================================================
-// QUADRANT 1: TEXT & FONT SHOWCASE
-// ============================================================================
+// Text & font showcase
 
 fn create_text_showcase() -> Dom {
     Dom::div()
@@ -774,10 +763,8 @@ fn create_text_showcase() -> Dom {
             .into(),
         )
 }
-
-// ============================================================================
-// QUADRANT 2: COLOR & SHAPE SHOWCASE
-// ============================================================================
+    
+// Color & shape showcase
 
 fn create_color_showcase() -> Dom {
     Dom::div()
@@ -870,9 +857,7 @@ fn create_color_box(color: &str, label: &str) -> Dom {
         )
 }
 
-// ============================================================================
-// QUADRANT 3: CONTENTEDITABLE DEMO
-// ============================================================================
+// Contenteditable demo
 
 fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
     Dom::div()
@@ -1003,9 +988,7 @@ fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
         )
 }
 
-// ============================================================================
-// WIDGET DEMOS (Tab 1)
-// ============================================================================
+// Widget demos (Tab 1)
 
 fn create_button_demo(app_data: &KitchenSinkApp) -> Dom {
     Dom::div()
@@ -1273,9 +1256,7 @@ fn create_progress_demo(app_data: &KitchenSinkApp) -> Dom {
         )
 }
 
-// ============================================================================
-// QUADRANT 4: SCROLLING DEMO
-// ============================================================================
+// Scrolling demo
 
 fn create_scrolling_demo() -> Dom {
     // Generate 50 items to demonstrate scrolling
@@ -1322,9 +1303,7 @@ fn create_scrolling_demo() -> Dom {
         )
 }
 
-// ============================================================================
-// TAB 4: SLIDER DEMO
-// ============================================================================
+// Slider demo
 
 // Slider drag callback
 extern "C" fn on_slider_track_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
@@ -1424,9 +1403,7 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
         )
 }
 
-// ============================================================================
-// TAB 5: CODE EDITOR
-// ============================================================================
+// Code editor
 
 // Dataset for tracking line numbers in code editor
 #[derive(Debug, Clone)]
@@ -1773,10 +1750,8 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
             .into(),
         )
 }
-
-// ============================================================================
-// IFRAME CALLBACK FOR PREVIEW PANE
-// ============================================================================
+    
+// IFrame callback for preview pane
 
 /// IFrame callback that renders the XHTML preview
 ///
@@ -1831,10 +1806,7 @@ extern "C" fn preview_iframe_callback(
     }
 }
 
-// ============================================================================
-// MAIN ENTRY POINT
-// ============================================================================
-
+// main entry point
 #[cfg(feature = "desktop")]
 fn main() {
     eprintln!("[KITCHEN_SINK] Starting application...");

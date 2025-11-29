@@ -96,7 +96,7 @@ mod inline_intrinsic_width_tests {
         let tree = layout_cache.tree.as_ref()
             .expect("Layout tree should exist after layout");
 
-        eprintln!("\n=== LAYOUT TREE ===");
+        eprintln!("\nLAYOUT TREE");
         for (idx, node) in tree.nodes.iter().enumerate() {
             eprintln!("Node {}: {:?}", idx, node.dom_node_id);
             eprintln!("  Formatting Context: {:?}", node.formatting_context);
@@ -197,7 +197,7 @@ mod inline_intrinsic_width_tests {
         // Check debug messages for the bug signature:
         // "available_size=0xinf" or "available_width=0"
         if let Some(messages) = debug_messages {
-            eprintln!("\n=== DEBUG MESSAGES ===");
+            eprintln!("\nDEBUG MESSAGES");
             for msg in &messages {
                 eprintln!("{}", msg.message);
             }

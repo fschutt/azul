@@ -53,9 +53,7 @@ use azul_css::{
 };
 use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
-// =============================================================================
 // Constants
-// =============================================================================
 
 /// Default scrollbar width in pixels (CSS Overflow Module Level 3).
 /// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
@@ -444,9 +442,7 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
     false
 }
 
-// =============================================================================
 // Entry Point & Dispatcher
-// =============================================================================
 
 /// Main dispatcher for formatting context layout.
 ///
@@ -501,17 +497,17 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
     }
 }
 
-// =============================================================================
-// FLEX/GRID LAYOUT (Taffy Bridge)
-// =============================================================================
+// Flex / grid layout (taffy Bridge)
 
 /// Lays out a Flex or Grid formatting context using the Taffy layout engine.
 ///
 /// # CSS Spec References
+/// 
 /// - CSS Flexbox § 9: Flex Layout Algorithm
 /// - CSS Grid § 12: Grid Layout Algorithm
 ///
 /// # Implementation Notes
+/// 
 /// - Resolves explicit CSS dimensions to pixel values for `known_dimensions`
 /// - Uses `InherentSize` mode when explicit dimensions are set
 /// - Uses `ContentSize` mode for auto-sizing (shrink-to-fit)
@@ -744,9 +740,7 @@ fn position_float(
     }
 }
 
-// =============================================================================
 // Block Formatting Context (CSS 2.2 § 9.4.1)
-// =============================================================================
 
 /// Lays out a Block Formatting Context (BFC).
 ///
@@ -1814,9 +1808,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     })
 }
 
-// =============================================================================
 // Inline Formatting Context (CSS 2.2 § 9.4.2)
-// =============================================================================
 
 /// Lays out an Inline Formatting Context (IFC) by delegating to the `text3` engine.
 ///
@@ -2533,9 +2525,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     }
 }
 
-// =============================================================================
 // Table Formatting Context (CSS 2.2 § 17)
-// =============================================================================
 
 /// Lays out a Table Formatting Context.
 /// Table column information for layout calculations
@@ -5233,9 +5223,7 @@ fn position_floated_child(
     }
 }
 
-// =============================================================================
 // CSS Property Getters
-// =============================================================================
 
 /// Get the CSS `float` property for a node.
 fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutFloat {

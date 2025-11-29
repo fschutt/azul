@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-// ========== table-layout ==========
+// table-layout
 
 /// Controls the algorithm used to lay out table cells, rows, and columns.
 ///
@@ -62,7 +62,7 @@ impl FormatAsRustCode for LayoutTableLayout {
     }
 }
 
-// ========== border-collapse ==========
+// border-collapse
 
 /// Specifies whether cell borders are collapsed into a single border or separated.
 ///
@@ -104,7 +104,7 @@ impl FormatAsRustCode for StyleBorderCollapse {
     }
 }
 
-// ========== border-spacing ==========
+// border-spacing
 
 /// Sets the distance between the borders of adjacent cells.
 ///
@@ -182,7 +182,7 @@ impl FormatAsRustCode for LayoutBorderSpacing {
     }
 }
 
-// ========== caption-side ==========
+// caption-side
 
 /// Specifies the placement of a table caption.
 ///
@@ -220,7 +220,7 @@ impl FormatAsRustCode for StyleCaptionSide {
     }
 }
 
-// ========== empty-cells ==========
+// empty-cells
 
 /// Specifies whether or not to display borders and background on empty cells.
 ///
@@ -259,7 +259,7 @@ impl FormatAsRustCode for StyleEmptyCells {
     }
 }
 
-// ========== Parsing Functions ==========
+// Parsing Functions
 
 /// Parse errors for table-layout property
 #[derive(Debug, Clone, PartialEq)]

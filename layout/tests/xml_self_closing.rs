@@ -424,7 +424,7 @@ fn test_inline_span_text_node_structure() {
     };
     assert_eq!(p.node_type.as_str(), "p");
 
-    println!("\n=== Paragraph Children ===");
+    println!("\nParagraph Children");
     println!("Paragraph has {} children", p.children.as_ref().len());
     for (i, child) in p.children.as_ref().iter().enumerate() {
         match child {

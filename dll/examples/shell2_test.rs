@@ -12,7 +12,7 @@ use azul_dll::desktop::shell2::{
 };
 
 fn main() {
-    println!("=== Shell2 Window System Test ===\n");
+    println!("Shell2 Window System Test\n");
 
     // Test 1: Create OpenGL window
     println!("Test 1: Creating OpenGL window...");
@@ -22,7 +22,7 @@ fn main() {
     println!("\nTest 2: Creating CPU window...");
     test_cpu_window();
 
-    println!("\n=== All tests completed ===");
+    println!("\nAll tests completed!");
 }
 
 fn test_opengl_window() {

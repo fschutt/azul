@@ -187,18 +187,22 @@ impl ApiPatch {
     }
 
     /// Apply patch to API data
-    pub fn apply(&self, api_data: &mut ApiData) -> Result<usize> {
+    /// Returns (patches_applied, errors) - errors are collected but don't stop processing
+    pub fn apply(&self, api_data: &mut ApiData) -> Result<(usize, Vec<String>)> {
         let mut patches_applied = 0;
+        let mut all_errors = Vec::new();
 
         for (version_name, version_patch) in &self.versions {
             if let Some(version_data) = api_data.0.get_mut(version_name) {
-                patches_applied += apply_version_patch(version_data, version_patch)?;
+                let result = apply_version_patch(version_data, version_patch);
+                patches_applied += result.patches_applied;
+                all_errors.extend(result.errors);
             } else {
-                eprintln!("Warning: Version '{}' not found in API data", version_name);
+                all_errors.push(format!("Version '{}' not found in API data", version_name));
             }
         }
 
-        Ok(patches_applied)
+        Ok((patches_applied, all_errors))
     }
 
     /// Check if this patch only contains path-only changes
@@ -224,10 +228,16 @@ pub struct PatchStats {
     pub successful: usize,
     pub failed: usize,
     pub total_changes: usize,
-    pub failed_patches: Vec<(String, String)>, // (filename, error)
+    pub failed_patches: Vec<(String, String)>, // (filename, error) - complete failures
+    pub patch_errors: Vec<(String, String)>,   // (filename, error) - partial failures (module not found, etc.)
 }
 
 impl PatchStats {
+    /// Returns true if there were any errors (failed patches or patch errors)
+    pub fn has_errors(&self) -> bool {
+        self.failed > 0 || !self.patch_errors.is_empty()
+    }
+
     pub fn print_summary(&self) {
         println!("\n╔════════════════════════════════════════════════════════════════╗");
         println!("║                    Patch Summary                               ║");
@@ -246,10 +256,17 @@ impl PatchStats {
             }
         }
 
-        if self.failed == 0 {
+        if !self.patch_errors.is_empty() {
+            println!("\n❌ Patch errors ({} total):", self.patch_errors.len());
+            for (filename, error) in &self.patch_errors {
+                println!("  • {}: {}", filename, error);
+            }
+        }
+
+        if !self.has_errors() {
             println!("\n✅ All patches applied successfully!");
         } else {
-            println!("\n⚠️  Some patches failed to apply");
+            println!("\n❌ Some patches had errors");
         }
     }
 }
@@ -274,9 +291,23 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
         print!("  Applying {}... ", filename);
 
         match patch.apply(api_data) {
-            Ok(count) => {
-                println!("✅ ({} changes)", count);
-                stats.successful += 1;
+            Ok((count, errors)) => {
+                if errors.is_empty() {
+                    println!("✅ ({} changes)", count);
+                    stats.successful += 1;
+                } else {
+                    // Patch had some changes but also errors
+                    if count > 0 {
+                        println!("⚠️  ({} changes, {} errors)", count, errors.len());
+                        stats.successful += 1;
+                    } else {
+                        println!("❌ ({} errors)", errors.len());
+                        stats.failed += 1;
+                    }
+                    for error in errors {
+                        stats.patch_errors.push((filename.clone(), error));
+                    }
+                }
                 stats.total_changes += count;
             }
             Err(e) => {
@@ -482,9 +513,22 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
         print!("  Applying {}... ", filename);
 
         match patch.apply(api_data) {
-            Ok(count) => {
-                println!("✅ ({} changes)", count);
-                stats.successful += 1;
+            Ok((count, errors)) => {
+                if errors.is_empty() {
+                    println!("✅ ({} changes)", count);
+                    stats.successful += 1;
+                } else {
+                    if count > 0 {
+                        println!("⚠️  ({} changes, {} errors)", count, errors.len());
+                        stats.successful += 1;
+                    } else {
+                        println!("❌ ({} errors)", errors.len());
+                        stats.failed += 1;
+                    }
+                    for error in errors {
+                        stats.patch_errors.push((filename.clone(), error));
+                    }
+                }
                 stats.total_changes += count;
             }
             Err(e) => {
@@ -544,18 +588,28 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     Ok(stats)
 }
 
-fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> Result<usize> {
-    let mut patches_applied = 0;
+/// Result of applying a patch, containing both success count and any errors
+#[derive(Debug, Default)]
+pub struct PatchResult {
+    pub patches_applied: usize,
+    pub errors: Vec<String>,
+}
+
+fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> PatchResult {
+    let mut result = PatchResult::default();
 
     for (module_name, module_patch) in &patch.modules {
         if let Some(module_data) = version_data.api.get_mut(module_name) {
-            patches_applied += apply_module_patch(module_data, module_patch, module_name)?;
+            match apply_module_patch(module_data, module_patch, module_name) {
+                Ok(count) => result.patches_applied += count,
+                Err(e) => result.errors.push(e.to_string()),
+            }
         } else {
-            eprintln!("Warning: Module '{}' not found", module_name);
+            result.errors.push(format!("Module '{}' not found", module_name));
         }
     }
 
-    Ok(patches_applied)
+    result
 }
 
 fn apply_module_patch(

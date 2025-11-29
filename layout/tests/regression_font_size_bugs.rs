@@ -396,7 +396,7 @@ fn test_regression_summary() {
 
     use azul_core::id::NodeId;
 
-    println!("=== Regression Test Summary ===\n");
+    println!("Regression Test Summary\n");
 
     println!("Bug #1: Dependency Chain Node-ID Adjustment");
     println!("  Problem: append_child didn't adjust source_node in dependency chains");
