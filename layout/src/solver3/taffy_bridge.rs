@@ -948,17 +948,21 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         use azul_core::geom::LogicalSize;
         
         // Determine available size from Taffy's inputs
+        // For MinContent/MaxContent, we need to handle differently - use 0 for MinContent 
+        // to get the minimum width, and infinity for MaxContent
         let available_width = inputs.known_dimensions.width
             .or_else(|| match inputs.available_space.width {
                 AvailableSpace::Definite(w) => Some(w),
-                _ => None,
+                AvailableSpace::MinContent => Some(0.0),  // Force minimum width calculation
+                AvailableSpace::MaxContent => None,  // Use infinity for max-content
             })
             .unwrap_or(f32::INFINITY);
         
         let available_height = inputs.known_dimensions.height
             .or_else(|| match inputs.available_space.height {
                 AvailableSpace::Definite(h) => Some(h),
-                _ => None,
+                AvailableSpace::MinContent => Some(0.0),
+                AvailableSpace::MaxContent => None,
             })
             .unwrap_or(f32::INFINITY);
         
@@ -974,6 +978,29 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
         };
         
+        // Get text-align from CSS for this node (important for centering content in flex items)
+        let text_align = self.tree.get(node_idx)
+            .and_then(|node| node.dom_node_id)
+            .map(|dom_id| {
+                let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+                self.ctx.styled_dom.css_property_cache.ptr
+                    .get_text_align(node_data, &dom_id, node_state)
+                    .and_then(|s| s.get_property().copied())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        
+        // Convert CSS text-align to our internal TextAlign enum
+        let fc_text_align = match text_align {
+            azul_css::props::style::StyleTextAlign::Left => FcTextAlign::Start,
+            azul_css::props::style::StyleTextAlign::Right => FcTextAlign::End,
+            azul_css::props::style::StyleTextAlign::Center => FcTextAlign::Center,
+            azul_css::props::style::StyleTextAlign::Justify => FcTextAlign::Justify,
+            azul_css::props::style::StyleTextAlign::Start => FcTextAlign::Start,
+            azul_css::props::style::StyleTextAlign::End => FcTextAlign::End,
+        };
+        
         // SAFETY: text_cache pointer is valid for the lifetime of TaffyBridge
         let text_cache = unsafe { &mut *self.text_cache };
         
@@ -981,7 +1008,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             available_size,
             writing_mode: LayoutWritingMode::HorizontalTb,
             bfc_state: None,
-            text_align: FcTextAlign::Start,
+            text_align: fc_text_align,
             containing_block_size: available_size,
             available_width_type,
         };
@@ -1006,11 +1033,58 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 let content_width = output.overflow_size.width;
                 let content_height = output.overflow_size.height;
                 
-                // Use known_dimensions if provided, otherwise use content size
-                let final_width = inputs.known_dimensions.width.unwrap_or(content_width);
-                let final_height = inputs.known_dimensions.height.unwrap_or(content_height);
+                // Get padding and border from the node's box_props
+                let (padding_width, padding_height, border_width, border_height) = self.tree.get(node_idx)
+                    .map(|node| {
+                        let bp = &node.box_props;
+                        let pw = bp.padding.left + bp.padding.right;
+                        let ph = bp.padding.top + bp.padding.bottom;
+                        let bw = bp.border.left + bp.border.right;
+                        let bh = bp.border.top + bp.border.bottom;
+                        (pw, ph, bw, bh)
+                    })
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
                 
-                // Store the computed size on the node
+                // Get intrinsic sizes for min/max-content queries
+                let intrinsic = self.tree.get(node_idx)
+                    .and_then(|n| n.intrinsic_sizes)
+                    .unwrap_or_default();
+                
+                // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result
+                let effective_content_width = match inputs.available_space.width {
+                    AvailableSpace::MinContent => intrinsic.min_content_width,
+                    AvailableSpace::MaxContent => intrinsic.max_content_width,
+                    AvailableSpace::Definite(_) => content_width,
+                };
+                
+                // Convert content-box size to border-box size (for when we compute our own size)
+                let border_box_width = effective_content_width + padding_width + border_width;
+                let border_box_height = content_height + padding_height + border_height;
+                
+                // CRITICAL: Taffy passes content-box as known_dimensions (it subtracts padding/border
+                // when resolving percentage widths). But Taffy uses our returned size for positioning
+                // the next element. So we MUST return border-box size to avoid gaps/overlaps.
+                // When known_dimensions is set, we add padding/border to convert to border-box.
+                // When it's None, we use our computed border_box size.
+                let final_width = match inputs.known_dimensions.width {
+                    Some(content_w) => content_w + padding_width + border_width,
+                    None => border_box_width,
+                };
+                let final_height = match inputs.known_dimensions.height {
+                    Some(content_h) => content_h + padding_height + border_height,
+                    None => border_box_height,
+                };
+
+                // CRITICAL: Transfer positions from layout_formatting_context to child nodes.
+                // Without this, children of flex items won't have their relative_position set,
+                // causing them to all render at (0,0) relative to their parent.
+                for (child_idx, child_pos) in output.positions.iter() {
+                    if let Some(child_node) = self.tree.get_mut(*child_idx) {
+                        child_node.relative_position = Some(*child_pos);
+                    }
+                }
+                
+                // Store the border-box size on the node for display list generation
                 if let Some(node) = self.tree.get_mut(node_idx) {
                     node.used_size = Some(LogicalSize {
                         width: final_width,
@@ -1018,6 +1092,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     });
                 }
                 
+                // Return the same size to Taffy for correct positioning
                 LayoutOutput {
                     size: Size { width: final_width, height: final_height },
                     content_size: Size { width: content_width, height: content_height },
