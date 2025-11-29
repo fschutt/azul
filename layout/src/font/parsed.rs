@@ -246,8 +246,9 @@ impl<'de> serde::Deserialize<'de> for ParsedFont {
         };
 
         let mut warnings = Vec::new();
-        ParsedFont::from_bytes(&b64.unwrap_or_default(), 0, &mut warnings)
-        .ok_or_else(|| serde::de::Error::custom(format!("Font deserialization error: {warnings:?}")))
+        ParsedFont::from_bytes(&b64.unwrap_or_default(), 0, &mut warnings).ok_or_else(|| {
+            serde::de::Error::custom(format!("Font deserialization error: {warnings:?}"))
+        })
     }
 }
 
@@ -356,31 +357,44 @@ impl ParsedFont {
         let scope = ReadScope::new(font_bytes);
         let font_file = match scope.read::<FontData<'_>>() {
             Ok(ff) => {
-                warnings.push(FontParseWarning::info("Successfully read font data".to_string()));
+                warnings.push(FontParseWarning::info(
+                    "Successfully read font data".to_string(),
+                ));
                 ff
             }
             Err(e) => {
-                warnings.push(FontParseWarning::error(format!("Failed to read font data: {}", e)));
+                warnings.push(FontParseWarning::error(format!(
+                    "Failed to read font data: {}",
+                    e
+                )));
                 return None;
             }
         };
         let provider = match font_file.table_provider(font_index) {
             Ok(p) => {
-                warnings.push(FontParseWarning::info(format!("Successfully loaded font at index {}", font_index)));
+                warnings.push(FontParseWarning::info(format!(
+                    "Successfully loaded font at index {}",
+                    font_index
+                )));
                 p
             }
             Err(e) => {
-                warnings.push(FontParseWarning::error(format!("Failed to get table provider for font index {}: {}", font_index, e)));
+                warnings.push(FontParseWarning::error(format!(
+                    "Failed to get table provider for font index {}: {}",
+                    font_index, e
+                )));
                 return None;
             }
         };
-        
+
         // Extract font name from NAME table early (before provider is moved)
         let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
             ReadScope::new(&name_data?)
                 .read::<allsorts::tables::NameTable>()
                 .ok()
-                .and_then(|name_table| name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME))
+                .and_then(|name_table| {
+                    name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME)
+                })
         });
 
         let head_table = provider
@@ -430,7 +444,7 @@ impl ParsedFont {
             .ok()
             .and_then(|s| Some(s?.to_vec()))
             .unwrap_or_default();
-        
+
         let vmtx_data = provider
             .table_data(tag::VMTX)
             .ok()
@@ -454,22 +468,25 @@ impl ParsedFont {
             descent: hhea_table.descender as f32,
             line_gap: hhea_table.line_gap as f32,
         };
-        
+
         // Build PDF-specific font metrics
-        let pdf_font_metrics = Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
+        let pdf_font_metrics =
+            Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
 
         // Parse glyph outlines and metrics (always enabled for PDF generation)
         // For CFF fonts (no glyf table), we fall back to hmtx-only metrics
         let glyf_records_count = glyf_table.records().len();
         let use_glyf_parsing = glyf_records_count > 0;
-        
+
         warnings.push(FontParseWarning::info(format!(
             "Font has {} glyf records, {} total glyphs, use_glyf_parsing={}",
             glyf_records_count, num_glyphs, use_glyf_parsing
         )));
-        
+
         let glyph_records_decoded = if use_glyf_parsing {
-            warnings.push(FontParseWarning::info("Parsing glyph outlines from glyf table".to_string()));
+            warnings.push(FontParseWarning::info(
+                "Parsing glyph outlines from glyf table".to_string(),
+            ));
             // Full parsing: outlines + metrics from TrueType glyf table
             // CRITICAL: Always call .parse() first to convert Present -> Parsed!
             glyf_table
@@ -480,7 +497,7 @@ impl ParsedFont {
                     if glyph_index > (u16::MAX as usize) {
                         return None;
                     }
-                    
+
                     // ALWAYS parse the glyph record first!
                     if let Err(_e) = glyph_record.parse() {
                         // If parsing fails, we can still try to get the advance width
@@ -492,7 +509,7 @@ impl ParsedFont {
                             glyph_index,
                         )
                         .unwrap_or_default();
-                        
+
                         // Return minimal glyph with just advance
                         return Some((
                             glyph_index,
@@ -510,7 +527,7 @@ impl ParsedFont {
                             },
                         ));
                     }
-                    
+
                     let glyph_index = glyph_index as u16;
                     let horz_advance = allsorts::glyph_info::advance(
                         &maxp_table,
@@ -519,7 +536,7 @@ impl ParsedFont {
                         glyph_index,
                     )
                     .unwrap_or_default();
-                    
+
                     // After parse(), record should be Parsed, not Present
                     match glyph_record {
                         GlyfRecord::Present { .. } => {
@@ -689,7 +706,7 @@ impl ParsedFont {
 
         Some(font)
     }
-    
+
     /// Parse PDF-specific font metrics from HEAD, HHEA, and OS/2 tables
     fn parse_pdf_font_metrics(
         font_bytes: &[u8],
@@ -697,8 +714,13 @@ impl ParsedFont {
         head_table: &allsorts::tables::HeadTable,
         hhea_table: &allsorts::tables::HheaTable,
     ) -> FontMetrics {
-        use allsorts::{binary::read::ReadScope, font_data::FontData, tables::{FontTableProvider, os2::Os2}, tag};
-        
+        use allsorts::{
+            binary::read::ReadScope,
+            font_data::FontData,
+            tables::{os2::Os2, FontTableProvider},
+            tag,
+        };
+
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok();
         let provider = font_file
@@ -732,14 +754,16 @@ impl ParsedFont {
         };
 
         // Add OS/2 metrics if available
-        os2_table.map(|os2| FontMetrics {
-            x_avg_char_width: os2.x_avg_char_width,
-            us_weight_class: os2.us_weight_class,
-            us_width_class: os2.us_width_class,
-            y_strikeout_size: os2.y_strikeout_size,
-            y_strikeout_position: os2.y_strikeout_position,
-            ..base
-        }).unwrap_or(base)
+        os2_table
+            .map(|os2| FontMetrics {
+                x_avg_char_width: os2.x_avg_char_width,
+                us_weight_class: os2.us_weight_class,
+                us_width_class: os2.us_width_class,
+                y_strikeout_size: os2.y_strikeout_size,
+                y_strikeout_position: os2.y_strikeout_position,
+                ..base
+            })
+            .unwrap_or(base)
     }
 
     /// Returns the width of the space character in font units.
@@ -820,7 +844,7 @@ impl ParsedFont {
 
     /// Convert the ParsedFont back to bytes using allsorts::whole_font
     /// This reconstructs the entire font from the parsed data
-    /// 
+    ///
     /// # Arguments
     /// * `tags` - Optional list of specific table tags to include (None = all tables)
     pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
@@ -829,25 +853,35 @@ impl ParsedFont {
         let provider = font_file
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
-        
-        let tags_to_use = tags.unwrap_or(&[tag::CMAP, tag::HEAD, tag::HHEA, tag::HMTX, 
-            tag::MAXP, tag::NAME, tag::OS_2, tag::POST, tag::GLYF, tag::LOCA]);
-        
+
+        let tags_to_use = tags.unwrap_or(&[
+            tag::CMAP,
+            tag::HEAD,
+            tag::HHEA,
+            tag::HMTX,
+            tag::MAXP,
+            tag::NAME,
+            tag::OS_2,
+            tag::POST,
+            tag::GLYF,
+            tag::LOCA,
+        ]);
+
         whole_font(&provider, tags_to_use).map_err(|e| e.to_string())
     }
 
     /// Create a subset font containing only the specified glyph IDs
     /// Returns the subset font bytes and a mapping from old to new glyph IDs
-    /// 
+    ///
     /// # Arguments
     /// * `glyph_ids` - The glyph IDs to include in the subset (glyph 0/.notdef is always included)
     /// * `cmap_target` - Target cmap format (Unicode for web, MacRoman for compatibility)
-    /// 
+    ///
     /// # Returns
     /// A tuple of (subset_font_bytes, glyph_mapping) where glyph_mapping maps
     /// original_glyph_id -> (new_glyph_id, original_char)
     pub fn subset(
-        &self, 
+        &self,
         glyph_ids: &[(u16, char)],
         cmap_target: CmapTarget,
     ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
@@ -893,9 +927,11 @@ impl ParsedFont {
     }
 
     /// Add glyph-to-text mapping to reverse cache
-    /// This should be called during text shaping when we know both the source text and resulting glyphs
+    /// This should be called during text shaping when we know both the source text and resulting
+    /// glyphs
     pub fn cache_glyph_mapping(&mut self, glyph_id: u16, cluster_text: &str) {
-        self.reverse_glyph_cache.insert(glyph_id, cluster_text.to_string());
+        self.reverse_glyph_cache
+            .insert(glyph_id, cluster_text.to_string());
     }
 
     /// Get the cluster text that produced a specific glyph ID
@@ -1443,12 +1479,7 @@ impl crate::text3::cache::ParsedFontTrait for ParsedFont {
     ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
         // Call the existing shape_text_for_parsed_font method (defined in default.rs)
         crate::text3::default::shape_text_for_parsed_font(
-            self,
-            text,
-            script,
-            language,
-            direction,
-            style,
+            self, text, script, language, direction, style,
         )
     }
 
@@ -1456,7 +1487,11 @@ impl crate::text3::cache::ParsedFontTrait for ParsedFont {
         self.hash
     }
 
-    fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<azul_core::geom::LogicalSize> {
+    fn get_glyph_size(
+        &self,
+        glyph_id: u16,
+        font_size_px: f32,
+    ) -> Option<azul_core::geom::LogicalSize> {
         self.glyph_records_decoded.get(&glyph_id).map(|record| {
             let units_per_em = self.font_metrics.units_per_em as f32;
             let scale_factor = if units_per_em > 0.0 {

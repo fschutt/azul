@@ -1065,7 +1065,10 @@ impl CallbackInfo {
 
         // Get the layout node and its inline layout result
         let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node.inline_layout_result.as_ref().map(|c| c.get_layout())
+        layout_node
+            .inline_layout_result
+            .as_ref()
+            .map(|c| c.get_layout())
     }
 
     // Public query Api
@@ -1167,7 +1170,7 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        
+
         // Skip anonymous parent nodes - walk up the tree until we find a non-anonymous node
         let mut current_parent_id = hier_item.parent_id()?;
         loop {
@@ -1179,7 +1182,7 @@ impl CallbackInfo {
                     },
                 });
             }
-            
+
             // This parent is anonymous, try its parent
             let parent_hier_item = node_hierarchy.get(current_parent_id)?;
             current_parent_id = parent_hier_item.parent_id()?;
@@ -1192,7 +1195,7 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        
+
         // Skip anonymous siblings - walk backwards until we find a non-anonymous node
         let mut current_sibling_id = hier_item.previous_sibling_id()?;
         loop {
@@ -1204,7 +1207,7 @@ impl CallbackInfo {
                     },
                 });
             }
-            
+
             // This sibling is anonymous, try the previous one
             let sibling_hier_item = node_hierarchy.get(current_sibling_id)?;
             current_sibling_id = sibling_hier_item.previous_sibling_id()?;
@@ -1217,7 +1220,7 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        
+
         // Skip anonymous siblings - walk forwards until we find a non-anonymous node
         let mut current_sibling_id = hier_item.next_sibling_id()?;
         loop {
@@ -1229,7 +1232,7 @@ impl CallbackInfo {
                     },
                 });
             }
-            
+
             // This sibling is anonymous, try the next one
             let sibling_hier_item = node_hierarchy.get(current_sibling_id)?;
             current_sibling_id = sibling_hier_item.next_sibling_id()?;
@@ -1242,7 +1245,7 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        
+
         // Get first child, then skip anonymous nodes
         let mut current_child_id = hier_item.first_child_id(node_id_internal)?;
         loop {
@@ -1254,7 +1257,7 @@ impl CallbackInfo {
                     },
                 });
             }
-            
+
             // This child is anonymous, try the next sibling
             let child_hier_item = node_hierarchy.get(current_child_id)?;
             current_child_id = child_hier_item.next_sibling_id()?;
@@ -1267,7 +1270,7 @@ impl CallbackInfo {
         let node_id_internal = NodeId::new(node_id.node.inner);
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
-        
+
         // Get last child, then skip anonymous nodes by walking backwards
         let mut current_child_id = hier_item.last_child_id()?;
         loop {
@@ -1279,7 +1282,7 @@ impl CallbackInfo {
                     },
                 });
             }
-            
+
             // This child is anonymous, try the previous sibling
             let child_hier_item = node_hierarchy.get(current_child_id)?;
             current_child_id = child_hier_item.previous_sibling_id()?;
@@ -1393,9 +1396,7 @@ impl CallbackInfo {
     /// - `get_selection()`, `get_primary_cursor()` for reading selections
     ///
     /// Future: Add NodeId -> CacheId mapping to enable node-specific layout access
-    pub fn get_text_cache(
-        &self,
-    ) -> &crate::text3::cache::LayoutCache {
+    pub fn get_text_cache(&self) -> &crate::text3::cache::LayoutCache {
         &self.get_layout_window().text_cache
     }
 

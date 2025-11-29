@@ -131,10 +131,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     // HTML5-lite parser: List of void elements that should auto-close
     // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
     const VOID_ELEMENTS: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr",
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+        "source", "track", "wbr",
     ];
-    
+
     // HTML5-lite parser: Elements that auto-close when certain other elements are encountered
     // Format: (element_name, closes_when_encountering)
     const AUTO_CLOSE_RULES: &[(&str, &[&str])] = &[
@@ -145,9 +145,36 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         ("th", &["td", "th", "tr"]),
         ("tr", &["tr"]),
         // Paragraphs close on block-level elements
-        ("p", &["address", "article", "aside", "blockquote", "div", "dl", "fieldset", 
-                "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", 
-                "main", "nav", "ol", "p", "pre", "section", "table", "ul"]),
+        (
+            "p",
+            &[
+                "address",
+                "article",
+                "aside",
+                "blockquote",
+                "div",
+                "dl",
+                "fieldset",
+                "footer",
+                "form",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "header",
+                "hr",
+                "main",
+                "nav",
+                "ol",
+                "p",
+                "pre",
+                "section",
+                "table",
+                "ul",
+            ],
+        ),
         // Option closes on another option or optgroup
         ("option", &["option", "optgroup"]),
         ("optgroup", &["optgroup"]),
@@ -155,7 +182,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
         ("dd", &["dd", "dt"]),
         ("dt", &["dd", "dt"]),
     ];
-    
+
     // Track which hierarchy level is a void element (shouldn't be pushed to hierarchy)
     let mut last_was_void = false;
 
@@ -165,12 +192,12 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
             ElementStart { local, .. } => {
                 let tag_name = local.to_string();
                 let is_void_element = VOID_ELEMENTS.contains(&tag_name.as_str());
-                
+
                 // HTML5-lite: Check if we need to auto-close the current element
                 if !current_hierarchy.is_empty() {
                     if let Some(current_element) = get_item(&current_hierarchy, &mut root_node) {
                         let current_tag = current_element.node_type.as_str();
-                        
+
                         // Check if current element should auto-close when encountering this new tag
                         for (element, closes_on) in AUTO_CLOSE_RULES {
                             if current_tag == *element && closes_on.contains(&tag_name.as_str()) {
@@ -181,16 +208,16 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         }
                     }
                 }
-                
+
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
-                    
+
                     current_parent.children.push(XmlNodeChild::Element(XmlNode {
                         node_type: tag_name.into(),
                         attributes: StringPairVec::new(),
                         children: Vec::new().into(),
                     }));
-                    
+
                     // Only push to hierarchy if not a void element
                     // Void elements auto-close and don't expect children
                     if !is_void_element {
@@ -219,12 +246,12 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     last_was_void = false;
                     continue;
                 }
-                
+
                 // HTML5-lite: Auto-close any elements that should be closed
                 // Walk up the hierarchy and auto-close elements until we find a match
                 let mut found_match = false;
                 let close_value_str = close_value.as_str();
-                
+
                 // Check if the closing tag matches any element in the current hierarchy
                 for i in (0..current_hierarchy.len()).rev() {
                     if let Some(node) = get_item(&current_hierarchy[..=i], &mut root_node) {
@@ -239,13 +266,13 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         }
                     }
                 }
-                
+
                 if !found_match {
                     // HTML5-lite: If no match found, this might be an optional closing tag
                     // Just ignore it instead of erroring (lenient parsing)
                     // In strict XML mode, we would return an error here
                 }
-                
+
                 last_was_void = false;
             }
             Attribute { local, value, .. } => {
@@ -261,11 +288,13 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 // Skip whitespace-only text nodes between block elements
                 // but preserve them within inline contexts (e.g., between inline elements)
                 let is_whitespace_only = text.trim().is_empty();
-                
+
                 if !is_whitespace_only {
                     if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                         // Add text as a child node
-                        current_parent.children.push(XmlNodeChild::Text(text.to_string().into()));
+                        current_parent
+                            .children
+                            .push(XmlNodeChild::Text(text.to_string().into()));
                     }
                 }
             }

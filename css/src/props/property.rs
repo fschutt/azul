@@ -38,9 +38,9 @@ use crate::{
             overflow::*, position::*, shape::*, spacing::*, table::*, text::*, wrapping::*,
         },
         style::{
-            azul_exclusion::*, background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
-            filter::*, lists::*, scrollbar::*, text::*, transform::*, SelectionBackgroundColor,
-            SelectionColor, SelectionRadius,
+            azul_exclusion::*, background::*, border::*, border_radius::*, box_shadow::*,
+            content::*, effects::*, filter::*, lists::*, scrollbar::*, text::*, transform::*,
+            SelectionBackgroundColor, SelectionColor, SelectionRadius,
         },
     },
 };
@@ -95,7 +95,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 148] = [
     (CssPropertyType::HangingPunctuation, "hanging-punctuation"),
     (CssPropertyType::TextCombineUpright, "text-combine-upright"),
     (CssPropertyType::ExclusionMargin, "-azul-exclusion-margin"),
-    (CssPropertyType::HyphenationLanguage, "-azul-hyphenation-language"),
+    (
+        CssPropertyType::HyphenationLanguage,
+        "-azul-hyphenation-language",
+    ),
     (CssPropertyType::Cursor, "cursor"),
     (CssPropertyType::Width, "width"),
     (CssPropertyType::Height, "height"),
@@ -1005,34 +1008,34 @@ impl CssPropertyType {
 
     /// Returns whether this property will be inherited during cascading
     /// Returns whether this CSS property is inherited by default according to CSS specifications.
-    /// 
+    ///
     /// Reference: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Inheritance
     pub fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::*;
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
-            
+
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabWidth |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
-            
+
             // List properties
             ListStyleType | ListStylePosition |
-            
+
             // Table properties
             BorderCollapse | BorderSpacing | CaptionSide | EmptyCells |
-            
+
             // Other inherited properties
             Visibility | Cursor | Widows | Orphans |
-            
+
             // Writing mode
             WritingMode |
-            
+
             // User interaction
             UserSelect
             => true,
-            
+
             _ => false,
         }
     }
@@ -1926,15 +1929,11 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LetterSpacing(e) => {
                 CssParsingErrorOwned::LetterSpacing(e.to_contained())
             }
-            CssParsingError::TextIndent(e) => {
-                CssParsingErrorOwned::TextIndent(e.to_contained())
-            }
+            CssParsingError::TextIndent(e) => CssParsingErrorOwned::TextIndent(e.to_contained()),
             CssParsingError::InitialLetter(e) => {
                 CssParsingErrorOwned::InitialLetter(e.to_contained())
             }
-            CssParsingError::LineClamp(e) => {
-                CssParsingErrorOwned::LineClamp(e.to_contained())
-            }
+            CssParsingError::LineClamp(e) => CssParsingErrorOwned::LineClamp(e.to_contained()),
             CssParsingError::HangingPunctuation(e) => {
                 CssParsingErrorOwned::HangingPunctuation(e.to_contained())
             }
@@ -2122,10 +2121,18 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::TextIndent(e) => CssParsingError::TextIndent(e.to_shared()),
             CssParsingErrorOwned::InitialLetter(e) => CssParsingError::InitialLetter(e.to_shared()),
             CssParsingErrorOwned::LineClamp(e) => CssParsingError::LineClamp(e.to_shared()),
-            CssParsingErrorOwned::HangingPunctuation(e) => CssParsingError::HangingPunctuation(e.to_shared()),
-            CssParsingErrorOwned::TextCombineUpright(e) => CssParsingError::TextCombineUpright(e.to_shared()),
-            CssParsingErrorOwned::ExclusionMargin(e) => CssParsingError::ExclusionMargin(e.to_shared()),
-            CssParsingErrorOwned::HyphenationLanguage(e) => CssParsingError::HyphenationLanguage(e.to_shared()),
+            CssParsingErrorOwned::HangingPunctuation(e) => {
+                CssParsingError::HangingPunctuation(e.to_shared())
+            }
+            CssParsingErrorOwned::TextCombineUpright(e) => {
+                CssParsingError::TextCombineUpright(e.to_shared())
+            }
+            CssParsingErrorOwned::ExclusionMargin(e) => {
+                CssParsingError::ExclusionMargin(e.to_shared())
+            }
+            CssParsingErrorOwned::HyphenationLanguage(e) => {
+                CssParsingError::HyphenationLanguage(e.to_shared())
+            }
             CssParsingErrorOwned::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
             CssParsingErrorOwned::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
             CssParsingErrorOwned::TabWidth(e) => CssParsingError::TabWidth(e.to_shared()),
@@ -2185,27 +2192,31 @@ pub fn parse_css_property<'a>(
     key: CssPropertyType,
     value: &'a str,
 ) -> Result<CssProperty, CssParsingError<'a>> {
-    use crate::props::style::{parse_selection_background_color, parse_selection_color, parse_selection_radius};
+    use crate::props::style::{
+        parse_selection_background_color, parse_selection_color, parse_selection_radius,
+    };
 
     let value = value.trim();
-    
-    // For properties where "auto" or "none" is a valid typed value (not just the generic CSS keyword),
-    // we must NOT intercept them here. Let the specific parser handle them.
-    let has_typed_auto = matches!(key, 
+
+    // For properties where "auto" or "none" is a valid typed value (not just the generic CSS
+    // keyword), we must NOT intercept them here. Let the specific parser handle them.
+    let has_typed_auto = matches!(
+        key,
         CssPropertyType::Hyphens |      // hyphens: auto means StyleHyphens::Auto
         CssPropertyType::OverflowX |
         CssPropertyType::OverflowY |
-        CssPropertyType::UserSelect     // user-select: auto is a typed value
+        CssPropertyType::UserSelect // user-select: auto is a typed value
     );
-    
-    let has_typed_none = matches!(key,
+
+    let has_typed_none = matches!(
+        key,
         CssPropertyType::Hyphens |      // hyphens: none means StyleHyphens::None
         CssPropertyType::Display |      // display: none means LayoutDisplay::None
         CssPropertyType::UserSelect |
         CssPropertyType::Float |        // float: none means LayoutFloat::None
         CssPropertyType::TextDecoration // text-decoration: none is a typed value
     );
-    
+
     Ok(match value {
         "auto" if !has_typed_auto => CssProperty::auto(key),
         "none" if !has_typed_none => CssProperty::none(key),
@@ -2223,9 +2234,13 @@ pub fn parse_css_property<'a>(
             CssPropertyType::SelectionRadius => parse_selection_radius(value)?.into(),
 
             CssPropertyType::TextColor => parse_style_text_color(value)?.into(),
-            CssPropertyType::FontSize => CssProperty::FontSize(parse_style_font_size(value)?.into()),
+            CssPropertyType::FontSize => {
+                CssProperty::FontSize(parse_style_font_size(value)?.into())
+            }
             CssPropertyType::FontFamily => parse_style_font_family(value)?.into(),
-            CssPropertyType::FontWeight => CssProperty::FontWeight(parse_font_weight(value)?.into()),
+            CssPropertyType::FontWeight => {
+                CssProperty::FontWeight(parse_font_weight(value)?.into())
+            }
             CssPropertyType::FontStyle => CssProperty::FontStyle(parse_font_style(value)?.into()),
             CssPropertyType::TextAlign => parse_style_text_align(value)?.into(),
             CssPropertyType::TextJustify => parse_layout_text_justify(value)?.into(),

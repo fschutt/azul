@@ -143,8 +143,12 @@ impl FloatValue {
     #[inline]
     pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
         // Get absolute value for digit counting
-        let abs_post = if post_comma < 0 { -post_comma } else { post_comma };
-        
+        let abs_post = if post_comma < 0 {
+            -post_comma
+        } else {
+            post_comma
+        };
+
         // Determine the number of digits and extract only the first 3
         let (normalized_post, divisor) = if abs_post < 10 {
             // 1 digit: 5 → 0.5
@@ -184,13 +188,17 @@ impl FloatValue {
             // Cap at maximum isize support
             (abs_post / 10000000000000, 1000)
         };
-        
+
         // Calculate fractional part
         let fractional_part = normalized_post * (FP_PRECISION_MULTIPLIER_CONST / divisor);
-        
+
         // Apply sign: if post_comma is negative, negate the fractional part
-        let signed_fractional = if post_comma < 0 { -fractional_part } else { fractional_part };
-        
+        let signed_fractional = if post_comma < 0 {
+            -fractional_part
+        } else {
+            fractional_part
+        };
+
         // For negative pre_comma, the fractional part should also be negative
         // E.g., -1.5 = -1 + (-0.5), not -1 + 0.5
         let final_fractional = if pre_comma < 0 && post_comma >= 0 {
@@ -198,7 +206,7 @@ impl FloatValue {
         } else {
             signed_fractional
         };
-        
+
         Self {
             number: pre_comma * FP_PRECISION_MULTIPLIER_CONST + final_fractional,
         }
@@ -478,7 +486,7 @@ mod tests {
     #[test]
     fn test_const_new_fractional_truncation() {
         // More than 3 digits should be truncated (not rounded)
-        
+
         // 4 digits: 5234 → 523 → 0.523
         let val = FloatValue::const_new_fractional(0, 5234);
         assert!((val.get() - 0.523).abs() < 0.001);
@@ -548,7 +556,7 @@ mod tests {
     #[test]
     fn test_const_new_fractional_ua_css_values() {
         // Test actual values used in ua_css.rs
-        
+
         // H1: 2em
         let val = FloatValue::const_new_fractional(2, 0);
         assert_eq!(val.get(), 2.0);
@@ -597,7 +605,7 @@ mod tests {
     #[test]
     fn test_const_new_fractional_consistency() {
         // Verify consistency between const_new_fractional and new()
-        
+
         let const_val = FloatValue::const_new_fractional(1, 5);
         let runtime_val = FloatValue::new(1.5);
         assert_eq!(const_val.get(), runtime_val.get());

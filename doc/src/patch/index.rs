@@ -730,7 +730,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
             Item::Type(t) => {
                 let type_name = t.ident.to_string();
                 let full_path = build_full_path(&crate_name, &module_path, &type_name);
-                
+
                 // Parse the target type and extract generic information
                 let (generic_base, generic_args) = parse_generic_type_alias(&t.ty);
                 let target = t.ty.to_token_stream().to_string();
@@ -763,22 +763,23 @@ fn parse_generic_type_alias(ty: &syn::Type) -> (Option<String>, Vec<String>) {
         syn::Type::Path(type_path) => {
             if let Some(segment) = type_path.path.segments.last() {
                 let base_name = segment.ident.to_string();
-                
+
                 // Check if it has generic arguments
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    let generic_args: Vec<String> = args.args.iter()
+                    let generic_args: Vec<String> = args
+                        .args
+                        .iter()
                         .filter_map(|arg| {
                             match arg {
                                 syn::GenericArgument::Type(syn::Type::Path(p)) => {
                                     // Extract the last segment of the path
-                                    p.path.segments.last()
-                                        .map(|seg| seg.ident.to_string())
+                                    p.path.segments.last().map(|seg| seg.ident.to_string())
                                 }
                                 _ => None,
                             }
                         })
                         .collect();
-                    
+
                     if !generic_args.is_empty() {
                         return (Some(base_name), generic_args);
                     }
@@ -787,7 +788,7 @@ fn parse_generic_type_alias(ty: &syn::Type) -> (Option<String>, Vec<String>) {
         }
         _ => {}
     }
-    
+
     (None, vec![])
 }
 

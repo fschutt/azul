@@ -710,7 +710,7 @@ impl XmlNodeChild {
             XmlNodeChild::Element(_) => None,
         }
     }
-    
+
     /// Get the element if this is an element node
     pub fn as_element(&self) -> Option<&XmlNode> {
         match self {
@@ -718,7 +718,7 @@ impl XmlNodeChild {
             XmlNodeChild::Element(node) => Some(node),
         }
     }
-    
+
     /// Get the element mutably if this is an element node
     pub fn as_element_mut(&mut self) -> Option<&mut XmlNode> {
         match self {
@@ -763,7 +763,7 @@ impl XmlNode {
             ..self
         }
     }
-    
+
     /// Get all text content concatenated from direct children
     pub fn get_text_content(&self) -> String {
         self.children
@@ -773,7 +773,7 @@ impl XmlNode {
             .collect::<Vec<_>>()
             .join("")
     }
-    
+
     /// Check if this node has only text children (no element children)
     pub fn has_only_text_children(&self) -> bool {
         self.children
@@ -1372,7 +1372,7 @@ pub fn validate_and_filter_component_args(
                 xml_attribute_value,
                 valid_args.args.iter().map(|s| &s.0).collect::<Vec<_>>()
             );
-            
+
             // Still insert the value so it's available, but don't validate the type
             map.values.insert(
                 xml_attribute_name.as_str().to_string(),
@@ -1440,7 +1440,10 @@ static DEFAULT_STR: &str = "";
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
-pub fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Option<&'a XmlNode> {
+pub fn find_node_by_type<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    node_type: &str,
+) -> Option<&'a XmlNode> {
     root_nodes
         .iter()
         .filter_map(|child| {
@@ -1551,9 +1554,10 @@ pub fn str_to_dom<'a>(
                             inherit_vars: false,
                         });
                     }
-                    Err(ComponentParseError::NotAComponent) => {} // not a <component /> node, ignore
-                    Err(e) => return Err(e.into()),               /* Error during parsing the XML
-                                                                    * component, bail */
+                    Err(ComponentParseError::NotAComponent) => {} /* not a <component /> node, */
+                    // ignore
+                    Err(e) => return Err(e.into()), /* Error during parsing the XML
+                                                     * component, bail */
                 }
             }
         }
@@ -1587,17 +1591,19 @@ pub fn str_to_rust_code<'a>(
         for child in head_node.children.as_ref() {
             if let XmlNodeChild::Element(node) = child {
                 match DynamicXmlComponent::new(node) {
-                Ok(node) => {
-                    let node_name = node.name.clone();
-                    component_map.register_component(XmlComponent {
-                        id: normalize_casing(&node_name),
-                        renderer: Box::new(node),
-                        inherit_vars: false,
-                    });
-                }
-                    Err(ComponentParseError::NotAComponent) => {} // not a <component /> node, ignore
-                    Err(e) => return Err(CompileError::Xml(e.into())), /* Error during parsing the XML
-                                                                    * component, bail */
+                    Ok(node) => {
+                        let node_name = node.name.clone();
+                        component_map.register_component(XmlComponent {
+                            id: normalize_casing(&node_name),
+                            renderer: Box::new(node),
+                            inherit_vars: false,
+                        });
+                    }
+                    Err(ComponentParseError::NotAComponent) => {} /* not a <component /> node, */
+                    // ignore
+                    Err(e) => return Err(CompileError::Xml(e.into())), /* Error during parsing
+                                                                        * the XML
+                                                                        * component, bail */
                 }
             }
         }
@@ -1805,40 +1811,42 @@ pub fn render_dom_from_body_node<'a>(
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
-) -> Result<StyledDom, RenderDomError> {    
+) -> Result<StyledDom, RenderDomError> {
     // Render the body node itself (which will render its children)
     let mut body_styled = render_dom_from_body_node_inner(
         body_node,
         component_map,
         &FilteredComponentArguments::default(),
     )?;
-    
+
     // Check if the rendered result is already wrapped in HTML
     let root_node_id = match body_styled.root.into_crate_internal() {
         Some(id) => id,
         None => {
             // Empty DOM, create default HTML > Body structure
-            let mut html_dom = Dom::html().with_child(Dom::body()).style(CssApiWrapper::empty());
-            
+            let mut html_dom = Dom::html()
+                .with_child(Dom::body())
+                .style(CssApiWrapper::empty());
+
             if let Some(max_width) = max_width {
                 html_dom.restyle(CssApiWrapper::from_string(
                     format!("html {{ max-width: {max_width}px; }}").into(),
                 ));
             }
-            
+
             if let Some(global_css) = global_css.clone() {
                 html_dom.restyle(global_css);
             }
-            
+
             return Ok(html_dom);
         }
     };
-    
+
     let root_node_data = &body_styled.node_data.as_ref()[root_node_id.index()];
     let root_node_type = &root_node_data.node_type;
-    
+
     use crate::dom::NodeType;
-    
+
     // Wrap in HTML if needed
     let mut dom = match root_node_type {
         NodeType::Html => {
@@ -1908,10 +1916,11 @@ pub fn render_dom_from_body_node_inner<'a>(
     }
 
     // Don't pass text content to the component renderer - text children will be appended separately
-    let mut dom =
-        xml_component
-            .renderer
-            .render_dom(component_map, &filtered_xml_attributes, &OptionAzString::None)?;
+    let mut dom = xml_component.renderer.render_dom(
+        component_map,
+        &filtered_xml_attributes,
+        &OptionAzString::None,
+    )?;
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
     for child in xml_node.children.as_ref() {
@@ -1925,7 +1934,8 @@ pub fn render_dom_from_body_node_inner<'a>(
             }
             XmlNodeChild::Text(text) => {
                 // Create a text node for text children
-                let text_dom = Dom::text(AzString::from(text.as_str())).style(CssApiWrapper::empty());
+                let text_dom =
+                    Dom::text(AzString::from(text.as_str())).style(CssApiWrapper::empty());
                 dom.append_child(text_dom);
             }
         }
@@ -1950,7 +1960,7 @@ pub fn set_attributes(
         None => return,
     };
     let node_data = &mut dom.node_data.as_container_mut()[dom_root];
-    
+
     if let Some(ids) = xml_attributes.get_key("id") {
         for id in ids.split_whitespace() {
             ids_and_classes.push(Id(
@@ -2379,7 +2389,10 @@ pub fn render_component_inner<'a>(
 
     let text_content = xml_node.get_text_content();
     let text = if !text_content.is_empty() {
-        Some(AzString::from(format_args_dynamic(&text_content, &filtered_xml_attributes.args)))
+        Some(AzString::from(format_args_dynamic(
+            &text_content,
+            &filtered_xml_attributes.args,
+        )))
     } else {
         None
     };
@@ -3206,46 +3219,47 @@ mod tests {
     fn test_inline_span_parsing() {
         // This test verifies that HTML with inline spans is parsed correctly
         // The DOM structure should preserve text nodes before, inside, and after the span
-        
+
         let html = r#"<p>Text before <span class="highlight">inline text</span> text after.</p>"#;
-        
+
         // Expected DOM structure:
         // <p>
         //   ├─ TextNode: "Text before "
         //   ├─ <span class="highlight">
         //   │   └─ TextNode: "inline text"
         //   └─ TextNode: " text after."
-        
+
         // For this test, we'll create the DOM structure manually
         // since we're testing the parsing logic
-        let expected_dom = Dom::p().with_children(vec![
-            Dom::text("Text before "),
-            Dom::new(NodeType::Span).with_children(vec![
-                Dom::text("inline text")
-            ].into()),
-            Dom::text(" text after.")
-        ].into());
-        
+        let expected_dom = Dom::p().with_children(
+            vec![
+                Dom::text("Text before "),
+                Dom::new(NodeType::Span).with_children(vec![Dom::text("inline text")].into()),
+                Dom::text(" text after."),
+            ]
+            .into(),
+        );
+
         // Verify the structure has 3 children at the top level
         assert_eq!(expected_dom.children.as_ref().len(), 3);
-        
+
         // Verify the middle child is a span
         match &expected_dom.children.as_ref()[1].root.node_type {
-            NodeType::Span => {},
+            NodeType::Span => {}
             other => panic!("Expected Span, got {:?}", other),
         }
-        
+
         // Verify the span has 1 child (the text node)
         assert_eq!(expected_dom.children.as_ref()[1].children.as_ref().len(), 1);
-        
+
         println!("Test passed: Inline span parsing structure is correct");
     }
-    
+
     #[test]
     fn test_xml_node_structure() {
         // Test the basic XmlNode structure to ensure text content is preserved
         // Updated to use XmlNodeChild enum (Text/Element)
-        
+
         let node = XmlNode {
             node_type: "p".into(),
             attributes: StringPairVec::from_const_slice(&[]),
@@ -3253,26 +3267,32 @@ mod tests {
                 XmlNodeChild::Text("Before ".into()),
                 XmlNodeChild::Element(XmlNode {
                     node_type: "span".into(),
-                    children: vec![
-                        XmlNodeChild::Text("inline".into()),
-                    ].into(),
+                    children: vec![XmlNodeChild::Text("inline".into())].into(),
                     ..Default::default()
                 }),
                 XmlNodeChild::Text(" after".into()),
-            ].into(),
+            ]
+            .into(),
         };
-        
+
         // Verify structure
         assert_eq!(node.children.as_ref().len(), 3);
         assert_eq!(node.children.as_ref()[0].as_text(), Some("Before "));
-        assert_eq!(node.children.as_ref()[1].as_element().unwrap().node_type.as_str(), "span");
+        assert_eq!(
+            node.children.as_ref()[1]
+                .as_element()
+                .unwrap()
+                .node_type
+                .as_str(),
+            "span"
+        );
         assert_eq!(node.children.as_ref()[2].as_text(), Some(" after"));
-        
+
         // Verify span's child
         let span = node.children.as_ref()[1].as_element().unwrap();
         assert_eq!(span.children.as_ref().len(), 1);
         assert_eq!(span.children.as_ref()[0].as_text(), Some("inline"));
-        
+
         println!("Test passed: XmlNode structure preserves text nodes correctly");
     }
 }

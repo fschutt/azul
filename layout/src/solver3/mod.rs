@@ -144,10 +144,8 @@ use self::{
     layout_tree::{generate_layout_tree, LayoutTree},
     sizing::calculate_intrinsic_sizes,
 };
-
 #[cfg(feature = "text_layout")]
 pub use crate::font_traits::TextLayoutCache;
-
 use crate::{
     font_traits::ParsedFontTrait,
     solver3::{
@@ -183,7 +181,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
     pub fn has_debug(&self) -> bool {
         self.debug_messages.is_some()
     }
-    
+
     /// Internal method - called by debug_log! macro after checking has_debug()
     #[inline]
     pub fn debug_log_inner(&mut self, message: String) {
@@ -195,7 +193,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             });
         }
     }
-    
+
     /// Internal method - called by debug_info! macro after checking has_debug()
     #[inline]
     pub fn debug_info_inner(&mut self, message: String) {
@@ -203,7 +201,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::info(message));
         }
     }
-    
+
     /// Internal method - called by debug_warning! macro after checking has_debug()
     #[inline]
     pub fn debug_warning_inner(&mut self, message: String) {
@@ -211,7 +209,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::warning(message));
         }
     }
-    
+
     /// Internal method - called by debug_error! macro after checking has_debug()
     #[inline]
     pub fn debug_error_inner(&mut self, message: String) {
@@ -219,7 +217,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::error(message));
         }
     }
-    
+
     /// Internal method - called by debug_box_props! macro after checking has_debug()
     #[inline]
     pub fn debug_box_props_inner(&mut self, message: String) {
@@ -227,7 +225,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::box_props(message));
         }
     }
-    
+
     /// Internal method - called by debug_css_getter! macro after checking has_debug()
     #[inline]
     pub fn debug_css_getter_inner(&mut self, message: String) {
@@ -235,7 +233,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::css_getter(message));
         }
     }
-    
+
     /// Internal method - called by debug_bfc_layout! macro after checking has_debug()
     #[inline]
     pub fn debug_bfc_layout_inner(&mut self, message: String) {
@@ -243,7 +241,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::bfc_layout(message));
         }
     }
-    
+
     /// Internal method - called by debug_ifc_layout! macro after checking has_debug()
     #[inline]
     pub fn debug_ifc_layout_inner(&mut self, message: String) {
@@ -251,7 +249,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::ifc_layout(message));
         }
     }
-    
+
     /// Internal method - called by debug_table_layout! macro after checking has_debug()
     #[inline]
     pub fn debug_table_layout_inner(&mut self, message: String) {
@@ -259,7 +257,7 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::table_layout(message));
         }
     }
-    
+
     /// Internal method - called by debug_display_type! macro after checking has_debug()
     #[inline]
     pub fn debug_display_type_inner(&mut self, message: String) {
@@ -267,73 +265,73 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
             messages.push(LayoutDebugMessage::display_type(message));
         }
     }
-    
+
     // DEPRECATED: Use debug_*!() macros instead for lazy evaluation
     // These methods always evaluate format!() arguments even when debug is disabled
-    
+
     #[inline]
     #[deprecated(note = "Use debug_info! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_info(&mut self, message: impl Into<String>) {
         self.debug_info_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_warning! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_warning(&mut self, message: impl Into<String>) {
         self.debug_warning_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_error! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_error(&mut self, message: impl Into<String>) {
         self.debug_error_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_log! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_log(&mut self, message: &str) {
         self.debug_log_inner(message.to_string());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_box_props! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_box_props(&mut self, message: impl Into<String>) {
         self.debug_box_props_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_css_getter! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_css_getter(&mut self, message: impl Into<String>) {
         self.debug_css_getter_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_bfc_layout! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
         self.debug_bfc_layout_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_ifc_layout! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
         self.debug_ifc_layout_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_table_layout! macro for lazy evaluation")]
     #[allow(deprecated)]
     pub fn debug_table_layout(&mut self, message: impl Into<String>) {
         self.debug_table_layout_inner(message.into());
     }
-    
+
     #[inline]
     #[deprecated(note = "Use debug_display_type! macro for lazy evaluation")]
     #[allow(deprecated)]
@@ -380,12 +378,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             node.taffy_cache.clear();
         }
     }
-    
+
     // Step 1.3: Compute CSS Counters
     // This must be done after tree generation but before layout,
     // as list markers need counter values during formatting context layout
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
-    
+
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
@@ -436,7 +434,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // Safety limit to prevent infinite loops
             break;
         }
-        
+
         calculated_positions = cache.calculated_positions.clone();
         let mut reflow_needed_for_scrollbars = false;
 
@@ -454,16 +452,26 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // DEBUG: Log containing block info for this root
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
                 let root_node = &new_tree.nodes[root_idx];
-                let dom_name = root_node.dom_node_id
+                let dom_name = root_node
+                    .dom_node_id
                     .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
                     .map(|n| format!("{:?}", n.node_type))
                     .unwrap_or_else(|| "Unknown".to_string());
-                
+
                 debug_msgs.push(LayoutDebugMessage::new(
                     LayoutDebugMessageType::PositionCalculation,
-                    format!("[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), CB size=({:.2}x{:.2}), viewport=({:.2}x{:.2})",
-                        root_idx, dom_name, cb_pos.x, cb_pos.y, cb_size.width, cb_size.height,
-                        viewport.size.width, viewport.size.height)
+                    format!(
+                        "[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), CB size=({:.2}x{:.2}), \
+                         viewport=({:.2}x{:.2})",
+                        root_idx,
+                        dom_name,
+                        cb_pos.x,
+                        cb_pos.y,
+                        cb_size.width,
+                        cb_size.height,
+                        viewport.size.width,
+                        viewport.size.height
+                    ),
                 ));
             }
 
@@ -484,23 +492,32 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // positions for children, not for the root itself.
             if !calculated_positions.contains_key(&root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
-                
+
                 // DEBUG: Log root positioning
                 if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
-                    let dom_name = root_node.dom_node_id
+                    let dom_name = root_node
+                        .dom_node_id
                         .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
                         .map(|n| format!("{:?}", n.node_type))
                         .unwrap_or_else(|| "Unknown".to_string());
-                    
+
                     debug_msgs.push(LayoutDebugMessage::new(
                         LayoutDebugMessageType::PositionCalculation,
-                        format!("[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}), margin=({:.2}, {:.2}, {:.2}, {:.2})",
-                            root_idx, dom_name, cb_pos.x, cb_pos.y,
-                            root_node.box_props.margin.top, root_node.box_props.margin.right,
-                            root_node.box_props.margin.bottom, root_node.box_props.margin.left)
+                        format!(
+                            "[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}), \
+                             margin=({:.2}, {:.2}, {:.2}, {:.2})",
+                            root_idx,
+                            dom_name,
+                            cb_pos.x,
+                            cb_pos.y,
+                            root_node.box_props.margin.top,
+                            root_node.box_props.margin.right,
+                            root_node.box_props.margin.bottom,
+                            root_node.box_props.margin.left
+                        ),
                     ));
                 }
-                
+
                 calculated_positions.insert(root_idx, cb_pos);
             }
         }
@@ -606,7 +623,8 @@ fn get_containing_block_for_node(
                     .map(|n| &n.state)
                     .cloned()
                     .unwrap_or_default();
-                let writing_mode = get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
+                let writing_mode =
+                    get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }

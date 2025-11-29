@@ -1,19 +1,20 @@
 // Regression tests for margin collapse and escape bugs
-// 
+//
 // These tests document critical edge cases that were previously broken:
 // 1. Parent margin incorrectly added in blocked case (double-counting)
 // 2. Escaped margins incorrectly included in content-box height
 // 3. Sibling margins incorrectly subtracted from parent height
 
-use azul_core::dom::{Dom, IdOrClass, DomNodeId, DomId, NodeId};
-use azul_core::styled_dom::NodeHierarchyItemId;
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_css::parser2::CssApiWrapper;
-use azul_layout::window::LayoutWindow;
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::window_state::FullWindowState;
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::StyledDom;
-use azul_core::geom::LogicalSize;
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
 
 #[test]
@@ -30,14 +31,11 @@ fn test_margin_blocked_no_double_count() {
     //
     // Expected: Child positioned at Y=30 (relative to parent's content-box)
     // Bug behavior: Child positioned at Y=60 (30 parent + 30 child) ❌
-    
+
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(
-            Dom::div()
-                .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
-        );
-    
+        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+
     let css_str = r#"
         .parent {
             width: 800px;
@@ -50,12 +48,12 @@ fn test_margin_blocked_no_double_count() {
             margin: 30px;
         }
     "#;
-    
+
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
-    
+
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
     let mut window_state = FullWindowState::default();
@@ -63,22 +61,26 @@ fn test_margin_blocked_no_double_count() {
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
-    
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
     // Get node IDs
     let root_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    
-    let parent_rect = layout_window.get_node_layout_rect(root_id).expect("parent rect");
+
+    let parent_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("parent rect");
     assert!(
         (parent_rect.size.height - 130.0).abs() < 1.0,
         "Parent height should be ~130px (90 content + 40 padding), got {}",
@@ -98,19 +100,16 @@ fn test_margin_escape_excludes_from_parent_height() {
     //     <div class="child" margin=30 height=40></div>  <!-- Node 1 -->
     //   </div>
     //
-    // Expected: 
+    // Expected:
     //   - Child's 30px margin escapes through parent
     //   - Parent's content-box height = 40px (child only, NOT including escaped 30px)
     //
     // Bug behavior: Parent's height = 70px (40 + 30 escaped) ❌
-    
+
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(
-            Dom::div()
-                .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
-        );
-    
+        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+
     let css_str = r#"
         .parent {
             width: 800px;
@@ -123,12 +122,12 @@ fn test_margin_escape_excludes_from_parent_height() {
             margin: 30px 0;
         }
     "#;
-    
+
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
-    
+
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
     let mut window_state = FullWindowState::default();
@@ -136,21 +135,25 @@ fn test_margin_escape_excludes_from_parent_height() {
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
-    
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
     let root_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    
-    let parent_rect = layout_window.get_node_layout_rect(root_id).expect("parent rect");
+
+    let parent_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("parent rect");
     assert!(
         (parent_rect.size.height - 60.0).abs() < 1.0,
         "Parent height should be ~60px (child height + bottom margin, top margin escaped), got {}",
@@ -179,18 +182,14 @@ fn test_sibling_margins_included_in_parent_height() {
     //   - Parent height = 40 + 40 + 50 = 130px (includes the gap)
     //
     // Bug behavior: Parent height = 90px (130 - 40 sibling margin) ❌
-    
+
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
+        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into()))
         .with_child(
-            Dom::div()
-                .with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into())
-        )
-        .with_child(
-            Dom::div()
-                .with_ids_and_classes(vec![IdOrClass::Class("child2".into())].into())
+            Dom::div().with_ids_and_classes(vec![IdOrClass::Class("child2".into())].into()),
         );
-    
+
     let css_str = r#"
         .parent {
             width: 800px;
@@ -206,12 +205,12 @@ fn test_sibling_margins_included_in_parent_height() {
             margin-top: 40px;
         }
     "#;
-    
+
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
-    
+
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
     let mut window_state = FullWindowState::default();
@@ -219,21 +218,25 @@ fn test_sibling_margins_included_in_parent_height() {
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
-    
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
     let root_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
     // In this setup, root_id IS the parent node (NodeId::ZERO points to our .parent div)
-    let parent_rect = layout_window.get_node_layout_rect(root_id).expect("parent rect");
+    let parent_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("parent rect");
     assert!(
         (parent_rect.size.height - 130.0).abs() < 1.0,
         "Parent height should be ~130px (including 40px sibling margin gap), got {}",
@@ -261,19 +264,18 @@ fn test_nested_margin_escape() {
     //   - Node 1 (.box) margin escapes through Node 0: 30px
     //   - Node 4 (.nested-box) margin escapes through Node 3: 50px
     //   - Node 3 margin (40) collapses with Node 1 bottom margin (30) = 40px gap
-    //   - Node 0 height = 140 (box) + 40 (collapsed) + 130 (nested-box) = 310px
-    //     MINUS 30px escaped = 280px content-box height
+    //   - Node 0 height = 140 (box) + 40 (collapsed) + 130 (nested-box) = 310px MINUS 30px escaped
+    //     = 280px content-box height
     //   - Node 3 height = 130px (nested-box only, NOT including escaped 50px)
-    
+
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
                 .with_child(
-                    Dom::div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into())
-                )
+                    Dom::div().with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
+                ),
         )
         .with_child(
             Dom::div()
@@ -282,12 +284,13 @@ fn test_nested_margin_escape() {
                     Dom::div()
                         .with_ids_and_classes(vec![IdOrClass::Class("nested-box".into())].into())
                         .with_child(
-                            Dom::div()
-                                .with_ids_and_classes(vec![IdOrClass::Class("inner2".into())].into())
-                        )
-                )
+                            Dom::div().with_ids_and_classes(
+                                vec![IdOrClass::Class("inner2".into())].into(),
+                            ),
+                        ),
+                ),
         );
-    
+
     let css_str = r#"
         .container {
             width: 800px;
@@ -320,12 +323,12 @@ fn test_nested_margin_escape() {
             margin: 30px 0;
         }
     "#;
-    
+
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
-    
+
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
     let mut window_state = FullWindowState::default();
@@ -333,32 +336,42 @@ fn test_nested_margin_escape() {
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
-    
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
     let root_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
     // root_id is .container, first child is .box, second child is .nested-container
-    let box_id = layout_window.get_first_child(root_id).expect("box not found");
-    let nested_container_id = layout_window.get_next_sibling(box_id).expect("nested-container not found");
-    
-    let container_rect = layout_window.get_node_layout_rect(root_id).expect("container rect");
-    let nested_container_rect = layout_window.get_node_layout_rect(nested_container_id).expect("nested-container rect");
-    
+    let box_id = layout_window
+        .get_first_child(root_id)
+        .expect("box not found");
+    let nested_container_id = layout_window
+        .get_next_sibling(box_id)
+        .expect("nested-container not found");
+
+    let container_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
+    let nested_container_rect = layout_window
+        .get_node_layout_rect(nested_container_id)
+        .expect("nested-container rect");
+
     assert!(
         (container_rect.size.height - 350.0).abs() < 1.0,
         "Container should be ~350px (box + nested-box + margins), got {}",
         container_rect.size.height
     );
-    
+
     assert!(
         (nested_container_rect.size.height - 130.0).abs() < 1.0,
         "Nested-container should be ~130px (nested-box), got {}",
@@ -370,14 +383,11 @@ fn test_nested_margin_escape() {
 fn test_coordinate_system_separation() {
     // Verify that parent's margin is never added to child positions in blocked case
     // This test explicitly checks the coordinate system separation
-    
+
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(
-            Dom::div()
-                .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
-        );
-    
+        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+
     let css_str = r#"
         .parent {
             width: 800px;
@@ -390,12 +400,12 @@ fn test_coordinate_system_separation() {
             margin-top: 20px;
         }
     "#;
-    
+
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
-    
+
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
     let mut window_state = FullWindowState::default();
@@ -403,24 +413,29 @@ fn test_coordinate_system_separation() {
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
-    
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
     let root_id = DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    
-    let parent_rect = layout_window.get_node_layout_rect(root_id).expect("parent rect");
+
+    let parent_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("parent rect");
     assert!(
         (parent_rect.size.height - 70.0).abs() < 1.0,
-        "Parent should be ~70px (60 content + 10 padding), not 120px (would include parent margin incorrectly). Got {}",
+        "Parent should be ~70px (60 content + 10 padding), not 120px (would include parent margin \
+         incorrectly). Got {}",
         parent_rect.size.height
     );
 }

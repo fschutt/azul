@@ -20,7 +20,6 @@ impl Default for FileDropManager {
 }
 
 impl FileDropManager {
-
     /// Create a new cursor manager
     pub fn new() -> Self {
         Self {

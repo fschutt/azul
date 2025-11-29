@@ -25,22 +25,21 @@ pub mod cpurender;
 pub mod event_determination;
 #[cfg(feature = "font_loading")]
 pub mod font;
+// Re-export allsorts types needed by printpdf
+#[cfg(feature = "font_loading")]
+pub use allsorts::subset::CmapTarget;
 #[cfg(feature = "font_loading")]
 pub use font::parsed::{
     FontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
     SubsetFont,
 };
-
-// Re-export allsorts types needed by printpdf
-#[cfg(feature = "font_loading")]
-pub use allsorts::subset::CmapTarget;
 // Re-export hyphenation for external crates (like printpdf)
 #[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation;
+pub mod fragmentation;
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
 pub mod paged;
-pub mod fragmentation;
 #[cfg(feature = "text_layout")]
 pub mod text3;
 #[cfg(feature = "text_layout")]
@@ -57,18 +56,18 @@ mod window_tests;
 pub mod xml;
 
 // Export the main layout function and window management
+pub use fragmentation::{
+    BoxBreakBehavior, BreakDecision, FragmentationDefaults, FragmentationLayoutContext,
+    KeepTogetherPriority, PageCounter, PageFragment, PageMargins, PageNumberStyle, PageSlot,
+    PageSlotContent, PageSlotPosition, PageTemplate,
+};
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
 pub use paged::FragmentationState;
-pub use fragmentation::{
-    FragmentationLayoutContext, FragmentationDefaults, PageTemplate, PageCounter,
-    PageMargins, PageSlot, PageSlotContent, PageSlotPosition, PageNumberStyle,
-    BoxBreakBehavior, KeepTogetherPriority, BreakDecision, PageFragment,
-};
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
-pub use solver3::display_list::{DisplayList as DisplayList3, generate_display_lists_paged};
+pub use solver3::display_list::{generate_display_lists_paged, DisplayList as DisplayList3};
 #[cfg(feature = "text_layout")]
 pub use solver3::layout_document;
 #[cfg(feature = "text_layout")]

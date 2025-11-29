@@ -1,23 +1,23 @@
 //! Font traits that are always available, regardless of text_layout feature.
-//! 
+//!
 //! These traits define the interface between the layout solver and the font system.
 //! The actual implementations live in text3/cache.rs when text_layout feature is enabled.
 
 use azul_core::geom::LogicalSize;
 
 #[cfg(feature = "text_layout")]
+pub use crate::text3::script::Language;
+#[cfg(feature = "text_layout")]
 pub use crate::text3::{
     cache::{
-        AvailableSpace, ContentIndex, Direction, FontHash, FontManager, FontSelector, FontStyle, Glyph, ImageSource,
-        InlineContent, InlineImage, InlineShape, LayoutCache, LayoutError, LayoutFontMetrics,
-        LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary, ShapeDefinition, ShapedItem,
-        Size, StyleProperties, StyledRun, UnifiedConstraints, UnifiedLayout, VerticalMetrics,
+        AvailableSpace, ContentIndex, Direction, FontHash, FontManager, FontSelector, FontStyle,
+        Glyph, ImageSource, InlineContent, InlineImage, InlineShape, LayoutCache, LayoutError,
+        LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
+        ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, UnifiedConstraints,
+        UnifiedLayout, VerticalMetrics,
     },
     script::Script,
 };
-
-#[cfg(feature = "text_layout")]
-pub use crate::text3::script::Language;
 
 pub type TextLayoutCache = LayoutCache;
 
@@ -28,7 +28,7 @@ pub trait ShallowClone {
 }
 
 /// Core trait for parsed fonts that can be used for text shaping and layout.
-/// 
+///
 /// This trait abstracts over the actual font parsing implementation, allowing
 /// the layout solver to work with different font backends.
 pub trait ParsedFontTrait: Send + Clone + ShallowClone {
@@ -60,7 +60,7 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
 }
 
 /// Trait for loading fonts from raw bytes.
-/// 
+///
 /// This allows different font loading strategies (e.g., allsorts, freetype, mock)
 /// to be used with the layout engine.
 pub trait FontLoaderTrait<T>: Send + core::fmt::Debug {
@@ -136,37 +136,37 @@ mod stub {
     // Additional stub types needed by solver3
     pub type ContentIndex = usize;
     pub type FontHash = u64;
-    
+
     #[derive(Debug, Clone)]
     pub struct InlineContent;
-    
+
     #[derive(Debug, Clone)]
     pub struct StyledRun;
-    
+
     #[derive(Debug, Clone)]
     pub struct LayoutFragment;
-    
+
     #[derive(Debug, Clone)]
     pub struct UnifiedConstraints;
-    
+
     #[derive(Debug, Clone)]
     pub struct InlineImage;
-    
+
     #[derive(Debug, Clone)]
     pub struct InlineShape;
-    
+
     #[derive(Debug, Clone)]
     pub struct ShapeDefinition;
-    
+
     #[derive(Debug, Clone)]
     pub struct ShapeBoundary;
-    
+
     #[derive(Debug, Clone)]
     pub struct ShapedItem;
-    
+
     #[derive(Debug, Clone)]
     pub struct ImageSource;
-    
+
     #[derive(Debug, Clone, Copy)]
     pub enum ObjectFit {
         Contain,
@@ -175,18 +175,18 @@ mod stub {
         None,
         ScaleDown,
     }
-    
+
     #[derive(Debug, Clone, Copy)]
     pub enum SegmentAlignment {
         Start,
         Center,
         End,
     }
-    
+
     #[derive(Debug, Clone)]
     pub struct UnifiedLayout;
-    
+
     pub type TextLayoutCache = LayoutCache<()>;
-    
+
     pub type Size = azul_core::geom::LogicalSize;
 }

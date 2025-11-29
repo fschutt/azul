@@ -10,8 +10,8 @@ use azul_core::{
 use azul_css::props::basic::ColorU;
 
 use crate::text3::cache::{
-    get_item_vertical_metrics, ParsedFontTrait, Point, PositionedItem, ShapedGlyph, ShapedItem,
-    UnifiedLayout, LoadedFonts,
+    get_item_vertical_metrics, LoadedFonts, ParsedFontTrait, Point, PositionedItem, ShapedGlyph,
+    ShapedItem, UnifiedLayout,
 };
 
 /// Represents a single glyph ready for rendering, with an absolute position on the baseline.
@@ -64,9 +64,7 @@ pub struct GlyphRun<T: ParsedFontTrait> {
 
 /// Simple version of get_glyph_runs that doesn't require fonts.
 /// Use this when you only need glyph positions and don't need font references.
-pub fn get_glyph_runs_simple(
-    layout: &UnifiedLayout,
-) -> Vec<SimpleGlyphRun> {
+pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
 
@@ -92,7 +90,8 @@ pub fn get_glyph_runs_simple(
                         y: baseline_y - glyph.offset.y,
                     };
 
-                    let instance = glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
+                    let instance =
+                        glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
 
                     if let Some(run) = current_run.as_mut() {
                         // Break run if any style property changes (including background)
@@ -192,7 +191,8 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
                         y: baseline_y - glyph.offset.y, // Y-down: subtract positive offset
                     };
 
-                    let instance = glyph.into_glyph_instance_at(writing_mode, absolute_position, fonts);
+                    let instance =
+                        glyph.into_glyph_instance_at(writing_mode, absolute_position, fonts);
 
                     // Check if we can add to the current run
                     if let Some(run) = current_run.as_mut() {
@@ -266,18 +266,18 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
 }
 
 /// A glyph run optimized for PDF rendering.
-/// 
+///
 /// Groups glyphs by font, color, size, and style, while breaking at line boundaries.
 /// This struct is used by the PDF renderer to efficiently render text with proper
 /// styling, including inline background colors for `<span>` elements.
-/// 
+///
 /// # Z-Order for Inline Backgrounds
-/// 
+///
 /// The `background_color` field enables proper z-ordering of inline backgrounds:
 /// - PDF renderers should iterate over all runs and render backgrounds FIRST
 /// - Then iterate again and render all text SECOND
 /// - This ensures backgrounds appear behind text, not on top of it
-/// 
+///
 /// The display list (`paint_inline_content`) does NOT emit `push_rect()` for inline
 /// backgrounds because that would cause double-rendering and z-order issues.
 #[derive(Debug, Clone)]
@@ -287,7 +287,7 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// The color of the text
     pub color: ColorU,
     /// Background color for inline elements (e.g., `<span style="background: yellow">`)
-    /// 
+    ///
     /// This is rendered as a filled rectangle behind the text by the PDF renderer.
     /// The rectangle spans from ascent to descent and covers the full width of the run.
     pub background_color: Option<ColorU>,
@@ -355,13 +355,13 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
 
         // Process each glyph in the cluster
         let mut pen_x = positioned_item.position.x;
-        
+
         // For extracting the correct unicode codepoint per glyph, we need to track
         // which portion of the cluster text each glyph represents.
         // The cluster_offset in ShapedGlyph is the byte offset into cluster.text
         let cluster_text = &cluster.text;
         let cluster_glyphs_count = cluster.glyphs.len();
-        
+
         for (glyph_idx, glyph) in cluster.glyphs.iter().enumerate() {
             let glyph_color = glyph.style.color;
             let glyph_background = glyph.style.background_color;

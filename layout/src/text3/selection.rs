@@ -4,9 +4,7 @@
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
 
-use crate::text3::cache::{
-    PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout,
-};
+use crate::text3::cache::{PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout};
 
 /// Select the word at the given cursor position
 ///
@@ -115,10 +113,7 @@ fn find_cluster_at_cursor<'a>(
 }
 
 /// Extract text from all clusters on the same line as the given item
-fn extract_line_text_at_item(
-    item_idx: usize,
-    layout: &UnifiedLayout,
-) -> String {
+fn extract_line_text_at_item(item_idx: usize, layout: &UnifiedLayout) -> String {
     let line_index = layout.items[item_idx].line_index;
 
     let mut text = String::new();

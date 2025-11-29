@@ -1,7 +1,7 @@
 //! Accessibility Manager for integrating with `accesskit`.
 //!
 //! This module provides the `A11yManager` which:
-//! 
+//!
 //! - Maintains the accessibility tree state
 //! - Generates `TreeUpdate`s after each layout pass
 //! - Handles `ActionRequest`s from assistive technologies
@@ -10,9 +10,10 @@
 //! the platform-agnostic `accesskit` tree format.
 
 #[cfg(feature = "a11y")]
-use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
-#[cfg(feature = "a11y")]
 use std::collections::HashMap;
+
+#[cfg(feature = "a11y")]
+use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
 use azul_core::{
     dom::{AccessibilityAction, AccessibilityRole, DomId, DomNodeId, NodeId, NodeType},
     styled_dom::NodeHierarchyItemId,
@@ -21,7 +22,7 @@ use azul_core::{
 /// Manager for accessibility tree state and updates.
 ///
 /// The `A11yManager` sits within `LayoutWindow` and is responsible for:
-/// 
+///
 /// 1. Maintaining the current accessibility tree state
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
@@ -37,7 +38,6 @@ pub struct A11yManager {
 
 #[cfg(feature = "a11y")]
 impl A11yManager {
-
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     pub fn new() -> Self {
         let root_id = A11yNodeId(0);
@@ -238,7 +238,7 @@ impl A11yManager {
                         builder.set_expanded(false);
                     }
                     _ => {
-                        // Other states: Focused (handled by focus manager), 
+                        // Other states: Focused (handled by focus manager),
                         // Selected, Focusable, etc.
                     }
                 }
@@ -372,17 +372,16 @@ impl A11yManager {
         &self,
         request: ActionRequest,
     ) -> Option<(DomNodeId, AccessibilityAction)> {
-        
         use azul_core::geom::LogicalPosition;
         use azul_css::{props::basic::FloatValue, AzString};
-        
+
         // Decode the A11yNodeId back into DomId + NodeId.
         //
         // The A11yNodeId encodes both values in a single u64:
         //
         //   - Upper 32 bits: DomId (which DOM tree the node belongs to)
         //   - Lower 32 bits: NodeId (index within that DOM tree)
-        // 
+        //
         // This encoding matches the format used in update_tree().
         let dom_id = DomId {
             inner: (request.target.0 >> 32) as usize,

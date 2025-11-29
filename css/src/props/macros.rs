@@ -295,15 +295,11 @@ macro_rules! css_property_from_type {
             CssPropertyType::LetterSpacing => {
                 CssProperty::LetterSpacing(CssPropertyValue::$content_type)
             }
-            CssPropertyType::TextIndent => {
-                CssProperty::TextIndent(CssPropertyValue::$content_type)
-            }
+            CssPropertyType::TextIndent => CssProperty::TextIndent(CssPropertyValue::$content_type),
             CssPropertyType::InitialLetter => {
                 CssProperty::InitialLetter(CssPropertyValue::$content_type)
             }
-            CssPropertyType::LineClamp => {
-                CssProperty::LineClamp(CssPropertyValue::$content_type)
-            }
+            CssPropertyType::LineClamp => CssProperty::LineClamp(CssPropertyValue::$content_type),
             CssPropertyType::HangingPunctuation => {
                 CssProperty::HangingPunctuation(CssPropertyValue::$content_type)
             }
@@ -557,9 +553,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::ShapeInside => {
                 CssProperty::ShapeInside(CssPropertyValue::$content_type)
             }
-            CssPropertyType::ClipPath => {
-                CssProperty::ClipPath(CssPropertyValue::$content_type)
-            }
+            CssPropertyType::ClipPath => CssProperty::ClipPath(CssPropertyValue::$content_type),
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(CssPropertyValue::$content_type)
             }
@@ -592,15 +586,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::CaptionSide => {
                 CssProperty::CaptionSide(CssPropertyValue::$content_type)
             }
-            CssPropertyType::EmptyCells => {
-                CssProperty::EmptyCells(CssPropertyValue::$content_type)
-            }
-            CssPropertyType::FontWeight => {
-                CssProperty::FontWeight(CssPropertyValue::$content_type)
-            }
-            CssPropertyType::FontStyle => {
-                CssProperty::FontStyle(CssPropertyValue::$content_type)
-            }
+            CssPropertyType::EmptyCells => CssProperty::EmptyCells(CssPropertyValue::$content_type),
+            CssPropertyType::FontWeight => CssProperty::FontWeight(CssPropertyValue::$content_type),
+            CssPropertyType::FontStyle => CssProperty::FontStyle(CssPropertyValue::$content_type),
         }
     }};
 }

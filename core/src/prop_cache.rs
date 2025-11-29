@@ -28,6 +28,7 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
+
 use crate::dom::NodeType;
 
 /// Tracks the origin of a CSS property value.
@@ -54,22 +55,22 @@ pub enum CssDependencyChainStep {
     /// Value depends on a percentage of another node's resolved value
     /// e.g., font-size: 150% means 1.5 * parent's font-size
     Percent { source_node: NodeId, factor: f32 },
-    
+
     /// Value depends on an em multiple of another node's font-size
     /// e.g., padding: 2em means 2.0 * current element's font-size
     Em { source_node: NodeId, factor: f32 },
-    
+
     /// Value depends on a rem multiple of root node's font-size
     /// e.g., margin: 1.5rem means 1.5 * root font-size
     Rem { factor: f32 },
-    
+
     /// Absolute value (px, pt, etc.) - no further dependencies
     Absolute { pixels: f32 },
 }
 
 /// A dependency chain for a CSS property value.
 /// Example: [10% of node 10, then 1.2em of that, then 1.5em of that]
-/// 
+///
 /// During layout, this chain is resolved by:
 /// 1. Starting with the root dependency (e.g., node 10's resolved font-size)
 /// 2. Applying each transformation in sequence
@@ -78,11 +79,11 @@ pub enum CssDependencyChainStep {
 pub struct CssDependencyChain {
     /// The property type this chain is for
     pub property_type: CssPropertyType,
-    
+
     /// The ordered list of dependencies, from root to leaf
     /// Empty if the value is absolute (no dependencies)
     pub steps: Vec<CssDependencyChainStep>,
-    
+
     /// Cached resolved value (in pixels) from the last resolution
     /// None if the chain hasn't been resolved yet
     pub cached_pixels: Option<f32>,
@@ -97,25 +98,31 @@ impl CssDependencyChain {
             cached_pixels: Some(pixels),
         }
     }
-    
+
     /// Create a new dependency chain for a percentage-based value
     pub fn percent(property_type: CssPropertyType, source_node: NodeId, factor: f32) -> Self {
         Self {
             property_type,
-            steps: vec![CssDependencyChainStep::Percent { source_node, factor }],
+            steps: vec![CssDependencyChainStep::Percent {
+                source_node,
+                factor,
+            }],
             cached_pixels: None,
         }
     }
-    
+
     /// Create a new dependency chain for an em-based value
     pub fn em(property_type: CssPropertyType, source_node: NodeId, factor: f32) -> Self {
         Self {
             property_type,
-            steps: vec![CssDependencyChainStep::Em { source_node, factor }],
+            steps: vec![CssDependencyChainStep::Em {
+                source_node,
+                factor,
+            }],
             cached_pixels: None,
         }
     }
-    
+
     /// Create a new dependency chain for a rem-based value
     pub fn rem(property_type: CssPropertyType, factor: f32) -> Self {
         Self {
@@ -124,7 +131,7 @@ impl CssDependencyChain {
             cached_pixels: None,
         }
     }
-    
+
     /// Check if this chain depends on a specific node
     pub fn depends_on(&self, node_id: NodeId) -> bool {
         self.steps.iter().any(|step| match step {
@@ -133,13 +140,13 @@ impl CssDependencyChain {
             _ => false,
         })
     }
-    
+
     /// Resolve the dependency chain to a pixel value.
-    /// 
+    ///
     /// # Arguments
     /// * `resolve_node_value` - Closure to resolve a node's property value to pixels
     /// * `root_font_size` - Root element's font-size for rem calculations
-    /// 
+    ///
     /// # Returns
     /// The resolved pixel value, or None if any dependency couldn't be resolved
     pub fn resolve<F>(&mut self, mut resolve_node_value: F, root_font_size: f32) -> Option<f32>
@@ -147,17 +154,23 @@ impl CssDependencyChain {
         F: FnMut(NodeId, CssPropertyType) -> Option<f32>,
     {
         let mut current_value: Option<f32> = None;
-        
+
         for step in &self.steps {
             match step {
                 CssDependencyChainStep::Absolute { pixels } => {
                     current_value = Some(*pixels);
                 }
-                CssDependencyChainStep::Percent { source_node, factor } => {
+                CssDependencyChainStep::Percent {
+                    source_node,
+                    factor,
+                } => {
                     let source_val = resolve_node_value(*source_node, self.property_type)?;
                     current_value = Some(source_val * factor);
                 }
-                CssDependencyChainStep::Em { source_node, factor } => {
+                CssDependencyChainStep::Em {
+                    source_node,
+                    factor,
+                } => {
                     let font_size = resolve_node_value(*source_node, CssPropertyType::FontSize)?;
                     current_value = Some(font_size * factor);
                 }
@@ -166,7 +179,7 @@ impl CssDependencyChain {
                 }
             }
         }
-        
+
         self.cached_pixels = current_value;
         current_value
     }
@@ -179,47 +192,49 @@ use azul_css::{
         layout::{LayoutDisplay, LayoutHeight, LayoutWidth},
         property::{
             BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
-            CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue,
-            ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue, ColumnWidthValue,
-            ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
-            FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
-            LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
-            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue,
-            LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue,
-            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
-            LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue,
-            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
-            LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue,
-            LayoutGridTemplateRowsValue, LayoutHeightValue, LayoutJustifyContentValue,
-            LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue,
-            LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue,
-            LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue,
-            LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
-            LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
-            LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
+            CaretColorValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
+            ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
+            ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CssProperty,
+            CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
+            LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
+            LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
+            LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutClearValue,
+            LayoutColumnGapValue, LayoutDisplayValue, LayoutFlexBasisValue,
+            LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
+            LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue, LayoutGridAutoColumnsValue,
+            LayoutGridAutoFlowValue, LayoutGridAutoRowsValue, LayoutGridColumnValue,
+            LayoutGridRowValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
+            LayoutHeightValue, LayoutJustifyContentValue, LayoutJustifyItemsValue,
+            LayoutJustifySelfValue, LayoutLeftValue, LayoutMarginBottomValue,
+            LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue,
+            LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue,
+            LayoutOverflowValue, LayoutPaddingBottomValue, LayoutPaddingLeftValue,
+            LayoutPaddingRightValue, LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue,
+            LayoutRowGapValue, LayoutScrollbarWidthValue, LayoutTableLayoutValue,
             LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
             LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
-            SelectionBackgroundColorValue, SelectionColorValue, SelectionRadiusValue, ShapeImageThresholdValue,
-            ShapeMarginValue, ShapeOutsideValue, ShapeInsideValue, ClipPathValue, StringSetValue, StyleBackfaceVisibilityValue,
-            StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
-            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
-            StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
-            StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue,
-            StyleBorderLeftColorValue, StyleBorderLeftStyleValue, StyleBorderRightColorValue,
-            StyleBorderRightStyleValue, StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
+            SelectionBackgroundColorValue, SelectionColorValue, SelectionRadiusValue,
+            ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue, ShapeOutsideValue,
+            StringSetValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue,
+            StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue,
+            StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
+            StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
+            StyleBorderBottomStyleValue, StyleBorderCollapseValue, StyleBorderLeftColorValue,
+            StyleBorderLeftStyleValue, StyleBorderRightColorValue, StyleBorderRightStyleValue,
+            StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
             StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
-            StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
-            StyleFontSizeValue, StyleFontWeightValue, StyleFontStyleValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
+            StyleCaptionSideValue, StyleCursorValue, StyleDirectionValue, StyleEmptyCellsValue,
+            StyleExclusionMarginValue, StyleFilterVecValue, StyleFontFamilyVecValue,
+            StyleFontSizeValue, StyleFontStyleValue, StyleFontValue, StyleFontWeightValue,
+            StyleHangingPunctuationValue, StyleHyphenationLanguageValue, StyleHyphensValue,
+            StyleInitialLetterValue, StyleLetterSpacingValue, StyleLineClampValue,
             StyleLineHeightValue, StyleListStylePositionValue, StyleListStyleTypeValue,
-            StyleMixBlendModeValue, StyleOpacityValue,
-            StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
-            StyleTextAlignValue, StyleTextColorValue, StyleTextDecorationValue, StyleTextIndentValue,
-            StyleVerticalAlignValue,
-            StyleInitialLetterValue, StyleLineClampValue, StyleHangingPunctuationValue, StyleTextCombineUprightValue,
-            StyleExclusionMarginValue, StyleHyphenationLanguageValue, StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
-            StyleVisibilityValue, StyleWhiteSpaceValue, StyleWordSpacingValue, WidowsValue,
-            LayoutTableLayoutValue, StyleBorderCollapseValue, LayoutBorderSpacingValue,
-            StyleCaptionSideValue, StyleEmptyCellsValue,
+            StyleMixBlendModeValue, StyleOpacityValue, StylePerspectiveOriginValue,
+            StyleScrollbarColorValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColorValue,
+            StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
+            StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
+            StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
+            StyleWordSpacingValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -397,7 +412,7 @@ macro_rules! match_property_value {
 /// These are the default values defined by the CSS specification, not UA stylesheet values.
 fn get_initial_value(property_type: CssPropertyType) -> Option<CssProperty> {
     use azul_css::css::CssPropertyValue;
-    
+
     // For now, we return None for most properties and implement only the most critical ones.
     // This can be expanded as needed.
     match property_type {
@@ -437,7 +452,7 @@ pub struct CssPropertyCache {
     pub css_hover_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub css_active_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub css_focus_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    
+
     // NEW: Computed values cache - pre-resolved inherited properties
     // This cache contains the final computed values after inheritance resolution.
     // Updated whenever a property changes or the DOM structure changes.
@@ -445,14 +460,14 @@ pub struct CssPropertyCache {
     // Each property is tagged with its origin (Inherited vs Own) to correctly handle
     // the CSS cascade when properties are updated.
     pub computed_values: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
-    
+
     // NEW: Dependency chains for relative values (em, %, rem, etc.)
     // Maps NodeId → PropertyType → DependencyChain
     // This allows efficient updates when a property changes:
     // 1. Find all chains that depend on the changed node
     // 2. Invalidate their cached values
     // 3. Resolve chains during layout when needed
-    // 
+    //
     // Example: If node 5's font-size changes from 16px to 20px:
     // - All child nodes with font-size: 1.5em need recalculation
     // - All nodes with padding: 2em that depend on node 5 need updates
@@ -1147,7 +1162,7 @@ impl CssPropertyCache {
             css_hover_props: BTreeMap::new(),
             css_active_props: BTreeMap::new(),
             css_focus_props: BTreeMap::new(),
-            
+
             computed_values: BTreeMap::new(),
             dependency_chains: BTreeMap::new(),
         }
@@ -1175,7 +1190,7 @@ impl CssPropertyCache {
         append_css_property_vec!(css_active_props);
         append_css_property_vec!(css_focus_props);
         append_css_property_vec!(computed_values);
-        
+
         // Special handling for dependency_chains: need to adjust source_node IDs
         {
             let mut s = BTreeMap::new();
@@ -1195,7 +1210,8 @@ impl CssPropertyCache {
                         }
                     }
                 }
-                self.dependency_chains.insert(node_id + self.node_count, chains_map);
+                self.dependency_chains
+                    .insert(node_id + self.node_count, chains_map);
             }
         }
 
@@ -1491,7 +1507,7 @@ impl CssPropertyCache {
             {
                 return Some(p);
             }
-            
+
             // NEW: Check computed values cache for inherited properties
             // This provides efficient access to pre-resolved inherited values
             // without needing to walk up the tree
@@ -1662,8 +1678,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleInitialLetterValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::InitialLetter)
-            .and_then(|p| p.as_initial_letter())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::InitialLetter,
+        )
+        .and_then(|p| p.as_initial_letter())
     }
     // Method for getting line-clamp property
     pub fn get_line_clamp<'a>(
@@ -1682,8 +1703,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleHangingPunctuationValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::HangingPunctuation)
-            .and_then(|p| p.as_hanging_punctuation())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::HangingPunctuation,
+        )
+        .and_then(|p| p.as_hanging_punctuation())
     }
     // Method for getting text-combine-upright property
     pub fn get_text_combine_upright<'a>(
@@ -1692,8 +1718,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleTextCombineUprightValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextCombineUpright)
-            .and_then(|p| p.as_text_combine_upright())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::TextCombineUpright,
+        )
+        .and_then(|p| p.as_text_combine_upright())
     }
     // Method for getting -azul-exclusion-margin property
     pub fn get_exclusion_margin<'a>(
@@ -1702,8 +1733,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleExclusionMarginValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ExclusionMargin)
-            .and_then(|p| p.as_exclusion_margin())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ExclusionMargin,
+        )
+        .and_then(|p| p.as_exclusion_margin())
     }
     // Method for getting -azul-hyphenation-language property
     pub fn get_hyphenation_language<'a>(
@@ -1712,8 +1748,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleHyphenationLanguageValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::HyphenationLanguage)
-            .and_then(|p| p.as_hyphenation_language())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::HyphenationLanguage,
+        )
+        .and_then(|p| p.as_hyphenation_language())
     }
     // Method for getting caret-color property
     pub fn get_caret_color<'a>(
@@ -2062,8 +2103,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a ShapeOutsideValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ShapeOutside)
-            .and_then(|p| p.as_shape_outside())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ShapeOutside,
+        )
+        .and_then(|p| p.as_shape_outside())
     }
 
     // Method for getting shape-inside property
@@ -2073,8 +2119,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a ShapeInsideValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ShapeInside)
-            .and_then(|p| p.as_shape_inside())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ShapeInside,
+        )
+        .and_then(|p| p.as_shape_inside())
     }
 
     // Method for getting clip-path property
@@ -2470,8 +2521,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleVerticalAlignValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::VerticalAlign)
-            .and_then(|p| p.as_vertical_align())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::VerticalAlign,
+        )
+        .and_then(|p| p.as_vertical_align())
     }
     pub fn get_line_height<'a>(
         &'a self,
@@ -3234,8 +3290,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleListStyleTypeValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ListStyleType)
-            .and_then(|p| p.as_list_style_type())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ListStyleType,
+        )
+        .and_then(|p| p.as_list_style_type())
     }
     pub fn get_list_style_position<'a>(
         &'a self,
@@ -3243,8 +3304,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleListStylePositionValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ListStylePosition)
-            .and_then(|p| p.as_list_style_position())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ListStylePosition,
+        )
+        .and_then(|p| p.as_list_style_position())
     }
     pub fn get_table_layout<'a>(
         &'a self,
@@ -3252,8 +3318,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a LayoutTableLayoutValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TableLayout)
-            .and_then(|p| p.as_table_layout())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::TableLayout,
+        )
+        .and_then(|p| p.as_table_layout())
     }
     pub fn get_border_collapse<'a>(
         &'a self,
@@ -3261,8 +3332,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBorderCollapseValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderCollapse)
-            .and_then(|p| p.as_border_collapse())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::BorderCollapse,
+        )
+        .and_then(|p| p.as_border_collapse())
     }
     pub fn get_border_spacing<'a>(
         &'a self,
@@ -3270,8 +3346,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a LayoutBorderSpacingValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::BorderSpacing)
-            .and_then(|p| p.as_border_spacing())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::BorderSpacing,
+        )
+        .and_then(|p| p.as_border_spacing())
     }
     pub fn get_caption_side<'a>(
         &'a self,
@@ -3279,8 +3360,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleCaptionSideValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaptionSide)
-            .and_then(|p| p.as_caption_side())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::CaptionSide,
+        )
+        .and_then(|p| p.as_caption_side())
     }
     pub fn get_empty_cells<'a>(
         &'a self,
@@ -3302,7 +3388,10 @@ impl CssPropertyCache {
     ) -> f32 {
         self.get_width(node_data, node_id, styled_node_state)
             .and_then(|w| match w.get_property()? {
-                LayoutWidth::Px(px) => Some(px.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)),
+                LayoutWidth::Px(px) => Some(px.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                )),
                 _ => Some(0.0), // min-content/max-content not resolved here
             })
             .unwrap_or(0.0)
@@ -3316,7 +3405,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_min_width(node_data, node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|w| {
+                Some(w.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3328,7 +3422,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_max_width(node_data, node_id, styled_node_state)
-            .and_then(|w| Some(w.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|w| {
+                Some(w.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     // Height calculation methods
@@ -3341,7 +3440,10 @@ impl CssPropertyCache {
     ) -> f32 {
         self.get_height(node_data, node_id, styled_node_state)
             .and_then(|h| match h.get_property()? {
-                LayoutHeight::Px(px) => Some(px.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)),
+                LayoutHeight::Px(px) => Some(px.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                )),
                 _ => Some(0.0), // min-content/max-content not resolved here
             })
             .unwrap_or(0.0)
@@ -3355,7 +3457,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_min_height(node_data, node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|h| {
+                Some(h.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3367,7 +3474,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_max_height(node_data, node_id, styled_node_state)
-            .and_then(|h| Some(h.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|h| {
+                Some(h.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     // Position calculation methods
@@ -3379,7 +3491,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_left(node_data, node_id, styled_node_state)
-            .and_then(|l| Some(l.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|l| {
+                Some(l.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     pub fn calc_right(
@@ -3390,7 +3507,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> Option<f32> {
         self.get_right(node_data, node_id, styled_node_state)
-            .and_then(|r| Some(r.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|r| {
+                Some(r.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     pub fn calc_top(
@@ -3401,7 +3523,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_top(node_data, node_id, styled_node_state)
-            .and_then(|t| Some(t.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|t| {
+                Some(t.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     pub fn calc_bottom(
@@ -3412,7 +3539,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> Option<f32> {
         self.get_bottom(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|b| {
+                Some(b.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
     }
 
     // Border calculation methods
@@ -3424,7 +3556,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_border_left_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|b| {
+                Some(b.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3436,7 +3573,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_border_right_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|b| {
+                Some(b.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3448,7 +3590,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_border_top_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|b| {
+                Some(b.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3460,7 +3607,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_border_bottom_width(node_data, node_id, styled_node_state)
-            .and_then(|b| Some(b.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|b| {
+                Some(b.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3473,7 +3625,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_padding_left(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|p| {
+                Some(p.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3485,7 +3642,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_padding_right(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|p| {
+                Some(p.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3497,7 +3659,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_padding_top(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|p| {
+                Some(p.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3509,7 +3676,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_padding_bottom(node_data, node_id, styled_node_state)
-            .and_then(|p| Some(p.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|p| {
+                Some(p.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3522,7 +3694,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_margin_left(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|m| {
+                Some(m.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3534,7 +3711,12 @@ impl CssPropertyCache {
         reference_width: f32,
     ) -> f32 {
         self.get_margin_right(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_width, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|m| {
+                Some(m.get_property()?.inner.to_pixels_internal(
+                    reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3546,7 +3728,12 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_margin_top(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|m| {
+                Some(m.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
@@ -3558,12 +3745,17 @@ impl CssPropertyCache {
         reference_height: f32,
     ) -> f32 {
         self.get_margin_bottom(node_data, node_id, styled_node_state)
-            .and_then(|m| Some(m.get_property()?.inner.to_pixels_internal(reference_height, azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)))
+            .and_then(|m| {
+                Some(m.get_property()?.inner.to_pixels_internal(
+                    reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ))
+            })
             .unwrap_or(0.0)
     }
 
     /// Helper function to resolve a CSS property value that may depend on another property.
-    /// 
+    ///
     /// This attempts to compute a final pixel value from a property that uses relative units
     /// (em, %, etc.) by referencing another property value.
     ///
@@ -3579,14 +3771,15 @@ impl CssPropertyCache {
     /// - `resolve_property_dependency(font-size: 2em, font-size: 16px)` → `font-size: 32px`
     /// - `resolve_property_dependency(font-size: 150%, font-size: 20px)` → `font-size: 30px`
     /// - `resolve_property_dependency(padding: 2em, font-size: 16px)` → `padding: 32px`
-    
+
     /// Resolves CSS cascade keywords (inherit, initial, revert, unset) for a property.
     ///
     /// According to CSS Cascade spec (https://css-tricks.com/inherit-initial-unset-revert/):
     /// - `inherit`: Use the parent's computed value (or initial value if no parent)
     /// - `initial`: Use the CSS-defined initial value (default for that property type)
     /// - `revert`: Roll back to the user-agent stylesheet value (if any)
-    /// - `unset`: Behaves as `inherit` for inherited properties, `initial` for non-inherited properties
+    /// - `unset`: Behaves as `inherit` for inherited properties, `initial` for non-inherited
+    ///   properties
     ///
     /// # Arguments
     /// * `property` - The property to resolve
@@ -3613,21 +3806,20 @@ impl CssPropertyCache {
             return ua_value.cloned();
         }
     }
-    
+
     fn resolve_property_dependency(
         target_property: &CssProperty,
         reference_property: &CssProperty,
     ) -> Option<CssProperty> {
-        use azul_css::props::basic::{
-            length::SizeMetric,
-            pixel::PixelValue,
-            font::StyleFontSize,
+        use azul_css::{
+            css::CssPropertyValue,
+            props::{
+                basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
+                layout::*,
+                style::{SelectionRadius, StyleLetterSpacing, StyleWordSpacing},
+            },
         };
-        use azul_css::props::style::{StyleLetterSpacing, StyleWordSpacing};
-        use azul_css::props::layout::*;
-        use azul_css::props::style::SelectionRadius;
-        use azul_css::css::CssPropertyValue;
-        
+
         // Extract PixelValue from various property types (returns owned value)
         let get_pixel_value = |prop: &CssProperty| -> Option<PixelValue> {
             match prop {
@@ -3650,10 +3842,10 @@ impl CssPropertyCache {
                 _ => None,
             }
         };
-        
+
         let target_pixel_value = get_pixel_value(target_property)?;
         let reference_pixel_value = get_pixel_value(reference_property)?;
-        
+
         // Convert reference to absolute pixels first
         let reference_px = match reference_pixel_value.metric {
             SizeMetric::Px => reference_pixel_value.number.get(),
@@ -3664,9 +3856,9 @@ impl CssPropertyCache {
             SizeMetric::Em => return None, // Reference can't be relative
             SizeMetric::Rem => return None, // Reference can't be relative
             SizeMetric::Percent => return None, // Reference can't be relative
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, // Reference can't be viewport-relative
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, /* Reference can't be viewport-relative */
         };
-        
+
         // Resolve target based on reference
         let resolved_px = match target_pixel_value.metric {
             SizeMetric::Px => target_pixel_value.number.get(),
@@ -3675,101 +3867,101 @@ impl CssPropertyCache {
             SizeMetric::Cm => target_pixel_value.number.get() * 37.7952755906,
             SizeMetric::Mm => target_pixel_value.number.get() * 3.7795275591,
             SizeMetric::Em => target_pixel_value.number.get() * reference_px,
-            SizeMetric::Rem => target_pixel_value.number.get() * reference_px, // Use reference as root font-size
+            SizeMetric::Rem => target_pixel_value.number.get() * reference_px, /* Use reference as root font-size */
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, // Need viewport context
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, /* Need viewport context */
         };
-        
+
         // Create a new property with the resolved value
         let resolved_pixel_value = PixelValue::px(resolved_px);
-        
+
         match target_property {
-            CssProperty::FontSize(_) => {
-                Some(CssProperty::FontSize(CssPropertyValue::Exact(
-                    StyleFontSize { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::LetterSpacing(_) => {
-                Some(CssProperty::LetterSpacing(CssPropertyValue::Exact(
-                    StyleLetterSpacing { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::WordSpacing(_) => {
-                Some(CssProperty::WordSpacing(CssPropertyValue::Exact(
-                    StyleWordSpacing { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::PaddingLeft(_) => {
-                Some(CssProperty::PaddingLeft(CssPropertyValue::Exact(
-                    LayoutPaddingLeft { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::PaddingRight(_) => {
-                Some(CssProperty::PaddingRight(CssPropertyValue::Exact(
-                    LayoutPaddingRight { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::PaddingTop(_) => {
-                Some(CssProperty::PaddingTop(CssPropertyValue::Exact(
-                    LayoutPaddingTop { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::PaddingBottom(_) => {
-                Some(CssProperty::PaddingBottom(CssPropertyValue::Exact(
-                    LayoutPaddingBottom { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MarginLeft(_) => {
-                Some(CssProperty::MarginLeft(CssPropertyValue::Exact(
-                    LayoutMarginLeft { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MarginRight(_) => {
-                Some(CssProperty::MarginRight(CssPropertyValue::Exact(
-                    LayoutMarginRight { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MarginTop(_) => {
-                Some(CssProperty::MarginTop(CssPropertyValue::Exact(
-                    LayoutMarginTop { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MarginBottom(_) => {
-                Some(CssProperty::MarginBottom(CssPropertyValue::Exact(
-                    LayoutMarginBottom { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MinWidth(_) => {
-                Some(CssProperty::MinWidth(CssPropertyValue::Exact(
-                    LayoutMinWidth { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MinHeight(_) => {
-                Some(CssProperty::MinHeight(CssPropertyValue::Exact(
-                    LayoutMinHeight { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MaxWidth(_) => {
-                Some(CssProperty::MaxWidth(CssPropertyValue::Exact(
-                    LayoutMaxWidth { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::MaxHeight(_) => {
-                Some(CssProperty::MaxHeight(CssPropertyValue::Exact(
-                    LayoutMaxHeight { inner: resolved_pixel_value }
-                )))
-            }
-            CssProperty::SelectionRadius(_) => {
-                Some(CssProperty::SelectionRadius(CssPropertyValue::Exact(
-                    SelectionRadius { inner: resolved_pixel_value }
-                )))
-            }
+            CssProperty::FontSize(_) => Some(CssProperty::FontSize(CssPropertyValue::Exact(
+                StyleFontSize {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::LetterSpacing(_) => Some(CssProperty::LetterSpacing(
+                CssPropertyValue::Exact(StyleLetterSpacing {
+                    inner: resolved_pixel_value,
+                }),
+            )),
+            CssProperty::WordSpacing(_) => Some(CssProperty::WordSpacing(CssPropertyValue::Exact(
+                StyleWordSpacing {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::PaddingLeft(_) => Some(CssProperty::PaddingLeft(CssPropertyValue::Exact(
+                LayoutPaddingLeft {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::PaddingRight(_) => Some(CssProperty::PaddingRight(
+                CssPropertyValue::Exact(LayoutPaddingRight {
+                    inner: resolved_pixel_value,
+                }),
+            )),
+            CssProperty::PaddingTop(_) => Some(CssProperty::PaddingTop(CssPropertyValue::Exact(
+                LayoutPaddingTop {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::PaddingBottom(_) => Some(CssProperty::PaddingBottom(
+                CssPropertyValue::Exact(LayoutPaddingBottom {
+                    inner: resolved_pixel_value,
+                }),
+            )),
+            CssProperty::MarginLeft(_) => Some(CssProperty::MarginLeft(CssPropertyValue::Exact(
+                LayoutMarginLeft {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MarginRight(_) => Some(CssProperty::MarginRight(CssPropertyValue::Exact(
+                LayoutMarginRight {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MarginTop(_) => Some(CssProperty::MarginTop(CssPropertyValue::Exact(
+                LayoutMarginTop {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MarginBottom(_) => Some(CssProperty::MarginBottom(
+                CssPropertyValue::Exact(LayoutMarginBottom {
+                    inner: resolved_pixel_value,
+                }),
+            )),
+            CssProperty::MinWidth(_) => Some(CssProperty::MinWidth(CssPropertyValue::Exact(
+                LayoutMinWidth {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MinHeight(_) => Some(CssProperty::MinHeight(CssPropertyValue::Exact(
+                LayoutMinHeight {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MaxWidth(_) => Some(CssProperty::MaxWidth(CssPropertyValue::Exact(
+                LayoutMaxWidth {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::MaxHeight(_) => Some(CssProperty::MaxHeight(CssPropertyValue::Exact(
+                LayoutMaxHeight {
+                    inner: resolved_pixel_value,
+                },
+            ))),
+            CssProperty::SelectionRadius(_) => Some(CssProperty::SelectionRadius(
+                CssPropertyValue::Exact(SelectionRadius {
+                    inner: resolved_pixel_value,
+                }),
+            )),
             _ => None,
         }
     }
 
     /// Build a dependency chain for a CSS property value.
-    /// 
+    ///
     /// This analyzes the property value and creates a chain of dependencies that can be
     /// resolved later during layout. For example:
     /// - `font-size: 16px` → Absolute chain with 16.0 pixels
@@ -3790,57 +3982,60 @@ impl CssPropertyCache {
         parent_id: Option<NodeId>,
         property: &CssProperty,
     ) -> Option<CssDependencyChain> {
-        use azul_css::props::basic::length::SizeMetric;
-        use azul_css::props::basic::pixel::PixelValue;
-        
+        use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
+
         let prop_type = property.get_type();
-        
+
         // For now, only handle font-size dependency chains
         // Other properties will be handled during layout resolution
         if prop_type != CssPropertyType::FontSize {
             return None;
         }
-        
+
         // Extract PixelValue from FontSize property
         let pixel_value = match property {
             CssProperty::FontSize(val) => val.get_property().map(|v| &v.inner)?,
             _ => return None,
         };
-        
+
         let number = pixel_value.number.get();
-        
+
         // For font-size: em/% refers to parent's font-size
         let source_node = parent_id?;
-        
+
         match pixel_value.metric {
-            SizeMetric::Px => {
-                Some(CssDependencyChain::absolute(prop_type, number))
-            }
+            SizeMetric::Px => Some(CssDependencyChain::absolute(prop_type, number)),
             SizeMetric::Pt => {
                 // 1pt = 1.333333px
                 Some(CssDependencyChain::absolute(prop_type, number * 1.333333))
             }
-            SizeMetric::Em => {
-                Some(CssDependencyChain::em(prop_type, source_node, number))
-            }
+            SizeMetric::Em => Some(CssDependencyChain::em(prop_type, source_node, number)),
             SizeMetric::Rem => {
                 // Rem refers to root font-size
                 Some(CssDependencyChain::rem(prop_type, number))
             }
-            SizeMetric::Percent => {
-                Some(CssDependencyChain::percent(prop_type, source_node, number / 100.0))
-            }
+            SizeMetric::Percent => Some(CssDependencyChain::percent(
+                prop_type,
+                source_node,
+                number / 100.0,
+            )),
             SizeMetric::In => {
                 // 1in = 96px
                 Some(CssDependencyChain::absolute(prop_type, number * 96.0))
             }
             SizeMetric::Cm => {
                 // 1cm = 37.7952755906px
-                Some(CssDependencyChain::absolute(prop_type, number * 37.7952755906))
+                Some(CssDependencyChain::absolute(
+                    prop_type,
+                    number * 37.7952755906,
+                ))
             }
             SizeMetric::Mm => {
                 // 1mm = 3.7795275591px
-                Some(CssDependencyChain::absolute(prop_type, number * 3.7795275591))
+                Some(CssDependencyChain::absolute(
+                    prop_type,
+                    number * 3.7795275591,
+                ))
             }
             // Viewport units: Cannot be resolved via dependency chain, need viewport context
             // These should be resolved at layout time using ResolutionContext
@@ -3863,12 +4058,12 @@ impl CssPropertyCache {
     /// * `node_data` - Array of node data indexed by NodeId
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::props::property::CssPropertyType;
-        
+
         // Apply UA CSS to all nodes
         for (node_index, node) in node_data.iter().enumerate() {
             let node_id = NodeId::new(node_index);
             let node_type = &node.node_type;
-            
+
             // Get all possible CSS property types and check if UA CSS defines them
             // We need to check all properties that this node type might have
             let property_types = [
@@ -3888,11 +4083,10 @@ impl CssPropertyCache {
                 CssPropertyType::PaddingRight,
                 // Add more as needed
             ];
-            
+
             for prop_type in &property_types {
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
-
                     // Only insert if the property is NOT already set by inline CSS or author CSS
                     // UA CSS has LOWEST priority
                     let has_inline = node.inline_css_props.iter().any(|p| {
@@ -3902,17 +4096,19 @@ impl CssPropertyCache {
                             false
                         }
                     });
-                    
-                    let has_css = self.css_normal_props
+
+                    let has_css = self
+                        .css_normal_props
                         .get(&node_id)
                         .map(|map| map.contains_key(prop_type))
                         .unwrap_or(false);
-                    
-                    let has_cascaded = self.cascaded_normal_props
+
+                    let has_cascaded = self
+                        .cascaded_normal_props
                         .get(&node_id)
                         .map(|map| map.contains_key(prop_type))
                         .unwrap_or(false);
-                    
+
                     // Insert UA CSS only if not already present (lowest priority)
                     if !has_inline && !has_css && !has_cascaded {
                         self.cascaded_normal_props
@@ -3927,7 +4123,7 @@ impl CssPropertyCache {
     }
 
     /// Compute inherited values and dependency chains for all nodes in the DOM tree.
-    /// 
+    ///
     /// This implements a dependency-chain-based CSS inheritance system:
     /// 1. Walk the DOM tree in depth-first order
     /// 2. For each node, compute the cascade priority (inherited → cascaded → css → inline → user)
@@ -3953,39 +4149,46 @@ impl CssPropertyCache {
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
         use alloc::vec::Vec;
-        
+
         let mut changed_nodes = Vec::new();
-        
+
         // Walk tree in depth-first order to ensure parents are processed before children
         for (node_index, hierarchy_item) in node_hierarchy.iter().enumerate() {
             let node_id = NodeId::new(node_index);
             let parent_id = hierarchy_item.parent_id();
-            
+
             let node_type = &node_data[node_index].node_type;
-            
+
             // Get parent's computed values for inheritance
             let parent_computed = parent_id.and_then(|pid| self.computed_values.get(&pid));
-            
+
             // Start with empty maps for this node
             let mut node_computed_values = BTreeMap::new();
             let mut node_dependency_chains = BTreeMap::new();
-            
+
             // Step 1: Inherit inheritable properties from parent
             if let Some(parent_values) = parent_computed {
                 for (prop_type, prop_with_origin) in parent_values.iter() {
                     if prop_type.is_inheritable() {
                         // Mark as inherited from parent
-                        node_computed_values.insert(*prop_type, CssPropertyWithOrigin {
-                            property: prop_with_origin.property.clone(),
-                            origin: CssPropertyOrigin::Inherited,
-                        });
-                        
+                        node_computed_values.insert(
+                            *prop_type,
+                            CssPropertyWithOrigin {
+                                property: prop_with_origin.property.clone(),
+                                origin: CssPropertyOrigin::Inherited,
+                            },
+                        );
+
                         // DON'T inherit the dependency chain for font-size!
-                        // Font-size should be inherited as a COMPUTED VALUE (pixels), not as a relative value (em).
-                        // If we inherit the chain, we'll resolve "2em" twice (2em * parent = 32px, then 32px * parent = 64px).
-                        // Only inherit chains for properties that truly inherit their relative values.
+                        // Font-size should be inherited as a COMPUTED VALUE (pixels), not as a
+                        // relative value (em). If we inherit the chain,
+                        // we'll resolve "2em" twice (2em * parent = 32px, then 32px * parent =
+                        // 64px). Only inherit chains for properties that
+                        // truly inherit their relative values.
                         if *prop_type != CssPropertyType::FontSize {
-                            if let Some(parent_chains) = parent_id.and_then(|pid| self.dependency_chains.get(&pid)) {
+                            if let Some(parent_chains) =
+                                parent_id.and_then(|pid| self.dependency_chains.get(&pid))
+                            {
                                 if let Some(chain) = parent_chains.get(prop_type) {
                                     node_dependency_chains.insert(*prop_type, chain.clone());
                                 }
@@ -3994,14 +4197,14 @@ impl CssPropertyCache {
                     }
                 }
             }
-            
+
             // Helper macro to process a property and resolve dependencies
             // This marks the property as Own (not inherited)
             macro_rules! process_property {
                 ($prop:expr) => {{
                     let prop = $prop;
                     let prop_type = prop.get_type();
-                    
+
                     // Try to resolve em/% values:
                     // - For font-size: use parent's font-size as reference
                     // - For other properties with em: use current node's font-size as reference
@@ -4009,7 +4212,9 @@ impl CssPropertyCache {
                     let resolved_prop = if prop_type == CssPropertyType::FontSize {
                         // Font-size em/% refers to PARENT's font-size
                         if let Some(parent_values) = parent_computed {
-                            if let Some(parent_font_size) = parent_values.get(&CssPropertyType::FontSize) {
+                            if let Some(parent_font_size) =
+                                parent_values.get(&CssPropertyType::FontSize)
+                            {
                                 Self::resolve_property_dependency(prop, &parent_font_size.property)
                                     .unwrap_or_else(|| prop.clone())
                             } else {
@@ -4021,7 +4226,9 @@ impl CssPropertyCache {
                     } else {
                         // Other properties with em refer to CURRENT element's font-size
                         // We need to look up the current element's computed font-size
-                        if let Some(current_font_size) = node_computed_values.get(&CssPropertyType::FontSize) {
+                        if let Some(current_font_size) =
+                            node_computed_values.get(&CssPropertyType::FontSize)
+                        {
                             Self::resolve_property_dependency(prop, &current_font_size.property)
                                 .unwrap_or_else(|| prop.clone())
                         } else {
@@ -4029,84 +4236,93 @@ impl CssPropertyCache {
                             prop.clone()
                         }
                     };
-                    
+
                     // Mark as Own property (not inherited)
-                    node_computed_values.insert(prop_type, CssPropertyWithOrigin {
-                        property: resolved_prop.clone(),
-                        origin: CssPropertyOrigin::Own,
-                    });
-                    
+                    node_computed_values.insert(
+                        prop_type,
+                        CssPropertyWithOrigin {
+                            property: resolved_prop.clone(),
+                            origin: CssPropertyOrigin::Own,
+                        },
+                    );
+
                     // Build dependency chain for this property (for tracking invalidations)
-                    if let Some(chain) = self.build_dependency_chain(node_id, parent_id, &resolved_prop) {
+                    if let Some(chain) =
+                        self.build_dependency_chain(node_id, parent_id, &resolved_prop)
+                    {
                         node_dependency_chains.insert(prop_type, chain);
                     }
-                }}
+                }};
             }
-            
-            // Step 2: Apply cascaded properties (UA CSS, properties from previous inheritance iterations)
-            // These are the node's OWN properties, not inherited from parent
-            // Only apply if not already set OR if existing value is inherited (own properties override inherited)
+
+            // Step 2: Apply cascaded properties (UA CSS, properties from previous inheritance
+            // iterations) These are the node's OWN properties, not inherited from
+            // parent Only apply if not already set OR if existing value is inherited
+            // (own properties override inherited)
             if let Some(cascaded_props) = self.cascaded_normal_props.get(&node_id).cloned() {
                 for (prop_type, prop) in cascaded_props.iter() {
                     let should_apply = match node_computed_values.get(prop_type) {
-                        None => true, // Not set yet
-                        Some(existing) => existing.origin == CssPropertyOrigin::Inherited, // Override inherited
+                        None => true,                                                      /* Not set yet */
+                        Some(existing) => existing.origin == CssPropertyOrigin::Inherited, /* Override inherited */
                     };
-                    
+
                     if should_apply {
                         process_property!(prop);
                     }
                 }
             }
-            
+
             // Step 3: Override with CSS properties (from stylesheets)
             if let Some(css_props) = self.css_normal_props.get(&node_id) {
                 for (_, prop) in css_props.iter() {
                     process_property!(prop);
                 }
             }
-            
+
             // Step 4: Override with inline CSS properties (from style attribute)
             for inline_prop in node_data[node_index].inline_css_props.iter() {
                 if let NodeDataInlineCssProperty::Normal(prop) = inline_prop {
                     process_property!(prop);
                 }
             }
-            
+
             // Step 5: Override with user-overridden properties (from callbacks)
             if let Some(user_props) = self.user_overridden_properties.get(&node_id) {
                 for (_, prop) in user_props.iter() {
                     process_property!(prop);
                 }
             }
-            
+
             // Check if computed values or chains changed
-            let values_changed = self.computed_values
+            let values_changed = self
+                .computed_values
                 .get(&node_id)
                 .map(|old| old != &node_computed_values)
                 .unwrap_or(true);
-                
-            let chains_changed = self.dependency_chains
+
+            let chains_changed = self
+                .dependency_chains
                 .get(&node_id)
                 .map(|old| old != &node_dependency_chains)
                 .unwrap_or(!node_dependency_chains.is_empty());
-            
+
             if values_changed || chains_changed {
                 changed_nodes.push(node_id);
             }
-            
+
             // Store the computed values and chains
             self.computed_values.insert(node_id, node_computed_values);
             if !node_dependency_chains.is_empty() {
-                self.dependency_chains.insert(node_id, node_dependency_chains);
+                self.dependency_chains
+                    .insert(node_id, node_dependency_chains);
             }
         }
-        
+
         changed_nodes
     }
-    
+
     /// Resolve a dependency chain to an absolute pixel value.
-    /// 
+    ///
     /// This walks through the chain and resolves each dependency:
     /// - Absolute values: return immediately
     /// - Em values: multiply by source node's font-size
@@ -4127,35 +4343,44 @@ impl CssPropertyCache {
         root_font_size: f32,
     ) -> Option<f32> {
         // Get the dependency chain for this node/property (immutable borrow)
-        let chain = self.dependency_chains
+        let chain = self
+            .dependency_chains
             .get(&node_id)
             .and_then(|chains| chains.get(&property_type))?;
-        
+
         // If already cached, return it
         if let Some(cached) = chain.cached_pixels {
             return Some(cached);
         }
-        
+
         // We need to resolve but can't mutate - collect steps first
         let steps = chain.steps.clone();
         let mut current_value: Option<f32> = None;
-        
+
         for step in &steps {
             match step {
                 CssDependencyChainStep::Absolute { pixels } => {
                     current_value = Some(*pixels);
                 }
-                CssDependencyChainStep::Percent { source_node, factor } => {
+                CssDependencyChainStep::Percent {
+                    source_node,
+                    factor,
+                } => {
                     // Try to get from cached chains first
-                    let source_val = self.dependency_chains
+                    let source_val = self
+                        .dependency_chains
                         .get(source_node)
                         .and_then(|chains| chains.get(&property_type))
                         .and_then(|chain| chain.cached_pixels)?;
                     current_value = Some(source_val * factor);
                 }
-                CssDependencyChainStep::Em { source_node, factor } => {
+                CssDependencyChainStep::Em {
+                    source_node,
+                    factor,
+                } => {
                     // For em, we need the source node's font-size
-                    let font_size = self.dependency_chains
+                    let font_size = self
+                        .dependency_chains
                         .get(source_node)
                         .and_then(|chains| chains.get(&CssPropertyType::FontSize))
                         .and_then(|chain| chain.cached_pixels)?;
@@ -4166,12 +4391,12 @@ impl CssPropertyCache {
                 }
             }
         }
-        
+
         current_value
     }
-    
+
     /// Update a property value and invalidate all dependent chains.
-    /// 
+    ///
     /// When a property changes (e.g., font-size changes from 16px to 20px):
     /// 1. Update the property value in computed_values
     /// 2. Update/rebuild the dependency chain
@@ -4195,32 +4420,37 @@ impl CssPropertyCache {
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
         use alloc::vec::Vec;
-        
+
         let prop_type = property.get_type();
         let mut affected_nodes = Vec::new();
-        
+
         // Step 1: Update the property value (mark as Own since it's an override)
         self.computed_values
             .entry(node_id)
             .or_insert_with(BTreeMap::new)
-            .insert(prop_type, CssPropertyWithOrigin {
-                property: property.clone(),
-                origin: CssPropertyOrigin::Own,
-            });
-        
+            .insert(
+                prop_type,
+                CssPropertyWithOrigin {
+                    property: property.clone(),
+                    origin: CssPropertyOrigin::Own,
+                },
+            );
+
         // Step 2: Rebuild the dependency chain
-        let parent_id = node_hierarchy.get(node_id.index()).and_then(|h| h.parent_id());
+        let parent_id = node_hierarchy
+            .get(node_id.index())
+            .and_then(|h| h.parent_id());
         if let Some(chain) = self.build_dependency_chain(node_id, parent_id, &property) {
             self.dependency_chains
                 .entry(node_id)
                 .or_insert_with(BTreeMap::new)
                 .insert(prop_type, chain);
         }
-        
+
         // Step 3: Find and invalidate all dependent chains
         for (dep_node_id, chains) in self.dependency_chains.iter_mut() {
             let mut node_affected = false;
-            
+
             for (dep_prop_type, chain) in chains.iter_mut() {
                 if chain.depends_on(node_id) {
                     // Invalidate the cached value
@@ -4228,12 +4458,12 @@ impl CssPropertyCache {
                     node_affected = true;
                 }
             }
-            
+
             if node_affected {
                 affected_nodes.push(*dep_node_id);
             }
         }
-        
+
         affected_nodes.push(node_id);
         affected_nodes
     }
@@ -4248,60 +4478,82 @@ mod tests {
     fn test_ua_css_p_tag_properties() {
         // Create an empty CssPropertyCache
         let cache = CssPropertyCache::empty(1);
-        
+
         // Create a minimal <p> tag NodeData using public API
         let mut node_data = NodeData::new(NodeType::P);
-        
+
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();
-        
+
         // Test that <p> has display: block from UA CSS
         let display = cache.get_display(&node_data, &node_id, &node_state);
-        assert!(display.is_some(), "Expected <p> to have display property from UA CSS");
+        assert!(
+            display.is_some(),
+            "Expected <p> to have display property from UA CSS"
+        );
         if let Some(d) = display {
             if let Some(display_value) = d.get_property() {
-                assert_eq!(*display_value, LayoutDisplay::Block, 
-                    "Expected <p> to have display: block, got {:?}", display_value);
+                assert_eq!(
+                    *display_value,
+                    LayoutDisplay::Block,
+                    "Expected <p> to have display: block, got {:?}",
+                    display_value
+                );
             }
         }
-        
+
         // Test that <p> has width: 100% from UA CSS
         let width = cache.get_width(&node_data, &node_id, &node_state);
-        assert!(width.is_some(), "Expected <p> to have width property from UA CSS");
+        assert!(
+            width.is_some(),
+            "Expected <p> to have width property from UA CSS"
+        );
         if let Some(w) = width {
             println!("Width value: {:?}", w);
         }
-        
+
         // Test that <p> does NOT have a default height from UA CSS
         // (height should be auto, which means None)
         let height = cache.get_height(&node_data, &node_id, &node_state);
         println!("Height for <p> tag: {:?}", height);
-        
+
         // Height should be None because <p> should use auto height
-        assert!(height.is_none(), 
-            "Expected <p> to NOT have explicit height (should be auto), but got {:?}", height);
+        assert!(
+            height.is_none(),
+            "Expected <p> to NOT have explicit height (should be auto), but got {:?}",
+            height
+        );
     }
 
     #[test]
     fn test_ua_css_body_tag_properties() {
         let cache = CssPropertyCache::empty(1);
-        
+
         let node_data = NodeData::new(NodeType::Body);
-        
+
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();
-        
+
         // Test that <body> has width: 100% from UA CSS
         let width = cache.get_width(&node_data, &node_id, &node_state);
-        assert!(width.is_some(), "Expected <body> to have width: 100% from UA CSS");
-        
+        assert!(
+            width.is_some(),
+            "Expected <body> to have width: 100% from UA CSS"
+        );
+
         // Note: height: 100% was removed from UA CSS (ua_css.rs:506 commented out)
         // This is correct - <body> should have height: auto by default per CSS spec
         let height = cache.get_height(&node_data, &node_id, &node_state);
-        assert!(height.is_none(), "<body> should not have explicit height from UA CSS (should be auto)");
-        
+        assert!(
+            height.is_none(),
+            "<body> should not have explicit height from UA CSS (should be auto)"
+        );
+
         // Test margins (body has 8px margins from UA CSS)
         let margin_top = cache.get_margin_top(&node_data, &node_id, &node_state);
-        assert!(margin_top.is_some(), "Expected <body> to have margin-top from UA CSS");
+        assert!(
+            margin_top.is_some(),
+            "Expected <body> to have margin-top from UA CSS"
+        );
     }
 }

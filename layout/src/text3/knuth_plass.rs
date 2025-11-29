@@ -6,9 +6,10 @@ use std::sync::Arc;
 use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{
-    get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace, Direction, GlyphKind,
-    JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
-    Rect, ShapedCluster, ShapedGlyph, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
+    get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace,
+    Direction, GlyphKind, JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo,
+    ParsedFontTrait, Point, PositionedItem, Rect, ShapedCluster, ShapedGlyph, ShapedItem,
+    TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -45,16 +46,16 @@ struct Breakpoint {
 }
 
 /// Main entry point for the Knuth-Plass layout algorithm.
-/// 
-/// This implements optimal line-breaking as described in "Breaking Paragraphs into Lines" 
-/// (Knuth & Plass, 1981). Unlike greedy algorithms, it considers the entire paragraph 
+///
+/// This implements optimal line-breaking as described in "Breaking Paragraphs into Lines"
+/// (Knuth & Plass, 1981). Unlike greedy algorithms, it considers the entire paragraph
 /// to find globally optimal break points.
-/// 
+///
 /// # Use Cases
 /// - `text-wrap: balance` - CSS property for balanced line lengths
 /// - High-quality typesetting where line consistency matters
 /// - Multi-line headings that should appear visually balanced
-/// 
+///
 /// # Limitations
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
@@ -80,7 +81,8 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     let breaks = find_optimal_breakpoints(&nodes, constraints);
 
     // --- Step 3: Use breakpoints to build and position the final lines ---
-    let final_layout: UnifiedLayout = position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
+    let final_layout: UnifiedLayout =
+        position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
 
     Ok(final_layout)
 }
@@ -211,10 +213,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 }
 
 /// Uses dynamic programming to find the optimal set of line breaks.
-fn find_optimal_breakpoints(
-    nodes: &[LayoutNode],
-    constraints: &UnifiedConstraints,
-) -> Vec<usize> {
+fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
     // For Knuth-Plass, we need a definite line width.
     // For MaxContent, use a very large value (no line breaks unless forced).
     // For MinContent, use 0.0 (break at every opportunity).
@@ -367,7 +366,7 @@ fn position_lines_from_breaks(
             AvailableSpace::MaxContent => f32::MAX / 2.0,
             AvailableSpace::MinContent => 0.0,
         };
-        
+
         if should_justify {
             let space_to_add = available_width_f32 - line_width;
             if space_to_add > 0.0 {
@@ -386,19 +385,22 @@ fn position_lines_from_breaks(
             .iter()
             .map(|item| get_item_measure(item, false))
             .sum();
-            
+
         // For MaxContent, don't apply alignment (treat as left-aligned)
-        let is_indefinite = matches!(constraints.available_width, AvailableSpace::MaxContent | AvailableSpace::MinContent);
+        let is_indefinite = matches!(
+            constraints.available_width,
+            AvailableSpace::MaxContent | AvailableSpace::MinContent
+        );
         let remaining_space = if is_indefinite {
             0.0
         } else {
             available_width_f32
-            - (total_width
-                + extra_per_space
-                    * line_items
-                        .iter()
-                        .filter(|item| is_word_separator(item))
-                        .count() as f32)
+                - (total_width
+                    + extra_per_space
+                        * line_items
+                            .iter()
+                            .filter(|item| is_word_separator(item))
+                            .count() as f32)
         };
 
         // NEW: Resolve the physical alignment here, inside the function, just like in
@@ -473,8 +475,14 @@ fn split_cluster_for_hyphenation(
         return None;
     }
 
-    let first_part_advance: f32 = first_part_glyphs.iter().map(|g| g.advance + g.kerning).sum();
-    let second_part_advance: f32 = second_part_glyphs.iter().map(|g| g.advance + g.kerning).sum();
+    let first_part_advance: f32 = first_part_glyphs
+        .iter()
+        .map(|g| g.advance + g.kerning)
+        .sum();
+    let second_part_advance: f32 = second_part_glyphs
+        .iter()
+        .map(|g| g.advance + g.kerning)
+        .sum();
 
     // We can approximate the split text, but a more robust solution would map glyphs back to bytes.
     let first_part = ShapedCluster {

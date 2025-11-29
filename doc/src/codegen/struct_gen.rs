@@ -161,35 +161,47 @@ fn generate_single_type(
         // Check if target is a primitive type or function pointer (shouldn't get prefix)
         let is_primitive = matches!(
             type_alias_info.target.as_str(),
-            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
-            "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
-            "f32" | "f64" | "bool" | "char" | "str"
+            "u8" | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "f32"
+                | "f64"
+                | "bool"
+                | "char"
+                | "str"
         );
-        
+
         // Check if target is a function pointer (starts with "extern")
         let is_function_ptr = type_alias_info.target.starts_with("extern");
-        
+
         let target_name = if is_primitive || is_function_ptr {
             type_alias_info.target.clone()
         } else {
             format!("{}{}", config.prefix, type_alias_info.target)
         };
-        
+
         if type_alias_info.generic_args.is_empty() {
             // Simple type alias without generics: pub type AzGLuint = u32;
             code.push_str(&format!(
                 "{}pub type {} = {};\n\n",
-                indent_str,
-                struct_name,
-                target_name
+                indent_str, struct_name, target_name
             ));
         } else {
             // Generic type alias: pub type AzFooValue = AzCssPropertyValue<AzFoo>;
-            let args_with_prefix: Vec<String> = type_alias_info.generic_args
+            let args_with_prefix: Vec<String> = type_alias_info
+                .generic_args
                 .iter()
                 .map(|arg| format!("{}{}", config.prefix, arg))
                 .collect();
-            
+
             code.push_str(&format!(
                 "{}pub type {} = {}<{}>;\n\n",
                 indent_str,
@@ -540,7 +552,7 @@ fn generate_struct_definition(
     code.push_str(&opt_derive_default);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
-    
+
     // Add generic parameters if present
     let generic_params_str = if let Some(params) = &struct_meta.generic_params {
         if params.is_empty() {
@@ -551,19 +563,24 @@ fn generate_struct_definition(
     } else {
         String::new()
     };
-    
-    code.push_str(&format!("{}pub struct {}{} {{\n", indent_str, struct_name, generic_params_str));
+
+    code.push_str(&format!(
+        "{}pub struct {}{} {{\n",
+        indent_str, struct_name, generic_params_str
+    ));
 
     // Generate fields
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
             let field_type = &field_data.r#type;
-            
+
             // Check if this is a generic type parameter (like T)
-            let is_generic_param = struct_meta.generic_params.as_ref()
+            let is_generic_param = struct_meta
+                .generic_params
+                .as_ref()
                 .map(|params| params.contains(&field_type.to_string()))
                 .unwrap_or(false);
-            
+
             if is_generic_param {
                 // Generic type parameter - use as-is
                 let visibility = if field_name == "ptr" && config.private_pointers {
@@ -802,7 +819,7 @@ fn generate_enum_definition(
     code.push_str(&opt_derive_default);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
-    
+
     // Add generic parameters if present
     let generic_params_str = if let Some(params) = &struct_meta.generic_params {
         if params.is_empty() {
@@ -813,18 +830,23 @@ fn generate_enum_definition(
     } else {
         String::new()
     };
-    
-    code.push_str(&format!("{}pub enum {}{} {{\n", indent_str, struct_name, generic_params_str));
+
+    code.push_str(&format!(
+        "{}pub enum {}{} {{\n",
+        indent_str, struct_name, generic_params_str
+    ));
 
     // Generate variants
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
             if let Some(variant_type) = &variant_data.r#type {
                 // Check if this is a generic type parameter (like T)
-                let is_generic_param = struct_meta.generic_params.as_ref()
+                let is_generic_param = struct_meta
+                    .generic_params
+                    .as_ref()
                     .map(|params| params.contains(&variant_type.to_string()))
                     .unwrap_or(false);
-                
+
                 if is_generic_param {
                     // Generic type parameter - use as-is
                     code.push_str(&format!(

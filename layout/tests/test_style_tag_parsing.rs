@@ -1,5 +1,5 @@
-use azul_layout::xml::parse_xml_string;
 use azul_core::xml::XmlNodeChild;
+use azul_layout::xml::parse_xml_string;
 
 fn as_element(child: &XmlNodeChild) -> &azul_core::xml::XmlNode {
     match child {
@@ -25,29 +25,36 @@ fn test_style_tag_parsing_simple() {
 <body></body>
 </html>
 "#;
-    
+
     let result = parse_xml_string(xml).unwrap();
     eprintln!("Parsed {} root nodes", result.len());
-    
+
     let html = as_element(&result[0]);
     eprintln!("HTML node has {} children", html.children.as_ref().len());
     assert_eq!(html.node_type.as_str(), "html");
-    
+
     let head = as_element(&html.children.as_ref()[0]);
     eprintln!("HEAD node type: {}", head.node_type.as_str());
     eprintln!("HEAD has {} children", head.children.as_ref().len());
     assert_eq!(head.node_type.as_str(), "head");
-    
+
     // Head should have 1 child: <style>
-    assert!(head.children.as_ref().len() > 0, "HEAD should have children (style tag)");
-    
+    assert!(
+        head.children.as_ref().len() > 0,
+        "HEAD should have children (style tag)"
+    );
+
     let style = as_element(&head.children.as_ref()[0]);
     eprintln!("STYLE node type: {}", style.node_type.as_str());
     eprintln!("STYLE has {} children", style.children.as_ref().len());
     assert_eq!(style.node_type.as_str(), "style");
-    
+
     // Style should have 1 text child with the CSS
-    assert_eq!(style.children.as_ref().len(), 1, "STYLE should have 1 text child");
+    assert_eq!(
+        style.children.as_ref().len(),
+        1,
+        "STYLE should have 1 text child"
+    );
     let css_text = as_text(&style.children.as_ref()[0]);
     eprintln!("CSS text: '{}'", css_text);
     assert_eq!(css_text, "body { color: red; }");
@@ -63,19 +70,25 @@ fn test_style_tag_parsing_with_quotes() {
 <body></body>
 </html>
 "#;
-    
+
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
     let head = as_element(&html.children.as_ref()[0]);
-    
+
     eprintln!("HEAD has {} children", head.children.as_ref().len());
-    assert!(head.children.as_ref().len() > 0, "HEAD should have style child");
-    
+    assert!(
+        head.children.as_ref().len() > 0,
+        "HEAD should have style child"
+    );
+
     let style = as_element(&head.children.as_ref()[0]);
     assert_eq!(style.node_type.as_str(), "style");
-    
+
     assert_eq!(style.children.as_ref().len(), 1);
     let css_text = as_text(&style.children.as_ref()[0]);
     eprintln!("CSS text: '{}'", css_text);
-    assert!(css_text.contains("font-family"), "CSS should contain font-family");
+    assert!(
+        css_text.contains("font-family"),
+        "CSS should contain font-family"
+    );
 }

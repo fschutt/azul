@@ -45,9 +45,10 @@ impl LayoutDebugMessage {
         Self {
             message_type,
             message: AzString::from_string(message.into()),
-            location: AzString::from_string(format!("{}:{}:{}", 
-                location.file(), 
-                location.line(), 
+            location: AzString::from_string(format!(
+                "{}:{}:{}",
+                location.file(),
+                location.line(),
                 location.column()
             )),
         }

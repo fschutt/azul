@@ -254,7 +254,7 @@ impl SelectionManager {
     /// text selection (single/double/triple click).
     ///
     /// ## Returns
-    /// 
+    ///
     /// - `Some(1)` - Single click (place cursor)
     /// - `Some(2)` - Double click (select word)
     /// - `Some(3)` - Triple click (select paragraph/line)

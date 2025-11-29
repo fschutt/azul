@@ -37,16 +37,19 @@ pub struct CounterReset {
 
 impl CounterReset {
     pub const fn new(counter_name: AzString, value: i32) -> Self {
-        Self { counter_name, value }
+        Self {
+            counter_name,
+            value,
+        }
     }
-    
+
     pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
-    
+
     pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
@@ -81,16 +84,19 @@ pub struct CounterIncrement {
 
 impl CounterIncrement {
     pub const fn new(counter_name: AzString, value: i32) -> Self {
-        Self { counter_name, value }
+        Self {
+            counter_name,
+            value,
+        }
     }
-    
+
     pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
-    
+
     pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
@@ -181,51 +187,51 @@ mod parser {
 
     pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
         let trimmed = input.trim();
-        
+
         if trimmed == "none" {
             return Ok(CounterReset::none());
         }
-        
+
         // Parse "counter-name value" format
         // e.g., "list-item 0", "section 1", or just "list-item" (defaults to 0)
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        
+
         if parts.is_empty() {
             return Err(());
         }
-        
+
         let counter_name = parts[0].into();
         let value = if parts.len() > 1 {
             parts[1].parse::<i32>().map_err(|_| ())?
         } else {
             0 // CSS spec: default reset value is 0
         };
-        
+
         Ok(CounterReset::new(counter_name, value))
     }
 
     pub fn parse_counter_increment(input: &str) -> Result<CounterIncrement, ()> {
         let trimmed = input.trim();
-        
+
         if trimmed == "none" {
             return Ok(CounterIncrement::none());
         }
-        
+
         // Parse "counter-name value" format
         // e.g., "list-item 1", "section 2", or just "list-item" (defaults to 1)
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        
+
         if parts.is_empty() {
             return Err(());
         }
-        
+
         let counter_name = parts[0].into();
         let value = if parts.len() > 1 {
             parts[1].parse::<i32>().map_err(|_| ())?
         } else {
             1 // CSS spec: default increment value is 1
         };
-        
+
         Ok(CounterIncrement::new(counter_name, value))
     }
 
@@ -246,30 +252,33 @@ mod tests {
     #[test]
     fn test_simple_content_parser() {
         assert_eq!(parse_content("'Hello'").unwrap().inner.as_str(), "'Hello'");
-        
+
         // Test counter-reset parsing
         let reset = parse_counter_reset("page 1").unwrap();
         assert_eq!(reset.counter_name.as_str(), "page");
         assert_eq!(reset.value, 1);
-        
+
         let reset = parse_counter_reset("list-item 0").unwrap();
         assert_eq!(reset.counter_name.as_str(), "list-item");
         assert_eq!(reset.value, 0);
-        
+
         let reset = parse_counter_reset("none").unwrap();
         assert_eq!(reset.counter_name.as_str(), "none");
-        
+
         // Test counter-increment parsing
         let inc = parse_counter_increment("section").unwrap();
         assert_eq!(inc.counter_name.as_str(), "section");
         assert_eq!(inc.value, 1); // Default value
-        
+
         let inc = parse_counter_increment("list-item 2").unwrap();
         assert_eq!(inc.counter_name.as_str(), "list-item");
         assert_eq!(inc.value, 2);
-        
+
         assert_eq!(
-            parse_string_set("chapter-title content()").unwrap().inner.as_str(),
+            parse_string_set("chapter-title content()")
+                .unwrap()
+                .inner
+                .as_str(),
             "chapter-title content()"
         );
     }

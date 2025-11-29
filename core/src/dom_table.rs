@@ -1,13 +1,15 @@
 // Table layout support for generating anonymous table elements
 // Based on CSS 2.1 Section 17.2.1: Anonymous table objects
 
+use alloc::vec::Vec;
+
+use azul_css::props::layout::LayoutDisplay;
+
 use crate::{
     dom::{NodeData, NodeType},
-    id::{NodeId},
+    id::NodeId,
     styled_dom::StyledDom,
 };
-use alloc::vec::Vec;
-use azul_css::props::layout::LayoutDisplay;
 
 /// Error type for table anonymous element generation
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +21,7 @@ pub enum TableAnonymousError {
 }
 
 /// Generates anonymous table elements according to CSS table layout rules.
-/// 
+///
 /// This function works on StyledDom (not Dom) because it needs access to computed
 /// CSS display property values to determine which elements need wrapping.
 ///
@@ -35,7 +37,9 @@ pub enum TableAnonymousError {
 /// - Stage 1: Remove irrelevant whitespace
 /// - Stage 2: Generate missing child wrappers
 /// - Stage 3: Generate missing parents
-pub fn generate_anonymous_table_elements(styled_dom: &mut StyledDom) -> Result<(), TableAnonymousError> {
+pub fn generate_anonymous_table_elements(
+    styled_dom: &mut StyledDom,
+) -> Result<(), TableAnonymousError> {
     // TODO: Implement the full 3-stage algorithm
     // This is a complex task that requires:
     // 1. Traversing the entire tree
@@ -47,14 +51,14 @@ pub fn generate_anonymous_table_elements(styled_dom: &mut StyledDom) -> Result<(
     // For now, this is a placeholder that returns Ok(())
     // The actual implementation will need to:
     // - Access styled_dom.node_hierarchy for tree structure
-    // - Access styled_dom.node_data for node information  
+    // - Access styled_dom.node_data for node information
     // - Access styled_dom.css_property_cache for display properties
     // - Insert new nodes into both hierarchy and data containers
     // - Update parent-child-sibling relationships
     //
     // This is left for future implementation as it requires careful
     // manipulation of the arena-based data structures.
-    
+
     Ok(())
 }
 
@@ -93,15 +97,16 @@ fn get_node_display(styled_dom: &StyledDom, node_id: NodeId) -> Option<LayoutDis
     let cache = styled_dom.get_css_property_cache();
     let node_data = &styled_dom.node_data.as_ref()[node_id.index()];
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
-    
-    cache.get_display(node_data, &node_id, node_state)
+
+    cache
+        .get_display(node_data, &node_id, node_state)
         .and_then(|value| value.get_property().cloned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     // TODO: Add tests for StyledDom-based anonymous table element generation
     // These tests will need to:
     // 1. Create a StyledDom with incomplete table structure

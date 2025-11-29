@@ -10,14 +10,14 @@
 
 use azul_core::{
     dom::{Dom, NodeData, NodeDataInlineCssProperty, NodeType},
-    styled_dom::StyledDom,
     prop_cache::CssPropertyOrigin,
+    styled_dom::StyledDom,
 };
 use azul_css::{
     css::Css,
     parser2::CssApiWrapper,
     props::{
-        basic::font::{StyleFontSize, StyleFontWeight, StyleFontStyle},
+        basic::font::{StyleFontSize, StyleFontStyle, StyleFontWeight},
         property::{CssProperty, CssPropertyType},
     },
     AzString,
@@ -28,9 +28,9 @@ macro_rules! setup_test {
     ($dom:expr) => {{
         let mut dom = $dom;
         let styled_dom = StyledDom::new(&mut dom, CssApiWrapper::empty());
-        
+
         let cache = styled_dom.css_property_cache.ptr.clone();
-        
+
         (styled_dom, cache)
     }};
 }
@@ -41,38 +41,43 @@ fn test_font_size_inheritance_single_level() {
     // <div style="font-size: 24px">
     //   <p>Text</p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(24.0)))
-        ].into())
-        .with_child(
-            Dom::new(NodeType::P)
-                .with_child(Dom::text("Text"))
-        );
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(24.0),
+            ))]
+            .into(),
+        )
+        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
-    
+
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     // Compute inherited values
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("Changed nodes: {:?}", changed_nodes);
     println!("Computed values: {:#?}", cache.computed_values);
-    
+
     // Verify that <p> (child) inherited the font-size from <div> (parent)
     let parent_id = azul_core::dom::NodeId::new(0); // div
-    let child_id = azul_core::dom::NodeId::new(1);  // p
-    
+    let child_id = azul_core::dom::NodeId::new(1); // p
+
     // Check computed values for child
     if let Some(child_computed) = cache.computed_values.get(&child_id) {
-        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else { panic!("Child should have FontSize"); };
+        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
+            panic!("Child should have FontSize");
+        };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
             if let Some(font_size) = font_size_value.get_property() {
                 let size = font_size.inner.to_pixels(16.0); // Default fallback
-                assert_eq!(size, 24.0, "Child should inherit parent's font-size of 24px");
+                assert_eq!(
+                    size, 24.0,
+                    "Child should inherit parent's font-size of 24px"
+                );
             } else {
                 panic!("FontSize value should not be None/Auto/Initial/Inherit");
             }
@@ -90,36 +95,47 @@ fn test_font_size_override_not_inherited() {
     // <div style="font-size: 24px">
     //   <p style="font-size: 12px">Text</p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(24.0)))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(24.0),
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(12.0)))
-                ].into())
-                .with_child(Dom::text("Text"))
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::px(12.0),
+                    ))]
+                    .into(),
+                )
+                .with_child(Dom::text("Text")),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("Changed nodes: {:?}", changed_nodes);
     println!("Computed values: {:#?}", cache.computed_values);
-    
-    let child_id = azul_core::dom::NodeId::new(1);  // p
-    
+
+    let child_id = azul_core::dom::NodeId::new(1); // p
+
     // Verify that child has its own explicit value, not the inherited one
     if let Some(child_computed) = cache.computed_values.get(&child_id) {
-        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else { panic!("Child should have FontSize"); };
+        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
+            panic!("Child should have FontSize");
+        };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
             if let Some(font_size) = font_size_value.get_property() {
                 let size = font_size.inner.to_pixels(16.0);
-                assert_eq!(size, 12.0, "Child should use its explicit font-size of 12px, not inherit 24px");
+                assert_eq!(
+                    size, 12.0,
+                    "Child should use its explicit font-size of 12px, not inherit 24px"
+                );
             } else {
                 panic!("FontSize value should not be None/Auto/Initial/Inherit");
             }
@@ -139,31 +155,31 @@ fn test_font_weight_inheritance_multi_level() {
     //     <span>Text</span>
     //   </p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_weight(StyleFontWeight::Bold))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
+                StyleFontWeight::Bold,
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_child(
-                    Dom::new(NodeType::Span)
-                        .with_child(Dom::text("Text"))
-                )
+                .with_child(Dom::new(NodeType::Span).with_child(Dom::text("Text"))),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
     let changed_nodes = cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("Changed nodes: {:?}", changed_nodes);
     println!("Computed values: {:#?}", cache.computed_values);
-    
-    let div_id = azul_core::dom::NodeId::new(0);   // div
-    let p_id = azul_core::dom::NodeId::new(1);     // p
-    let span_id = azul_core::dom::NodeId::new(2);  // span
-    
+
+    let div_id = azul_core::dom::NodeId::new(0); // div
+    let p_id = azul_core::dom::NodeId::new(1); // p
+    let span_id = azul_core::dom::NodeId::new(2); // span
+
     // Verify that both <p> and <span> inherited font-weight: bold
     for (node_id, node_name) in &[(p_id, "p"), (span_id, "span")] {
         if let Some(computed) = cache.computed_values.get(node_id) {
@@ -172,10 +188,17 @@ fn test_font_weight_inheritance_multi_level() {
             };
             if let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property {
                 if let Some(font_weight) = font_weight_value.get_property() {
-                    assert_eq!(*font_weight, StyleFontWeight::Bold, 
-                        "{} should inherit font-weight: bold from ancestor div", node_name);
+                    assert_eq!(
+                        *font_weight,
+                        StyleFontWeight::Bold,
+                        "{} should inherit font-weight: bold from ancestor div",
+                        node_name
+                    );
                 } else {
-                    panic!("{} FontWeight value should not be None/Auto/Initial/Inherit", node_name);
+                    panic!(
+                        "{} FontWeight value should not be None/Auto/Initial/Inherit",
+                        node_name
+                    );
                 }
             } else {
                 panic!("{} should have computed FontWeight property", node_name);
@@ -194,27 +217,33 @@ fn test_mixed_inherited_and_explicit_properties() {
     //     Text (should have font-size: 16px, font-weight: bold)
     //   </p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0))),
-            NodeDataInlineCssProperty::Normal(CssProperty::font_weight(StyleFontWeight::Bold)),
-        ].into())
+        .with_inline_css_props(
+            vec![
+                NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0))),
+                NodeDataInlineCssProperty::Normal(CssProperty::font_weight(StyleFontWeight::Bold)),
+            ]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(16.0)))
-                ].into())
-                .with_child(Dom::text("Text"))
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::px(16.0),
+                    ))]
+                    .into(),
+                )
+                .with_child(Dom::text("Text")),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);  // p
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+
     if let Some(p_computed) = cache.computed_values.get(&p_id) {
         // Check font-size (explicit)
         let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
@@ -228,15 +257,18 @@ fn test_mixed_inherited_and_explicit_properties() {
         } else {
             panic!("p FontSize should be CssProperty::FontSize variant");
         }
-        
+
         // Check font-weight (inherited)
         let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontWeight) else {
             panic!("p should have FontWeight");
         };
         if let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property {
             if let Some(font_weight) = font_weight_value.get_property() {
-                assert_eq!(*font_weight, StyleFontWeight::Bold, 
-                    "p should inherit font-weight: bold from div");
+                assert_eq!(
+                    *font_weight,
+                    StyleFontWeight::Bold,
+                    "p should inherit font-weight: bold from div"
+                );
             }
         } else {
             panic!("p should have computed FontWeight inherited from parent");
@@ -252,35 +284,39 @@ fn test_non_inheritable_property_not_inherited() {
     // <div style="width: 200px">
     //   <p>Text</p>  <!-- should NOT inherit width -->
     // </div>
-    
-    use azul_css::props::layout::dimensions::LayoutWidth;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::css::CssPropertyValue;
-    
+
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{basic::pixel::PixelValue, layout::dimensions::LayoutWidth},
+    };
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(200.0)))))
-        ].into())
-        .with_child(
-            Dom::new(NodeType::P)
-                .with_child(Dom::text("Text"))
-        );
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::Width(
+                CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(200.0))),
+            ))]
+            .into(),
+        )
+        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);  // p
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+
     if let Some(p_computed) = cache.computed_values.get(&p_id) {
         // Width should NOT be inherited from parent (200px)
         // Test the ORIGIN of the property, not just its value
         if let Some(prop_with_origin) = p_computed.get(&CssPropertyType::Width) {
             // The KEY test: Width should have origin Own (from UA CSS), NOT Inherited
-            assert_eq!(prop_with_origin.origin, CssPropertyOrigin::Own, 
-                "Width origin should be Own (from UA CSS), not Inherited from parent. \
-                 This proves that non-inheritable properties are not inherited.");
+            assert_eq!(
+                prop_with_origin.origin,
+                CssPropertyOrigin::Own,
+                "Width origin should be Own (from UA CSS), not Inherited from parent. This proves \
+                 that non-inheritable properties are not inherited."
+            );
         }
         // If there's no Width at all, that's also fine (no UA CSS for this element)
     }
@@ -293,39 +329,50 @@ fn test_update_invalidation() {
     //   <p>Child 1</p>
     //   <p>Child 2</p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0)))
-        ].into())
-        .with_children(vec![
-            Dom::new(NodeType::P).with_child(Dom::text("Child 1")),
-            Dom::new(NodeType::P).with_child(Dom::text("Child 2")),
-        ].into());
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(20.0),
+            ))]
+            .into(),
+        )
+        .with_children(
+            vec![
+                Dom::new(NodeType::P).with_child(Dom::text("Child 1")),
+                Dom::new(NodeType::P).with_child(Dom::text("Child 2")),
+            ]
+            .into(),
+        );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     // Clear the cache to test first computation (StyledDom::new already computed once)
     cache.computed_values.clear();
     cache.dependency_chains.clear();
-    
+
     // First computation
     let changed_nodes_1 = cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("First computation changed nodes: {:?}", changed_nodes_1);
-    
+
     // All nodes should be marked as changed on first computation
-    assert!(changed_nodes_1.len() >= 3, "All nodes should change on first computation");
-    
+    assert!(
+        changed_nodes_1.len() >= 3,
+        "All nodes should change on first computation"
+    );
+
     // Second computation without changes should return empty list
     let changed_nodes_2 = cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("Second computation changed nodes: {:?}", changed_nodes_2);
-    
-    assert!(changed_nodes_2.is_empty(), 
-        "No nodes should change when recomputing with same values");
+
+    assert!(
+        changed_nodes_2.is_empty(),
+        "No nodes should change when recomputing with same values"
+    );
 }
 
 #[test]
@@ -340,53 +387,54 @@ fn test_deeply_nested_inheritance() {
     //     </article>
     //   </section>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_weight(StyleFontWeight::Bold))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
+                StyleFontWeight::Bold,
+            ))]
+            .into(),
+        )
         .with_child(
-            Dom::new(NodeType::Section)
-                .with_child(
-                    Dom::new(NodeType::Article)
-                        .with_child(
-                            Dom::new(NodeType::P)
-                                .with_child(
-                                    Dom::new(NodeType::Span)
-                                        .with_child(Dom::text("Deep text"))
-                                )
-                        )
-                )
+            Dom::new(NodeType::Section).with_child(
+                Dom::new(NodeType::Article).with_child(
+                    Dom::new(NodeType::P)
+                        .with_child(Dom::new(NodeType::Span).with_child(Dom::text("Deep text"))),
+                ),
+            ),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
+
     println!("Node hierarchy: {:#?}", node_hierarchy);
     println!("Computed values: {:#?}", cache.computed_values);
-    
+
     // Verify all descendants inherited font-weight: bold
-    let span_id = azul_core::dom::NodeId::new(4);  // The deepest span
-    
+    let span_id = azul_core::dom::NodeId::new(4); // The deepest span
+
     let Some(span_computed) = cache.computed_values.get(&span_id) else {
         panic!("Deeply nested span should have computed values");
     };
-    
+
     let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontWeight) else {
         panic!("Deeply nested span should have inherited FontWeight");
     };
     let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property else {
         panic!("FontWeight should be CssProperty::FontWeight variant");
     };
-    
+
     let Some(font_weight) = font_weight_value.get_property() else {
         panic!("FontWeight should have explicit value");
     };
-    
-    assert_eq!(*font_weight, StyleFontWeight::Bold,
-        "Deeply nested span should inherit font-weight: bold");
+
+    assert_eq!(
+        *font_weight,
+        StyleFontWeight::Bold,
+        "Deeply nested span should inherit font-weight: bold"
+    );
 }
 
 #[test]
@@ -397,47 +445,56 @@ fn test_em_unit_inheritance_basic() {
     //     Text
     //   </p>
     // </div>
-    
+
     use azul_css::props::basic::pixel::PixelValue;
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(16.0)))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(16.0),
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::em(2.0)))
-                ].into())
-                .with_child(Dom::text("Text"))
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::em(2.0),
+                    ))]
+                    .into(),
+                )
+                .with_child(Dom::text("Text")),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);  // p
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+
     let Some(p_computed) = cache.computed_values.get(&p_id) else {
         panic!("p should have computed values");
     };
-    
+
     let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
         panic!("p should have computed FontSize property");
     };
     let CssProperty::FontSize(font_size_value) = &prop_with_origin.property else {
         panic!("FontSize should be CssProperty::FontSize variant");
     };
-    
+
     let Some(font_size) = font_size_value.get_property() else {
         panic!("FontSize value should not be None/Auto/Initial/Inherit");
     };
-    
+
     // 2em relative to parent's 16px = 32px
     let size = font_size.inner.to_pixels(16.0); // Parent's font-size is 16px
-    assert_eq!(size, 32.0, "p with font-size: 2em should compute to 32px (2 * 16px)");
+    assert_eq!(
+        size, 32.0,
+        "p with font-size: 2em should compute to 32px (2 * 16px)"
+    );
 }
 
 #[test]
@@ -451,77 +508,86 @@ fn test_em_unit_cascading_multiplication() {
     //     </span>
     //   </p>
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(10.0)))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(10.0),
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::em(2.0)))
-                ].into())
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::em(2.0),
+                    ))]
+                    .into(),
+                )
                 .with_child(
                     Dom::new(NodeType::Span)
-                        .with_inline_css_props(vec![
-                            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::em(1.5)))
-                        ].into())
-                        .with_child(Dom::text("Text"))
-                )
+                        .with_inline_css_props(
+                            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                                StyleFontSize::em(1.5),
+                            ))]
+                            .into(),
+                        )
+                        .with_child(Dom::text("Text")),
+                ),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);     // p
-    let span_id = azul_core::dom::NodeId::new(2);  // span
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+    let span_id = azul_core::dom::NodeId::new(2); // span
+
     // Check p: 2em * 10px = 20px
     let Some(p_computed) = cache.computed_values.get(&p_id) else {
         panic!("p should have computed values");
     };
-    
+
     let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
         panic!("p should have computed FontSize");
     };
     let CssProperty::FontSize(p_font_size) = &prop_with_origin.property else {
         panic!("FontSize should be CssProperty::FontSize variant");
     };
-    
+
     let Some(p_size_val) = p_font_size.get_property() else {
         panic!("p FontSize should have value");
     };
-    
+
     let p_size = p_size_val.inner.to_pixels(10.0); // Parent (div) is 10px
     assert_eq!(p_size, 20.0, "p should be 20px (2em * 10px)");
-    
+
     // Check span: 1.5em * 20px = 30px
     let Some(span_computed) = cache.computed_values.get(&span_id) else {
         panic!("span should have computed values");
     };
-    
+
     let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontSize) else {
         panic!("span should have computed FontSize");
     };
-    
+
     let CssProperty::FontSize(span_font_size) = &prop_with_origin.property else {
         panic!("span property should be FontSize");
     };
-    
+
     let Some(span_size_val) = span_font_size.get_property() else {
         panic!("span FontSize should have value");
     };
-    
+
     let span_size = span_size_val.inner.to_pixels(20.0); // Parent (p) is 20px
     assert_eq!(span_size, 30.0, "span should be 30px (1.5em * 20px)");
 }
 
 #[test]
 fn test_em_on_font_size_refers_to_parent() {
-    // CSS Spec: "The exception is when 'em' occurs in the value of the 'font-size' 
+    // CSS Spec: "The exception is when 'em' occurs in the value of the 'font-size'
     // property itself, in which case it refers to the font size of the parent element."
     //
     // <div style="font-size: 20px">
@@ -531,90 +597,100 @@ fn test_em_on_font_size_refers_to_parent() {
     //     </span>
     //   </p>
     // </div>
-    
-    use azul_css::props::layout::spacing::LayoutPaddingLeft;
-    use azul_css::props::basic::pixel::PixelValue;
-    use azul_css::css::CssPropertyValue;
-    
+
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{basic::pixel::PixelValue, layout::spacing::LayoutPaddingLeft},
+    };
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0)))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(20.0),
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::em(1.5)))
-                ].into())
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::em(1.5),
+                    ))]
+                    .into(),
+                )
                 .with_child(
                     Dom::new(NodeType::Span)
-                        .with_inline_css_props(vec![
-                            NodeDataInlineCssProperty::Normal(
-                                CssProperty::PaddingLeft(
-                                    CssPropertyValue::Exact(LayoutPaddingLeft {
-                                        inner: PixelValue::em(2.0)
-                                    })
-                                )
-                            )
-                        ].into())
-                        .with_child(Dom::text("Text"))
-                )
+                        .with_inline_css_props(
+                            vec![NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(
+                                CssPropertyValue::Exact(LayoutPaddingLeft {
+                                    inner: PixelValue::em(2.0),
+                                }),
+                            ))]
+                            .into(),
+                        )
+                        .with_child(Dom::text("Text")),
+                ),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);     // p
-    let span_id = azul_core::dom::NodeId::new(2);  // span
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+    let span_id = azul_core::dom::NodeId::new(2); // span
+
     // p's font-size: 1.5em should refer to parent (div) = 1.5 * 20px = 30px
     let Some(p_computed) = cache.computed_values.get(&p_id) else {
         panic!("p should have computed values");
     };
-    
+
     let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
         panic!("p should have FontSize");
     };
-    
+
     let CssProperty::FontSize(p_font_size) = &prop_with_origin.property else {
         panic!("p property should be FontSize");
     };
-    
+
     let Some(p_size_val) = p_font_size.get_property() else {
         panic!("p FontSize should have value");
     };
-    
+
     let p_size = p_size_val.inner.to_pixels(20.0); // Parent's font-size
-    assert_eq!(p_size, 30.0, 
-        "p font-size: 1.5em should be 30px (1.5 * parent's 20px)");
-    
+    assert_eq!(
+        p_size, 30.0,
+        "p font-size: 1.5em should be 30px (1.5 * parent's 20px)"
+    );
+
     // span's padding-left: 2em should refer to current element (span) = 2 * 30px = 60px
-    // Note: padding is not inherited, but em units in padding resolve against current element's font-size
-    // This is tested indirectly through the computed font-size inheritance
+    // Note: padding is not inherited, but em units in padding resolve against current element's
+    // font-size This is tested indirectly through the computed font-size inheritance
     println!("span's computed font-size should be inherited from p (30px)");
-    
+
     let Some(span_computed) = cache.computed_values.get(&span_id) else {
         panic!("span should have computed values");
     };
-    
+
     // span should inherit the 30px font-size from p
     let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontSize) else {
         panic!("span should have inherited FontSize from p");
     };
-    
+
     let CssProperty::FontSize(span_font_size) = &prop_with_origin.property else {
         panic!("span property should be FontSize");
     };
-    
+
     let Some(span_size_val) = span_font_size.get_property() else {
         panic!("span FontSize should have value");
     };
-    
+
     let span_size = span_size_val.inner.to_pixels(30.0);
-    assert_eq!(span_size, 30.0, 
-        "span should inherit font-size: 30px from p");
+    assert_eq!(
+        span_size, 30.0,
+        "span should inherit font-size: 30px from p"
+    );
 }
 
 #[test]
@@ -623,63 +699,65 @@ fn test_em_without_ancestor_absolute_unit() {
     // <div style="font-size: 2em">  <!-- 2 * 16px (default) = 32px -->
     //   <p>Text</p>  <!-- Inherits 32px -->
     // </div>
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::em(2.0)))
-        ].into())
-        .with_child(
-            Dom::new(NodeType::P)
-                .with_child(Dom::text("Text"))
-        );
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::em(2.0),
+            ))]
+            .into(),
+        )
+        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let div_id = azul_core::dom::NodeId::new(0);  // div
-    let p_id = azul_core::dom::NodeId::new(1);    // p
-    
+
+    let div_id = azul_core::dom::NodeId::new(0); // div
+    let p_id = azul_core::dom::NodeId::new(1); // p
+
     // div should resolve to 2 * 16px (default) = 32px
     let Some(div_computed) = cache.computed_values.get(&div_id) else {
         panic!("div should have computed values");
     };
-    
+
     let Some(prop_with_origin) = div_computed.get(&CssPropertyType::FontSize) else {
         panic!("div should have FontSize");
     };
-    
+
     let CssProperty::FontSize(div_font_size) = &prop_with_origin.property else {
         panic!("div property should be FontSize");
     };
-    
+
     let Some(div_size_val) = div_font_size.get_property() else {
         panic!("div FontSize should have value");
     };
-    
+
     let div_size = div_size_val.inner.to_pixels(16.0); // Default fallback
-    assert_eq!(div_size, 32.0, 
-        "div font-size: 2em without absolute ancestor should be 32px (2 * 16px default)");
-    
+    assert_eq!(
+        div_size, 32.0,
+        "div font-size: 2em without absolute ancestor should be 32px (2 * 16px default)"
+    );
+
     // p should inherit 32px from div
     let Some(p_computed) = cache.computed_values.get(&p_id) else {
         panic!("p should have computed values");
     };
-    
+
     let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
         panic!("p should have inherited FontSize");
     };
-    
+
     let CssProperty::FontSize(p_font_size) = &prop_with_origin.property else {
         panic!("p property should be FontSize");
     };
-    
+
     let Some(p_size_val) = p_font_size.get_property() else {
         panic!("p FontSize should have value");
     };
-    
+
     let p_size = p_size_val.inner.to_pixels(32.0);
     assert_eq!(p_size, 32.0, "p should inherit 32px from parent div");
 }
@@ -694,73 +772,82 @@ fn test_percentage_font_size_inheritance() {
     //     </span>
     //   </p>
     // </div>
-    
+
     use azul_css::props::basic::pixel::PixelValue;
-    
+
     let dom = Dom::div()
-        .with_inline_css_props(vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0)))
-        ].into())
+        .with_inline_css_props(
+            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                StyleFontSize::px(20.0),
+            ))]
+            .into(),
+        )
         .with_child(
             Dom::new(NodeType::P)
-                .with_inline_css_props(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::percent(150.0)))
-                ].into())
+                .with_inline_css_props(
+                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        StyleFontSize::percent(150.0),
+                    ))]
+                    .into(),
+                )
                 .with_child(
                     Dom::new(NodeType::Span)
-                        .with_inline_css_props(vec![
-                            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::percent(80.0)))
-                        ].into())
-                        .with_child(Dom::text("Text"))
-                )
+                        .with_inline_css_props(
+                            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                                StyleFontSize::percent(80.0),
+                            ))]
+                            .into(),
+                        )
+                        .with_child(Dom::text("Text")),
+                ),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
     let node_data = &styled_dom.node_data.as_container().internal[..];
-    
+
     cache.compute_inherited_values(node_hierarchy, node_data);
-    
-    let p_id = azul_core::dom::NodeId::new(1);     // p
-    let span_id = azul_core::dom::NodeId::new(2);  // span
-    
+
+    let p_id = azul_core::dom::NodeId::new(1); // p
+    let span_id = azul_core::dom::NodeId::new(2); // span
+
     // p: 150% of 20px = 30px
     let Some(p_computed) = cache.computed_values.get(&p_id) else {
         panic!("p should have computed values");
     };
-    
+
     let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
         panic!("p should have FontSize");
     };
-    
+
     let CssProperty::FontSize(p_font_size) = &prop_with_origin.property else {
         panic!("p property should be FontSize");
     };
-    
+
     let Some(p_size_val) = p_font_size.get_property() else {
         panic!("p FontSize should have value");
     };
-    
+
     let p_size = p_size_val.inner.to_pixels(20.0); // Parent is 20px
     assert_eq!(p_size, 30.0, "p with 150% should be 30px (1.5 * 20px)");
-    
+
     // span: 80% of 30px = 24px
     let Some(span_computed) = cache.computed_values.get(&span_id) else {
         panic!("span should have computed values");
     };
-    
+
     let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontSize) else {
         panic!("span should have FontSize");
     };
-    
+
     let CssProperty::FontSize(span_font_size) = &prop_with_origin.property else {
         panic!("span property should be FontSize");
     };
-    
+
     let Some(span_size_val) = span_font_size.get_property() else {
         panic!("span FontSize should have value");
     };
-    
+
     let span_size = span_size_val.inner.to_pixels(30.0); // Parent is 30px
     assert_eq!(span_size, 24.0, "span with 80% should be 24px (0.8 * 30px)");
 }

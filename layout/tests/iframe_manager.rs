@@ -7,9 +7,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     task::{Duration, Instant, SystemTick, SystemTickDiff},
 };
-
-use azul_layout::managers::iframe::IFrameManager;
-use azul_layout::managers::scroll_state::ScrollManager;
+use azul_layout::managers::{iframe::IFrameManager, scroll_state::ScrollManager};
 
 fn test_instant() -> Instant {
     #[cfg(feature = "std")]
@@ -112,8 +110,7 @@ fn test_iframe_manager_bounds_expanded() {
         LogicalSize::new(800.0, 600.0),
     );
 
-    let reason =
-        iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
+    let reason = iframe_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
     assert_eq!(reason, Some(IFrameCallbackReason::BoundsExpanded));
 }
 

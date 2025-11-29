@@ -458,7 +458,6 @@ pub enum NodeType {
     Placeholder,
 
     // Special content types
-    
     /// Text content, ::text
     Text(AzString),
     /// Image element, ::image
@@ -468,7 +467,6 @@ pub enum NodeType {
 }
 
 impl NodeType {
-
     fn into_library_owned_nodetype(&self) -> Self {
         use self::NodeType::*;
         match self {
@@ -2545,7 +2543,7 @@ impl NodeData {
     pub fn get_context_menu(&self) -> Option<&Box<Menu>> {
         self.extra.as_ref().and_then(|e| e.context_menu.as_ref())
     }
-    
+
     /// Returns whether this node is an anonymous box generated for table layout.
     #[inline]
     pub fn is_anonymous(&self) -> bool {
@@ -2588,7 +2586,7 @@ impl NodeData {
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
             .accessibility = Some(Box::new(accessibility_info));
     }
-    
+
     /// Marks this node as an anonymous box (generated for table layout).
     #[inline]
     pub fn set_anonymous(&mut self, is_anonymous: bool) {

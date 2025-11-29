@@ -1,22 +1,28 @@
-use azul_core::dom::{Dom, IdOrClass};
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    styled_dom::{NodeHierarchyItemId, StyledDom},
+};
 use azul_css::parser2::CssApiWrapper;
-use azul_layout::window::LayoutWindow;
-use azul_layout::callbacks::ExternalSystemCallbacks;
-use azul_layout::window_state::FullWindowState;
-use azul_core::resources::RendererResources;
-use azul_core::styled_dom::StyledDom;
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
 use rust_fontconfig::FcFontCache;
-use azul_core::geom::LogicalSize;
-use azul_core::dom::{DomId, DomNodeId, NodeId};
-use azul_core::styled_dom::NodeHierarchyItemId;
 
 #[test]
 fn test_margin_collapsing() {
     // 1. Create DOM
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()))
-        .with_child(Dom::p().with_child(Dom::text("Paragraph")).with_ids_and_classes(vec![IdOrClass::Class("my-p".into())].into()));
+        .with_child(
+            Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
+        )
+        .with_child(
+            Dom::p()
+                .with_child(Dom::text("Paragraph"))
+                .with_ids_and_classes(vec![IdOrClass::Class("my-p".into())].into()),
+        );
 
     // 2. Parse CSS
     let css_str = r#"
@@ -44,7 +50,7 @@ fn test_margin_collapsing() {
     let styled_dom = StyledDom::new(&mut dom, css_wrapper);
 
     // 4. Initialize LayoutWindow
-    let font_cache = FcFontCache::build(); 
+    let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
 
     // 5. Run layout
@@ -54,13 +60,15 @@ fn test_margin_collapsing() {
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
 
-    layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &system_callbacks,
-        &mut debug_messages,
-    ).unwrap();
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
 
     // 6. Check positions
     // Root is at index 0
@@ -68,16 +76,22 @@ fn test_margin_collapsing() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
-    
-    let h1_id = layout_window.get_first_child(root_id).expect("h1 not found");
+
+    let h1_id = layout_window
+        .get_first_child(root_id)
+        .expect("h1 not found");
     let p_id = layout_window.get_next_sibling(h1_id).expect("p not found");
-    
-    let h1_rect = layout_window.get_node_layout_rect(h1_id).expect("h1 rect not found");
-    let p_rect = layout_window.get_node_layout_rect(p_id).expect("p rect not found");
-    
+
+    let h1_rect = layout_window
+        .get_node_layout_rect(h1_id)
+        .expect("h1 rect not found");
+    let p_rect = layout_window
+        .get_node_layout_rect(p_id)
+        .expect("p rect not found");
+
     println!("H1: {:?}", h1_rect);
     println!("P: {:?}", p_rect);
-    
+
     // Expected behavior with border on root:
     // Root has 1px border.
     // H1 margin-top is 0px (overridden).
@@ -87,7 +101,11 @@ fn test_margin_collapsing() {
     // P margin-top 20.
     // Collapsed margin = 30.
     // P y = 1 + 50 + 30 = 81.
-    
+
     assert_eq!(h1_rect.origin.y, 1.0);
-    assert_eq!(p_rect.origin.y, 81.0, "Margins did not collapse correctly! Expected 81.0, got {}", p_rect.origin.y);
+    assert_eq!(
+        p_rect.origin.y, 81.0,
+        "Margins did not collapse correctly! Expected 81.0, got {}",
+        p_rect.origin.y
+    );
 }

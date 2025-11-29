@@ -8,7 +8,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Html,
     NodeTypeTag::Head,
     NodeTypeTag::Body,
-
     // Block-level elements
     NodeTypeTag::Div,
     NodeTypeTag::P,
@@ -21,7 +20,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Main,
     NodeTypeTag::Figure,
     NodeTypeTag::FigCaption,
-
     // Headings
     NodeTypeTag::H1,
     NodeTypeTag::H2,
@@ -29,7 +27,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::H4,
     NodeTypeTag::H5,
     NodeTypeTag::H6,
-
     // Inline text
     NodeTypeTag::Br,
     NodeTypeTag::Hr,
@@ -39,7 +36,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Details,
     NodeTypeTag::Summary,
     NodeTypeTag::Dialog,
-
     // Lists
     NodeTypeTag::Ul,
     NodeTypeTag::Ol,
@@ -50,7 +46,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Menu,
     NodeTypeTag::MenuItem,
     NodeTypeTag::Dir,
-
     // Tables
     NodeTypeTag::Table,
     NodeTypeTag::Caption,
@@ -62,7 +57,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Td,
     NodeTypeTag::ColGroup,
     NodeTypeTag::Col,
-
     // Forms
     NodeTypeTag::Form,
     NodeTypeTag::FieldSet,
@@ -78,7 +72,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Progress,
     NodeTypeTag::Meter,
     NodeTypeTag::DataList,
-
     // Inline elements
     NodeTypeTag::Span,
     NodeTypeTag::A,
@@ -113,7 +106,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Rtc,
     NodeTypeTag::Rp,
     NodeTypeTag::Data,
-
     // Embedded content
     NodeTypeTag::Canvas,
     NodeTypeTag::Object,
@@ -126,7 +118,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Map,
     NodeTypeTag::Area,
     NodeTypeTag::Svg,
-
     // Metadata
     NodeTypeTag::Title,
     NodeTypeTag::Meta,
@@ -134,7 +125,6 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Script,
     NodeTypeTag::Style,
     NodeTypeTag::Base,
-
     // Special HTML elements
     NodeTypeTag::Img,
     NodeTypeTag::IFrame,
@@ -145,7 +135,7 @@ const HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
 const NON_HTML_ELEMENT_TAGS: &[NodeTypeTag] = &[
     NodeTypeTag::Text,        // Internal text node, not an HTML element
     NodeTypeTag::Before,      // ::before pseudo-element
-    NodeTypeTag::After,       // ::after pseudo-element  
+    NodeTypeTag::After,       // ::after pseudo-element
     NodeTypeTag::Marker,      // ::marker pseudo-element
     NodeTypeTag::Placeholder, // ::placeholder pseudo-element
 ];
@@ -156,10 +146,10 @@ fn test_node_type_tag_from_str_roundtrip() {
     for &tag in HTML_ELEMENT_TAGS {
         // Convert tag to string
         let tag_str = format!("{}", tag);
-        
+
         // Parse the string back to tag
         let parsed = NodeTypeTag::from_str(&tag_str);
-        
+
         // Verify round-trip works
         assert!(
             parsed.is_ok(),
@@ -167,7 +157,7 @@ fn test_node_type_tag_from_str_roundtrip() {
             tag_str,
             tag
         );
-        
+
         let parsed_tag = parsed.unwrap();
         assert_eq!(
             tag, parsed_tag,
@@ -183,11 +173,15 @@ fn test_node_type_tag_from_str_roundtrip() {
 fn test_node_type_tag_non_html_elements() {
     // Text is an internal node type - doesn't need to be parseable from CSS
     // Pseudo-elements display with :: prefix
-    
+
     // Just verify they can be formatted without panicking
     for &tag in NON_HTML_ELEMENT_TAGS {
         let tag_str = format!("{}", tag);
-        assert!(!tag_str.is_empty(), "Tag {:?} formatted to empty string", tag);
+        assert!(
+            !tag_str.is_empty(),
+            "Tag {:?} formatted to empty string",
+            tag
+        );
     }
 }
 
@@ -217,14 +211,10 @@ fn test_node_type_tag_common_tags() {
         ("button", NodeTypeTag::Button),
         ("form", NodeTypeTag::Form),
     ];
-    
+
     for (tag_str, expected) in test_cases {
         let result = NodeTypeTag::from_str(tag_str);
-        assert!(
-            result.is_ok(),
-            "Failed to parse common tag: '{}'",
-            tag_str
-        );
+        assert!(result.is_ok(), "Failed to parse common tag: '{}'", tag_str);
         assert_eq!(
             result.unwrap(),
             expected,
@@ -238,14 +228,10 @@ fn test_node_type_tag_common_tags() {
 #[test]
 fn test_node_type_tag_invalid() {
     let invalid_tags = vec![
-        "invalid",
-        "foo",
-        "bar",
-        "DIV",  // Case sensitive - should fail
-        "Div",
-        "TABLE",
+        "invalid", "foo", "bar", "DIV", // Case sensitive - should fail
+        "Div", "TABLE",
     ];
-    
+
     for tag_str in invalid_tags {
         let result = NodeTypeTag::from_str(tag_str);
         assert!(
@@ -271,7 +257,7 @@ fn test_node_type_tag_pseudo_elements() {
         ("placeholder", NodeTypeTag::Placeholder),
         ("::placeholder", NodeTypeTag::Placeholder),
     ];
-    
+
     for (tag_str, expected) in test_cases {
         let result = NodeTypeTag::from_str(tag_str);
         assert!(

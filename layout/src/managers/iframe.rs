@@ -245,7 +245,6 @@ impl IFrameManager {
 }
 
 impl IFrameState {
-
     /// Creates a new IFrameState with the given nested DOM ID
     fn new(nested_dom_id: DomId) -> Self {
         Self {
@@ -260,7 +259,7 @@ impl IFrameState {
         }
     }
 
-    /// Determines if the IFrame callback should be re-invoked based on 
+    /// Determines if the IFrame callback should be re-invoked based on
     // scroll position
     ///
     /// Checks two conditions:
@@ -271,7 +270,6 @@ impl IFrameState {
         current_offset: LogicalPosition,
         container_size: LogicalSize,
     ) -> Option<IFrameCallbackReason> {
-        
         // Need scroll_size to determine if we can scroll at all
         let Some(scroll_size) = self.iframe_scroll_size else {
             return None;

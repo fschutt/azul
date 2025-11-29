@@ -44,7 +44,7 @@ macro_rules! define_dimension_property {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutWidth {
-    Auto,  // NEW: Represents CSS 'auto' or unset value
+    Auto, // NEW: Represents CSS 'auto' or unset value
     Px(PixelValue),
     MinContent,
     MaxContent,
@@ -52,7 +52,7 @@ pub enum LayoutWidth {
 
 impl Default for LayoutWidth {
     fn default() -> Self {
-        LayoutWidth::Auto  // FIXED: Auto is now the default, not Px(0)
+        LayoutWidth::Auto // FIXED: Auto is now the default, not Px(0)
     }
 }
 
@@ -101,7 +101,7 @@ impl LayoutWidth {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutHeight {
-    Auto,  // NEW: Represents CSS 'auto' or unset value
+    Auto, // NEW: Represents CSS 'auto' or unset value
     Px(PixelValue),
     MinContent,
     MaxContent,
@@ -109,7 +109,7 @@ pub enum LayoutHeight {
 
 impl Default for LayoutHeight {
     fn default() -> Self {
-        LayoutHeight::Auto  // FIXED: Auto is now the default, not Px(0)
+        LayoutHeight::Auto // FIXED: Auto is now the default, not Px(0)
     }
 }
 

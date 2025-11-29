@@ -3,13 +3,13 @@
 //! The viewport size is a fundamental input to the entire layout process.
 //! A change in viewport size must trigger a relayout.
 //!
-//! 1. The `layout_document` function takes the `viewport` as an argument. The `LayoutCache` now
-//!    also stores the `viewport` from the previous frame.
+//! 1. The `layout_document` function takes the `viewport` as an argument. The `LayoutCache` stores
+//!    the `viewport` from the previous frame.
 //! 2. The `reconcile_and_invalidate` function detects that the viewport has changed size
 //! 3. This single change—marking the root as a layout root—forces a full top-down pass
 //!    (`calculate_layout_for_subtree` starting from the root). This correctly recalculates all
 //!    percentage-based sizes and repositions all elements according to the new viewport dimensions.
-//!    The intrinsic size calculation (bottom-up) can often be skipped, as it's independent of the
+//! 4. The intrinsic size calculation (bottom-up) can often be skipped, as it's independent of the
 //!    container size, which is a significant optimization.
 
 use std::{
@@ -49,46 +49,6 @@ use crate::{
     text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
-/// Convert LayoutOverflow to OverflowBehavior
-fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
-    match overflow.unwrap_or_default() {
-        LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
-        LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
-        LayoutOverflow::Scroll => fc::OverflowBehavior::Scroll,
-        LayoutOverflow::Auto => fc::OverflowBehavior::Auto,
-    }
-}
-
-/// Collects DOM child IDs from the node hierarchy into a Vec.
-/// 
-/// This is a helper function that flattens the sibling iteration into a simple loop.
-fn collect_children_dom_ids(
-    styled_dom: &StyledDom,
-    parent_dom_id: NodeId,
-) -> Vec<NodeId> {
-    let hierarchy_container = styled_dom.node_hierarchy.as_container();
-    let mut children = Vec::new();
-    
-    let Some(hierarchy_item) = hierarchy_container.get(parent_dom_id) else {
-        return children;
-    };
-    
-    let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
-        return children;
-    };
-    
-    children.push(child_id);
-    while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
-        let Some(next) = hierarchy_item.next_sibling_id() else {
-            break;
-        };
-        children.push(next);
-        child_id = next;
-    }
-    
-    children
-}
-
 /// The persistent cache that holds the layout state between frames.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
@@ -104,7 +64,8 @@ pub struct LayoutCache {
     pub scroll_id_to_node_id: BTreeMap<u64, NodeId>,
     /// CSS counter values for each node and counter name.
     /// Key: (layout_index, counter_name), Value: counter value
-    /// This stores the computed counter values after processing counter-reset and counter-increment.
+    /// This stores the computed counter values after processing counter-reset and
+    /// counter-increment.
     pub counters: BTreeMap<(usize, String), i32>,
     /// Cache of positioned floats for each BFC node (layout_index -> FloatingContext).
     /// This persists float positions across multiple layout passes, ensuring IFC children
@@ -190,8 +151,45 @@ pub fn reposition_clean_subtrees(
     }
 }
 
+/// Convert LayoutOverflow to OverflowBehavior
+pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
+    match overflow.unwrap_or_default() {
+        LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
+        LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
+        LayoutOverflow::Scroll => fc::OverflowBehavior::Scroll,
+        LayoutOverflow::Auto => fc::OverflowBehavior::Auto,
+    }
+}
+
+/// Collects DOM child IDs from the node hierarchy into a Vec.
+///
+/// This is a helper function that flattens the sibling iteration into a simple loop.
+pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
+    let hierarchy_container = styled_dom.node_hierarchy.as_container();
+    let mut children = Vec::new();
+
+    let Some(hierarchy_item) = hierarchy_container.get(parent_dom_id) else {
+        return children;
+    };
+
+    let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
+        return children;
+    };
+
+    children.push(child_id);
+    while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
+        let Some(next) = hierarchy_item.next_sibling_id() else {
+            break;
+        };
+        children.push(next);
+        child_id = next;
+    }
+
+    children
+}
+
 /// Checks if a flex container is simple enough to be treated like a block-stack for repositioning.
-fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
+pub fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool {
     let Some(id) = dom_id else { return false };
     let binding = styled_dom.styled_nodes.as_container();
     let styled_node = match binding.get(id) {
@@ -230,7 +228,7 @@ fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> bool 
 /// Repositions clean children within a simple block-flow layout (like a BFC or a table-row-group).
 /// It stacks children along the main axis, preserving their previously calculated cross-axis
 /// alignment.
-fn reposition_block_flow_siblings(
+pub fn reposition_block_flow_siblings(
     styled_dom: &StyledDom,
     parent_idx: usize,
     parent_node: &LayoutNode,
@@ -414,7 +412,12 @@ pub fn reconcile_recursive(
     let is_dirty = old_node.map_or(true, |n| new_node_data_hash != n.node_data_hash);
 
     let new_node_idx = if is_dirty {
-        new_tree_builder.create_node_from_dom(styled_dom, new_dom_id, new_parent_idx, debug_messages)?
+        new_tree_builder.create_node_from_dom(
+            styled_dom,
+            new_dom_id,
+            new_parent_idx,
+            debug_messages,
+        )?
     } else {
         new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx)
     };
@@ -427,11 +430,11 @@ pub fn reconcile_recursive(
         let node_data = &styled_dom.node_data.as_container()[new_dom_id];
         let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].state;
         let cache = &styled_dom.css_property_cache.ptr;
-        
+
         let display = cache
             .get_display(node_data, &new_dom_id, node_state)
             .and_then(|v| v.get_property().copied());
-        
+
         if matches!(display, Some(LayoutDisplay::ListItem)) {
             // Create ::marker pseudo-element for this list-item
             new_tree_builder.create_marker_pseudo_element(styled_dom, new_dom_id, new_node_idx);
@@ -526,7 +529,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let dom_id = node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
 
-        // --- Phase 1: Calculate this node's PROVISIONAL used size ---
+        // Phase 1: Calculate this node's provisional used size
+
         // This size is based on the node's CSS properties (width, height, etc.) and
         // its containing block. If height is 'auto', this is a temporary value.
         let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
@@ -538,7 +542,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             &node.box_props,
         )?;
 
-        // --- Phase 2: Layout children using a formatting context ---
+        // Phase 2: Layout children using a formatting context
 
         // Fetch the writing mode for the current context.
         let styled_node_state = ctx
@@ -548,8 +552,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             .get(dom_id)
             .map(|n| n.state.clone())
             .unwrap_or_default();
-        let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(); // This should come from the node's style.
-        let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+        let writing_mode =
+            get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(); // This should come from the node's style.
+        let text_align =
+            get_text_align(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
         // IMPORTANT: For the available_size that we pass to children, we need to use
         // the containing_block_size if the current node's height is 'auto'.
@@ -559,7 +565,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let available_size_for_children = if should_use_content_height(&css_height) {
             // Height is auto - use containing block size as available size
             let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
-            
+
             LogicalSize {
                 width: inner_size.width,
                 height: containing_block_size.height, // Use containing block height!
@@ -592,14 +598,15 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         )
     };
 
-    let layout_result = layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
+    let layout_result =
+        layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
     let content_size = layout_result.output.overflow_size;
-    
-    // Note: escaped_top_margin is handled by the PARENT when positioning this node,
+
+    // Note: escaped_top_margin is handled by the **parent** when positioning this node,
     // not by adjusting our own content-box position. The content-box is always at
     // (border+padding) offset from the margin-box, regardless of escaped margins.
 
-    // --- Phase 2.5: Resolve 'auto' main-axis size ---
+    // Phase 2.5: Resolve 'auto' main-axis size
 
     // If the node's main-axis size depends on its content, we update its used size now.
     let styled_node_state = ctx
@@ -622,10 +629,13 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         );
     }
 
-    // --- Phase 3: Check for scrollbars and potential reflow ---
-    // IMPORTANT: Skip scrollbar handling for paged media (PDF) - scrollbars don't exist in print
+    // Phase 3: Check for scrollbars and potential reflow
+    //
+    // Important: Skip scrollbar handling for paged media (PDF) -
+    // scrollbars don't exist in print mediums
+
     let skip_scrollbar_check = ctx.fragmentation_context.is_some();
-    
+
     let scrollbar_info = if skip_scrollbar_check {
         // For PDF/paged media, never add scrollbars
         crate::solver3::scrollbar::ScrollbarInfo {
@@ -637,7 +647,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     } else {
         let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state);
         let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
-        
+
         fc::check_scrollbar_necessity(
             content_size,
             box_props.inner_size(final_used_size, writing_mode),
@@ -647,22 +657,28 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     };
 
     // Check if scrollbar situation changed compared to previous layout
-    // IMPORTANT: To prevent oscillation, we only trigger reflow when scrollbars
-    // are ADDED, never when they would be REMOVED. This is because:
+    //
+    // **Important**: To prevent oscillation, we only trigger reflow when scrollbars
+    // are *added*, never when they would be *removed*. This is because:
+    ///
     // 1. Adding scrollbars reduces available space → content reflows → may fit
     // 2. Removing scrollbars increases space → content reflows → may overflow again
-    // This creates an infinite loop. By only allowing transitions TO scrollbars,
+    //
+    // This creates an infinite loop. By only allowing transitions *to* scrollbars,
     // we reach a stable state where scrollbars are present if ever needed.
     let scrollbar_changed = if skip_scrollbar_check {
-        false // Never trigger reflow for scrollbars in paged media
+        // Never trigger reflow for scrollbars in paged media
+        false
     } else {
         let current_node = tree.get(node_index).unwrap();
         match &current_node.scrollbar_info {
-            None => scrollbar_info.needs_reflow(), /* First layout, check if scrollbars will reduce size */
+            // First layout, check if scrollbars will reduce size
+            None => scrollbar_info.needs_reflow(),
             Some(old_info) => {
                 // Only trigger reflow if scrollbars are being ADDED, not removed
                 // This prevents the classic scrollbar oscillation problem
-                let adding_horizontal = !old_info.needs_horizontal && scrollbar_info.needs_horizontal;
+                let adding_horizontal =
+                    !old_info.needs_horizontal && scrollbar_info.needs_horizontal;
                 let adding_vertical = !old_info.needs_vertical && scrollbar_info.needs_vertical;
                 adding_horizontal || adding_vertical
             }
@@ -672,21 +688,32 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // Mark that a reflow is needed, but DON'T return early - continue processing
     // children so that ALL nodes get their scrollbar_info set in a single pass.
     // This ensures we only need one reflow iteration instead of multiple.
+
     if scrollbar_changed {
         *reflow_needed_for_scrollbars = true;
     }
 
-    // IMPORTANT: Merge scrollbar info - once scrollbars are needed, keep them.
+    // **Important**: Merge scrollbar info - once scrollbars are needed, keep them.
+    //
     // This prevents the oscillation problem where content reflows to fit without
     // scrollbars, but then overflows again when scrollbars are removed.
+
     let merged_scrollbar_info = {
         let current_node = tree.get(node_index).unwrap();
         match &current_node.scrollbar_info {
             Some(old) => crate::solver3::scrollbar::ScrollbarInfo {
                 needs_horizontal: old.needs_horizontal || scrollbar_info.needs_horizontal,
                 needs_vertical: old.needs_vertical || scrollbar_info.needs_vertical,
-                scrollbar_width: if old.needs_vertical || scrollbar_info.needs_vertical { 16.0 } else { 0.0 },
-                scrollbar_height: if old.needs_horizontal || scrollbar_info.needs_horizontal { 16.0 } else { 0.0 },
+                scrollbar_width: if old.needs_vertical || scrollbar_info.needs_vertical {
+                    16.0
+                } else {
+                    0.0
+                },
+                scrollbar_height: if old.needs_horizontal || scrollbar_info.needs_horizontal {
+                    16.0
+                } else {
+                    0.0
+                },
             },
             None => scrollbar_info.clone(),
         }
@@ -695,42 +722,67 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     let content_box_size = box_props.inner_size(final_used_size, writing_mode);
     let inner_size_after_scrollbars = merged_scrollbar_info.shrink_size(content_box_size);
 
-    // --- Phase 4: Update self and recurse to children ---
+    // Phase 4: Update self and recurse to children
+
     let current_node = tree.get_mut(node_index).unwrap();
-    
-    // IMPORTANT: Table cells get their size set by the table layout algorithm (position_table_cells).
-    // We should NOT overwrite it here, as that would reset the height to 0 (from inline content).
-    // Only set used_size if it hasn't been set yet, or if this is not a table cell.
-    let is_table_cell = matches!(current_node.formatting_context, FormattingContext::TableCell);
+
+    // IMPORTANT: Table cells get their size set by the table layout algorithm
+    // (position_table_cells). We should NOT overwrite it here, as that would reset the height
+    // to 0 (from inline content). Only set used_size if it hasn't been set yet, or if this is
+    // not a table cell.
+    let is_table_cell = matches!(
+        current_node.formatting_context,
+        FormattingContext::TableCell
+    );
     if !is_table_cell || current_node.used_size.is_none() {
         current_node.used_size = Some(final_used_size);
     }
-    
+
     current_node.scrollbar_info = Some(merged_scrollbar_info);
 
     // The absolute position of this node's content-box for its children.
     // containing_block_pos is the absolute position of this node's margin-box.
-    // To get to the content-box, we add: border + padding (NOT margin, that's already in containing_block_pos)
+    // To get to the content-box, we add: border + padding (NOT margin, that's already in
+    // containing_block_pos)
     let self_content_box_pos = LogicalPosition::new(
-        containing_block_pos.x + current_node.box_props.border.left + current_node.box_props.padding.left,
-        containing_block_pos.y + current_node.box_props.border.top + current_node.box_props.padding.top,
+        containing_block_pos.x
+            + current_node.box_props.border.left
+            + current_node.box_props.padding.left,
+        containing_block_pos.y
+            + current_node.box_props.border.top
+            + current_node.box_props.padding.top,
     );
 
     // DEBUG: Log content-box calculation
     if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
-        let dom_name = current_node.dom_node_id
-            .and_then(|id| ctx.styled_dom.node_data.as_container().internal.get(id.index()))
+        let dom_name = current_node
+            .dom_node_id
+            .and_then(|id| {
+                ctx.styled_dom
+                    .node_data
+                    .as_container()
+                    .internal
+                    .get(id.index())
+            })
             .map(|n| format!("{:?}", n.node_type))
             .unwrap_or_else(|| "Unknown".to_string());
-        
+
         debug_msgs.push(LayoutDebugMessage::new(
             LayoutDebugMessageType::PositionCalculation,
-            format!("[CONTENT BOX {}] {} - margin-box pos=({:.2}, {:.2}) + border=({:.2},{:.2}) + padding=({:.2},{:.2}) = content-box pos=({:.2}, {:.2})",
-                node_index, dom_name, 
-                containing_block_pos.x, containing_block_pos.y,
-                current_node.box_props.border.left, current_node.box_props.border.top,
-                current_node.box_props.padding.left, current_node.box_props.padding.top,
-                self_content_box_pos.x, self_content_box_pos.y)
+            format!(
+                "[CONTENT BOX {}] {} - margin-box pos=({:.2}, {:.2}) + border=({:.2},{:.2}) + \
+                 padding=({:.2},{:.2}) = content-box pos=({:.2}, {:.2})",
+                node_index,
+                dom_name,
+                containing_block_pos.x,
+                containing_block_pos.y,
+                current_node.box_props.border.left,
+                current_node.box_props.border.top,
+                current_node.box_props.padding.left,
+                current_node.box_props.padding.top,
+                self_content_box_pos.x,
+                self_content_box_pos.y
+            ),
         ));
     }
 
@@ -759,27 +811,42 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             self_content_box_pos.x + child_relative_pos.x,
             self_content_box_pos.y + child_relative_pos.y,
         );
-        
+
         // DEBUG: Log child positioning
         if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
-            let child_dom_name = child_node.dom_node_id
-                .and_then(|id| ctx.styled_dom.node_data.as_container().internal.get(id.index()))
+            let child_dom_name = child_node
+                .dom_node_id
+                .and_then(|id| {
+                    ctx.styled_dom
+                        .node_data
+                        .as_container()
+                        .internal
+                        .get(id.index())
+                })
                 .map(|n| format!("{:?}", n.node_type))
                 .unwrap_or_else(|| "Unknown".to_string());
-            
+
             debug_msgs.push(LayoutDebugMessage::new(
                 LayoutDebugMessageType::PositionCalculation,
-                format!("[CHILD POS {}] {} - parent content-box=({:.2}, {:.2}) + relative=({:.2}, {:.2}) + margin=({:.2}, {:.2}) = absolute=({:.2}, {:.2})",
-                    child_index, child_dom_name,
-                    self_content_box_pos.x, self_content_box_pos.y,
-                    child_relative_pos.x, child_relative_pos.y,
-                    child_node.box_props.margin.left, child_node.box_props.margin.top,
-                    child_absolute_pos.x, child_absolute_pos.y)
+                format!(
+                    "[CHILD POS {}] {} - parent content-box=({:.2}, {:.2}) + relative=({:.2}, \
+                     {:.2}) + margin=({:.2}, {:.2}) = absolute=({:.2}, {:.2})",
+                    child_index,
+                    child_dom_name,
+                    self_content_box_pos.x,
+                    self_content_box_pos.y,
+                    child_relative_pos.x,
+                    child_relative_pos.y,
+                    child_node.box_props.margin.left,
+                    child_node.box_props.margin.top,
+                    child_absolute_pos.x,
+                    child_absolute_pos.y
+                ),
             ));
         }
-        
+
         calculated_positions.insert(child_index, child_absolute_pos);
-        
+
         // NOTE: page_index assignment has been REMOVED from LayoutNode
         // Pagination is now handled via the "infinite canvas with slicer" approach:
         // - Layout happens on ONE continuous vertical strip
@@ -802,14 +869,17 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             // Get the child's content-box position (child_absolute_pos is margin-box)
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_content_box_pos = LogicalPosition::new(
-                child_absolute_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
-                child_absolute_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+                child_absolute_pos.x
+                    + child_node.box_props.border.left
+                    + child_node.box_props.padding.left,
+                child_absolute_pos.y
+                    + child_node.box_props.border.top
+                    + child_node.box_props.padding.top,
             );
-            let child_inner_size = child_node.box_props.inner_size(
-                child_node.used_size.unwrap_or_default(),
-                writing_mode
-            );
-            
+            let child_inner_size = child_node
+                .box_props
+                .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
+
             // Recursively process the grandchildren
             position_flex_child_descendants(
                 ctx,
@@ -846,7 +916,9 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     // but they still need a static position for when no explicit offsets are specified
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let current_node = tree.get(node_index).unwrap();
-        current_node.children.iter()
+        current_node
+            .children
+            .iter()
             .filter_map(|&child_index| {
                 if calculated_positions.contains_key(&child_index) {
                     None
@@ -857,16 +929,18 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             })
             .collect()
     };
-    
+
     for (child_index, child_dom_id_opt) in out_of_flow_children {
         if let Some(child_dom_id) = child_dom_id_opt {
-            let position_type = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
-            if position_type == azul_css::props::layout::LayoutPosition::Absolute 
-                || position_type == azul_css::props::layout::LayoutPosition::Fixed {
+            let position_type =
+                crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            if position_type == azul_css::props::layout::LayoutPosition::Absolute
+                || position_type == azul_css::props::layout::LayoutPosition::Fixed
+            {
                 // Set static position to parent's content-box origin
                 // This is where the element would appear if it were in normal flow
                 calculated_positions.insert(child_index, self_content_box_pos);
-                
+
                 // Recursively set static positions for nested out-of-flow descendants
                 // but DON'T do full layout (that happens in position_out_of_flow_elements)
                 set_static_positions_recursive(
@@ -886,7 +960,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
 /// Recursively set static positions for out-of-flow descendants without doing layout
 /// Recursively positions descendants of Flex/Grid children.
-/// 
+///
 /// When a Flex container lays out its children via Taffy, the children have their
 /// used_size and relative_position set, but their GRANDCHILDREN don't have positions
 /// in calculated_positions yet. This function traverses down the tree and positions
@@ -905,7 +979,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
     let children: Vec<usize> = node.children.clone();
     let fc = node.formatting_context.clone();
-    
+
     // If this node is itself a Flex/Grid container, its children were laid out by Taffy
     // and already have relative_position set. We just need to convert to absolute and recurse.
     if matches!(fc, FormattingContext::Flex | FormattingContext::Grid) {
@@ -916,25 +990,35 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
                 content_box_pos.x + child_rel_pos.x,
                 content_box_pos.y + child_rel_pos.y,
             );
-            
+
             // Insert position
             calculated_positions.insert(child_index, child_abs_pos);
-            
+
             // Get child's content box for recursion
             let child_content_box = LogicalPosition::new(
-                child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
-                child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+                child_abs_pos.x
+                    + child_node.box_props.border.left
+                    + child_node.box_props.padding.left,
+                child_abs_pos.y
+                    + child_node.box_props.border.top
+                    + child_node.box_props.padding.top,
             );
             let child_inner_size = child_node.box_props.inner_size(
                 child_node.used_size.unwrap_or_default(),
                 azul_css::props::layout::LayoutWritingMode::HorizontalTb,
             );
-            
+
             // Recurse
             position_flex_child_descendants(
-                ctx, tree, text_cache, child_index,
-                child_content_box, child_inner_size,
-                calculated_positions, reflow_needed_for_scrollbars, float_cache,
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                child_content_box,
+                child_inner_size,
+                calculated_positions,
+                reflow_needed_for_scrollbars,
+                float_cache,
             )?;
         }
     } else {
@@ -942,7 +1026,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
         // Use the output.positions from their own layout
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let children: Vec<usize> = node.children.clone();
-        
+
         for &child_index in &children {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_rel_pos = child_node.relative_position.unwrap_or_default();
@@ -950,29 +1034,39 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
                 content_box_pos.x + child_rel_pos.x,
                 content_box_pos.y + child_rel_pos.y,
             );
-            
+
             // Insert position
             calculated_positions.insert(child_index, child_abs_pos);
-            
+
             // Get child's content box for recursion
             let child_content_box = LogicalPosition::new(
-                child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
-                child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+                child_abs_pos.x
+                    + child_node.box_props.border.left
+                    + child_node.box_props.padding.left,
+                child_abs_pos.y
+                    + child_node.box_props.border.top
+                    + child_node.box_props.padding.top,
             );
             let child_inner_size = child_node.box_props.inner_size(
                 child_node.used_size.unwrap_or_default(),
                 azul_css::props::layout::LayoutWritingMode::HorizontalTb,
             );
-            
+
             // Recurse
             position_flex_child_descendants(
-                ctx, tree, text_cache, child_index,
-                child_content_box, child_inner_size,
-                calculated_positions, reflow_needed_for_scrollbars, float_cache,
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                child_content_box,
+                child_inner_size,
+                calculated_positions,
+                reflow_needed_for_scrollbars,
+                float_cache,
             )?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -986,7 +1080,8 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
 ) -> Result<()> {
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-        node.children.iter()
+        node.children
+            .iter()
             .filter_map(|&child_index| {
                 if calculated_positions.contains_key(&child_index) {
                     None
@@ -997,14 +1092,16 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
             })
             .collect()
     };
-    
+
     for (child_index, child_dom_id_opt) in out_of_flow_children {
         if let Some(child_dom_id) = child_dom_id_opt {
-            let position_type = crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
-            if position_type == azul_css::props::layout::LayoutPosition::Absolute 
-                || position_type == azul_css::props::layout::LayoutPosition::Fixed {
+            let position_type =
+                crate::solver3::positioning::get_position_type(ctx.styled_dom, Some(child_dom_id));
+            if position_type == azul_css::props::layout::LayoutPosition::Absolute
+                || position_type == azul_css::props::layout::LayoutPosition::Fixed
+            {
                 calculated_positions.insert(child_index, parent_content_box_pos);
-                
+
                 // Continue recursively
                 set_static_positions_recursive(
                     ctx,
@@ -1017,12 +1114,14 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
             }
         }
     }
-    
+
     Ok(())
 }
 
 /// Checks if the given CSS height value should use content-based sizing
-fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::LayoutHeight>) -> bool {
+fn should_use_content_height(
+    css_height: &MultiValue<azul_css::props::layout::LayoutHeight>,
+) -> bool {
     match css_height {
         MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
             // Auto/Initial/Inherit height should use content-based sizing
@@ -1037,7 +1136,7 @@ fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::La
                 // Check if it's zero or if it has explicit value
                 // If it's a percentage or em, it's not auto
                 px == &azul_css::props::basic::pixel::PixelValue::zero()
-                    || (px.metric != azul_css::props::basic::SizeMetric::Px 
+                    || (px.metric != azul_css::props::basic::SizeMetric::Px
                         && px.metric != azul_css::props::basic::SizeMetric::Percent
                         && px.metric != azul_css::props::basic::SizeMetric::Em
                         && px.metric != azul_css::props::basic::SizeMetric::Rem)
@@ -1047,18 +1146,18 @@ fn should_use_content_height(css_height: &MultiValue<azul_css::props::layout::La
                 // These are content-based, so they should use the content size
                 true
             }
-        }
+        },
     }
 }
 
 /// Applies content-based height sizing to a node
-/// 
+///
 /// CRITICAL FIX: This function now respects min-height/max-height constraints from Phase 1.
 /// According to CSS 2.2 § 10.7, when height is 'auto', the final height must be:
 ///   max(min_height, min(content_height, max_height))
-/// 
+///
 /// The `used_size` parameter already contains the size constrained by min-height/max-height
-/// from the initial sizing pass. We must take the maximum of this constrained size and 
+/// from the initial sizing pass. We must take the maximum of this constrained size and
 /// the new content-based size to ensure min-height is not lost.
 fn apply_content_based_height(
     mut used_size: LogicalSize,
@@ -1074,11 +1173,11 @@ fn apply_content_based_height(
     // CRITICAL: 'old_main_size' holds the size constrained by min-height/max-height from Phase 1
     let old_main_size = used_size.main(writing_mode);
     let new_main_size = content_size.main(writing_mode) + main_axis_padding_border;
-    
+
     // Final size = max(min_height_constrained_size, content_size)
     // This ensures that min-height is respected even when content is smaller
     let final_main_size = old_main_size.max(new_main_size);
-    
+
     used_size = used_size.with_main(writing_mode, final_main_size);
 
     used_size
@@ -1116,17 +1215,18 @@ pub fn compute_counters(
     tree: &LayoutTree,
     counters: &mut BTreeMap<(usize, String), i32>,
 ) {
-    use azul_css::props::property::CssProperty;
     use std::collections::HashMap;
-    
+
+    use azul_css::props::property::CssProperty;
+
     // Track counter stacks: counter_name -> Vec<value>
     // Each entry in the Vec represents a nested scope
     let mut counter_stacks: HashMap<String, Vec<i32>> = HashMap::new();
-    
+
     // Stack to track which counters were reset at each tree level
     // When we pop back up the tree, we need to pop these counter scopes
     let mut scope_stack: Vec<Vec<String>> = Vec::new();
-    
+
     compute_counters_recursive(
         styled_dom,
         tree,
@@ -1149,7 +1249,7 @@ fn compute_counters_recursive(
         Some(n) => n,
         None => return,
     };
-    
+
     // Skip pseudo-elements (::marker, ::before, ::after) for counter processing
     // Pseudo-elements inherit counter values from their parent element
     // but don't participate in counter-reset or counter-increment themselves
@@ -1163,17 +1263,17 @@ fn compute_counters_recursive(
                 .filter(|((idx, _), _)| *idx == parent_idx)
                 .map(|((_, name), &value)| (name.clone(), value))
                 .collect();
-            
+
             for (counter_name, value) in parent_counters {
                 counters.insert((node_idx, counter_name), value);
             }
         }
-        
+
         // Don't recurse to children of pseudo-elements
         // (pseudo-elements shouldn't have children in normal circumstances)
         return;
     }
-    
+
     // Only process real DOM nodes, not anonymous boxes
     let dom_id = match node.dom_node_id {
         Some(id) => id,
@@ -1192,31 +1292,35 @@ fn compute_counters_recursive(
             return;
         }
     };
-    
+
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
     let cache = &styled_dom.css_property_cache.ptr;
-    
+
     // Track which counters we reset at this level (for cleanup later)
     let mut reset_counters_at_this_level = Vec::new();
-    
+
     // CSS Lists §3: display: list-item automatically increments the "list-item" counter
     // Check if this is a list-item
-    let display = cache.get_display(node_data, &dom_id, node_state)
+    let display = cache
+        .get_display(node_data, &dom_id, node_state)
         .and_then(|d| d.get_property().copied());
-    let is_list_item = matches!(display, Some(azul_css::props::layout::LayoutDisplay::ListItem));
-    
+    let is_list_item = matches!(
+        display,
+        Some(azul_css::props::layout::LayoutDisplay::ListItem)
+    );
+
     // Process counter-reset (now properly typed)
     let counter_reset = cache
         .get_counter_reset(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property());
-    
+
     if let Some(counter_reset) = counter_reset {
         let counter_name_str = counter_reset.counter_name.as_str();
         if counter_name_str != "none" {
             let counter_name = counter_name_str.to_string();
             let reset_value = counter_reset.value;
-            
+
             // Reset the counter by pushing a new scope
             counter_stacks
                 .entry(counter_name.clone())
@@ -1225,18 +1329,18 @@ fn compute_counters_recursive(
             reset_counters_at_this_level.push(counter_name);
         }
     }
-    
+
     // Process counter-increment (now properly typed)
     let counter_inc = cache
         .get_counter_increment(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property());
-    
+
     if let Some(counter_inc) = counter_inc {
         let counter_name_str = counter_inc.counter_name.as_str();
         if counter_name_str != "none" {
             let counter_name = counter_name_str.to_string();
             let inc_value = counter_inc.value;
-            
+
             // Increment the counter in the current scope
             let stack = counter_stacks.entry(counter_name.clone()).or_default();
             if stack.is_empty() {
@@ -1247,7 +1351,7 @@ fn compute_counters_recursive(
             }
         }
     }
-    
+
     // CSS Lists §3: display: list-item automatically increments "list-item" counter
     if is_list_item {
         let counter_name = "list-item".to_string();
@@ -1261,17 +1365,17 @@ fn compute_counters_recursive(
             }
         }
     }
-    
+
     // Store the current counter values for this node
     for (counter_name, stack) in counter_stacks.iter() {
         if let Some(&value) = stack.last() {
             counters.insert((node_idx, counter_name.clone()), value);
         }
     }
-    
+
     // Push scope tracking for cleanup
     scope_stack.push(reset_counters_at_this_level.clone());
-    
+
     // Recurse to children
     for &child_idx in &node.children {
         compute_counters_recursive(
@@ -1283,7 +1387,7 @@ fn compute_counters_recursive(
             scope_stack,
         );
     }
-    
+
     // Pop counter scopes that were created at this level
     if let Some(reset_counters) = scope_stack.pop() {
         for counter_name in reset_counters {

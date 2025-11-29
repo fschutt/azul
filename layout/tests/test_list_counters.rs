@@ -4,8 +4,8 @@
 //! 1. Counter formatting works correctly (decimal, roman, alpha, etc.)
 //! 2. Counter reset logic handles values correctly
 
-use azul_layout::solver3::counters::format_counter;
 use azul_css::props::style::lists::StyleListStyleType;
+use azul_layout::solver3::counters::format_counter;
 
 #[test]
 fn test_counter_formatting_decimal() {
@@ -16,10 +16,22 @@ fn test_counter_formatting_decimal() {
 
 #[test]
 fn test_counter_formatting_decimal_leading_zero() {
-    assert_eq!(format_counter(1, StyleListStyleType::DecimalLeadingZero), "01");
-    assert_eq!(format_counter(9, StyleListStyleType::DecimalLeadingZero), "09");
-    assert_eq!(format_counter(10, StyleListStyleType::DecimalLeadingZero), "10");
-    assert_eq!(format_counter(99, StyleListStyleType::DecimalLeadingZero), "99");
+    assert_eq!(
+        format_counter(1, StyleListStyleType::DecimalLeadingZero),
+        "01"
+    );
+    assert_eq!(
+        format_counter(9, StyleListStyleType::DecimalLeadingZero),
+        "09"
+    );
+    assert_eq!(
+        format_counter(10, StyleListStyleType::DecimalLeadingZero),
+        "10"
+    );
+    assert_eq!(
+        format_counter(99, StyleListStyleType::DecimalLeadingZero),
+        "99"
+    );
 }
 
 #[test]
@@ -51,7 +63,10 @@ fn test_counter_formatting_lower_roman() {
     assert_eq!(format_counter(100, StyleListStyleType::LowerRoman), "c");
     assert_eq!(format_counter(500, StyleListStyleType::LowerRoman), "d");
     assert_eq!(format_counter(1000, StyleListStyleType::LowerRoman), "m");
-    assert_eq!(format_counter(1994, StyleListStyleType::LowerRoman), "mcmxciv");
+    assert_eq!(
+        format_counter(1994, StyleListStyleType::LowerRoman),
+        "mcmxciv"
+    );
 }
 
 #[test]
@@ -59,14 +74,17 @@ fn test_counter_formatting_upper_roman() {
     assert_eq!(format_counter(1, StyleListStyleType::UpperRoman), "I");
     assert_eq!(format_counter(4, StyleListStyleType::UpperRoman), "IV");
     assert_eq!(format_counter(9, StyleListStyleType::UpperRoman), "IX");
-    assert_eq!(format_counter(1994, StyleListStyleType::UpperRoman), "MCMXCIV");
+    assert_eq!(
+        format_counter(1994, StyleListStyleType::UpperRoman),
+        "MCMXCIV"
+    );
 }
 
 #[test]
 fn test_counter_formatting_disc_circle_square() {
     assert_eq!(format_counter(1, StyleListStyleType::Disc), "•");
-    assert_eq!(format_counter(2, StyleListStyleType::Disc), "•");  // Always same
-    
+    assert_eq!(format_counter(2, StyleListStyleType::Disc), "•"); // Always same
+
     assert_eq!(format_counter(1, StyleListStyleType::Circle), "◦");
     assert_eq!(format_counter(1, StyleListStyleType::Square), "▪");
 }

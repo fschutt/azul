@@ -591,7 +591,10 @@ impl PrintAsCssValue for StyleTextIndent {
 
 impl crate::format_rust_code::FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */ }}", self.inner)
+        format!(
+            "StyleTextIndent {{ inner: PixelValue::const_px(0) /* {} */ }}",
+            self.inner
+        )
     }
 }
 
@@ -637,9 +640,7 @@ impl StyleTextIndentParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_text_indent(
-    input: &str,
-) -> Result<StyleTextIndent, StyleTextIndentParseError> {
+pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError> {
     crate::props::basic::pixel::parse_pixel_value(input)
         .map(|inner| StyleTextIndent { inner })
         .map_err(|e| StyleTextIndentParseError::PixelValue(e))
@@ -697,7 +698,9 @@ pub enum StyleInitialLetterParseErrorOwned {
 impl<'a> StyleInitialLetterParseError<'a> {
     pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
         match self {
-            Self::InvalidFormat(s) => StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string()),
+            Self::InvalidFormat(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidFormat(s.to_string())
+            }
             Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize(s.to_string()),
             Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink(s.to_string()),
         }
@@ -851,7 +854,7 @@ pub fn parse_style_line_clamp<'a>(
     input: &'a str,
 ) -> Result<StyleLineClamp, StyleLineClampParseError<'a>> {
     let input = input.trim();
-    
+
     let max_lines = input
         .parse::<usize>()
         .map_err(|_| StyleLineClampParseError::InvalidValue(input))?;
@@ -914,7 +917,9 @@ pub enum StyleHangingPunctuationParseErrorOwned {
 impl<'a> StyleHangingPunctuationParseError<'a> {
     pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => {
+                StyleHangingPunctuationParseErrorOwned::InvalidValue(s.to_string())
+            }
         }
     }
 }
@@ -945,11 +950,11 @@ pub fn parse_style_hanging_punctuation<'a>(
     input: &'a str,
 ) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'a>> {
     let input = input.trim().to_lowercase();
-    
+
     // For simplicity: "none" = disabled, anything else = enabled
     // Full spec supports: first, last, force-end, allow-end
     let enabled = input != "none";
-    
+
     Ok(StyleHangingPunctuation { enabled })
 }
 
@@ -1009,8 +1014,12 @@ pub enum StyleTextCombineUprightParseErrorOwned {
 impl<'a> StyleTextCombineUprightParseError<'a> {
     pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string()),
-            Self::InvalidDigits(s) => StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string()),
+            Self::InvalidValue(s) => {
+                StyleTextCombineUprightParseErrorOwned::InvalidValue(s.to_string())
+            }
+            Self::InvalidDigits(s) => {
+                StyleTextCombineUprightParseErrorOwned::InvalidDigits(s.to_string())
+            }
         }
     }
 }
@@ -1043,7 +1052,7 @@ pub fn parse_style_text_combine_upright<'a>(
     input: &'a str,
 ) -> Result<StyleTextCombineUpright, StyleTextCombineUprightParseError<'a>> {
     let trimmed = input.trim();
-    
+
     if trimmed.eq_ignore_ascii_case("none") {
         Ok(StyleTextCombineUpright::None)
     } else if trimmed.eq_ignore_ascii_case("all") {

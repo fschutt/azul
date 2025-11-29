@@ -27,12 +27,14 @@
 //! 10. Post-callback: Push original changeset to redo stack
 
 use alloc::{collections::VecDeque, vec::Vec};
+
 use azul_core::{
     dom::NodeId,
-    task::Instant,
-    selection::{TextCursor, SelectionRange, GraphemeClusterId, CursorAffinity},
     geom::LogicalPosition,
+    selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor},
+    task::Instant,
 };
+
 use super::changeset::{TextChangeset, TextOperation};
 
 /// Maximum number of undo operations to keep per node
@@ -154,7 +156,6 @@ pub struct UndoRedoManager {
 }
 
 impl UndoRedoManager {
-
     /// Create a new empty undo/redo manager
     pub fn new() -> Self {
         Self {
@@ -317,14 +318,14 @@ impl UndoRedoManager {
 /// restore the pre_state.
 ///
 /// ## Arguments
-/// 
+///
 /// * `operation` - The operation to create a revert for
 /// * `timestamp` - Current time for the revert changeset
 ///
 /// Returns: `TextChangeset` - The changeset that reverts the operation
 pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant) -> TextChangeset {
-    
     use azul_core::window::CursorPosition;
+
     use crate::managers::changeset::{TextChangeset, TextOperation};
 
     // Create the inverse operation based on what was done
@@ -437,9 +438,7 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                     .pre_state
                     .cursor_position
                     .as_ref()
-                    .map(|_| {
-                        CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0))
-                    })
+                    .map(|_| CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0)))
                     .unwrap_or(CursorPosition::Uninitialized),
             }
         }

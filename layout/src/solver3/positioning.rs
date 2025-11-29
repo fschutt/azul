@@ -21,13 +21,13 @@ use azul_css::{
 };
 
 use crate::{
+    font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
         getters::get_writing_mode,
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
     },
-    font_traits::{FontLoaderTrait, ParsedFontTrait},
 };
 
 #[derive(Debug, Default)]
@@ -76,22 +76,25 @@ fn resolve_position_offsets(
     dom_id: Option<NodeId>,
     cb_size: LogicalSize,
 ) -> PositionOffsets {
-    use azul_css::props::basic::pixel::{ResolutionContext, PropertyContext, PhysicalSize};
-    use crate::solver3::getters::{get_element_font_size, get_parent_font_size, get_root_font_size};
-    
+    use azul_css::props::basic::pixel::{PhysicalSize, PropertyContext, ResolutionContext};
+
+    use crate::solver3::getters::{
+        get_element_font_size, get_parent_font_size, get_root_font_size,
+    };
+
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
     let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].state;
-    
+
     // Create resolution context with font sizes and containing block size
     let element_font_size = get_element_font_size(styled_dom, id, node_state);
     let parent_font_size = get_parent_font_size(styled_dom, id, node_state);
     let root_font_size = get_root_font_size(styled_dom, node_state);
-    
+
     let containing_block_size = PhysicalSize::new(cb_size.width, cb_size.height);
-    
+
     let resolution_context = ResolutionContext {
         element_font_size,
         parent_font_size,
@@ -100,7 +103,7 @@ fn resolve_position_offsets(
         element_size: None, // Not needed for position offsets
         viewport_size: PhysicalSize::new(0.0, 0.0),
     };
-    
+
     let mut offsets = PositionOffsets::default();
 
     // Resolve offsets with proper context
@@ -110,29 +113,41 @@ fn resolve_position_offsets(
         .ptr
         .get_top(node_data, &id, node_state)
         .and_then(|t| t.get_property())
-        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Height));
-        
+        .map(|v| {
+            v.inner
+                .resolve_with_context(&resolution_context, PropertyContext::Height)
+        });
+
     offsets.bottom = styled_dom
         .css_property_cache
         .ptr
         .get_bottom(node_data, &id, node_state)
         .and_then(|b| b.get_property())
-        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Height));
-    
+        .map(|v| {
+            v.inner
+                .resolve_with_context(&resolution_context, PropertyContext::Height)
+        });
+
     // left/right use Width context (% refers to containing block width)
     offsets.left = styled_dom
         .css_property_cache
         .ptr
         .get_left(node_data, &id, node_state)
         .and_then(|l| l.get_property())
-        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Width));
-        
+        .map(|v| {
+            v.inner
+                .resolve_with_context(&resolution_context, PropertyContext::Width)
+        });
+
     offsets.right = styled_dom
         .css_property_cache
         .ptr
         .get_right(node_data, &id, node_state)
         .and_then(|r| r.get_property())
-        .map(|v| v.inner.resolve_with_context(&resolution_context, PropertyContext::Width));
+        .map(|v| {
+            v.inner
+                .resolve_with_context(&resolution_context, PropertyContext::Width)
+        });
 
     offsets
 }
@@ -162,18 +177,25 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     let parent_node = tree.get(parent_idx)?;
                     let parent_dom_id = parent_node.dom_node_id?;
                     let parent_position = get_position_type(ctx.styled_dom, Some(parent_dom_id));
-                    if parent_position == LayoutPosition::Absolute || parent_position == LayoutPosition::Fixed {
+                    if parent_position == LayoutPosition::Absolute
+                        || parent_position == LayoutPosition::Fixed
+                    {
                         calculated_positions.get(&parent_idx).map(|parent_pos| {
-                            (parent_idx, *parent_pos, 
-                             parent_node.box_props.border.left, parent_node.box_props.border.top,
-                             parent_node.box_props.padding.left, parent_node.box_props.padding.top)
+                            (
+                                parent_idx,
+                                *parent_pos,
+                                parent_node.box_props.border.left,
+                                parent_node.box_props.border.top,
+                                parent_node.box_props.padding.left,
+                                parent_node.box_props.padding.top,
+                            )
                         })
                     } else {
                         None
                     }
                 })
             };
-            
+
             // Determine containing block FIRST (before calculating size)
             let containing_block_rect = if position_type == LayoutPosition::Fixed {
                 viewport
@@ -189,8 +211,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
             // Get node again after containing block calculation
             let node = &tree.nodes[node_index];
-            
-            // Calculate used size for out-of-flow elements (they don't get sized during normal layout)
+
+            // Calculate used size for out-of-flow elements (they don't get sized during normal
+            // layout)
             let element_size = if let Some(size) = node.used_size {
                 size
             } else {
@@ -203,12 +226,12 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     intrinsic,
                     &node.box_props,
                 )?;
-                
+
                 // Store the calculated size in the tree node
                 if let Some(node_mut) = tree.get_mut(node_index) {
                     node_mut.used_size = Some(size);
                 }
-                
+
                 size
             };
 
@@ -220,11 +243,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 .get(&node_index)
                 .copied()
                 .unwrap_or_default();
-            
+
             // Special case: If this is a fixed-position element with (0,0) static position
             // and it has a positioned parent, use the parent's content-box position
             if position_type == LayoutPosition::Fixed && static_pos == LogicalPosition::zero() {
-                if let Some((_, parent_pos, border_left, border_top, padding_left, padding_top)) = parent_info {
+                if let Some((_, parent_pos, border_left, border_top, padding_left, padding_top)) =
+                    parent_info
+                {
                     // Add parent's border and padding to get content-box position
                     static_pos = LogicalPosition::new(
                         parent_pos.x + border_left + padding_left,
@@ -232,7 +257,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     );
                 }
             }
-            
+
             let mut final_pos = LogicalPosition::zero();
 
             // Vertical Positioning
@@ -309,7 +334,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         let Some(current_pos) = calculated_positions.get_mut(&node_index) else {
             continue;
         };
-        
+
         let initial_pos = *current_pos;
 
         // top/bottom/left/right offsets are applied relative to the static position.
@@ -321,26 +346,27 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // - For `left` and `right`: depends on direction (ltr/rtl)
         //   - In LTR: if both specified, `left` wins and `right` is ignored
         //   - In RTL: if both specified, `right` wins and `left` is ignored
-        
+
         // Vertical positioning: `top` takes precedence over `bottom`
         if let Some(top) = offsets.top {
             delta_y = top;
         } else if let Some(bottom) = offsets.bottom {
             delta_y = -bottom;
         }
-        
+
         // Horizontal positioning: depends on direction
         // Get the direction for this element
         let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
         let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].state;
-        let direction = ctx.styled_dom
+        let direction = ctx
+            .styled_dom
             .css_property_cache
             .ptr
             .get_direction(node_data, &node_dom_id, node_state)
             .and_then(|s| s.get_property().copied())
             .unwrap_or(azul_css::props::style::StyleDirection::Ltr);
-        
+
         use azul_css::props::style::StyleDirection;
         match direction {
             StyleDirection::Ltr => {

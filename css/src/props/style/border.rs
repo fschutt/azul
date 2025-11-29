@@ -12,7 +12,7 @@ use crate::{
             color::{ColorU, CssColorParseError, CssColorParseErrorOwned},
             pixel::{
                 CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
-                THIN_BORDER_THICKNESS, MEDIUM_BORDER_THICKNESS, THICK_BORDER_THICKNESS,
+                MEDIUM_BORDER_THICKNESS, THICK_BORDER_THICKNESS, THIN_BORDER_THICKNESS,
             },
         },
         macros::PixelValueTaker,

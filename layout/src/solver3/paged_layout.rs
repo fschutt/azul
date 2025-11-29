@@ -2,7 +2,7 @@
 //!
 //! This module provides functionality for laying out documents with pagination,
 //! such as for PDF generation. It uses the new integrated architecture where:
-//! 
+//!
 //! 1. page_index is assigned to nodes DURING layout based on Y position
 //! 2. generate_display_lists_paged() creates per-page DisplayLists by filtering
 //! 3. No post-hoc fragmentation is needed
@@ -47,7 +47,7 @@ use crate::{
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
-        getters::{get_break_before, get_break_after, get_break_inside},
+        getters::{get_break_after, get_break_before, get_break_inside},
         pagination::FakePageConfig,
         LayoutContext, LayoutError, Result,
     },
@@ -57,7 +57,7 @@ use crate::{
 ///
 /// This function performs CSS Paged Media layout with fragmentation integrated
 /// into the layout process itself, using the new architecture where:
-/// 
+///
 /// 1. The FragmentationContext is passed to layout_document via LayoutContext
 /// 2. Nodes get their page_index assigned during layout based on absolute Y position
 /// 3. DisplayLists are generated per-page by filtering items based on page bounds
@@ -88,14 +88,14 @@ pub fn layout_document_paged<T, F>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
     font_loader: F,
-) -> Result<Vec<DisplayList>> 
+) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     // Use default page config (page numbers in footer)
     let page_config = FakePageConfig::new().with_footer_page_numbers();
-    
+
     layout_document_paged_with_config(
         cache,
         text_cache,
@@ -169,7 +169,7 @@ pub fn layout_document_paged_with_config<T, F>(
     dom_id: DomId,
     font_loader: F,
     page_config: FakePageConfig,
-) -> Result<Vec<DisplayList>> 
+) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
@@ -177,28 +177,24 @@ where
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
-            collect_and_resolve_font_chains, 
-            collect_font_ids_from_chains,
-            compute_fonts_to_load,
+            collect_and_resolve_font_chains, collect_font_ids_from_chains, compute_fonts_to_load,
             load_fonts_from_disk,
         };
-        
+
         let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache);
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-        
+
         if !fonts_to_load.is_empty() {
-            let load_result = load_fonts_from_disk(
-                &fonts_to_load,
-                &font_manager.fc_cache,
-                &font_loader,
-            );
+            let load_result =
+                load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
             font_manager.insert_fonts(load_result.loaded);
             for (font_id, error) in &load_result.failed {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::warning(format!(
-                        "[FontLoading] Failed to load font {:?}: {}", font_id, error
+                        "[FontLoading] Failed to load font {:?}: {}",
+                        font_id, error
                     )));
                 }
             }
@@ -208,42 +204,63 @@ where
 
     // Get page dimensions from fragmentation context
     let page_content_height = fragmentation_context.page_content_height();
-    
+
     // Handle continuous media (no pagination)
     if !fragmentation_context.is_paged() {
         let display_list = layout_document_with_fragmentation(
-            cache, text_cache, &mut fragmentation_context, new_dom, viewport, font_manager,
-            scroll_offsets, selections, debug_messages,
-            gpu_value_cache, renderer_resources, id_namespace, dom_id,
+            cache,
+            text_cache,
+            &mut fragmentation_context,
+            new_dom,
+            viewport,
+            font_manager,
+            scroll_offsets,
+            selections,
+            debug_messages,
+            gpu_value_cache,
+            renderer_resources,
+            id_namespace,
+            dom_id,
         )?;
         return Ok(vec![display_list]);
     }
-    
+
     // Paged Layout
-    
+
     // Perform layout with fragmentation context
     // This will assign page_index to nodes based on their Y position
     let _display_list = layout_document_with_fragmentation(
-        cache, text_cache, &mut fragmentation_context, new_dom.clone(), viewport, font_manager,
-        scroll_offsets, selections, debug_messages,
-        gpu_value_cache, renderer_resources, id_namespace, dom_id,
+        cache,
+        text_cache,
+        &mut fragmentation_context,
+        new_dom.clone(),
+        viewport,
+        font_manager,
+        scroll_offsets,
+        selections,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
     )?;
-    
+
     // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
     let calculated_positions = &cache.calculated_positions;
-    
+
     // Debug: log page layout info
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Page content height: {}", page_content_height
+            "[PagedLayout] Page content height: {}",
+            page_content_height
         )));
     }
-    
+
     // Compute scroll IDs (needed for display list generation)
     use crate::window::LayoutWindow;
     let (scroll_ids, _scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, &new_dom);
-    
+
     // Create temporary context for display list generation
     let mut counter_values = cache.counters.clone();
     let mut ctx = LayoutContext {
@@ -255,9 +272,9 @@ where
         viewport_size: viewport.size,
         fragmentation_context: Some(&mut fragmentation_context),
     };
-    
+
     // NEW: Use the commitment-based pagination approach with CSS break properties
-    // 
+    //
     // This treats pages as viewports into a single infinite canvas:
     // 1. Generate ONE complete display list on infinite vertical strip
     // 2. Analyze CSS break properties (break-before, break-after, break-inside)
@@ -271,14 +288,12 @@ where
     // - Simple mental model: pages are just views into continuous content
     // - Headers/footers with page numbers are automatically generated
     // - CSS fragmentation properties are respected
-    
+
     use crate::solver3::display_list::{
-        generate_display_list, 
-        paginate_display_list_with_slicer_and_breaks,
+        generate_display_list, paginate_display_list_with_slicer_and_breaks, BreakProperties,
         SlicerConfig,
-        BreakProperties,
     };
-    
+
     // Step 1: Generate ONE complete display list (infinite canvas)
     let full_display_list = generate_display_list(
         &mut ctx,
@@ -291,27 +306,25 @@ where
         id_namespace,
         dom_id,
     )?;
-    
+
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Generated master display list with {} items",
             full_display_list.items.len()
         )));
     }
-    
+
     // Step 2: Configure the slicer with page dimensions and headers/footers
     let page_width = viewport.size.width;
     let header_footer = page_config.to_header_footer_config();
-    
+
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Page config: header={}, footer={}, skip_first={}",
-            header_footer.show_header,
-            header_footer.show_footer,
-            header_footer.skip_first_page
+            header_footer.show_header, header_footer.show_footer, header_footer.skip_first_page
         )));
     }
-    
+
     let slicer_config = SlicerConfig {
         page_content_height,
         page_gap: 0.0,
@@ -320,7 +333,7 @@ where
         page_width,
         table_headers: Default::default(),
     };
-    
+
     // Step 3: Create break property lookup closure
     let styled_dom_ref = &new_dom;
     let get_break_props = |node_id: Option<azul_core::dom::NodeId>| -> BreakProperties {
@@ -330,21 +343,21 @@ where
             break_inside: get_break_inside(styled_dom_ref, node_id),
         }
     };
-    
+
     // Step 4: Paginate with CSS break property support
     let pages = paginate_display_list_with_slicer_and_breaks(
-        full_display_list, 
+        full_display_list,
         &slicer_config,
         get_break_props,
     )?;
-    
+
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Paginated into {} pages with CSS break support",
             pages.len()
         )));
     }
-    
+
     Ok(pages)
 }
 
@@ -366,12 +379,10 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     dom_id: DomId,
 ) -> Result<DisplayList> {
     use crate::solver3::{
-        cache,
-        display_list::generate_display_list,
+        cache, display_list::generate_display_list, getters::get_writing_mode,
         layout_tree::DirtyFlag,
-        getters::get_writing_mode,
     };
-    
+
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
@@ -394,10 +405,10 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
             node.taffy_cache.clear();
         }
     }
-    
+
     // Step 1.3: Compute CSS Counters
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
-    
+
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
@@ -415,8 +426,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         use crate::window::LayoutWindow;
-        let (scroll_ids, scroll_id_to_node_id) =
-            LayoutWindow::compute_scroll_ids(tree, &new_dom);
+        let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, &new_dom);
         cache.scroll_ids = scroll_ids.clone();
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
 
@@ -441,11 +451,15 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         if loop_count > 10 {
             break;
         }
-        
+
         calculated_positions = cache.calculated_positions.clone();
         let mut reflow_needed_for_scrollbars = false;
 
-        crate::solver3::sizing::calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
+        crate::solver3::sizing::calculate_intrinsic_sizes(
+            &mut ctx,
+            &mut new_tree,
+            &recon_result.intrinsic_dirty,
+        )?;
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -542,7 +556,7 @@ fn get_containing_block_for_node(
     viewport: LogicalRect,
 ) -> (LogicalPosition, LogicalSize) {
     use crate::solver3::getters::get_writing_mode;
-    
+
     if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(parent_idx) {
             let pos = calculated_positions
@@ -563,7 +577,8 @@ fn get_containing_block_for_node(
                     .map(|n| &n.state)
                     .cloned()
                     .unwrap_or_default();
-                let writing_mode = get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
+                let writing_mode =
+                    get_writing_mode(styled_dom, dom_id, styled_node_state).unwrap_or_default();
                 let content_size = parent_node.box_props.inner_size(size, writing_mode);
                 return (content_pos, content_size);
             }

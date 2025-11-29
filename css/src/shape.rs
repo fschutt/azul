@@ -16,7 +16,7 @@ impl LayoutPoint {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub const fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
     }
@@ -27,9 +27,10 @@ impl Eq for LayoutPoint {}
 impl Ord for LayoutPoint {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.x.partial_cmp(&other.x) {
-            Some(core::cmp::Ordering::Equal) => {
-                self.y.partial_cmp(&other.y).unwrap_or(core::cmp::Ordering::Equal)
-            }
+            Some(core::cmp::Ordering::Equal) => self
+                .y
+                .partial_cmp(&other.y)
+                .unwrap_or(core::cmp::Ordering::Equal),
             other => other.unwrap_or(core::cmp::Ordering::Equal),
         }
     }
@@ -74,9 +75,10 @@ impl PartialOrd for ShapeCircle {
 impl Ord for ShapeCircle {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.center.cmp(&other.center) {
-            core::cmp::Ordering::Equal => {
-                self.radius.partial_cmp(&other.radius).unwrap_or(core::cmp::Ordering::Equal)
-            }
+            core::cmp::Ordering::Equal => self
+                .radius
+                .partial_cmp(&other.radius)
+                .unwrap_or(core::cmp::Ordering::Equal),
             other => other,
         }
     }
@@ -107,14 +109,13 @@ impl PartialOrd for ShapeEllipse {
 impl Ord for ShapeEllipse {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.center.cmp(&other.center) {
-            core::cmp::Ordering::Equal => {
-                match self.radius_x.partial_cmp(&other.radius_x) {
-                    Some(core::cmp::Ordering::Equal) | None => {
-                        self.radius_y.partial_cmp(&other.radius_y).unwrap_or(core::cmp::Ordering::Equal)
-                    }
-                    Some(other) => other,
-                }
-            }
+            core::cmp::Ordering::Equal => match self.radius_x.partial_cmp(&other.radius_x) {
+                Some(core::cmp::Ordering::Equal) | None => self
+                    .radius_y
+                    .partial_cmp(&other.radius_y)
+                    .unwrap_or(core::cmp::Ordering::Equal),
+                Some(other) => other,
+            },
             other => other,
         }
     }
@@ -157,24 +158,22 @@ impl PartialOrd for ShapeInset {
 impl Ord for ShapeInset {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.top.partial_cmp(&other.top) {
-            Some(core::cmp::Ordering::Equal) | None => {
-                match self.right.partial_cmp(&other.right) {
-                    Some(core::cmp::Ordering::Equal) | None => {
-                        match self.bottom.partial_cmp(&other.bottom) {
-                            Some(core::cmp::Ordering::Equal) | None => {
-                                match self.left.partial_cmp(&other.left) {
-                                    Some(core::cmp::Ordering::Equal) | None => {
-                                        self.border_radius.cmp(&other.border_radius)
-                                    }
-                                    Some(other) => other,
+            Some(core::cmp::Ordering::Equal) | None => match self.right.partial_cmp(&other.right) {
+                Some(core::cmp::Ordering::Equal) | None => {
+                    match self.bottom.partial_cmp(&other.bottom) {
+                        Some(core::cmp::Ordering::Equal) | None => {
+                            match self.left.partial_cmp(&other.left) {
+                                Some(core::cmp::Ordering::Equal) | None => {
+                                    self.border_radius.cmp(&other.border_radius)
                                 }
+                                Some(other) => other,
                             }
-                            Some(other) => other,
                         }
+                        Some(other) => other,
                     }
-                    Some(other) => other,
                 }
-            }
+                Some(other) => other,
+            },
             Some(other) => other,
         }
     }
@@ -246,17 +245,21 @@ impl Shape {
     pub fn circle(center: LayoutPoint, radius: f32) -> Self {
         Shape::Circle(ShapeCircle { center, radius })
     }
-    
+
     /// Creates an ellipse shape
     pub fn ellipse(center: LayoutPoint, radius_x: f32, radius_y: f32) -> Self {
-        Shape::Ellipse(ShapeEllipse { center, radius_x, radius_y })
+        Shape::Ellipse(ShapeEllipse {
+            center,
+            radius_x,
+            radius_y,
+        })
     }
-    
+
     /// Creates a polygon from a list of points
     pub fn polygon(points: LayoutPointVec) -> Self {
         Shape::Polygon(ShapePolygon { points })
     }
-    
+
     /// Creates an inset rectangle
     pub fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Shape::Inset(ShapeInset {
@@ -267,7 +270,7 @@ impl Shape {
             border_radius: OptionF32::None,
         })
     }
-    
+
     /// Creates an inset rectangle with rounded corners
     pub fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
         Shape::Inset(ShapeInset {
@@ -280,12 +283,7 @@ impl Shape {
     }
 }
 
-impl_option!(
-    Shape,
-    OptionShape,
-    copy = false,
-    [Debug, Clone, PartialEq]
-);
+impl_option!(Shape, OptionShape, copy = false, [Debug, Clone, PartialEq]);
 
 /// A line segment representing available horizontal space at a given y-position.
 /// Used for line breaking within shaped containers.
@@ -294,10 +292,10 @@ impl_option!(
 pub struct LineSegment {
     /// The x-coordinate where this segment starts
     pub start_x: f32,
-    
+
     /// The width of this segment
     pub width: f32,
-    
+
     /// Priority for choosing between overlapping segments (higher = preferred)
     pub priority: i32,
 }
@@ -311,23 +309,23 @@ impl LineSegment {
             priority: 0,
         }
     }
-    
+
     /// Returns the end x-coordinate of this segment
     #[inline]
     pub fn end_x(&self) -> f32 {
         self.start_x + self.width
     }
-    
+
     /// Returns true if this segment overlaps with another segment
     pub fn overlaps(&self, other: &Self) -> bool {
         self.start_x < other.end_x() && other.start_x < self.end_x()
     }
-    
+
     /// Computes the intersection of two segments, if any
     pub fn intersection(&self, other: &Self) -> Option<Self> {
         let start = self.start_x.max(other.start_x);
         let end = self.end_x().min(other.end_x());
-        
+
         if start < end {
             Some(Self {
                 start_x: start,
@@ -356,9 +354,13 @@ pub struct LayoutRect {
 
 impl LayoutRect {
     pub const fn new(origin: LayoutPoint, width: f32, height: f32) -> Self {
-        Self { origin, width, height }
+        Self {
+            origin,
+            width,
+            height,
+        }
     }
-    
+
     pub const fn zero() -> Self {
         Self {
             origin: LayoutPoint::zero(),
@@ -379,49 +381,53 @@ impl Shape {
     pub fn bounding_box(&self) -> LayoutRect {
         match self {
             Shape::Circle(ShapeCircle { center, radius }) => LayoutRect {
-                origin: LayoutPoint::new(
-                    center.x - radius,
-                    center.y - radius,
-                ),
+                origin: LayoutPoint::new(center.x - radius, center.y - radius),
                 width: radius * 2.0,
                 height: radius * 2.0,
             },
-            
-            Shape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => LayoutRect {
-                origin: LayoutPoint::new(
-                    center.x - radius_x,
-                    center.y - radius_y,
-                ),
+
+            Shape::Ellipse(ShapeEllipse {
+                center,
+                radius_x,
+                radius_y,
+            }) => LayoutRect {
+                origin: LayoutPoint::new(center.x - radius_x, center.y - radius_y),
                 width: radius_x * 2.0,
                 height: radius_y * 2.0,
             },
-            
+
             Shape::Polygon(ShapePolygon { points }) => {
                 if points.as_ref().is_empty() {
                     return LayoutRect::zero();
                 }
-                
+
                 let first = points.as_ref()[0];
                 let mut min_x = first.x;
                 let mut min_y = first.y;
                 let mut max_x = first.x;
                 let mut max_y = first.y;
-                
+
                 for point in points.as_ref().iter().skip(1) {
                     min_x = min_x.min(point.x);
                     min_y = min_y.min(point.y);
                     max_x = max_x.max(point.x);
                     max_y = max_y.max(point.y);
                 }
-                
+
                 LayoutRect {
                     origin: LayoutPoint::new(min_x, min_y),
                     width: max_x - min_x,
                     height: max_y - min_y,
                 }
-            },
-            
-            Shape::Inset(ShapeInset { top, right, bottom, left, .. }) => {
+            }
+
+            Shape::Inset(ShapeInset {
+                top,
+                right,
+                bottom,
+                left,
+                ..
+            }) => {
                 // For inset, we need the reference box to compute actual bounds
                 // For now, return a placeholder that indicates the insets
                 LayoutRect {
@@ -429,24 +435,24 @@ impl Shape {
                     width: 0.0, // Will be computed relative to container
                     height: 0.0,
                 }
-            },
-            
+            }
+
             Shape::Path(_) => {
                 // Path bounding box computation requires parsing the path
                 // For now, return zero rect
                 LayoutRect::zero()
-            },
+            }
         }
     }
-    
+
     /// Computes available horizontal line segments at a given y-position.
     /// Used for text layout with shape-inside.
-    /// 
+    ///
     /// # Arguments
     /// * `y` - The vertical position to compute segments for
     /// * `margin` - Inward margin from the shape boundary
     /// * `reference_box` - The containing box for inset shapes
-    /// 
+    ///
     /// # Returns
     /// A vector of line segments, sorted by start_x
     pub fn compute_line_segments(
@@ -456,18 +462,18 @@ impl Shape {
         reference_box: OptionLayoutRect,
     ) -> LineSegmentVec {
         use alloc::vec::Vec;
-        
+
         let segments: Vec<LineSegment> = match self {
             Shape::Circle(ShapeCircle { center, radius }) => {
                 let dy = y - center.y;
                 let r_with_margin = radius - margin;
-                
+
                 if dy.abs() > r_with_margin {
                     Vec::new() // Outside circle
                 } else {
                     // Chord width at y: w = 2*sqrt(r²-dy²)
                     let half_width = (r_with_margin.powi(2) - dy.powi(2)).sqrt();
-                    
+
                     alloc::vec![LineSegment {
                         start_x: center.x - half_width,
                         width: 2.0 * half_width,
@@ -475,11 +481,15 @@ impl Shape {
                     }]
                 }
             }
-            
-            Shape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+
+            Shape::Ellipse(ShapeEllipse {
+                center,
+                radius_x,
+                radius_y,
+            }) => {
                 let dy = y - center.y;
                 let ry_with_margin = radius_y - margin;
-                
+
                 if dy.abs() > ry_with_margin {
                     Vec::new() // Outside ellipse
                 } else {
@@ -488,7 +498,7 @@ impl Shape {
                     let ratio = dy / ry_with_margin;
                     let factor = (1.0 - ratio.powi(2)).sqrt();
                     let half_width = (radius_x - margin) * factor;
-                    
+
                     alloc::vec![LineSegment {
                         start_x: center.x - half_width,
                         width: 2.0 * half_width,
@@ -496,22 +506,28 @@ impl Shape {
                     }]
                 }
             }
-            
+
             Shape::Polygon(ShapePolygon { points }) => {
                 compute_polygon_line_segments(points.as_ref(), y, margin)
             }
-            
-            Shape::Inset(ShapeInset { top, right, bottom, left, border_radius }) => {
+
+            Shape::Inset(ShapeInset {
+                top,
+                right,
+                bottom,
+                left,
+                border_radius,
+            }) => {
                 let ref_box = match reference_box {
                     OptionLayoutRect::Some(r) => r,
                     OptionLayoutRect::None => LayoutRect::zero(),
                 };
-                
+
                 let inset_top = ref_box.origin.y + top + margin;
                 let inset_bottom = ref_box.origin.y + ref_box.height - bottom - margin;
                 let inset_left = ref_box.origin.x + left + margin;
                 let inset_right = ref_box.origin.x + ref_box.width - right - margin;
-                
+
                 if y < inset_top || y > inset_bottom {
                     Vec::new()
                 } else {
@@ -524,14 +540,14 @@ impl Shape {
                     }]
                 }
             }
-            
+
             Shape::Path(_) => {
                 // Path intersection requires path parsing
                 // For now, return empty
                 Vec::new()
             }
         };
-        
+
         segments.into()
     }
 }
@@ -544,22 +560,22 @@ fn compute_polygon_line_segments(
     margin: f32,
 ) -> alloc::vec::Vec<LineSegment> {
     use alloc::vec::Vec;
-    
+
     if points.len() < 3 {
         return Vec::new();
     }
-    
+
     // Find all intersections of the horizontal line y with polygon edges
     let mut intersections = Vec::new();
-    
+
     for i in 0..points.len() {
         let p1 = points[i];
         let p2 = points[(i + 1) % points.len()];
-        
+
         // Check if edge crosses the scanline
         let min_y = p1.y.min(p2.y);
         let max_y = p1.y.max(p2.y);
-        
+
         if y >= min_y && y < max_y {
             // Compute x-intersection using linear interpolation
             let t = (y - p1.y) / (p2.y - p1.y);
@@ -567,19 +583,19 @@ fn compute_polygon_line_segments(
             intersections.push(x);
         }
     }
-    
+
     // Sort intersections
     intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
-    
+
     // Pair up intersections to form segments
     // Polygon fill rule: pairs of intersections form filled regions
     let mut segments = Vec::new();
-    
+
     for chunk in intersections.chunks(2) {
         if chunk.len() == 2 {
             let start = chunk[0] + margin;
             let end = chunk[1] - margin;
-            
+
             if start < end {
                 segments.push(LineSegment {
                     start_x: start,
@@ -589,6 +605,6 @@ fn compute_polygon_line_segments(
             }
         }
     }
-    
+
     segments
 }

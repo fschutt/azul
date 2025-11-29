@@ -83,7 +83,7 @@ impl HoverManager {
         self.get_current(&InputPointId::Mouse)
     }
 
-    /// Get the hit test result from N frames ago for an input point 
+    /// Get the hit test result from N frames ago for an input point
     // (0 = current frame)
     ///
     /// Returns None if the requested frame is not in history.

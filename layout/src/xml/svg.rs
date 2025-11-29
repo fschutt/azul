@@ -2395,7 +2395,7 @@ fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
             use azul_core::xml::{XmlError, XmlTextPos};
             let error_string = format!("{:?}", e);
             SvgParseError::ParsingFailed(XmlError::UnknownToken(XmlTextPos { row: 0, col: 0 }))
-        },
+        }
     }
 }
 

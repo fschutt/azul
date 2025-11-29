@@ -4,7 +4,7 @@
 //! with a recursive event system for focus/blur callbacks (max depth: 5).
 
 use alloc::{collections::BTreeMap, vec::Vec};
-use crate::window::DomLayoutResult;
+
 use azul_core::{
     callbacks::{FocusTarget, FocusTargetPath},
     dom::{DomId, DomNodeId, NodeId},
@@ -12,13 +12,15 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
 };
 
+use crate::window::DomLayoutResult;
+
 /// CSS path for selecting elements (placeholder - needs proper implementation)
 pub type CssPathString = alloc::string::String;
 
 /// Manager for keyboard focus and tab navigation
 ///
 /// Note: Text cursor management is now handled by the separate `CursorManager`.
-/// 
+///
 /// The `FocusManager` only tracks which node has focus, while `CursorManager`
 /// tracks the cursor position within that node (if it's contenteditable).
 #[derive(Debug, Clone, PartialEq)]
@@ -177,7 +179,7 @@ impl SearchDirection {
     /// Check if we've hit a node boundary and need to switch DOMs.
     ///
     /// Returns `true` if:
-    /// 
+    ///
     /// - Backward: at min node and current < start (wrapped around)
     /// - Forward: at max node and current > start (wrapped around)
     fn is_at_boundary(&self, current: NodeId, start: NodeId, min: NodeId, max: NodeId) -> bool {
@@ -227,7 +229,9 @@ impl<'a> FocusSearchContext<'a> {
         Self {
             layout_results,
             min_dom_id: DomId::ROOT_ID,
-            max_dom_id: DomId { inner: layout_results.len() - 1 },
+            max_dom_id: DomId {
+                inner: layout_results.len() - 1,
+            },
         }
     }
 
@@ -247,7 +251,12 @@ impl<'a> FocusSearchContext<'a> {
         node_id: NodeId,
         dom_id: DomId,
     ) -> Result<(), UpdateFocusWarning> {
-        let is_valid = layout.styled_dom.node_data.as_container().get(node_id).is_some();
+        let is_valid = layout
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(node_id)
+            .is_some();
         if !is_valid {
             return Err(UpdateFocusWarning::FocusInvalidNodeId(
                 NodeHierarchyItemId::from_crate_internal(Some(node_id)),
@@ -261,7 +270,10 @@ impl<'a> FocusSearchContext<'a> {
 
     /// Get the valid node ID range for a layout: `(min, max)`.
     fn node_bounds(&self, layout: &DomLayoutResult) -> (NodeId, NodeId) {
-        (NodeId::ZERO, NodeId::new(layout.styled_dom.node_data.len() - 1))
+        (
+            NodeId::ZERO,
+            NodeId::new(layout.styled_dom.node_data.len() - 1),
+        )
     }
 
     /// Check if a node can receive keyboard focus.
@@ -287,12 +299,12 @@ impl<'a> FocusSearchContext<'a> {
 /// # Termination guarantee
 ///
 /// The function is guaranteed to terminate because:
-/// 
+///
 /// - The inner loop advances `node_id` by 1 each iteration (via `step_node`)
-/// - When hitting a node boundary, we either return `None` (at DOM boundary)
-///   or move to the next DOM and break to the outer loop
-/// - The outer loop only continues when we switch DOMs, which is bounded
-///   by the finite number of DOMs in `layout_results`
+/// - When hitting a node boundary, we either return `None` (at DOM boundary) or move to the next
+///   DOM and break to the outer loop
+/// - The outer loop only continues when we switch DOMs, which is bounded by the finite number of
+///   DOMs in `layout_results`
 /// - Each DOM is visited at most once per search direction
 ///
 /// # Returns
@@ -346,23 +358,34 @@ fn get_previous_start(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     current_focus: Option<DomNodeId>,
 ) -> Result<(DomId, NodeId), UpdateFocusWarning> {
-    let last_dom_id = DomId { inner: layout_results.len() - 1 };
+    let last_dom_id = DomId {
+        inner: layout_results.len() - 1,
+    };
 
     let Some(focus) = current_focus else {
         let layout = layout_results
             .get(&last_dom_id)
             .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-        return Ok((last_dom_id, NodeId::new(layout.styled_dom.node_data.len() - 1)));
+        return Ok((
+            last_dom_id,
+            NodeId::new(layout.styled_dom.node_data.len() - 1),
+        ));
     };
 
     let Some(node) = focus.node.into_crate_internal() else {
         if let Some(layout) = layout_results.get(&focus.dom) {
-            return Ok((focus.dom, NodeId::new(layout.styled_dom.node_data.len() - 1)));
+            return Ok((
+                focus.dom,
+                NodeId::new(layout.styled_dom.node_data.len() - 1),
+            ));
         }
         let layout = layout_results
             .get(&last_dom_id)
             .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-        return Ok((last_dom_id, NodeId::new(layout.styled_dom.node_data.len() - 1)));
+        return Ok((
+            last_dom_id,
+            NodeId::new(layout.styled_dom.node_data.len() - 1),
+        ));
     };
 
     Ok((focus.dom, node))
@@ -388,18 +411,23 @@ fn get_next_start(
 fn get_last_start(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
 ) -> Result<(DomId, NodeId), UpdateFocusWarning> {
-    let last_dom_id = DomId { inner: layout_results.len() - 1 };
+    let last_dom_id = DomId {
+        inner: layout_results.len() - 1,
+    };
     let layout = layout_results
         .get(&last_dom_id)
         .ok_or(UpdateFocusWarning::FocusInvalidDomId(last_dom_id))?;
-    Ok((last_dom_id, NodeId::new(layout.styled_dom.node_data.len() - 1)))
+    Ok((
+        last_dom_id,
+        NodeId::new(layout.styled_dom.node_data.len() - 1),
+    ))
 }
 
 /// Find the first focusable node matching a CSS path selector.
 ///
 /// Iterates through all nodes in the DOM in document order (index 0..n),
 /// and returns the first node that:
-/// 
+///
 /// 1. Matches the CSS path selector
 /// 2. Is focusable (has `tabindex` or is naturally focusable)
 ///
@@ -474,7 +502,9 @@ pub fn resolve_focus_target(
             if is_valid {
                 Ok(Some(dom_node_id.clone()))
             } else {
-                Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node.clone()))
+                Err(UpdateFocusWarning::FocusInvalidNodeId(
+                    dom_node_id.node.clone(),
+                ))
             }
         }
 

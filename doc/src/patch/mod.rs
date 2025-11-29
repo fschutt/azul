@@ -577,7 +577,9 @@ fn apply_module_patch(
                     module_name, class_name
                 );
                 let new_class_data = class_patch_to_class_data(class_patch);
-                module_data.classes.insert(class_name.clone(), new_class_data);
+                module_data
+                    .classes
+                    .insert(class_name.clone(), new_class_data);
                 patches_applied += 1;
             } else {
                 eprintln!(
@@ -730,10 +732,7 @@ fn apply_class_patch(
     }
 
     if let Some(new_type_alias) = &patch.type_alias {
-        println!(
-            "  📝 Patching {}.{}: type_alias",
-            module_name, class_name
-        );
+        println!("  📝 Patching {}.{}: type_alias", module_name, class_name);
         println!("     Old: {:?}", class_data.type_alias);
         println!("     New: {:?}", new_type_alias);
         class_data.type_alias = Some(new_type_alias.clone());

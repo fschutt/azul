@@ -2,16 +2,18 @@
 //!
 //! This module contains properties specific to CSS table formatting:
 //! - `table-layout`: Controls the algorithm used to layout table cells, rows, and columns
-//! - `border-collapse`: Specifies whether cell borders are collapsed into a single border or separated
+//! - `border-collapse`: Specifies whether cell borders are collapsed into a single border or
+//!   separated
 //! - `border-spacing`: Sets the distance between borders of adjacent cells (separate borders only)
 //! - `caption-side`: Specifies the placement of a table caption
 //! - `empty-cells`: Specifies whether or not to display borders on empty cells in a table
 
 use alloc::string::{String, ToString};
+
 use crate::{
     format_rust_code::FormatAsRustCode,
     props::{
-        basic::pixel::{PixelValue, CssPixelValueParseError, CssPixelValueParseErrorOwned},
+        basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
         formatter::PrintAsCssValue,
         macros::PixelValueTaker,
     },
@@ -266,7 +268,9 @@ pub enum LayoutTableLayoutParseError<'a> {
 }
 
 /// Parse a table-layout value from a string
-pub fn parse_table_layout<'a>(input: &'a str) -> Result<LayoutTableLayout, LayoutTableLayoutParseError<'a>> {
+pub fn parse_table_layout<'a>(
+    input: &'a str,
+) -> Result<LayoutTableLayout, LayoutTableLayoutParseError<'a>> {
     match input.trim() {
         "auto" => Ok(LayoutTableLayout::Auto),
         "fixed" => Ok(LayoutTableLayout::Fixed),
@@ -281,7 +285,9 @@ pub enum StyleBorderCollapseParseError<'a> {
 }
 
 /// Parse a border-collapse value from a string
-pub fn parse_border_collapse<'a>(input: &'a str) -> Result<StyleBorderCollapse, StyleBorderCollapseParseError<'a>> {
+pub fn parse_border_collapse<'a>(
+    input: &'a str,
+) -> Result<StyleBorderCollapse, StyleBorderCollapseParseError<'a>> {
     match input.trim() {
         "separate" => Ok(StyleBorderCollapse::Separate),
         "collapse" => Ok(StyleBorderCollapse::Collapse),
@@ -298,24 +304,26 @@ pub enum LayoutBorderSpacingParseError<'a> {
 
 /// Parse a border-spacing value from a string
 /// Accepts: "5px" or "5px 10px"
-pub fn parse_border_spacing<'a>(input: &'a str) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'a>> {
+pub fn parse_border_spacing<'a>(
+    input: &'a str,
+) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'a>> {
     use crate::props::basic::parse_pixel_value;
-    
+
     let parts: Vec<&str> = input.trim().split_whitespace().collect();
-    
+
     match parts.len() {
         1 => {
             // Single value: use for both horizontal and vertical
-            let value = parse_pixel_value(parts[0])
-                .map_err(LayoutBorderSpacingParseError::PixelValue)?;
+            let value =
+                parse_pixel_value(parts[0]).map_err(LayoutBorderSpacingParseError::PixelValue)?;
             Ok(LayoutBorderSpacing::new(value))
         }
         2 => {
             // Two values: horizontal vertical
-            let horizontal = parse_pixel_value(parts[0])
-                .map_err(LayoutBorderSpacingParseError::PixelValue)?;
-            let vertical = parse_pixel_value(parts[1])
-                .map_err(LayoutBorderSpacingParseError::PixelValue)?;
+            let horizontal =
+                parse_pixel_value(parts[0]).map_err(LayoutBorderSpacingParseError::PixelValue)?;
+            let vertical =
+                parse_pixel_value(parts[1]).map_err(LayoutBorderSpacingParseError::PixelValue)?;
             Ok(LayoutBorderSpacing::new_separate(horizontal, vertical))
         }
         _ => Err(LayoutBorderSpacingParseError::InvalidFormat),
@@ -329,7 +337,9 @@ pub enum StyleCaptionSideParseError<'a> {
 }
 
 /// Parse a caption-side value from a string
-pub fn parse_caption_side<'a>(input: &'a str) -> Result<StyleCaptionSide, StyleCaptionSideParseError<'a>> {
+pub fn parse_caption_side<'a>(
+    input: &'a str,
+) -> Result<StyleCaptionSide, StyleCaptionSideParseError<'a>> {
     match input.trim() {
         "top" => Ok(StyleCaptionSide::Top),
         "bottom" => Ok(StyleCaptionSide::Bottom),
@@ -344,7 +354,9 @@ pub enum StyleEmptyCellsParseError<'a> {
 }
 
 /// Parse an empty-cells value from a string
-pub fn parse_empty_cells<'a>(input: &'a str) -> Result<StyleEmptyCells, StyleEmptyCellsParseError<'a>> {
+pub fn parse_empty_cells<'a>(
+    input: &'a str,
+) -> Result<StyleEmptyCells, StyleEmptyCellsParseError<'a>> {
     match input.trim() {
         "show" => Ok(StyleEmptyCells::Show),
         "hide" => Ok(StyleEmptyCells::Hide),
@@ -359,14 +371,23 @@ mod tests {
     #[test]
     fn test_parse_table_layout() {
         assert_eq!(parse_table_layout("auto").unwrap(), LayoutTableLayout::Auto);
-        assert_eq!(parse_table_layout("fixed").unwrap(), LayoutTableLayout::Fixed);
+        assert_eq!(
+            parse_table_layout("fixed").unwrap(),
+            LayoutTableLayout::Fixed
+        );
         assert!(parse_table_layout("invalid").is_err());
     }
 
     #[test]
     fn test_parse_border_collapse() {
-        assert_eq!(parse_border_collapse("separate").unwrap(), StyleBorderCollapse::Separate);
-        assert_eq!(parse_border_collapse("collapse").unwrap(), StyleBorderCollapse::Collapse);
+        assert_eq!(
+            parse_border_collapse("separate").unwrap(),
+            StyleBorderCollapse::Separate
+        );
+        assert_eq!(
+            parse_border_collapse("collapse").unwrap(),
+            StyleBorderCollapse::Collapse
+        );
         assert!(parse_border_collapse("invalid").is_err());
     }
 
@@ -384,7 +405,10 @@ mod tests {
     #[test]
     fn test_parse_caption_side() {
         assert_eq!(parse_caption_side("top").unwrap(), StyleCaptionSide::Top);
-        assert_eq!(parse_caption_side("bottom").unwrap(), StyleCaptionSide::Bottom);
+        assert_eq!(
+            parse_caption_side("bottom").unwrap(),
+            StyleCaptionSide::Bottom
+        );
         assert!(parse_caption_side("invalid").is_err());
     }
 

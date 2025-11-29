@@ -280,106 +280,106 @@ fn main() -> anyhow::Result<()> {
         ["codegen"] | ["codegen", "rust"] => {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
-            
+
             println!("🔧 Generating Rust library code...\n");
-            
+
             // Generate dll/lib.rs
             let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
             let dll_path = project_root.join("dll").join("lib.rs");
             fs::write(&dll_path, dll_code)?;
             println!("✅ Generated: {}", dll_path.display());
-            
+
             // Generate azul-rs/azul.rs
             let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
             let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
             fs::create_dir_all(rust_api_path.parent().unwrap())?;
             fs::write(&rust_api_path, rust_api_code)?;
             println!("✅ Generated: {}", rust_api_path.display());
-            
+
             println!("\n✨ Rust code generation complete!");
             return Ok(());
         }
         ["codegen", "c"] => {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
-            
+
             println!("🔧 Generating C header file...\n");
-            
+
             let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
             let c_api_path = project_root.join("target").join("codegen").join("azul.h");
             fs::create_dir_all(c_api_path.parent().unwrap())?;
             fs::write(&c_api_path, c_api_code)?;
             println!("✅ Generated: {}", c_api_path.display());
-            
+
             println!("\n✨ C header generation complete!");
             return Ok(());
         }
         ["codegen", "cpp"] => {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
-            
+
             println!("🔧 Generating C++ header file...\n");
-            
+
             let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
             let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
             fs::create_dir_all(cpp_api_path.parent().unwrap())?;
             fs::write(&cpp_api_path, cpp_api_code)?;
             println!("✅ Generated: {}", cpp_api_path.display());
-            
+
             println!("\n✨ C++ header generation complete!");
             return Ok(());
         }
         ["codegen", "python"] => {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
-            
+
             println!("🔧 Generating Python bindings...\n");
-            
+
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
             let python_api_path = project_root.join("dll").join("python.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("✅ Generated: {}", python_api_path.display());
-            
+
             println!("\n✨ Python bindings generation complete!");
             return Ok(());
         }
         ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
-            
+
             println!("🔧 Generating all language bindings...\n");
-            
+
             // Generate dll/lib.rs
             let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
             let dll_path = project_root.join("dll").join("lib.rs");
             fs::write(&dll_path, dll_code)?;
             println!("✅ Generated: {}", dll_path.display());
-            
+
             // Generate azul-rs/azul.rs
             let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
             let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
             fs::create_dir_all(rust_api_path.parent().unwrap())?;
             fs::write(&rust_api_path, rust_api_code)?;
             println!("✅ Generated: {}", rust_api_path.display());
-            
+
             // Generate C header
             let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
             let c_api_path = project_root.join("target").join("codegen").join("azul.h");
             fs::write(&c_api_path, c_api_code)?;
             println!("✅ Generated: {}", c_api_path.display());
-            
+
             // Generate C++ header
             let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
             let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
             fs::write(&cpp_api_path, cpp_api_code)?;
             println!("✅ Generated: {}", cpp_api_path.display());
-            
+
             // Generate Python bindings
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
             let python_api_path = project_root.join("dll").join("python.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("✅ Generated: {}", python_api_path.display());
-            
+
             println!("\n✨ All language bindings generated successfully!");
             return Ok(());
         }
@@ -402,7 +402,7 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
         .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
     let api_data =
         api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
-    
+
     // DEBUG: Check if type_alias field was deserialized
     if let Some(version_data) = api_data.0.values().next() {
         if let Some(css_module) = version_data.api.get("css") {
@@ -412,14 +412,19 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
             } else {
                 eprintln!("DEBUG load_api_json: LayoutZIndexValue NOT found in css.classes");
             }
-            
-            let type_alias_count = css_module.classes.values()
+
+            let type_alias_count = css_module
+                .classes
+                .values()
                 .filter(|c| c.type_alias.is_some())
                 .count();
-            eprintln!("DEBUG load_api_json: {} classes have type_alias", type_alias_count);
+            eprintln!(
+                "DEBUG load_api_json: {} classes have type_alias",
+                type_alias_count
+            );
         }
     }
-    
+
     Ok(api_data)
 }
 

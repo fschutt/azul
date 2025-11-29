@@ -24,6 +24,8 @@ use azul_css::{
 };
 use rust_fontconfig::FcFontCache;
 
+#[cfg(feature = "text_layout")]
+use crate::text3;
 use crate::{
     font::parsed::ParsedFont,
     font_traits::{
@@ -42,9 +44,6 @@ use crate::{
         LayoutContext, LayoutError, Result,
     },
 };
-
-#[cfg(feature = "text_layout")]
-use crate::text3;
 
 /// Resolves a percentage value against an available size, accounting for the CSS box model.
 ///
@@ -78,7 +77,7 @@ use crate::text3;
 /// // Body element: width: 100%, margin: 20px
 /// // Containing block (html): 595px wide
 /// // Expected body width: 595 - 20 - 20 = 555px
-/// 
+///
 /// let body_width = resolve_percentage_with_box_model(
 ///     595.0,           // containing block width
 ///     1.0,             // 100%
@@ -92,7 +91,7 @@ use crate::text3;
 /// # CSS Specification
 ///
 /// From CSS 2.1 Section 10.3.3 (Block-level, non-replaced elements in normal flow):
-/// > 'margin-left' + 'border-left-width' + 'padding-left' + 'width' + 
+/// > 'margin-left' + 'border-left-width' + 'padding-left' + 'width' +
 /// > 'padding-right' + 'border-right-width' + 'margin-right' = width of containing block
 ///
 /// This function ensures that when `width` is a percentage, it resolves to a value that
@@ -104,14 +103,14 @@ pub fn resolve_percentage_with_box_model(
     borders: (f32, f32),
     paddings: (f32, f32),
 ) -> f32 {
-    let available = containing_block_dimension 
-        - margins.0 
+    let available = containing_block_dimension
+        - margins.0
         - margins.1
         - borders.0
         - borders.1
         - paddings.0
         - paddings.1;
-    
+
     (percentage * available).max(0.0)
 }
 
@@ -152,9 +151,8 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 50 == 0 {
-        }
-        
+        if count % 50 == 0 {}
+
         let node = tree
             .get(node_index)
             .cloned()
@@ -241,18 +239,17 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         if child_intrinsics.is_empty() && node.dom_node_id.is_some() {
             let dom_id = node.dom_node_id.unwrap();
             let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-            
+
             // Check if this node has DOM children with text
-            let has_text = dom_id
-                .az_children(node_hierarchy)
-                .any(|child_id| {
-                    let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                    matches!(child_node_data.get_node_type(), NodeType::Text(_))
-                });
-            
+            let has_text = dom_id.az_children(node_hierarchy).any(|child_id| {
+                let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                matches!(child_node_data.get_node_type(), NodeType::Text(_))
+            });
+
             if has_text {
                 self.ctx.debug_log(&format!(
-                    "Block node {} has no layout children but has text DOM children - calculating as inline content",
+                    "Block node {} has no layout children but has text DOM children - calculating \
+                     as inline content",
                     node_index
                 ));
                 // This block contains inline content (text), so calculate its intrinsic size
@@ -347,7 +344,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 
         // Get pre-loaded fonts from font manager
         let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
-        
+
         let min_layout = match self.text_cache.layout_flow(
             &inline_content,
             &[],
@@ -448,7 +445,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 }
 
 /// Gathers all inline content for the intrinsic sizing pass.
-/// 
+///
 /// This function recursively collects text and inline-level content according to
 /// CSS Sizing Level 3, Section 4.1: "Intrinsic Sizes"
 /// https://www.w3.org/TR/css-sizing-3/#intrinsic-sizes
@@ -473,16 +470,16 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     ));
 
     let mut content = Vec::new();
-    
+
     // Recursively collect inline content from this node and its inline descendants
     collect_inline_content_recursive(ctx, tree, ifc_root_index, &mut content)?;
-    
+
     ctx.debug_log(&format!(
         "Collected {} inline content items from node {}",
         content.len(),
         ifc_root_index
     ));
-    
+
     Ok(content)
 }
 
@@ -503,28 +500,25 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
-    
+
     // CRITICAL FIX: Text nodes may exist in the DOM but not as separate layout nodes!
     // We need to check the DOM children for text content.
     let Some(dom_id) = node.dom_node_id else {
         // No DOM ID means this is a synthetic node, skip text extraction
         return process_layout_children(ctx, tree, node, content);
     };
-    
+
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
         let style_props = get_style_properties(ctx.styled_dom, dom_id);
-        ctx.debug_log(&format!(
-            "Found text in node {}: '{}'",
-            node_index, text
-        ));
+        ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
         content.push(InlineContent::Text(StyledRun {
             text,
             style: Arc::new(style_props),
             logical_start_byte: 0,
         }));
     }
-    
+
     // CRITICAL: Also check DOM children for text nodes!
     // Text nodes are often not represented as separate layout nodes.
     let node_hierarchy = &ctx.styled_dom.node_hierarchy.as_container();
@@ -564,7 +558,7 @@ fn process_layout_children<T: ParsedFontTrait>(
         };
 
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
-        
+
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
         if display.unwrap_or_default() == LayoutDisplay::Inline {
             // Recursively collect content from inline children
@@ -579,12 +573,12 @@ fn process_layout_children<T: ParsedFontTrait>(
             // (e.g., inline-block, images, floats)
             // Their intrinsic size must have been calculated in the bottom-up pass
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
-            
+
             ctx.debug_log(&format!(
                 "Found atomic inline child at node {}: display={:?}, intrinsic_width={}",
                 child_index, display, intrinsic_sizes.max_content_width
             ));
-            
+
             // Represent as a rectangular shape with the child's intrinsic dimensions
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
@@ -601,7 +595,7 @@ fn process_layout_children<T: ParsedFontTrait>(
             }));
         }
     }
-    
+
     Ok(())
 }
 
@@ -698,7 +692,6 @@ pub fn calculate_used_size_for_node(
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
-
     let Some(id) = dom_id else {
         return Ok(LogicalSize::new(
             intrinsic.max_content_width,
@@ -711,7 +704,7 @@ pub fn calculate_used_size_for_node(
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
     let display = get_display_property(styled_dom, Some(id));
-    
+
     // Step 1: Resolve the CSS `width` property into a concrete pixel value.
     // Percentage values for `width` are resolved against the containing block's width.
     let resolved_width = match css_width.unwrap_or_default() {
@@ -721,30 +714,34 @@ pub fn calculate_used_size_for_node(
                 LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
                     // For block-level, non-replaced elements, 'auto' width fills the
                     // containing block (minus margins, borders, padding)
-                    // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left - margin_right - border_left - border_right - padding_left - padding_right
+                    // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left -
+                    // margin_right - border_left - border_right - padding_left - padding_right
                     // CSS 2.1 Section 12.5.1: List-items have the same sizing as block boxes
-                    let available_width = containing_block_size.width 
-                        - _box_props.margin.left 
+                    let available_width = containing_block_size.width
+                        - _box_props.margin.left
                         - _box_props.margin.right
                         - _box_props.border.left
                         - _box_props.border.right
                         - _box_props.padding.left
                         - _box_props.padding.right;
-                    
+
                     available_width.max(0.0)
-                },
+                }
                 LayoutDisplay::Inline | LayoutDisplay::InlineBlock => {
                     // For inline-level elements, 'auto' width is the shrink-to-fit width,
                     // which is the max-content width
                     intrinsic.max_content_width
-                },
+                }
                 // Flex and Grid item sizing is handled by Taffy, not this function.
                 _ => intrinsic.max_content_width,
             }
-        },
+        }
         LayoutWidth::Px(px) => {
             // Resolve percentage or absolute pixel value
-            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+            use azul_css::props::basic::{
+                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+                SizeMetric,
+            };
             let pixels_opt = match px.metric {
                 SizeMetric::Px => Some(px.number.get()),
                 SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
@@ -755,7 +752,7 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Percent => None,
                 SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
-            
+
             match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
@@ -767,9 +764,9 @@ pub fn calculate_used_size_for_node(
                             (_box_props.border.left, _box_props.border.right),
                             (_box_props.padding.left, _box_props.padding.right),
                         );
-                        
+
                         result
-                    },
+                    }
                     None => intrinsic.max_content_width,
                 },
             }
@@ -786,10 +783,13 @@ pub fn calculate_used_size_for_node(
             // For block containers, this will be updated later in the layout process
             // after the children's heights are known.
             intrinsic.max_content_height
-        },
+        }
         LayoutHeight::Px(px) => {
             // Resolve percentage or absolute pixel value
-            use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
+            use azul_css::props::basic::{
+                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+                SizeMetric,
+            };
             let pixels_opt = match px.metric {
                 SizeMetric::Px => Some(px.number.get()),
                 SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
@@ -800,19 +800,17 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Percent => None,
                 SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
-            
+
             match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => {
-                        resolve_percentage_with_box_model(
-                            containing_block_size.height,
-                            p.get(),
-                            (_box_props.margin.top, _box_props.margin.bottom),
-                            (_box_props.border.top, _box_props.border.bottom),
-                            (_box_props.padding.top, _box_props.padding.bottom),
-                        )
-                    },
+                    Some(p) => resolve_percentage_with_box_model(
+                        containing_block_size.height,
+                        p.get(),
+                        (_box_props.margin.top, _box_props.margin.bottom),
+                        (_box_props.border.top, _box_props.border.bottom),
+                        (_box_props.padding.top, _box_props.padding.bottom),
+                    ),
                     None => intrinsic.max_content_height,
                 },
             }
@@ -823,28 +821,44 @@ pub fn calculate_used_size_for_node(
 
     // Step 3: Apply min/max constraints (CSS 2.2 § 10.4 and § 10.7)
     // "The tentative used width is calculated (without 'min-width' and 'max-width')
-    // ...If the tentative used width is greater than 'max-width', the rules above are 
+    // ...If the tentative used width is greater than 'max-width', the rules above are
     // applied again using the computed value of 'max-width' as the computed value for 'width'.
-    // If the resulting width is smaller than 'min-width', the rules above are applied again 
+    // If the resulting width is smaller than 'min-width', the rules above are applied again
     // using the value of 'min-width' as the computed value for 'width'."
-    
+
     let constrained_width = apply_width_constraints(
-        styled_dom, id, node_state, resolved_width, containing_block_size.width, _box_props
+        styled_dom,
+        id,
+        node_state,
+        resolved_width,
+        containing_block_size.width,
+        _box_props,
     );
-    
+
     let constrained_height = apply_height_constraints(
-        styled_dom, id, node_state, resolved_height, containing_block_size.height, _box_props
+        styled_dom,
+        id,
+        node_state,
+        resolved_height,
+        containing_block_size.height,
+        _box_props,
     );
 
     // Step 4: Convert content-box dimensions to border-box dimensions
     // The constraints above give us CONTENT-BOX sizes (min-height/max-height apply to content).
     // We need to return BORDER-BOX sizes (which include padding and border).
-    // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are: 
+    // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
     // margin, border, padding, width, and height."
-    let border_box_width = constrained_width + _box_props.padding.left + _box_props.padding.right 
-        + _box_props.border.left + _box_props.border.right;
-    let border_box_height = constrained_height + _box_props.padding.top + _box_props.padding.bottom 
-        + _box_props.border.top + _box_props.border.bottom;
+    let border_box_width = constrained_width
+        + _box_props.padding.left
+        + _box_props.padding.right
+        + _box_props.border.left
+        + _box_props.border.right;
+    let border_box_height = constrained_height
+        + _box_props.padding.top
+        + _box_props.padding.bottom
+        + _box_props.border.top
+        + _box_props.border.bottom;
 
     // Step 5: Map the resolved physical dimensions to logical dimensions.
     // The `width` property always corresponds to the cross (inline) axis size.
@@ -853,7 +867,8 @@ pub fn calculate_used_size_for_node(
     let main_size = border_box_height;
 
     // Step 6: Construct the final LogicalSize from the logical dimensions.
-    let result = LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
+    let result =
+        LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
     Ok(result)
 }
@@ -868,9 +883,13 @@ fn apply_width_constraints(
     containing_block_width: f32,
     box_props: &BoxProps,
 ) -> f32 {
-    use crate::solver3::getters::{get_css_min_width, get_css_max_width, MultiValue};
-    use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
-    
+    use azul_css::props::basic::{
+        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+        SizeMetric,
+    };
+
+    use crate::solver3::getters::{get_css_max_width, get_css_min_width, MultiValue};
+
     // Resolve min-width (default is 0)
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
@@ -885,23 +904,26 @@ fn apply_width_constraints(
                 SizeMetric::Percent => None,
                 _ => None,
             };
-            
+
             match pixels_opt {
                 Some(pixels) => pixels,
-                None => px.to_percent().map(|p| {
-                    resolve_percentage_with_box_model(
-                        containing_block_width,
-                        p.get(),
-                        (box_props.margin.left, box_props.margin.right),
-                        (box_props.border.left, box_props.border.right),
-                        (box_props.padding.left, box_props.padding.right),
-                    )
-                }).unwrap_or(0.0),
+                None => px
+                    .to_percent()
+                    .map(|p| {
+                        resolve_percentage_with_box_model(
+                            containing_block_width,
+                            p.get(),
+                            (box_props.margin.left, box_props.margin.right),
+                            (box_props.border.left, box_props.border.right),
+                            (box_props.padding.left, box_props.padding.right),
+                        )
+                    })
+                    .unwrap_or(0.0),
             }
-        },
+        }
         _ => 0.0,
     };
-    
+
     // Resolve max-width (default is infinity/none)
     let max_width = match get_css_max_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
@@ -920,7 +942,7 @@ fn apply_width_constraints(
                     SizeMetric::Percent => None,
                     _ => None,
                 };
-                
+
                 match pixels_opt {
                     Some(pixels) => Some(pixels),
                     None => px.to_percent().map(|p| {
@@ -934,18 +956,18 @@ fn apply_width_constraints(
                     }),
                 }
             }
-        },
+        }
         _ => None,
     };
-    
+
     // Apply constraints: max(min_width, min(tentative, max_width))
     // If min > max, min wins per CSS spec
     let mut result = tentative_width;
-    
+
     if let Some(max) = max_width {
         result = result.min(max);
     }
-    
+
     result = result.max(min_width);
 
     result
@@ -961,9 +983,13 @@ fn apply_height_constraints(
     containing_block_height: f32,
     box_props: &BoxProps,
 ) -> f32 {
-    use crate::solver3::getters::{get_css_min_height, get_css_max_height, MultiValue};
-    use azul_css::props::basic::{SizeMetric, pixel::{PT_TO_PX, DEFAULT_FONT_SIZE}};
-    
+    use azul_css::props::basic::{
+        pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+        SizeMetric,
+    };
+
+    use crate::solver3::getters::{get_css_max_height, get_css_min_height, MultiValue};
+
     // Resolve min-height (default is 0)
     let min_height = match get_css_min_height(styled_dom, id, node_state) {
         MultiValue::Exact(mh) => {
@@ -978,23 +1004,26 @@ fn apply_height_constraints(
                 SizeMetric::Percent => None,
                 _ => None,
             };
-            
+
             match pixels_opt {
                 Some(pixels) => pixels,
-                None => px.to_percent().map(|p| {
-                    resolve_percentage_with_box_model(
-                        containing_block_height,
-                        p.get(),
-                        (box_props.margin.top, box_props.margin.bottom),
-                        (box_props.border.top, box_props.border.bottom),
-                        (box_props.padding.top, box_props.padding.bottom),
-                    )
-                }).unwrap_or(0.0),
+                None => px
+                    .to_percent()
+                    .map(|p| {
+                        resolve_percentage_with_box_model(
+                            containing_block_height,
+                            p.get(),
+                            (box_props.margin.top, box_props.margin.bottom),
+                            (box_props.border.top, box_props.border.bottom),
+                            (box_props.padding.top, box_props.padding.bottom),
+                        )
+                    })
+                    .unwrap_or(0.0),
             }
-        },
+        }
         _ => 0.0,
     };
-    
+
     // Resolve max-height (default is infinity/none)
     let max_height = match get_css_max_height(styled_dom, id, node_state) {
         MultiValue::Exact(mh) => {
@@ -1013,7 +1042,7 @@ fn apply_height_constraints(
                     SizeMetric::Percent => None,
                     _ => None,
                 };
-                
+
                 match pixels_opt {
                     Some(pixels) => Some(pixels),
                     None => px.to_percent().map(|p| {
@@ -1027,20 +1056,20 @@ fn apply_height_constraints(
                     }),
                 }
             }
-        },
+        }
         _ => None,
     };
-    
+
     // Apply constraints: max(min_height, min(tentative, max_height))
     // If min > max, min wins per CSS spec
     let mut result = tentative_height;
-    
+
     if let Some(max) = max_height {
         result = result.min(max);
     }
-    
+
     result = result.max(min_height);
-    
+
     result
 }
 

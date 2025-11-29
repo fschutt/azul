@@ -296,7 +296,10 @@ impl<T: Default> CssPropertyValue<T> {
         match self {
             CssPropertyValue::Auto | CssPropertyValue::Initial => Some(T::default()),
             CssPropertyValue::Exact(c) => Some(c),
-            CssPropertyValue::None | CssPropertyValue::Inherit | CssPropertyValue::Revert | CssPropertyValue::Unset => None,
+            CssPropertyValue::None
+            | CssPropertyValue::Inherit
+            | CssPropertyValue::Revert
+            | CssPropertyValue::Unset => None,
         }
     }
 }

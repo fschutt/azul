@@ -1,7 +1,9 @@
 //! Tests for hover state management
 
-use azul_layout::managers::hover::{HoverManager, InputPointId};
-use azul_layout::hit_test::FullHitTest;
+use azul_layout::{
+    hit_test::FullHitTest,
+    managers::hover::{HoverManager, InputPointId},
+};
 
 const MAX_HOVER_HISTORY: usize = 5;
 

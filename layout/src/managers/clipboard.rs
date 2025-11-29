@@ -1,22 +1,22 @@
 //! Clipboard Manager
 //!
-//! Manages clipboard content flow between the system clipboard and 
+//! Manages clipboard content flow between the system clipboard and
 //! the application.
 //!
 //! ## Architecture
 //!
-//! The clipboard manager acts as a bridge between system clipboard 
+//! The clipboard manager acts as a bridge between system clipboard
 //! operations and user callbacks:
 //!
 //! 1. **Paste Flow**: System clipboard → ClipboardManager → User Callback → TextInputManager
-//! 
+//!
 //!    - When Ctrl+V is pressed, event_v2 reads system clipboard and calls `set_paste_content()`
 //!    - User's On::Paste callback can inspect content via `get_clipboard_content()`
 //!    - User can modify/block paste by not calling the default paste action
 //!    - After callback, content is cleared for next operation
 //!
 //! 2. **Copy Flow**: Selection → User Callback → ClipboardManager → System clipboard
-//! 
+//!
 //!    - When Ctrl+C is pressed, user's On::Copy callback fires
 //!    - Callback can inspect selected content and override via `set_copy_content()`
 //!    - event_v2 calls `get_copy_content()` to get final content (override or default)
@@ -44,7 +44,6 @@ pub struct ClipboardManager {
 }
 
 impl ClipboardManager {
-    
     /// Create a new empty clipboard manager
     pub fn new() -> Self {
         Self {

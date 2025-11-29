@@ -7,7 +7,8 @@ use crate::{
         basic::{
             length::{parse_float_value, FloatValue},
             pixel::{
-                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
+                parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
+                PixelValue,
             },
         },
         formatter::PrintAsCssValue,
@@ -158,7 +159,6 @@ impl PrintAsCssValue for ClipPath {
         }
     }
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -316,14 +316,20 @@ mod tests {
     #[test]
     fn test_parse_shape_properties() {
         // Test shape-outside
-        assert!(matches!(parse_shape_outside("none").unwrap(), ShapeOutside::None));
+        assert!(matches!(
+            parse_shape_outside("none").unwrap(),
+            ShapeOutside::None
+        ));
         assert!(matches!(
             parse_shape_outside("circle(50px)").unwrap(),
             ShapeOutside::Shape(_)
         ));
 
         // Test shape-inside
-        assert!(matches!(parse_shape_inside("none").unwrap(), ShapeInside::None));
+        assert!(matches!(
+            parse_shape_inside("none").unwrap(),
+            ShapeInside::None
+        ));
         assert!(matches!(
             parse_shape_inside("circle(100px at 50px 50px)").unwrap(),
             ShapeInside::Shape(_)

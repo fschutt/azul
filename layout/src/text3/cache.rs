@@ -17,25 +17,24 @@ use azul_core::{
     selection::{CursorAffinity, SelectionRange, TextCursor},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::ColorU;
+use azul_css::{corety::LayoutDebugMessage, props::basic::ColorU};
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language, Load, Standard};
-#[cfg(not(feature = "text_layout_hyphenation"))]
-use crate::text3::script::Language;
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(not(feature = "text_layout_hyphenation"))]
+use crate::text3::script::Language;
 use crate::text3::script::{script_to_language, Script};
-use azul_css::corety::LayoutDebugMessage;
 
 /// Available space for layout, similar to Taffy's AvailableSpace.
-/// 
+///
 /// This type explicitly represents the three possible states for available space:
 /// - `Definite(f32)`: A specific pixel width is available
 /// - `MinContent`: Layout should use minimum content width (shrink-wrap)
 /// - `MaxContent`: Layout should use maximum content width (no line breaks unless necessary)
-/// 
+///
 /// This is critical for proper handling of intrinsic sizing in Flexbox/Grid
 /// where the available space may be indefinite during the measure phase.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,12 +58,12 @@ impl AvailableSpace {
     pub fn is_definite(&self) -> bool {
         matches!(self, AvailableSpace::Definite(_))
     }
-    
+
     /// Returns true if this is an indefinite (min-content or max-content) constraint
     pub fn is_indefinite(&self) -> bool {
         !self.is_definite()
     }
-    
+
     /// Returns the definite value if available, or a fallback for indefinite constraints
     pub fn unwrap_or(self, fallback: f32) -> f32 {
         match self {
@@ -72,7 +71,7 @@ impl AvailableSpace {
             _ => fallback,
         }
     }
-    
+
     /// Returns the definite value, or 0.0 for min-content, or f32::MAX for max-content
     pub fn to_f32_for_layout(self) -> f32 {
         match self {
@@ -81,14 +80,14 @@ impl AvailableSpace {
             AvailableSpace::MaxContent => f32::MAX,
         }
     }
-    
+
     /// Create from an f32 value, recognizing special sentinel values.
-    /// 
+    ///
     /// This function provides backwards compatibility with code that uses f32 for constraints:
     /// - `f32::INFINITY` or `f32::MAX` → `MaxContent` (no line wrapping)
     /// - `0.0` → `MinContent` (maximum line wrapping, return longest word width)
     /// - Other values → `Definite(value)`
-    /// 
+    ///
     /// Note: Using sentinel values like 0.0 for MinContent is fragile. Prefer using
     /// `AvailableSpace::MinContent` directly when possible.
     pub fn from_f32(value: f32) -> Self {
@@ -114,7 +113,7 @@ impl Hash for AvailableSpace {
 }
 
 // Re-export traits for backwards compatibility
-pub use crate::font_traits::{ShallowClone, ParsedFontTrait};
+pub use crate::font_traits::{ParsedFontTrait, ShallowClone};
 
 // --- Core Data Structures for the New Architecture ---
 
@@ -130,21 +129,31 @@ pub struct FontChainKey {
 impl FontChainKey {
     /// Create a FontChainKey from a font stack
     pub fn from_font_stack(font_stack: &[FontSelector]) -> Self {
-        let font_families: Vec<String> = font_stack.iter()
+        let font_families: Vec<String> = font_stack
+            .iter()
             .map(|s| s.family.clone())
             .filter(|f| !f.is_empty())
             .collect();
-        
+
         let font_families = if font_families.is_empty() {
             vec!["serif".to_string()]
         } else {
             font_families
         };
-        
-        let weight = font_stack.first().map(|s| s.weight).unwrap_or(FcWeight::Normal);
-        let is_italic = font_stack.first().map(|s| s.style == FontStyle::Italic).unwrap_or(false);
-        let is_oblique = font_stack.first().map(|s| s.style == FontStyle::Oblique).unwrap_or(false);
-        
+
+        let weight = font_stack
+            .first()
+            .map(|s| s.weight)
+            .unwrap_or(FcWeight::Normal);
+        let is_italic = font_stack
+            .first()
+            .map(|s| s.style == FontStyle::Italic)
+            .unwrap_or(false);
+        let is_oblique = font_stack
+            .first()
+            .map(|s| s.style == FontStyle::Oblique)
+            .unwrap_or(false);
+
         FontChainKey {
             font_families,
             weight,
@@ -157,7 +166,7 @@ impl FontChainKey {
 /// A map of pre-loaded fonts, keyed by FontId (from rust-fontconfig)
 /// This is passed to the shaper - no font loading happens during shaping
 /// The fonts are loaded BEFORE layout based on the font chains and text content.
-/// 
+///
 /// Provides both FontId and hash-based lookup for efficient glyph operations.
 #[derive(Debug, Clone)]
 pub struct LoadedFonts<T> {
@@ -174,49 +183,49 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
             hash_to_id: HashMap::new(),
         }
     }
-    
+
     /// Insert a font with its FontId
     pub fn insert(&mut self, font_id: FontId, font: T) {
         let hash = font.get_hash();
         self.hash_to_id.insert(hash, font_id.clone());
         self.fonts.insert(font_id, font);
     }
-    
+
     /// Get a font by FontId
     pub fn get(&self, font_id: &FontId) -> Option<&T> {
         self.fonts.get(font_id)
     }
-    
+
     /// Get a font by its hash
     pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
         self.hash_to_id.get(&hash).and_then(|id| self.fonts.get(id))
     }
-    
+
     /// Get the FontId for a hash
     pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
         self.hash_to_id.get(&hash)
     }
-    
+
     /// Check if a FontId is present
     pub fn contains_key(&self, font_id: &FontId) -> bool {
         self.fonts.contains_key(font_id)
     }
-    
+
     /// Check if a hash is present
     pub fn contains_hash(&self, hash: u64) -> bool {
         self.hash_to_id.contains_key(&hash)
     }
-    
+
     /// Iterate over all fonts
     pub fn iter(&self) -> impl Iterator<Item = (&FontId, &T)> {
         self.fonts.iter()
     }
-    
+
     /// Get the number of loaded fonts
     pub fn len(&self) -> usize {
         self.fonts.len()
     }
-    
+
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.fonts.is_empty()
@@ -258,24 +267,32 @@ impl<T: ParsedFontTrait> FontManager<T> {
             font_chain_cache: HashMap::new(), // Populated via set_font_chain_cache()
         })
     }
-    
+
     /// Set the font chain cache from externally resolved chains
-    /// 
-    /// This should be called with the result of `resolve_font_chains()` or 
+    ///
+    /// This should be called with the result of `resolve_font_chains()` or
     /// `collect_and_resolve_font_chains()` from `solver3::getters`.
-    pub fn set_font_chain_cache(&mut self, chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>) {
+    pub fn set_font_chain_cache(
+        &mut self,
+        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    ) {
         self.font_chain_cache = chains;
     }
-    
+
     /// Merge additional font chains into the existing cache
-    /// 
+    ///
     /// Useful when processing multiple DOMs that may have different font requirements.
-    pub fn merge_font_chain_cache(&mut self, chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>) {
+    pub fn merge_font_chain_cache(
+        &mut self,
+        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    ) {
         self.font_chain_cache.extend(chains);
     }
-    
+
     /// Get a reference to the font chain cache
-    pub fn get_font_chain_cache(&self) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
+    pub fn get_font_chain_cache(
+        &self,
+    ) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
         &self.font_chain_cache
     }
 
@@ -294,38 +311,39 @@ impl<T: ParsedFontTrait> FontManager<T> {
         }
         None
     }
-    
+
     /// Get a snapshot of all currently loaded fonts
-    /// 
+    ///
     /// This returns a copy of all parsed fonts, which can be passed to the shaper.
     /// No locking is required after this call - the returned HashMap is independent.
-    /// 
+    ///
     /// NOTE: This should be called AFTER loading all required fonts for a layout pass.
     pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
-        parsed.iter()
+        parsed
+            .iter()
             .map(|(id, font)| (id.clone(), font.shallow_clone()))
             .collect()
     }
-    
+
     /// Get the set of FontIds that are currently loaded
-    /// 
+    ///
     /// This is useful for computing which fonts need to be loaded (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed.keys().cloned().collect()
     }
-    
+
     /// Insert a loaded font into the cache
-    /// 
+    ///
     /// Returns the old font if one was already present for this FontId.
     pub fn insert_font(&self, font_id: FontId, font: T) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.insert(font_id, font)
     }
-    
+
     /// Insert multiple loaded fonts into the cache
-    /// 
+    ///
     /// This is more efficient than calling `insert_font` multiple times
     /// because it only acquires the lock once.
     pub fn insert_fonts(&self, fonts: impl IntoIterator<Item = (FontId, T)>) {
@@ -334,9 +352,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed.insert(font_id, font);
         }
     }
-    
+
     /// Remove a font from the cache
-    /// 
+    ///
     /// Returns the removed font if it was present.
     pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
@@ -390,8 +408,8 @@ pub struct CursorBoundsError {
 /// ## \u00a7 2.1 Layout of Line Boxes
 /// - `available_width`: \u26a0\ufe0f CRITICAL - Should equal containing block's inner width
 ///   * Currently defaults to 0.0 which causes immediate line breaking
-///   * Per spec: "logical width of a line box is equal to the inner logical
-///     width of its containing block"
+///   * Per spec: "logical width of a line box is equal to the inner logical width of its containing
+///     block"
 /// - `available_height`: For block-axis constraints (max-height)
 ///
 /// ## \u00a7 2.2 Layout Within Line Boxes
@@ -489,9 +507,9 @@ impl Default for UnifiedConstraints {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
             // [IMPORTANT] CRITICAL: This should be set to the containing block's inner width
-            // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line breaking.
-            // This value should be passed from the box layout solver (fc.rs) when creating
-            // UnifiedConstraints for text layout.
+            // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line
+            // breaking. This value should be passed from the box layout solver (fc.rs)
+            // when creating UnifiedConstraints for text layout.
             available_width: AvailableSpace::Definite(0.0),
             available_height: None,
             writing_mode: None,
@@ -1637,11 +1655,11 @@ impl Eq for ShapeBoundary {}
 
 impl ShapeBoundary {
     /// Converts a CSS shape (from azul-css) to a layout engine ShapeBoundary
-    /// 
+    ///
     /// # Arguments
     /// * `css_shape` - The parsed CSS shape from azul-css
     /// * `reference_box` - The containing box for resolving coordinates (from layout solver)
-    /// 
+    ///
     /// # Returns
     /// A ShapeBoundary ready for use in the text layout engine
     pub fn from_css_shape(
@@ -1650,12 +1668,18 @@ impl ShapeBoundary {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Self {
         use azul_css::shape::Shape as CssShape;
-        
+
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Input CSS shape: {:?}", css_shape)));
-            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Reference box: {:?}", reference_box)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[ShapeBoundary::from_css_shape] Input CSS shape: {:?}",
+                css_shape
+            )));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[ShapeBoundary::from_css_shape] Reference box: {:?}",
+                reference_box
+            )));
         }
-        
+
         let result = match css_shape {
             CssShape::Circle(circle) => {
                 let center = Point {
@@ -1663,17 +1687,22 @@ impl ShapeBoundary {
                     y: reference_box.y + circle.center.y,
                 };
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}", 
-                        circle.center.x, circle.center.y, circle.radius)));
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), radius: {}", 
-                        center.x, center.y, circle.radius)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Circle - CSS center: ({}, {}), radius: {}",
+                        circle.center.x, circle.center.y, circle.radius
+                    )));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Circle - Absolute center: ({}, {}), \
+                         radius: {}",
+                        center.x, center.y, circle.radius
+                    )));
                 }
                 ShapeBoundary::Circle {
                     center,
                     radius: circle.radius,
                 }
             }
-            
+
             CssShape::Ellipse(ellipse) => {
                 let center = Point {
                     x: reference_box.x + ellipse.center.x,
@@ -1684,14 +1713,19 @@ impl ShapeBoundary {
                     height: ellipse.radius_y,
                 };
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, {})", 
-                        center.x, center.y, radii.width, radii.height)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Ellipse - center: ({}, {}), radii: ({}, \
+                         {})",
+                        center.x, center.y, radii.width, radii.height
+                    )));
                 }
                 ShapeBoundary::Ellipse { center, radii }
             }
-            
+
             CssShape::Polygon(polygon) => {
-                let points = polygon.points.as_ref()
+                let points = polygon
+                    .points
+                    .as_ref()
                     .iter()
                     .map(|pt| Point {
                         x: reference_box.x + pt.x,
@@ -1699,25 +1733,33 @@ impl ShapeBoundary {
                     })
                     .collect();
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Polygon - {} points", polygon.points.as_ref().len())));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Polygon - {} points",
+                        polygon.points.as_ref().len()
+                    )));
                 }
                 ShapeBoundary::Polygon { points }
             }
-            
+
             CssShape::Inset(inset) => {
                 // Inset defines distances from reference box edges
                 let x = reference_box.x + inset.left;
                 let y = reference_box.y + inset.top;
                 let width = reference_box.width - inset.left - inset.right;
                 let height = reference_box.height - inset.top - inset.bottom;
-                
+
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})", 
-                        inset.top, inset.right, inset.bottom, inset.left)));
-                    msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, w={}, h={}", 
-                        x, y, width, height)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})",
+                        inset.top, inset.right, inset.bottom, inset.left
+                    )));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, \
+                         w={}, h={}",
+                        x, y, width, height
+                    )));
                 }
-                
+
                 ShapeBoundary::Rectangle(Rect {
                     x,
                     y,
@@ -1725,19 +1767,24 @@ impl ShapeBoundary {
                     height: height.max(0.0),
                 })
             }
-            
+
             CssShape::Path(path) => {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("[ShapeBoundary::from_css_shape] Path - fallback to rectangle".to_string()));
+                    msgs.push(LayoutDebugMessage::info(
+                        "[ShapeBoundary::from_css_shape] Path - fallback to rectangle".to_string(),
+                    ));
                 }
                 // TODO: Parse SVG path data into PathSegments
                 // For now, fall back to rectangle
                 ShapeBoundary::Rectangle(reference_box)
             }
         };
-        
+
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("[ShapeBoundary::from_css_shape] Result: {:?}", result)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[ShapeBoundary::from_css_shape] Result: {:?}",
+                result
+            )));
         }
         result
     }
@@ -1903,14 +1950,14 @@ pub struct StyleProperties {
     pub font_size_px: f32,
     pub color: ColorU,
     /// Background color for inline elements (e.g., `<span style="background-color: yellow">`)
-    /// 
+    ///
     /// This is propagated from CSS through the style system and eventually used by
     /// the PDF renderer to draw filled rectangles behind text. The value is `None`
     /// for transparent backgrounds (the default).
-    /// 
+    ///
     /// The propagation chain is:
     /// CSS -> `get_style_properties()` -> `StyleProperties` -> `ShapedGlyph` -> `PdfGlyphRun`
-    /// 
+    ///
     /// See `PdfGlyphRun::background_color` for how this is used in PDF rendering.
     pub background_color: Option<ColorU>,
     pub letter_spacing: Spacing,
@@ -2386,7 +2433,7 @@ pub struct VisualItem {
 #[derive(Debug, Clone)]
 pub enum ShapedItem {
     Cluster(ShapedCluster),
-    /// A block of combined text (tate-chu-yoko) that is laid out 
+    /// A block of combined text (tate-chu-yoko) that is laid out
     // as a single unbreakable object.
     CombinedBlock {
         source: ContentIndex,
@@ -2557,7 +2604,7 @@ impl ShapedGlyph {
             size,
         }
     }
-    
+
     /// Convert this ShapedGlyph into a GlyphInstance with an absolute position.
     /// This version doesn't require fonts - it uses a default size.
     /// Use this when you don't need precise glyph bounds (e.g., display list generation).
@@ -2608,7 +2655,7 @@ impl UnifiedLayout {
         for item in &self.items {
             let item_x = item.position.x;
             let item_y = item.position.y;
-            
+
             // Get item dimensions
             let item_bounds = item.item.bounds();
             let item_width = item_bounds.width;
@@ -3426,7 +3473,6 @@ impl UnifiedLayout {
         }
         cursor
     }
-
 }
 
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
@@ -3678,7 +3724,6 @@ impl LayoutCache {
         loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<FlowLayout, LayoutError> {
-        
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
@@ -3688,7 +3733,13 @@ impl LayoutCache {
         let logical_items = self
             .logical_items
             .entry(logical_items_id)
-            .or_insert_with(|| Arc::new(create_logical_items(content, style_overrides, debug_messages)))
+            .or_insert_with(|| {
+                Arc::new(create_logical_items(
+                    content,
+                    style_overrides,
+                    debug_messages,
+                ))
+            })
             .clone();
 
         // Get the first fragment's constraints to extract the CSS direction property.
@@ -3715,7 +3766,9 @@ impl LayoutCache {
             .visual_items
             .entry(visual_items_id)
             .or_insert_with(|| {
-                Arc::new(reorder_logical_items(&logical_items, base_direction, debug_messages).unwrap())
+                Arc::new(
+                    reorder_logical_items(&logical_items, base_direction, debug_messages).unwrap(),
+                )
             })
             .clone();
 
@@ -3723,11 +3776,15 @@ impl LayoutCache {
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => {
-                cached.clone()
-            },
+            Some(cached) => cached.clone(),
             None => {
-                let items = Arc::new(shape_visual_items(&visual_items, font_chain_cache, fc_cache, loaded_fonts, debug_messages)?);
+                let items = Arc::new(shape_visual_items(
+                    &visual_items,
+                    font_chain_cache,
+                    fc_cache,
+                    loaded_fonts,
+                    debug_messages,
+                )?);
                 self.shaped_items.insert(shaped_items_id, items.clone());
                 items
             }
@@ -3749,8 +3806,13 @@ impl LayoutCache {
 
         for fragment in flow_chain {
             // Perform layout for this single fragment, consuming items from the cursor.
-            let fragment_layout =
-                perform_fragment_layout(&mut cursor, &logical_items, &fragment.constraints, debug_messages, loaded_fonts)?;
+            let fragment_layout = perform_fragment_layout(
+                &mut cursor,
+                &logical_items,
+                &fragment.constraints,
+                debug_messages,
+                loaded_fonts,
+            )?;
 
             fragment_layouts.insert(fragment.id.clone(), Arc::new(fragment_layout));
             if cursor.is_done() {
@@ -3772,9 +3834,17 @@ pub fn create_logical_items(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Vec<LogicalItem> {
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("\n--- Entering create_logical_items (Refactored) ---".to_string()));
-        msgs.push(LayoutDebugMessage::info(format!("Input content length: {}", content.len())));
-        msgs.push(LayoutDebugMessage::info(format!("Input overrides length: {}", style_overrides.len())));
+        msgs.push(LayoutDebugMessage::info(
+            "\n--- Entering create_logical_items (Refactored) ---".to_string(),
+        ));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Input content length: {}",
+            content.len()
+        )));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Input overrides length: {}",
+            style_overrides.len()
+        )));
     }
 
     let mut items = Vec::new();
@@ -3791,21 +3861,28 @@ pub fn create_logical_items(
 
     for (run_idx, inline_item) in content.iter().enumerate() {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("Processing content run #{}", run_idx)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "Processing content run #{}",
+                run_idx
+            )));
         }
-        
+
         // Extract marker information if this is a marker
         let marker_position_outside = match inline_item {
-            InlineContent::Marker { position_outside, .. } => Some(*position_outside),
+            InlineContent::Marker {
+                position_outside, ..
+            } => Some(*position_outside),
             _ => None,
         };
-        
+
         match inline_item {
             InlineContent::Text(run) | InlineContent::Marker { run, .. } => {
                 let text = &run.text;
                 if text.is_empty() {
                     if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::info("  Run is empty, skipping.".to_string()));
+                        msgs.push(LayoutDebugMessage::info(
+                            "  Run is empty, skipping.".to_string(),
+                        ));
                     }
                     continue;
                 }
@@ -3874,7 +3951,10 @@ pub fn create_logical_items(
                 }
 
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("  Boundaries: {:?}", boundaries)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "  Boundaries: {:?}",
+                        boundaries
+                    )));
                 }
 
                 // --- Chunk Processing ---
@@ -3896,7 +3976,10 @@ pub fn create_logical_items(
                         current_run_overrides.and_then(|o| o.get(&(start as u32)))
                     {
                         if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!("  -> Applying override at byte {}", start)));
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "  -> Applying override at byte {}",
+                                start
+                            )));
                         }
                         let mut hasher = DefaultHasher::new();
                         Arc::as_ptr(&run.style).hash(&mut hasher);
@@ -3945,7 +4028,9 @@ pub fn create_logical_items(
             // Other cases...
             _ => {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("  Run is not text, creating generic LogicalItem.".to_string()));
+                    msgs.push(LayoutDebugMessage::info(
+                        "  Run is not text, creating generic LogicalItem.".to_string(),
+                    ));
                 }
                 items.push(LogicalItem::Object {
                     source: ContentIndex {
@@ -3989,9 +4074,17 @@ pub fn reorder_logical_items(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<VisualItem>, LayoutError> {
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("\n--- Entering reorder_logical_items ---".to_string()));
-        msgs.push(LayoutDebugMessage::info(format!("Input logical items count: {}", logical_items.len())));
-        msgs.push(LayoutDebugMessage::info(format!("Base direction: {:?}", base_direction)));
+        msgs.push(LayoutDebugMessage::info(
+            "\n--- Entering reorder_logical_items ---".to_string(),
+        ));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Input logical items count: {}",
+            logical_items.len()
+        )));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Base direction: {:?}",
+            base_direction
+        )));
     }
 
     let mut bidi_str = String::new();
@@ -4011,12 +4104,17 @@ pub fn reorder_logical_items(
 
     if bidi_str.is_empty() {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("Bidi string is empty, returning.".to_string()));
+            msgs.push(LayoutDebugMessage::info(
+                "Bidi string is empty, returning.".to_string(),
+            ));
         }
         return Ok(Vec::new());
     }
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!("Constructed bidi string: '{}'", bidi_str)));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Constructed bidi string: '{}'",
+            bidi_str
+        )));
     }
 
     let bidi_level = if base_direction == Direction::Rtl {
@@ -4029,7 +4127,9 @@ pub fn reorder_logical_items(
     let (levels, visual_runs) = bidi_info.visual_runs(para, para.range.clone());
 
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("Bidi visual runs generated:".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "Bidi visual runs generated:".to_string(),
+        ));
         for (i, run_range) in visual_runs.iter().enumerate() {
             let level = levels[run_range.start].number();
             let slice = &bidi_str[run_range.start..run_range.end];
@@ -4073,7 +4173,9 @@ pub fn reorder_logical_items(
     }
 
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("Final visual items produced:".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "Final visual items produced:".to_string(),
+        ));
         for (i, item) in visual_items.iter().enumerate() {
             msgs.push(LayoutDebugMessage::info(format!(
                 "  Item {}: level={}, text='{}'",
@@ -4082,7 +4184,9 @@ pub fn reorder_logical_items(
                 item.text
             )));
         }
-        msgs.push(LayoutDebugMessage::info("--- Exiting reorder_logical_items ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "--- Exiting reorder_logical_items ---".to_string(),
+        ));
     }
     Ok(visual_items)
 }
@@ -4090,7 +4194,7 @@ pub fn reorder_logical_items(
 // --- Stage 3 Implementation ---
 
 /// Shape visual items into ShapedItems using pre-loaded fonts.
-/// 
+///
 /// This function does NOT load any fonts - all fonts must be pre-loaded and passed in.
 /// If a required font is not in `loaded_fonts`, the text will be skipped with a warning.
 pub fn shape_visual_items<T: ParsedFontTrait>(
@@ -4104,7 +4208,12 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
     for item in visual_items {
         match &item.logical_source {
-            LogicalItem::Text { style, source, marker_position_outside, .. } => {
+            LogicalItem::Text {
+                style,
+                source,
+                marker_position_outside,
+                ..
+            } => {
                 let direction = if item.bidi_level.is_rtl() {
                     Direction::Rtl
                 } else {
@@ -4113,21 +4222,22 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 // Build FontChainKey from style
                 let cache_key = FontChainKey::from_font_stack(&style.font_stack);
-                
+
                 // Look up pre-resolved font chain
                 let font_chain = match font_chain_cache.get(&cache_key) {
                     Some(chain) => chain,
                     None => {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font chain not pre-resolved for {:?} - text will not be rendered",
+                                "[TextLayout] Font chain not pre-resolved for {:?} - text will \
+                                 not be rendered",
                                 cache_key.font_families
                             )));
                         }
                         continue;
                     }
                 };
-                
+
                 // Use the font chain to resolve which font to use for the first character
                 let first_char = item.text.chars().next().unwrap_or('A');
                 let font_id = match font_chain.resolve_char(fc_cache, first_char) {
@@ -4135,28 +4245,27 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     None => {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] No font in chain can render character '{}' (U+{:04X})",
+                                "[TextLayout] No font in chain can render character '{}' \
+                                 (U+{:04X})",
                                 first_char, first_char as u32
                             )));
                         }
                         continue;
                     }
                 };
-                
+
                 // Look up the pre-loaded font
                 let font = match loaded_fonts.get(&font_id) {
                     Some(f) => f,
                     None => {
                         if let Some(msgs) = debug_messages {
-                            let truncated_text = item.text.chars()
-                                .take(50)
-                                .collect::<String>();
+                            let truncated_text = item.text.chars().take(50).collect::<String>();
                             let display_text = if item.text.chars().count() > 50 {
                                 format!("{}...", truncated_text)
                             } else {
                                 truncated_text
                             };
-                            
+
                             msgs.push(LayoutDebugMessage::warning(format!(
                                 "[TextLayout] Font {:?} not pre-loaded for text: '{}'",
                                 font_id, display_text
@@ -4165,9 +4274,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         continue;
                     }
                 };
-                
+
                 let language = script_to_language(item.script, &item.text);
-                
+
                 let mut shaped_clusters = shape_text_correctly(
                     &item.text,
                     item.script,
@@ -4177,14 +4286,14 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     style,
                     *source,
                 )?;
-                
+
                 // Set marker flag on all clusters if this is a marker
                 if let Some(is_outside) = marker_position_outside {
                     for cluster in &mut shaped_clusters {
                         cluster.marker_position_outside = Some(*is_outside);
                     }
                 }
-                
+
                 shaped.extend(shaped_clusters.into_iter().map(ShapedItem::Cluster));
             }
             LogicalItem::Tab { source, style } => {
@@ -4242,7 +4351,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
             } => {
                 // Build FontChainKey from style and look up font
                 let cache_key = FontChainKey::from_font_stack(&style.font_stack);
-                
+
                 let font_chain = match font_chain_cache.get(&cache_key) {
                     Some(chain) => chain,
                     None => {
@@ -4255,32 +4364,34 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         continue;
                     }
                 };
-                
+
                 let first_char = text.chars().next().unwrap_or('A');
                 let font_id = match font_chain.resolve_char(fc_cache, first_char) {
                     Some((id, _)) => id,
                     None => {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] No font for CombinedText char '{}'", first_char
+                                "[TextLayout] No font for CombinedText char '{}'",
+                                first_char
                             )));
                         }
                         continue;
                     }
                 };
-                
+
                 let font = match loaded_fonts.get(&font_id) {
                     Some(f) => f,
                     None => {
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font {:?} not pre-loaded for CombinedText", font_id
+                                "[TextLayout] Font {:?} not pre-loaded for CombinedText",
+                                font_id
                             )));
                         }
                         continue;
                     }
                 };
-                
+
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
@@ -4387,7 +4498,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 .iter()
                 .map(|g: &Glyph| g.advance)
                 .sum();
-            
+
             // Safely extract cluster text - handle cases where byte indices may be out of order
             // (can happen with RTL text or complex GSUB reordering)
             let (start, end) = if cluster_start_byte_in_text <= glyph.logical_byte_index {
@@ -4407,7 +4518,8 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 glyphs: current_cluster_glyphs
                     .iter()
                     .map(|g| {
-                        let source_char = text.get(g.logical_byte_index..)
+                        let source_char = text
+                            .get(g.logical_byte_index..)
                             .and_then(|s| s.chars().next())
                             .unwrap_or('\u{FFFD}');
                         // Calculate cluster_offset safely
@@ -4465,7 +4577,8 @@ fn shape_text_correctly<T: ParsedFontTrait>(
             glyphs: current_cluster_glyphs
                 .iter()
                 .map(|g| {
-                    let source_char = text.get(g.logical_byte_index..)
+                    let source_char = text
+                        .get(g.logical_byte_index..)
                         .and_then(|s| s.chars().next())
                         .unwrap_or('\u{FFFD}');
                     // Calculate cluster_offset safely
@@ -4542,7 +4655,9 @@ fn measure_inline_object(item: &InlineContent) -> Result<(Rect, f32), LayoutErro
         )),
         InlineContent::Marker { .. } => {
             // Markers are treated as text content, not measurable objects
-            Err(LayoutError::InvalidText("Marker is text content, not a measurable object".into()))
+            Err(LayoutError::InvalidText(
+                "Marker is text content, not a measurable object".into(),
+            ))
         }
         _ => Err(LayoutError::InvalidText("Not a measurable object".into())),
     }
@@ -4722,7 +4837,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("\n--- Entering perform_fragment_layout ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "\n--- Entering perform_fragment_layout ---".to_string(),
+        ));
         msgs.push(LayoutDebugMessage::info(format!(
             "Constraints: available_width={:?}, available_height={:?}, columns={}, text_wrap={:?}",
             fragment_constraints.available_width,
@@ -4736,12 +4853,14 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // This produces more visually balanced lines at the cost of more computation
     if fragment_constraints.text_wrap == TextWrap::Balance {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("Using Knuth-Plass algorithm for text-wrap: balance".to_string()));
+            msgs.push(LayoutDebugMessage::info(
+                "Using Knuth-Plass algorithm for text-wrap: balance".to_string(),
+            ));
         }
-        
+
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
-        
+
         let hyphenator = if fragment_constraints.hyphenation {
             fragment_constraints
                 .hyphenation_language
@@ -4749,7 +4868,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         } else {
             None
         };
-        
+
         // Use the Knuth-Plass algorithm for optimal line breaking
         return crate::text3::knuth_plass::kp_layout(
             &shaped_items,
@@ -4773,7 +4892,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     let num_columns = fragment_constraints.columns.max(1);
     let total_column_gap = fragment_constraints.column_gap * (num_columns - 1) as f32;
-    
+
     // CSS Inline Layout § 2.1: "the logical width of a line box is equal to the inner
     // logical width of its containing block"
     //
@@ -4782,9 +4901,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // - MinContent: Use 0.0 to force line breaks at every opportunity
     // - MaxContent: Use a large value to allow content to expand naturally
     let column_width = match fragment_constraints.available_width {
-        AvailableSpace::Definite(width) => {
-            (width - total_column_gap) / num_columns as f32
-        }
+        AvailableSpace::Definite(width) => (width - total_column_gap) / num_columns as f32,
         AvailableSpace::MinContent => {
             // Min-content: effectively 0 width forces immediate line breaks
             0.0
@@ -4797,14 +4914,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     };
     let mut current_column = 0;
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!("Column width calculated: {}", column_width)));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Column width calculated: {}",
+            column_width
+        )));
     }
 
     // Use the CSS direction from constraints instead of auto-detecting from text
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
     // correct paragraph-level direction for alignment purposes
     let base_direction = fragment_constraints.direction.unwrap_or(Direction::Ltr);
-    
+
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PFLayout] Base direction: {:?} (from CSS), Text align: {:?}",
@@ -4814,7 +4934,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     'column_loop: while current_column < num_columns {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("\n-- Starting Column {} --", current_column)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "\n-- Starting Column {} --",
+                current_column
+            )));
         }
         let column_start_x =
             (column_width + fragment_constraints.column_gap) * current_column as f32;
@@ -4856,21 +4979,33 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 empty_segment_count += 1;
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
-                        "  No available segments at y={}, skipping to next line. (empty count: {}/{})",
+                        "  No available segments at y={}, skipping to next line. (empty count: \
+                         {}/{})",
                         line_top_y, empty_segment_count, MAX_EMPTY_SEGMENTS
                     )));
                 }
-                
+
                 // Failsafe: If we've skipped too many lines without content, break out
                 if empty_segment_count >= MAX_EMPTY_SEGMENTS {
                     if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::warning(format!("  [WARN] Reached maximum empty segment count ({}). Breaking to prevent infinite loop.", MAX_EMPTY_SEGMENTS)));
-                        msgs.push(LayoutDebugMessage::warning("  This likely means the shape constraints are too restrictive or positioned incorrectly.".to_string()));
-                        msgs.push(LayoutDebugMessage::warning(format!("  Current y={}, shape boundaries might be outside this range.", line_top_y)));
+                        msgs.push(LayoutDebugMessage::warning(format!(
+                            "  [WARN] Reached maximum empty segment count ({}). Breaking to \
+                             prevent infinite loop.",
+                            MAX_EMPTY_SEGMENTS
+                        )));
+                        msgs.push(LayoutDebugMessage::warning(
+                            "  This likely means the shape constraints are too restrictive or \
+                             positioned incorrectly."
+                                .to_string(),
+                        ));
+                        msgs.push(LayoutDebugMessage::warning(format!(
+                            "  Current y={}, shape boundaries might be outside this range.",
+                            line_top_y
+                        )));
                     }
                     break;
                 }
-                
+
                 // Additional check: If we have shapes and are far beyond the expected height,
                 // also break to avoid infinite loops
                 if !fragment_constraints.shape_boundaries.is_empty() && empty_segment_count > 50 {
@@ -4882,26 +5017,36 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                             match shape {
                                 ShapeBoundary::Circle { center, radius } => center.y + radius,
                                 ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
-                                ShapeBoundary::Polygon { points } => points.iter().map(|p| p.y).fold(0.0, f32::max),
+                                ShapeBoundary::Polygon { points } => {
+                                    points.iter().map(|p| p.y).fold(0.0, f32::max)
+                                }
                                 ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
                                 ShapeBoundary::Path { .. } => f32::MAX, // Can't determine for path
                             }
                         })
                         .fold(0.0, f32::max);
-                    
+
                     if line_top_y > max_shape_y + 100.0 {
                         if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!("  [INFO] Current y={} is far beyond maximum shape extent y={}. Breaking layout.", line_top_y, max_shape_y)));
-                            msgs.push(LayoutDebugMessage::info("  Shape boundaries exist but no segments available - text cannot fit in shape.".to_string()));
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "  [INFO] Current y={} is far beyond maximum shape extent y={}. \
+                                 Breaking layout.",
+                                line_top_y, max_shape_y
+                            )));
+                            msgs.push(LayoutDebugMessage::info(
+                                "  Shape boundaries exist but no segments available - text cannot \
+                                 fit in shape."
+                                    .to_string(),
+                            ));
                         }
                         break;
                     }
                 }
-                
+
                 line_top_y += fragment_constraints.line_height;
                 continue;
             }
-            
+
             // Reset counter when we find valid segments
             empty_segment_count = 0;
 
@@ -4913,7 +5058,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts);
             if line_items.is_empty() {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("  Break returned no items. Ending column.".to_string()));
+                    msgs.push(LayoutDebugMessage::info(
+                        "  Break returned no items. Ending column.".to_string(),
+                    ));
                 }
                 break;
             }
@@ -4961,7 +5108,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             positioned_items.len()
         )));
     }
-    
+
     let layout = UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
@@ -4987,8 +5134,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// https://www.w3.org/TR/css-text-3/#line-breaking
 ///
 /// Implements the line breaking algorithm:
-/// 1. "When an inline box exceeds the logical width of a line box, it is split
-///    into several fragments, which are partitioned across multiple line boxes."
+/// 1. "When an inline box exceeds the logical width of a line box, it is split into several
+///    fragments, which are partitioned across multiple line boxes."
 ///
 /// ## \u2705 Implemented Features:
 /// - **Break Opportunities**: Identifies word boundaries and break points
@@ -4998,8 +5145,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - **Hyphenation**: Tries to break long words at hyphenation points (\u00a7 5.4)
 ///
 /// ## \u26a0\ufe0f Known Issues:
-/// - If `line_constraints.total_available` is 0.0 (from `available_width: 0.0` bug),
-///   every word will overflow, causing single-word lines
+/// - If `line_constraints.total_available` is 0.0 (from `available_width: 0.0` bug), every word
+///   will overflow, causing single-word lines
 /// - This is the symptom visible in the PDF: "List items break extremely early"
 ///
 /// ## \u00a7 5.2 Breaking Rules for Letters
@@ -5029,7 +5176,6 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 /// - \u274c line-break property (auto, loose, normal, strict, anywhere)
 /// - \u274c overflow-wrap: anywhere vs break-word distinction
 /// - \u274c white-space: break-spaces handling
-///
 pub fn break_one_line<T: ParsedFontTrait>(
     cursor: &mut BreakCursor,
     line_constraints: &LineConstraints,
@@ -5186,7 +5332,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     let last_cluster = word_clusters.last().unwrap();
     let last_glyph = last_cluster.glyphs.last().unwrap();
     let style = last_cluster.style.clone();
-    
+
     // Look up font from hash
     let font = fonts.get_by_hash(last_glyph.font_hash)?;
     let (hyphen_glyph_id, hyphen_advance) =
@@ -5353,17 +5499,16 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - Applies alignment within each segment's bounds
 ///
 /// ## Known Issues:
-/// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets alignment_offset=0
-///   to avoid infinite positioning. This is correct for measurement but documented for clarity.
-/// - The function assumes `line_index == 0` means first line for text-indent.
-///   A more robust system would track paragraph boundaries.
+/// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets alignment_offset=0 to
+///   avoid infinite positioning. This is correct for measurement but documented for clarity.
+/// - The function assumes `line_index == 0` means first line for text-indent. A more robust system
+///   would track paragraph boundaries.
 ///
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
 /// - \u274c \u00a7 3.3 Initial Letters (drop caps)
 /// - \u274c Full vertical-align support (sub, super, lengths, percentages)
 /// - \u274c white-space: break-spaces alignment behavior
-///
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: Vec<ShapedItem>,
     line_constraints: &LineConstraints,
@@ -5397,7 +5542,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
         (other, _) => other,
     };
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Physical align: {:?}", physical_align)));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[Pos1Line] Physical align: {:?}",
+            physical_align
+        )));
     }
 
     if line_items.is_empty() {
@@ -5469,7 +5617,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 segments: vec![segment.clone()],
                 total_available: segment.width,
             };
-            justify_kashida_and_rebuild(segment_items, &segment_line_constraints, is_vertical, debug_messages, fonts)
+            justify_kashida_and_rebuild(
+                segment_items,
+                &segment_line_constraints,
+                is_vertical,
+                debug_messages,
+                fonts,
+            )
         } else {
             segment_items
         };
@@ -5482,14 +5636,15 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
         // 3. Calculate alignment offset *within this segment*.
         let remaining_space = segment.width - final_segment_width;
-        
-        // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic sizing),
-        // segment.width will be f32::MAX / 2.0. Alignment calculations would produce huge offsets.
-        // In this case, treat as left-aligned (offset = 0) since we're measuring natural content width.
-        // We check for both infinite AND very large values (> 1e30) to catch the MaxContent case.
+
+        // Handle MaxContent/indefinite width: when available_width is MaxContent (for intrinsic
+        // sizing), segment.width will be f32::MAX / 2.0. Alignment calculations would
+        // produce huge offsets. In this case, treat as left-aligned (offset = 0) since
+        // we're measuring natural content width. We check for both infinite AND very large
+        // values (> 1e30) to catch the MaxContent case.
         let is_indefinite_width = segment.width.is_infinite() || segment.width > 1e30;
         let alignment_offset = if is_indefinite_width {
-            0.0  // No alignment offset for indefinite width
+            0.0 // No alignment offset for indefinite width
         } else {
             match physical_align {
                 TextAlign::Center => remaining_space / 2.0,
@@ -5497,11 +5652,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 _ => 0.0, // Left, Justify
             }
         };
-        
+
         let mut main_axis_pen = segment.start_x + alignment_offset;
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
-                "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: {}",
+                "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: \
+                 {}",
                 segment.width, final_segment_width, remaining_space, main_axis_pen
             )));
         }
@@ -5524,7 +5680,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 None
             })
             .sum();
-        
+
         // Track marker pen separately - starts at negative position for outside markers
         let marker_spacing = 4.0; // Small gap between marker and content
         let mut marker_pen = if total_marker_width > 0.0 {
@@ -5549,8 +5705,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //   <img style="vertical-align: bottom"> would align to line bottom
         //
         // To fix this, we would need to:
-        // 1. Add a helper function `get_item_vertical_align(&item)` that extracts
-        //    the alignment from ShapedItem::Object -> InlineContent::Image -> alignment
+        // 1. Add a helper function `get_item_vertical_align(&item)` that extracts the alignment
+        //    from ShapedItem::Object -> InlineContent::Image -> alignment
         // 2. Use that alignment instead of `constraints.vertical_align` for Objects
         //
         // For now, all items use the global alignment which works correctly for
@@ -5580,18 +5736,24 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 }
             } else {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, item_ascent={}", 
-                        main_axis_pen, item_baseline_pos, item_ascent)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, \
+                         item_ascent={}",
+                        main_axis_pen, item_baseline_pos, item_ascent
+                    )));
                 }
-                
+
                 // Check if this is an outside marker - if so, position it in the padding gutter
                 let x_position = if let ShapedItem::Cluster(cluster) = &item {
                     if cluster.marker_position_outside == Some(true) {
                         // Use marker_pen for sequential marker positioning
                         let marker_width = item_measure;
                         if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!("[Pos1Line] Outside marker detected! width={}, positioning at marker_pen={}", 
-                                     marker_width, marker_pen)));
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[Pos1Line] Outside marker detected! width={}, positioning at \
+                                 marker_pen={}",
+                                marker_width, marker_pen
+                            )));
                         }
                         let pos = marker_pen;
                         marker_pen += marker_width; // Advance marker pen for next marker cluster
@@ -5602,7 +5764,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 } else {
                     main_axis_pen
                 };
-                
+
                 Point {
                     y: item_baseline_pos - item_ascent,
                     x: x_position,
@@ -5625,14 +5787,14 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 position,
                 line_index,
             });
-            
+
             // Outside markers don't advance the pen - they're positioned in the padding gutter
             let is_outside_marker = if let ShapedItem::Cluster(c) = &item {
                 c.marker_position_outside == Some(true)
             } else {
                 false
             };
-            
+
             if !is_outside_marker {
                 main_axis_pen += item_measure;
             }
@@ -5775,7 +5937,9 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     fonts: &LoadedFonts<T>,
 ) -> Vec<ShapedItem> {
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info("\n--- Entering justify_kashida_and_rebuild ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "\n--- Entering justify_kashida_and_rebuild ---".to_string(),
+        ));
     }
     let total_width: f32 = items
         .iter()
@@ -5791,14 +5955,19 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
 
     if total_width >= available_width || available_width <= 0.0 {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("No justification needed (line is full or invalid).".to_string()));
+            msgs.push(LayoutDebugMessage::info(
+                "No justification needed (line is full or invalid).".to_string(),
+            ));
         }
         return items;
     }
 
     let extra_space = available_width - total_width;
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!("Extra space to fill: {}", extra_space)));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Extra space to fill: {}",
+            extra_space
+        )));
     }
 
     let font_info = items.iter().find_map(|item| {
@@ -5807,7 +5976,12 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                 if glyph.script == Script::Arabic {
                     // Look up font from hash
                     if let Some(font) = fonts.get_by_hash(glyph.font_hash) {
-                        return Some((font.clone(), glyph.font_hash, glyph.font_metrics.clone(), glyph.style.clone()));
+                        return Some((
+                            font.clone(),
+                            glyph.font_hash,
+                            glyph.font_metrics.clone(),
+                            glyph.style.clone(),
+                        ));
                     }
                 }
             }
@@ -5818,13 +5992,17 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
     let (font, font_hash, font_metrics, style) = match font_info {
         Some(info) => {
             if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::info("Found Arabic font for kashida.".to_string()));
+                msgs.push(LayoutDebugMessage::info(
+                    "Found Arabic font for kashida.".to_string(),
+                ));
             }
             info
         }
         None => {
             if let Some(msgs) = debug_messages {
-                msgs.push(LayoutDebugMessage::info("No Arabic font found on line. Cannot insert kashidas.".to_string()));
+                msgs.push(LayoutDebugMessage::info(
+                    "No Arabic font found on line. Cannot insert kashidas.".to_string(),
+                ));
             }
             return items;
         }
@@ -5834,13 +6012,18 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
         match font.get_kashida_glyph_and_advance(style.font_size_px) {
             Some((id, adv)) if adv > 0.0 => {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("Font provides kashida glyph with advance {}", adv)));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "Font provides kashida glyph with advance {}",
+                        adv
+                    )));
                 }
                 (id, adv)
             }
             _ => {
                 if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("Font does not support kashida justification.".to_string()));
+                    msgs.push(LayoutDebugMessage::info(
+                        "Font does not support kashida justification.".to_string(),
+                    ));
                 }
                 return items;
             }
@@ -5873,7 +6056,9 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
 
     if opportunity_indices.is_empty() {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("No opportunities found. Exiting.".to_string()));
+            msgs.push(LayoutDebugMessage::info(
+                "No opportunities found. Exiting.".to_string(),
+            ));
         }
         return items;
     }
@@ -6079,17 +6264,26 @@ fn get_line_constraints(
     }
 
     if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!("Initial available segments: {:?}", available_segments)));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Initial available segments: {:?}",
+            available_segments
+        )));
     }
 
     for (idx, exclusion) in constraints.shape_exclusions.iter().enumerate() {
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("Applying exclusion #{}: {:?}", idx, exclusion)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "Applying exclusion #{}: {:?}",
+                idx, exclusion
+            )));
         }
         let exclusion_spans =
             get_shape_horizontal_spans(exclusion, line_y, line_height).unwrap_or_default();
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!("  Exclusion spans at y={}: {:?}", line_y, exclusion_spans)));
+            msgs.push(LayoutDebugMessage::info(format!(
+                "  Exclusion spans at y={}: {:?}",
+                line_y, exclusion_spans
+            )));
         }
 
         if exclusion_spans.is_empty() {
@@ -6141,7 +6335,9 @@ fn get_line_constraints(
             "Final segments: {:?}, total available width: {}",
             available_segments, total_width
         )));
-        msgs.push(LayoutDebugMessage::info("--- Exiting get_line_constraints ---".to_string()));
+        msgs.push(LayoutDebugMessage::info(
+            "--- Exiting get_line_constraints ---".to_string(),
+        ));
     }
 
     LineConstraints {

@@ -287,7 +287,11 @@ pub fn collect_referenced_types_from_type_info(
                 }
             }
         }
-        TypeKind::TypeAlias { target, generic_args, .. } => {
+        TypeKind::TypeAlias {
+            target,
+            generic_args,
+            ..
+        } => {
             // Add the target type (e.g., CssPropertyValue)
             if let Some(base_type) = extract_base_type_if_not_opaque(target) {
                 types.insert(
@@ -297,7 +301,7 @@ pub fn collect_referenced_types_from_type_info(
                     },
                 );
             }
-            
+
             // Add all generic arguments (e.g., LayoutZIndex from CssPropertyValue<LayoutZIndex>)
             for generic_arg in generic_args {
                 if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
@@ -335,7 +339,9 @@ pub fn infer_module_from_path(type_path: &str) -> String {
     let type_name = type_path.split("::").last().unwrap_or("");
 
     // Rule 1: All azul_css types go to "css" module
-    if type_path.starts_with("azul_css::") || type_path.starts_with("crate::") && type_path.contains("css") {
+    if type_path.starts_with("azul_css::")
+        || type_path.starts_with("crate::") && type_path.contains("css")
+    {
         return "css".to_string();
     }
 
@@ -736,8 +742,9 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             let mut field_map = IndexMap::new();
             for (field_name, field_info) in fields {
                 // Normalize the field type for FFI (Box<T> -> *const c_void, etc.)
-                let (normalized_type, _) = crate::autofix::utils::normalize_generic_type(&field_info.ty);
-                
+                let (normalized_type, _) =
+                    crate::autofix::utils::normalize_generic_type(&field_info.ty);
+
                 field_map.insert(
                     field_name.clone(),
                     FieldData {
@@ -759,9 +766,11 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             let mut variant_map = IndexMap::new();
             for (variant_name, variant_info) in variants {
                 // Normalize variant type for FFI (Box<T> -> *const c_void, etc.)
-                let normalized_type = variant_info.ty.as_ref()
+                let normalized_type = variant_info
+                    .ty
+                    .as_ref()
                     .map(|ty| crate::autofix::utils::normalize_generic_type(ty).0);
-                
+
                 variant_map.insert(
                     variant_name.clone(),
                     EnumVariantData {
@@ -775,12 +784,17 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 class_patch.enum_fields = Some(vec![variant_map]);
             }
         }
-        TypeKind::TypeAlias { target, generic_base, generic_args, doc } => {
+        TypeKind::TypeAlias {
+            target,
+            generic_base,
+            generic_args,
+            doc,
+        } => {
             // For type aliases, use existing doc or create one
             class_patch.doc = doc
                 .clone()
                 .or_else(|| Some(format!("Type alias for {}", target)));
-            
+
             // Store type alias information
             // For generic instantiations: CssPropertyValue<LayoutZIndex>
             // For simple aliases: GridTemplate

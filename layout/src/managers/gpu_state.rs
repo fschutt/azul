@@ -1,11 +1,12 @@
 //! Centralized GPU state management.
 //!
-//! This module provides management of GPU property keys 
-//! (opacity, transforms, etc.), fade-in/fade-out animations 
-//! for scrollbar opacity - as a single source of truth for 
+//! This module provides management of GPU property keys
+//! (opacity, transforms, etc.), fade-in/fade-out animations
+//! for scrollbar opacity - as a single source of truth for
 //! the GPU cache.
 
 use alloc::collections::BTreeMap;
+
 use azul_core::{
     dom::{DomId, NodeId},
     geom::LogicalSize,
@@ -14,6 +15,7 @@ use azul_core::{
     task::{Duration, Instant, SystemTimeDiff},
     transform::{ComputedTransform3D, RotationMode},
 };
+
 use crate::{
     managers::scroll_state::{FrameScrollInfo, ScrollManager},
     solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarInfo},
@@ -81,7 +83,6 @@ pub struct GpuTickResult {
 }
 
 impl GpuStateManager {
-    
     /// Creates a new GPU state manager with specified fade timing.
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
         Self {
@@ -145,8 +146,12 @@ impl GpuStateManager {
                 .unwrap_or(container_size);
 
             if scrollbar_info.needs_vertical {
-                let transform =
-                    compute_vertical_thumb_transform(scrollbar_info, &container_size, &content_size, scroll_offset.y);
+                let transform = compute_vertical_thumb_transform(
+                    scrollbar_info,
+                    &container_size,
+                    &content_size,
+                    scroll_offset.y,
+                );
 
                 update_transform_key(gpu_cache, &mut changes, dom_id, node_id, transform);
             }
@@ -202,14 +207,22 @@ fn update_transform_key(
                     *existing_transform,
                     transform,
                 ));
-            gpu_cache.current_transform_values.insert(node_id, transform);
+            gpu_cache
+                .current_transform_values
+                .insert(node_id, transform);
         }
     } else {
         let transform_key = TransformKey::unique();
         gpu_cache.transform_keys.insert(node_id, transform_key);
-        gpu_cache.current_transform_values.insert(node_id, transform);
+        gpu_cache
+            .current_transform_values
+            .insert(node_id, transform);
         changes
             .transform_key_changes
-            .push(GpuTransformKeyEvent::Added(node_id, transform_key, transform));
+            .push(GpuTransformKeyEvent::Added(
+                node_id,
+                transform_key,
+                transform,
+            ));
     }
 }

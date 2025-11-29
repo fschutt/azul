@@ -4,6 +4,7 @@
 //! Counters are cached per-node in the LayoutCache and computed during layout traversal.
 
 use alloc::string::String;
+
 use azul_css::props::style::lists::StyleListStyleType;
 
 /// Formats a counter value into a string based on the list style type.
@@ -35,16 +36,16 @@ fn to_alphabetic(mut num: u32, uppercase: bool) -> String {
     if num == 0 {
         return String::new();
     }
-    
+
     let mut result = String::new();
     let base = if uppercase { b'A' } else { b'a' };
-    
+
     while num > 0 {
         let remainder = ((num - 1) % 26) as u8;
         result.insert(0, (base + remainder) as char);
         num = (num - 1) / 26;
     }
-    
+
     result
 }
 
@@ -59,7 +60,7 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
         // Roman numerals traditionally don't go beyond 3999
         return num.to_string();
     }
-    
+
     let values = [
         (1000, "M", "m"),
         (900, "CM", "cm"),
@@ -75,7 +76,7 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
         (4, "IV", "iv"),
         (1, "I", "i"),
     ];
-    
+
     let mut result = String::new();
     for (value, upper, lower) in &values {
         while num >= *value {
@@ -83,7 +84,7 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
             num -= *value;
         }
     }
-    
+
     result
 }
 
@@ -95,20 +96,24 @@ fn to_greek(num: u32, uppercase: bool) -> String {
     if num == 0 {
         return String::new();
     }
-    
+
     // Greek lowercase letters α-ω (24 letters, omitting archaic letters)
     let greek_lower = [
-        'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ',
-        'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω',
+        'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ',
+        'τ', 'υ', 'φ', 'χ', 'ψ', 'ω',
     ];
-    
+
     let greek_upper = [
-        'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ',
-        'Ν', 'Ξ', 'Ο', 'Π', 'Ρ', 'Σ', 'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω',
+        'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ', 'Ν', 'Ξ', 'Ο', 'Π', 'Ρ', 'Σ',
+        'Τ', 'Υ', 'Φ', 'Χ', 'Ψ', 'Ω',
     ];
-    
-    let letters = if uppercase { &greek_upper } else { &greek_lower };
-    
+
+    let letters = if uppercase {
+        &greek_upper
+    } else {
+        &greek_lower
+    };
+
     if num <= 24 {
         letters[(num - 1) as usize].to_string()
     } else {
@@ -152,7 +157,10 @@ mod tests {
     #[test]
     fn test_format_counter() {
         assert_eq!(format_counter(1, StyleListStyleType::Decimal), "1");
-        assert_eq!(format_counter(5, StyleListStyleType::DecimalLeadingZero), "05");
+        assert_eq!(
+            format_counter(5, StyleListStyleType::DecimalLeadingZero),
+            "05"
+        );
         assert_eq!(format_counter(1, StyleListStyleType::LowerAlpha), "a");
         assert_eq!(format_counter(4, StyleListStyleType::UpperRoman), "IV");
         assert_eq!(format_counter(0, StyleListStyleType::Disc), "•");

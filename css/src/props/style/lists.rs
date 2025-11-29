@@ -2,10 +2,10 @@
 //!
 //! CSS properties related to list styling.
 
-use core::fmt;
 use alloc::string::{String, ToString};
-use crate::props::formatter::PrintAsCssValue;
-use crate::format_rust_code::FormatAsRustCode;
+use core::fmt;
+
+use crate::{format_rust_code::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
 // --- list-style-type ---
 
@@ -55,20 +55,23 @@ impl PrintAsCssValue for StyleListStyleType {
 impl FormatAsRustCode for StyleListStyleType {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStyleType::*;
-        format!("StyleListStyleType::{}", match self {
-            None => "None",
-            Disc => "Disc",
-            Circle => "Circle",
-            Square => "Square",
-            Decimal => "Decimal",
-            DecimalLeadingZero => "DecimalLeadingZero",
-            LowerRoman => "LowerRoman",
-            UpperRoman => "UpperRoman",
-            LowerGreek => "LowerGreek",
-            UpperGreek => "UpperGreek",
-            LowerAlpha => "LowerAlpha",
-            UpperAlpha => "UpperAlpha",
-        })
+        format!(
+            "StyleListStyleType::{}",
+            match self {
+                None => "None",
+                Disc => "Disc",
+                Circle => "Circle",
+                Square => "Square",
+                Decimal => "Decimal",
+                DecimalLeadingZero => "DecimalLeadingZero",
+                LowerRoman => "LowerRoman",
+                UpperRoman => "UpperRoman",
+                LowerGreek => "LowerGreek",
+                UpperGreek => "UpperGreek",
+                LowerAlpha => "LowerAlpha",
+                UpperAlpha => "UpperAlpha",
+            }
+        )
     }
 }
 
@@ -106,10 +109,13 @@ impl PrintAsCssValue for StyleListStylePosition {
 impl FormatAsRustCode for StyleListStylePosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStylePosition::*;
-        format!("StyleListStylePosition::{}", match self {
-            Inside => "Inside",
-            Outside => "Outside",
-        })
+        format!(
+            "StyleListStylePosition::{}",
+            match self {
+                Inside => "Inside",
+                Outside => "Outside",
+            }
+        )
     }
 }
 
@@ -205,7 +211,9 @@ pub enum StyleListStylePositionParseErrorOwned {
 impl<'a> StyleListStylePositionParseError<'a> {
     pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleListStylePositionParseErrorOwned::InvalidValue(s.to_string()),
+            Self::InvalidValue(s) => {
+                StyleListStylePositionParseErrorOwned::InvalidValue(s.to_string())
+            }
         }
     }
 }

@@ -746,7 +746,7 @@ pub fn translate_displaylist_to_wr(
                     );
                 }
             }
-            
+
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
                 eprintln!("[compositor2] TextLayout item (handled via cached text runs)");

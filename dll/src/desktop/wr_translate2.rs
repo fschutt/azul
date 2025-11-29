@@ -1794,10 +1794,22 @@ pub fn get_webrender_border(
         return None;
     }
 
-    let has_no_border_radius = radii.top_left.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) == 0.0
-        && radii.top_right.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) == 0.0
-        && radii.bottom_left.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) == 0.0
-        && radii.bottom_right.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) == 0.0;
+    let has_no_border_radius = radii
+        .top_left
+        .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+        == 0.0
+        && radii
+            .top_right
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            == 0.0
+        && radii
+            .bottom_left
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            == 0.0
+        && radii
+            .bottom_right
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            == 0.0;
 
     let (color_top, color_right, color_bottom, color_left) = (
         colors
@@ -1847,16 +1859,24 @@ pub fn get_webrender_border(
     // with the HiDPI factor, then round the result (to get an even number), then divide again
     let border_widths = WrLayoutSideOffsets::new(
         width_top
-            .map(|v| (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi)
+            .map(|v| {
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+            })
             .unwrap_or(0.0),
         width_right
-            .map(|v| (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi)
+            .map(|v| {
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+            })
             .unwrap_or(0.0),
         width_bottom
-            .map(|v| (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi)
+            .map(|v| {
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+            })
             .unwrap_or(0.0),
         width_left
-            .map(|v| (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi)
+            .map(|v| {
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+            })
             .unwrap_or(0.0),
     );
 

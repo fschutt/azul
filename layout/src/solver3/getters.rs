@@ -11,35 +11,50 @@ use azul_core::{
 use azul_css::props::{
     basic::ColorU,
     layout::{
-        LayoutClear, LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent,
-        LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
+        LayoutClear, LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight,
+        LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
     },
-    style::{StyleTextAlign, lists::{StyleListStyleType, StyleListStylePosition}},
+    style::{
+        lists::{StyleListStylePosition, StyleListStyleType},
+        StyleTextAlign,
+    },
 };
 
 use crate::{
-    solver3::{display_list::{BorderRadius, PhysicalSizeImport}, layout_tree::LayoutNode, scrollbar::ScrollbarInfo},
     font_traits::{ParsedFontTrait, StyleProperties},
+    solver3::{
+        display_list::{BorderRadius, PhysicalSizeImport},
+        layout_tree::LayoutNode,
+        scrollbar::ScrollbarInfo,
+    },
 };
 
 // Font-size resolution helper functions
 
 /// Helper function to get element's computed font-size
-pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state: &StyledNodeState) -> f32 {
+pub fn get_element_font_size(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
-    
+
     // Try to get from dependency chain first (proper resolution)
-    let cached_font_size = cache.dependency_chains.get(&dom_id)
+    let cached_font_size = cache
+        .dependency_chains
+        .get(&dom_id)
         .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
         .and_then(|chain| chain.cached_pixels);
-    
+
     if let Some(cached) = cached_font_size {
         return cached;
     }
-    
+
     // Fallback: get from property cache and resolve manually
-    let parent_font_size = styled_dom.node_hierarchy.as_container()
+    let parent_font_size = styled_dom
+        .node_hierarchy
+        .as_container()
         .get(dom_id)
         .and_then(|node| {
             if node.parent == 0 {
@@ -50,32 +65,40 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
         })
         .and_then(|parent_id| {
             // Check parent's dependency chain first (avoids recursion)
-            cache.dependency_chains.get(&parent_id)
-                .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
+            cache
+                .dependency_chains
+                .get(&parent_id)
+                .and_then(|chains| {
+                    chains.get(&azul_css::props::property::CssPropertyType::FontSize)
+                })
                 .and_then(|chain| chain.cached_pixels)
         })
         .unwrap_or_else(|| {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
             DEFAULT_FONT_SIZE
         });
-    
+
     // Get root font-size (avoid recursion by checking cache first)
     let root_font_size = {
         use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
         let root_id = NodeId::new(0);
-        cache.dependency_chains.get(&root_id)
+        cache
+            .dependency_chains
+            .get(&root_id)
             .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
             .and_then(|chain| chain.cached_pixels)
             .unwrap_or(DEFAULT_FONT_SIZE)
     };
-    
+
     // Resolve font-size with proper context
     cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .map(|v| {
-            use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PropertyContext, ResolutionContext, PhysicalSize};
-            
+            use azul_css::props::basic::pixel::{
+                PhysicalSize, PropertyContext, ResolutionContext, DEFAULT_FONT_SIZE,
+            };
+
             let context = ResolutionContext {
                 element_font_size: DEFAULT_FONT_SIZE, // Not used for FontSize property
                 parent_font_size,
@@ -84,8 +107,9 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
                 element_size: None,
                 viewport_size: PhysicalSize::new(0.0, 0.0), // Not used for font-size resolution
             };
-            
-            v.inner.resolve_with_context(&context, PropertyContext::FontSize)
+
+            v.inner
+                .resolve_with_context(&context, PropertyContext::FontSize)
         })
         .unwrap_or_else(|| {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
@@ -94,8 +118,14 @@ pub fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state:
 }
 
 /// Helper function to get parent's computed font-size
-pub fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId, node_state: &StyledNodeState) -> f32 {
-    styled_dom.node_hierarchy.as_container()
+pub fn get_parent_font_size(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    styled_dom
+        .node_hierarchy
+        .as_container()
         .get(dom_id)
         .and_then(|node| {
             if node.parent == 0 {
@@ -113,7 +143,6 @@ pub fn get_root_font_size(styled_dom: &StyledDom, node_state: &StyledNodeState) 
     // Root is always NodeId(0) in Azul
     get_element_font_size(styled_dom, NodeId::new(0), node_state)
 }
-
 
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
 /// This preserves CSS cascade semantics better than Option<T>.
@@ -134,12 +163,12 @@ impl<T> MultiValue<T> {
     pub fn is_auto(&self) -> bool {
         matches!(self, MultiValue::Auto)
     }
-    
+
     /// Returns true if this is an explicit value
     pub fn is_exact(&self) -> bool {
         matches!(self, MultiValue::Exact(_))
     }
-    
+
     /// Gets the exact value if present
     pub fn exact(self) -> Option<T> {
         match self {
@@ -147,7 +176,7 @@ impl<T> MultiValue<T> {
             _ => None,
         }
     }
-    
+
     /// Gets the exact value or returns the provided default
     pub fn unwrap_or(self, default: T) -> T {
         match self {
@@ -155,7 +184,7 @@ impl<T> MultiValue<T> {
             _ => default,
         }
     }
-    
+
     /// Gets the exact value or returns T::default()
     pub fn unwrap_or_default(self) -> T
     where
@@ -166,7 +195,7 @@ impl<T> MultiValue<T> {
             _ => T::default(),
         }
     }
-    
+
     /// Maps the inner value if Exact, otherwise returns self unchanged
     pub fn map<U, F>(self, f: F) -> MultiValue<U>
     where
@@ -184,45 +213,66 @@ impl<T> MultiValue<T> {
 // Implement helper methods for LayoutOverflow specifically
 impl MultiValue<LayoutOverflow> {
     pub fn is_clipped(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip))
+        matches!(
+            self,
+            MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
+        )
     }
-    
+
     pub fn is_scroll(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
+        matches!(
+            self,
+            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        )
     }
-    
+
     pub fn is_auto_overflow(&self) -> bool {
         matches!(self, MultiValue::Exact(LayoutOverflow::Auto))
     }
-    
+
     pub fn is_hidden(&self) -> bool {
         matches!(self, MultiValue::Exact(LayoutOverflow::Hidden))
     }
-    
+
     pub fn is_hidden_or_clip(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip))
+        matches!(
+            self,
+            MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
+        )
     }
-    
+
     pub fn is_scroll_explicit(&self) -> bool {
         matches!(self, MultiValue::Exact(LayoutOverflow::Scroll))
     }
-    
+
     pub fn is_visible_or_clip(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip))
+        matches!(
+            self,
+            MultiValue::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip)
+        )
     }
 }
 
 // Implement helper methods for LayoutPosition
 impl MultiValue<LayoutPosition> {
     pub fn is_absolute_or_fixed(&self) -> bool {
-        matches!(self, MultiValue::Exact(LayoutPosition::Absolute | LayoutPosition::Fixed))
+        matches!(
+            self,
+            MultiValue::Exact(LayoutPosition::Absolute | LayoutPosition::Fixed)
+        )
     }
 }
 
 // Implement helper methods for LayoutFloat
 impl MultiValue<LayoutFloat> {
     pub fn is_none(&self) -> bool {
-        matches!(self, MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit | MultiValue::Exact(LayoutFloat::None))
+        matches!(
+            self,
+            MultiValue::Auto
+                | MultiValue::Initial
+                | MultiValue::Inherit
+                | MultiValue::Exact(LayoutFloat::None)
+        )
     }
 }
 
@@ -242,26 +292,26 @@ macro_rules! get_css_property_pixel {
             node_state: &StyledNodeState,
         ) -> MultiValue<PixelValue> {
             let node_data = &styled_dom.node_data.as_container()[node_id];
-            
+
             // 1. Check author CSS first
             let author_css = styled_dom
                 .css_property_cache
                 .ptr
                 .$cache_method(node_data, &node_id, node_state);
-            
+
             if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
                 return MultiValue::Exact(val.inner);
             }
-            
+
             // 2. Check User Agent CSS
             let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
-            
+
             if let Some(ua_prop) = ua_css {
                 if let Some(inner) = ua_prop.get_pixel_inner() {
                     return MultiValue::Exact(inner);
                 }
             }
-            
+
             // 3. Fallback to Auto (not set)
             MultiValue::Auto
         }
@@ -275,9 +325,8 @@ trait CssPropertyPixelInner {
 
 impl CssPropertyPixelInner for azul_css::props::property::CssProperty {
     fn get_pixel_inner(&self) -> Option<PixelValue> {
-        use azul_css::props::property::CssProperty;
-        use azul_css::css::CssPropertyValue;
-        
+        use azul_css::{css::CssPropertyValue, props::property::CssProperty};
+
         match self {
             CssProperty::Left(CssPropertyValue::Exact(v)) => Some(v.inner),
             CssProperty::Right(CssPropertyValue::Exact(v)) => Some(v.inner),
@@ -305,26 +354,26 @@ macro_rules! get_css_property {
             node_state: &StyledNodeState,
         ) -> MultiValue<$return_type> {
             let node_data = &styled_dom.node_data.as_container()[node_id];
-            
+
             // 1. Check author CSS first
             let author_css = styled_dom
                 .css_property_cache
                 .ptr
                 .$cache_method(node_data, &node_id, node_state);
-            
+
             if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
                 return MultiValue::Exact(val);
             }
-            
+
             // 2. Check User Agent CSS
             let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
-            
+
             if let Some(ua_prop) = ua_css {
                 if let Some(val) = extract_property_value::<$return_type>(ua_prop) {
                     return MultiValue::Exact(val);
                 }
             }
-            
+
             // 3. Fallback to Auto (not set)
             MultiValue::Auto
         }
@@ -620,8 +669,8 @@ pub fn get_style_border_radius(
 /// Get border radius for all four corners (resolved to pixels)
 ///
 /// # Arguments
-/// * `element_size` - The element's own size (width × height) for % resolution.
-///                    According to CSS spec, border-radius % uses element's own dimensions.
+/// * `element_size` - The element's own size (width × height) for % resolution. According to CSS
+///   spec, border-radius % uses element's own dimensions.
 pub fn get_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -629,13 +678,15 @@ pub fn get_border_radius(
     element_size: PhysicalSizeImport,
     viewport_size: LogicalSize,
 ) -> BorderRadius {
-    use azul_css::props::basic::{ResolutionContext, PropertyContext, PhysicalSize};
-    
+    use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
+
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     // Get font sizes for em/rem resolution
     let element_font_size = get_element_font_size(styled_dom, node_id, node_state);
-    let parent_font_size = styled_dom.node_hierarchy.as_container()
+    let parent_font_size = styled_dom
+        .node_hierarchy
+        .as_container()
         .get(node_id)
         .and_then(|node| {
             if node.parent == 0 && node_id.index() != 0 {
@@ -649,7 +700,7 @@ pub fn get_border_radius(
         .map(|p| get_element_font_size(styled_dom, p, node_state))
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
     let root_font_size = get_root_font_size(styled_dom, node_state);
-    
+
     // Create resolution context
     let context = ResolutionContext {
         element_font_size,
@@ -689,15 +740,23 @@ pub fn get_border_radius(
         .unwrap_or_default();
 
     BorderRadius {
-        top_left: top_left.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
-        top_right: top_right.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_right: bottom_right.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_left: bottom_left.inner.resolve_with_context(&context, PropertyContext::BorderRadius),
+        top_left: top_left
+            .inner
+            .resolve_with_context(&context, PropertyContext::BorderRadius),
+        top_right: top_right
+            .inner
+            .resolve_with_context(&context, PropertyContext::BorderRadius),
+        bottom_right: bottom_right
+            .inner
+            .resolve_with_context(&context, PropertyContext::BorderRadius),
+        bottom_left: bottom_left
+            .inner
+            .resolve_with_context(&context, PropertyContext::BorderRadius),
     }
 }
 
 /// Get z-index for stacking context ordering
-/// 
+///
 /// NOTE: z-index CSS property exists but is not yet hooked up to the CSS cache API.
 /// This would require adding get_z_index() to CssPropertyCache.
 pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
@@ -712,21 +771,21 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
 ///
 /// # CSS Background Propagation (Special Case for HTML Root)
 ///
-/// According to CSS Backgrounds and Borders Module Level 3, Section "The Canvas Background 
+/// According to CSS Backgrounds and Borders Module Level 3, Section "The Canvas Background
 /// and the HTML `<body>` Element":
 ///
-/// For HTML documents where the root element is `<html>`, if the computed value of 
+/// For HTML documents where the root element is `<html>`, if the computed value of
 /// `background-image` on the root element is `none` AND its `background-color` is `transparent`,
-/// user agents **must propagate** the computed values of the background properties from the 
+/// user agents **must propagate** the computed values of the background properties from the
 /// first `<body>` child element to the root element.
 ///
-/// This behavior exists for backwards compatibility with older HTML where backgrounds were 
-/// typically set on `<body>` using `bgcolor` attributes, and ensures that the `<body>` 
-/// background covers the entire viewport/canvas even when `<body>` itself has constrained 
+/// This behavior exists for backwards compatibility with older HTML where backgrounds were
+/// typically set on `<body>` using `bgcolor` attributes, and ensures that the `<body>`
+/// background covers the entire viewport/canvas even when `<body>` itself has constrained
 /// dimensions.
 ///
-/// Implementation: When requesting the background of an `<html>` node, we first check if it 
-/// has a transparent background with no image. If so, we look for a `<body>` child and use 
+/// Implementation: When requesting the background of an `<html>` node, we first check if it
+/// has a transparent background with no image. If so, we look for a `<body>` child and use
 /// its background instead.
 pub fn get_background_color(
     styled_dom: &StyledDom,
@@ -734,7 +793,7 @@ pub fn get_background_color(
     node_state: &StyledNodeState,
 ) -> ColorU {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    
+
     // Fast path: Get this node's background
     let get_node_bg = |node_id: NodeId, node_data: &azul_core::dom::NodeData| {
         styled_dom
@@ -749,35 +808,58 @@ pub fn get_background_color(
                 _ => None,
             })
     };
-    
+
     let own_bg = get_node_bg(node_id, node_data);
-    
+
     // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has transparent background (no color/image)
+    // Only check propagation if this is an Html node AND has transparent background (no
+    // color/image)
     use azul_core::dom::NodeType;
     if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
         // Not Html or has its own background - return own background or transparent
-        return own_bg.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 });
+        return own_bg.unwrap_or(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        });
     }
-    
+
     // Html node with transparent background - check if we should propagate from <body>
-    let first_child = styled_dom.node_hierarchy.as_container()
+    let first_child = styled_dom
+        .node_hierarchy
+        .as_container()
         .get(node_id)
         .and_then(|node| node.first_child_id(node_id));
-    
+
     let Some(first_child) = first_child else {
-        return ColorU { r: 0, g: 0, b: 0, a: 0 };
+        return ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
     };
-    
+
     let first_child_data = &styled_dom.node_data.as_container()[first_child];
-    
+
     // Check if first child is <body>
     if !matches!(first_child_data.node_type, NodeType::Body) {
-        return ColorU { r: 0, g: 0, b: 0, a: 0 };
+        return ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
     }
-    
+
     // Propagate <body>'s background to <html> (canvas)
-    get_node_bg(first_child, first_child_data).unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 })
+    get_node_bg(first_child, first_child_data).unwrap_or(ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    })
 }
 
 /// Information about border rendering
@@ -983,7 +1065,10 @@ get_css_property!(
     azul_css::props::property::CssPropertyType::Display
 );
 
-pub fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> MultiValue<LayoutDisplay> {
+pub fn get_display_property(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+) -> MultiValue<LayoutDisplay> {
     let Some(id) = dom_id else {
         return MultiValue::Exact(LayoutDisplay::Inline);
     };
@@ -992,22 +1077,21 @@ pub fn get_display_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> M
 }
 
 pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
-    use azul_css::props::basic::{PropertyContext, ResolutionContext, PhysicalSize};
-    
+    use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
+
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // NEW: Get ALL fonts from CSS font-family, not just first
     use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
-    
-    let font_families = cache.get_font_family(node_data, &dom_id, node_state)
+
+    let font_families = cache
+        .get_font_family(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .unwrap_or_else(|| {
             // Default to serif (same as browser default)
-            StyleFontFamilyVec::from_vec(vec![
-                StyleFontFamily::System("serif".into())
-            ])
+            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
         });
 
     // Get parent's font-size for proper em resolution in font-size property
@@ -1020,8 +1104,11 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
             let parent_id = CoreNodeId::from_usize(node.parent)?;
             // Recursively get parent's font-size
             cache
-                .get_font_size(&styled_dom.node_data.as_container()[parent_id], &parent_id, 
-                    &styled_dom.styled_nodes.as_container()[parent_id].state)
+                .get_font_size(
+                    &styled_dom.node_data.as_container()[parent_id],
+                    &parent_id,
+                    &styled_dom.styled_nodes.as_container()[parent_id].state,
+                )
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| {
                     // If parent also has em/rem, we'd need to recurse, but for now use fallback
@@ -1030,12 +1117,12 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
                 })
         })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
-    
+
     let root_font_size = get_root_font_size(styled_dom, node_state);
-    
+
     // Create resolution context for font-size (em refers to parent)
     let font_size_context = ResolutionContext {
-        element_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, // Not used for font-size property
+        element_font_size: azul_css::props::basic::pixel::DEFAULT_FONT_SIZE, /* Not used for font-size property */
         parent_font_size,
         root_font_size,
         containing_block_size: PhysicalSize::new(0.0, 0.0),
@@ -1046,7 +1133,10 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
     let font_size = cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize))
+        .map(|v| {
+            v.inner
+                .resolve_with_context(&font_size_context, PropertyContext::FontSize)
+        })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
 
     let color = cache
@@ -1071,11 +1161,16 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .get_display(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .unwrap_or(LayoutDisplay::Inline);
-    
-    let background_color = if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock) {
+
+    let background_color = if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock)
+    {
         let bg = get_background_color(styled_dom, dom_id, node_state);
         // Only set if not fully transparent
-        if bg.a > 0 { Some(bg) } else { None }
+        if bg.a > 0 {
+            Some(bg)
+        } else {
+            None
+        }
     } else {
         // Block-level elements: background is painted by display_list.rs, not text renderer
         None
@@ -1099,7 +1194,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
 
     // Build font stack from all font families
     let mut font_stack = Vec::with_capacity(font_families.len() + 3);
-    
+
     for i in 0..font_families.len() {
         font_stack.push(crate::text3::cache::FontSelector {
             family: font_families.get(i).unwrap().as_string(),
@@ -1108,11 +1203,14 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
             unicode_ranges: Vec::new(),
         });
     }
-    
+
     // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)
     let generic_fallbacks = ["sans-serif", "serif", "monospace"];
     for fallback in &generic_fallbacks {
-        if !font_stack.iter().any(|f| f.family.to_lowercase() == fallback.to_lowercase()) {
+        if !font_stack
+            .iter()
+            .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
+        {
             font_stack.push(crate::text3::cache::FontSelector {
                 family: fallback.to_string(),
                 weight: rust_fontconfig::FcWeight::Normal,
@@ -1130,14 +1228,11 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         line_height,
         ..Default::default()
     };
-    
+
     properties
 }
 
-pub fn get_list_style_type(
-    styled_dom: &StyledDom,
-    dom_id: Option<NodeId>,
-) -> StyleListStyleType {
+pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
     let Some(id) = dom_id else {
         return StyleListStyleType::default();
     };
@@ -1175,28 +1270,76 @@ use azul_css::props::{
     layout::{
         LayoutBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
         LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
-        LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
-        LayoutRight, LayoutTop,
+        LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutRight,
+        LayoutTop,
     },
 };
 
 /// Get inset (position) properties - returns MultiValue<PixelValue>
-get_css_property_pixel!(get_css_left, get_left, azul_css::props::property::CssPropertyType::Left);
-get_css_property_pixel!(get_css_right, get_right, azul_css::props::property::CssPropertyType::Right);
-get_css_property_pixel!(get_css_top, get_top, azul_css::props::property::CssPropertyType::Top);
-get_css_property_pixel!(get_css_bottom, get_bottom, azul_css::props::property::CssPropertyType::Bottom);
+get_css_property_pixel!(
+    get_css_left,
+    get_left,
+    azul_css::props::property::CssPropertyType::Left
+);
+get_css_property_pixel!(
+    get_css_right,
+    get_right,
+    azul_css::props::property::CssPropertyType::Right
+);
+get_css_property_pixel!(
+    get_css_top,
+    get_top,
+    azul_css::props::property::CssPropertyType::Top
+);
+get_css_property_pixel!(
+    get_css_bottom,
+    get_bottom,
+    azul_css::props::property::CssPropertyType::Bottom
+);
 
 /// Get margin properties - returns MultiValue<PixelValue>
-get_css_property_pixel!(get_css_margin_left, get_margin_left, azul_css::props::property::CssPropertyType::MarginLeft);
-get_css_property_pixel!(get_css_margin_right, get_margin_right, azul_css::props::property::CssPropertyType::MarginRight);
-get_css_property_pixel!(get_css_margin_top, get_margin_top, azul_css::props::property::CssPropertyType::MarginTop);
-get_css_property_pixel!(get_css_margin_bottom, get_margin_bottom, azul_css::props::property::CssPropertyType::MarginBottom);
+get_css_property_pixel!(
+    get_css_margin_left,
+    get_margin_left,
+    azul_css::props::property::CssPropertyType::MarginLeft
+);
+get_css_property_pixel!(
+    get_css_margin_right,
+    get_margin_right,
+    azul_css::props::property::CssPropertyType::MarginRight
+);
+get_css_property_pixel!(
+    get_css_margin_top,
+    get_margin_top,
+    azul_css::props::property::CssPropertyType::MarginTop
+);
+get_css_property_pixel!(
+    get_css_margin_bottom,
+    get_margin_bottom,
+    azul_css::props::property::CssPropertyType::MarginBottom
+);
 
 /// Get padding properties - returns MultiValue<PixelValue>
-get_css_property_pixel!(get_css_padding_left, get_padding_left, azul_css::props::property::CssPropertyType::PaddingLeft);
-get_css_property_pixel!(get_css_padding_right, get_padding_right, azul_css::props::property::CssPropertyType::PaddingRight);
-get_css_property_pixel!(get_css_padding_top, get_padding_top, azul_css::props::property::CssPropertyType::PaddingTop);
-get_css_property_pixel!(get_css_padding_bottom, get_padding_bottom, azul_css::props::property::CssPropertyType::PaddingBottom);
+get_css_property_pixel!(
+    get_css_padding_left,
+    get_padding_left,
+    azul_css::props::property::CssPropertyType::PaddingLeft
+);
+get_css_property_pixel!(
+    get_css_padding_right,
+    get_padding_right,
+    azul_css::props::property::CssPropertyType::PaddingRight
+);
+get_css_property_pixel!(
+    get_css_padding_top,
+    get_padding_top,
+    azul_css::props::property::CssPropertyType::PaddingTop
+);
+get_css_property_pixel!(
+    get_css_padding_bottom,
+    get_padding_bottom,
+    azul_css::props::property::CssPropertyType::PaddingBottom
+);
 
 /// Get min/max size properties
 get_css_property!(
@@ -1228,14 +1371,30 @@ get_css_property!(
 );
 
 /// Get border width properties (no UA CSS fallback needed, defaults to 0)
-get_css_property_pixel!(get_css_border_left_width, get_border_left_width, azul_css::props::property::CssPropertyType::BorderLeftWidth);
-get_css_property_pixel!(get_css_border_right_width, get_border_right_width, azul_css::props::property::CssPropertyType::BorderRightWidth);
-get_css_property_pixel!(get_css_border_top_width, get_border_top_width, azul_css::props::property::CssPropertyType::BorderTopWidth);
-get_css_property_pixel!(get_css_border_bottom_width, get_border_bottom_width, azul_css::props::property::CssPropertyType::BorderBottomWidth);
+get_css_property_pixel!(
+    get_css_border_left_width,
+    get_border_left_width,
+    azul_css::props::property::CssPropertyType::BorderLeftWidth
+);
+get_css_property_pixel!(
+    get_css_border_right_width,
+    get_border_right_width,
+    azul_css::props::property::CssPropertyType::BorderRightWidth
+);
+get_css_property_pixel!(
+    get_css_border_top_width,
+    get_border_top_width,
+    azul_css::props::property::CssPropertyType::BorderTopWidth
+);
+get_css_property_pixel!(
+    get_css_border_bottom_width,
+    get_border_bottom_width,
+    azul_css::props::property::CssPropertyType::BorderBottomWidth
+);
 
 // Fragmentation (page breaking) properties
 
-use azul_css::props::layout::{PageBreak, BreakInside, Orphans, Widows, BoxDecorationBreak};
+use azul_css::props::layout::{BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows};
 
 /// Get break-before property for paged media
 pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
@@ -1315,7 +1474,10 @@ pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
 }
 
 /// Get box-decoration-break property
-pub fn get_box_decoration_break(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BoxDecorationBreak {
+pub fn get_box_decoration_break(
+    styled_dom: &StyledDom,
+    dom_id: Option<NodeId>,
+) -> BoxDecorationBreak {
     let Some(id) = dom_id else {
         return BoxDecorationBreak::Slice;
     };
@@ -1335,7 +1497,12 @@ pub fn get_box_decoration_break(styled_dom: &StyledDom, dom_id: Option<NodeId>) 
 pub fn is_forced_page_break(page_break: &PageBreak) -> bool {
     matches!(
         page_break,
-        PageBreak::Always | PageBreak::Page | PageBreak::Left | PageBreak::Right | PageBreak::Recto | PageBreak::Verso
+        PageBreak::Always
+            | PageBreak::Page
+            | PageBreak::Left
+            | PageBreak::Right
+            | PageBreak::Recto
+            | PageBreak::Verso
     )
 }
 
@@ -1354,11 +1521,13 @@ pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
 
 // Font Chain Resolution - Pre-Layout Font Loading
 
+use std::collections::HashMap;
+
 use azul_core::dom::NodeType;
 use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
-use crate::text3::cache::{FontSelector, FontStyle, FontChainKey};
 use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
-use std::collections::HashMap;
+
+use crate::text3::cache::{FontChainKey, FontSelector, FontStyle};
 
 /// Result of collecting font stacks from a StyledDom
 /// Contains all unique font stacks and the mapping from StyleFontFamiliesHash to FontChainKey
@@ -1383,25 +1552,25 @@ impl ResolvedFontChains {
     pub fn get(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
         self.chains.get(key)
     }
-    
+
     /// Get a font chain for a font stack
     pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
         let key = FontChainKey::from_font_stack(font_stack);
         self.chains.get(&key)
     }
-    
+
     /// Consume self and return the inner HashMap
-    /// 
+    ///
     /// This is useful for passing the resolved chains to a FontManager
     pub fn into_inner(self) -> HashMap<FontChainKey, FontFallbackChain> {
         self.chains
     }
-    
+
     /// Get the number of resolved chains
     pub fn len(&self) -> usize {
         self.chains.len()
     }
-    
+
     /// Check if there are no resolved chains
     pub fn is_empty(&self) -> bool {
         self.chains.is_empty()
@@ -1409,65 +1578,64 @@ impl ResolvedFontChains {
 }
 
 /// Collect all unique font stacks from a StyledDom
-/// 
+///
 /// This is a pure function that iterates over all nodes in the DOM and
 /// extracts the font-family property from each node that has text content.
-/// 
+///
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font stacks from
-/// 
+///
 /// # Returns
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
 pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedFontStacks {
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut seen_hashes = std::collections::HashSet::new();
-    
+
     let node_data_container = styled_dom.node_data.as_container();
     let styled_nodes_container = styled_dom.styled_nodes.as_container();
     let cache = &styled_dom.css_property_cache.ptr;
-    
+
     // Iterate over all nodes
     for (node_idx, node_data) in node_data_container.internal.iter().enumerate() {
         // Only process text nodes (they are the ones that need fonts)
         if !matches!(node_data.node_type, NodeType::Text(_)) {
             continue;
         }
-        
+
         let dom_id = match NodeId::from_usize(node_idx) {
             Some(id) => id,
             None => continue,
         };
-        
+
         let node_state = &styled_nodes_container[dom_id].state;
-        
+
         // Get font families from CSS
-        let font_families = cache.get_font_family(node_data, &dom_id, node_state)
+        let font_families = cache
+            .get_font_family(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().cloned())
             .unwrap_or_else(|| {
-                StyleFontFamilyVec::from_vec(vec![
-                    StyleFontFamily::System("serif".into())
-                ])
+                StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
             });
-        
+
         // Get font weight and style
         let font_weight = cache
             .get_font_weight(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().copied())
             .unwrap_or(azul_css::props::basic::font::StyleFontWeight::Normal);
-        
+
         let font_style = cache
             .get_font_style(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().copied())
             .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
-        
+
         // Convert to fontconfig types
         let fc_weight = super::fc::convert_font_weight(font_weight);
         let fc_style = super::fc::convert_font_style(font_style);
-        
+
         // Build font stack
         let mut font_stack = Vec::with_capacity(font_families.len() + 3);
-        
+
         for i in 0..font_families.len() {
             font_stack.push(FontSelector {
                 family: font_families.get(i).unwrap().as_string(),
@@ -1476,11 +1644,14 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
                 unicode_ranges: Vec::new(),
             });
         }
-        
+
         // Add generic fallbacks
         let generic_fallbacks = ["sans-serif", "serif", "monospace"];
         for fallback in &generic_fallbacks {
-            if !font_stack.iter().any(|f| f.family.to_lowercase() == fallback.to_lowercase()) {
+            if !font_stack
+                .iter()
+                .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
+            {
                 font_stack.push(FontSelector {
                     family: fallback.to_string(),
                     weight: FcWeight::Normal,
@@ -1489,7 +1660,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
                 });
             }
         }
-        
+
         // Compute hash for deduplication
         let key = FontChainKey::from_font_stack(&font_stack);
         let hash = {
@@ -1498,7 +1669,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             key.hash(&mut hasher);
             hasher.finish()
         };
-        
+
         // Only add if not seen before
         if !seen_hashes.contains(&hash) {
             seen_hashes.insert(hash);
@@ -1507,7 +1678,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             hash_to_index.insert(hash, idx);
         }
     }
-    
+
     CollectedFontStacks {
         font_stacks,
         hash_to_index,
@@ -1515,14 +1686,14 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
 }
 
 /// Resolve all font chains for the collected font stacks
-/// 
+///
 /// This is a pure function that takes the collected font stacks and resolves
 /// them against the FcFontCache to produce FontFallbackChains.
-/// 
+///
 /// # Arguments
 /// * `collected` - The collected font stacks from `collect_font_stacks_from_styled_dom`
 /// * `fc_cache` - The fontconfig cache to resolve fonts against
-/// 
+///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
 pub fn resolve_font_chains(
@@ -1530,65 +1701,69 @@ pub fn resolve_font_chains(
     fc_cache: &FcFontCache,
 ) -> ResolvedFontChains {
     let mut chains = HashMap::new();
-    
+
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
             continue;
         }
-        
+
         // Build font families list
-        let font_families: Vec<String> = font_stack.iter()
+        let font_families: Vec<String> = font_stack
+            .iter()
             .map(|s| s.family.clone())
             .filter(|f| !f.is_empty())
             .collect();
-        
+
         let font_families = if font_families.is_empty() {
             vec!["sans-serif".to_string()]
         } else {
             font_families
         };
-        
+
         let weight = font_stack[0].weight;
         let is_italic = font_stack[0].style == FontStyle::Italic;
         let is_oblique = font_stack[0].style == FontStyle::Oblique;
-        
+
         let cache_key = FontChainKey {
             font_families: font_families.clone(),
             weight,
             italic: is_italic,
             oblique: is_oblique,
         };
-        
+
         // Skip if already resolved
         if chains.contains_key(&cache_key) {
             continue;
         }
-        
+
         // Resolve the font chain
-        let italic = if is_italic { PatternMatch::True } else { PatternMatch::DontCare };
-        let oblique = if is_oblique { PatternMatch::True } else { PatternMatch::DontCare };
-        
+        let italic = if is_italic {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        };
+        let oblique = if is_oblique {
+            PatternMatch::True
+        } else {
+            PatternMatch::DontCare
+        };
+
         let mut trace = Vec::new();
-        let chain = fc_cache.resolve_font_chain(
-            &font_families,
-            weight,
-            italic,
-            oblique,
-            &mut trace,
-        );
-        
+        let chain =
+            fc_cache.resolve_font_chain(&font_families, weight, italic, oblique, &mut trace);
+
         chains.insert(cache_key, chain);
     }
-    
+
     ResolvedFontChains { chains }
 }
 
 /// Convenience function that collects and resolves font chains in one call
-/// 
+///
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font stacks from
 /// * `fc_cache` - The fontconfig cache to resolve fonts against
-/// 
+///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
 pub fn collect_and_resolve_font_chains(
@@ -1602,15 +1777,16 @@ pub fn collect_and_resolve_font_chains(
 // Font Loading Functions
 
 use std::collections::HashSet;
+
 use rust_fontconfig::FontId;
 
 /// Extract all unique FontIds from resolved font chains
-/// 
+///
 /// This function collects all FontIds that are referenced in the font chains,
 /// which represents the complete set of fonts that may be needed for rendering.
 pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
     let mut font_ids = HashSet::new();
-    
+
     for chain in chains.chains.values() {
         // Collect from CSS fallbacks
         for group in &chain.css_fallbacks {
@@ -1618,22 +1794,22 @@ pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<Font
                 font_ids.insert(font.id);
             }
         }
-        
+
         // Collect from Unicode fallbacks
         for font in &chain.unicode_fallbacks {
             font_ids.insert(font.id);
         }
     }
-    
+
     font_ids
 }
 
 /// Compute which fonts need to be loaded (diff with already loaded fonts)
-/// 
+///
 /// # Arguments
 /// * `required_fonts` - Set of FontIds that are needed
 /// * `already_loaded` - Set of FontIds that are already loaded
-/// 
+///
 /// # Returns
 /// Set of FontIds that need to be loaded
 pub fn compute_fonts_to_load(
@@ -1653,23 +1829,23 @@ pub struct FontLoadResult<T> {
 }
 
 /// Load fonts from disk using the provided loader function
-/// 
+///
 /// This is a generic function that works with any font loading implementation.
 /// The `load_fn` parameter should be a function that takes font bytes and an index,
 /// and returns a parsed font or an error.
-/// 
+///
 /// # Arguments
 /// * `font_ids` - Set of FontIds to load
 /// * `fc_cache` - The fontconfig cache to get font paths from
 /// * `load_fn` - Function to load and parse font bytes
-/// 
+///
 /// # Returns
 /// A `FontLoadResult` containing successfully loaded fonts and any failures
-/// 
+///
 /// # Example
 /// ```ignore
 /// use azul_layout::text3::default::PathLoader;
-/// 
+///
 /// let loader = PathLoader::new();
 /// let result = load_fonts_from_disk(
 ///     &fonts_to_load,
@@ -1687,54 +1863,61 @@ where
 {
     let mut loaded = HashMap::new();
     let mut failed = Vec::new();
-    
+
     for font_id in font_ids {
         // Get font bytes from fc_cache
         let font_bytes = match fc_cache.get_font_bytes(font_id) {
             Some(bytes) => bytes,
             None => {
-                failed.push((*font_id, format!("Could not get font bytes for {:?}", font_id)));
+                failed.push((
+                    *font_id,
+                    format!("Could not get font bytes for {:?}", font_id),
+                ));
                 continue;
             }
         };
-        
+
         // Get font index (for font collections like .ttc files)
-        let font_index = fc_cache.get_font_by_id(font_id)
+        let font_index = fc_cache
+            .get_font_by_id(font_id)
             .and_then(|source| match source {
                 rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
                 rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
             })
             .unwrap_or(0) as usize;
-        
+
         // Load the font using the provided function
         match load_fn(&font_bytes, font_index) {
             Ok(font) => {
                 loaded.insert(*font_id, font);
             }
             Err(e) => {
-                failed.push((*font_id, format!("Failed to parse font {:?}: {:?}", font_id, e)));
+                failed.push((
+                    *font_id,
+                    format!("Failed to parse font {:?}: {:?}", font_id, e),
+                ));
             }
         }
     }
-    
+
     FontLoadResult { loaded, failed }
 }
 
 /// Convenience function to load all required fonts for a styled DOM
-/// 
+///
 /// This function:
 /// 1. Collects all font stacks from the DOM
 /// 2. Resolves them to font chains
 /// 3. Extracts all required FontIds
 /// 4. Computes which fonts need to be loaded (diff with already loaded)
 /// 5. Loads the missing fonts
-/// 
+///
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font requirements from
 /// * `fc_cache` - The fontconfig cache
 /// * `already_loaded` - Set of FontIds that are already loaded
 /// * `load_fn` - Function to load and parse font bytes
-/// 
+///
 /// # Returns
 /// A tuple of (ResolvedFontChains, FontLoadResult)
 pub fn resolve_and_load_fonts<T, F>(
@@ -1748,15 +1931,15 @@ where
 {
     // Step 1-2: Collect and resolve font chains
     let chains = collect_and_resolve_font_chains(styled_dom, fc_cache);
-    
+
     // Step 3: Extract all required FontIds
     let required_fonts = collect_font_ids_from_chains(&chains);
-    
+
     // Step 4: Compute diff
     let fonts_to_load = compute_fonts_to_load(&required_fonts, already_loaded);
-    
+
     // Step 5: Load missing fonts
     let load_result = load_fonts_from_disk(&fonts_to_load, fc_cache, load_fn);
-    
+
     (chains, load_result)
 }

@@ -8,17 +8,17 @@
 //!
 //! The user-agent stylesheet serves several critical functions:
 //!
-//! 1. **Prevents Layout Collapse**: Ensures root elements (`<html>`, `<body>`) have
-//!    default dimensions so that percentage-based child sizing can work correctly.
+//! 1. **Prevents Layout Collapse**: Ensures root elements (`<html>`, `<body>`) have default
+//!    dimensions so that percentage-based child sizing can work correctly.
 //!
-//! 2. **Establishes Display Types**: Defines the default `display` property for all
-//!    HTML elements (e.g., `<div>` is `block`, `<span>` is `inline`).
+//! 2. **Establishes Display Types**: Defines the default `display` property for all HTML elements
+//!    (e.g., `<div>` is `block`, `<span>` is `inline`).
 //!
-//! 3. **Provides Baseline Typography**: Sets reasonable defaults for font sizes,
-//!    margins, and text styling for headings, paragraphs, and other text elements.
+//! 3. **Provides Baseline Typography**: Sets reasonable defaults for font sizes, margins, and text
+//!    styling for headings, paragraphs, and other text elements.
 //!
-//! 4. **Normalizes Browser Behavior**: Incorporates principles from normalize.css to
-//!    provide consistent rendering across different platforms.
+//! 4. **Normalizes Browser Behavior**: Incorporates principles from normalize.css to provide
+//!    consistent rendering across different platforms.
 //!
 //! # Implementation Details
 //!
@@ -50,9 +50,7 @@
 //!
 //! This user-agent stylesheet integrates principles from normalize.css v8.0.1:
 //!
-//! - **normalize.css License**: MIT License
-//!   Copyright (c) Nicolas Gallagher and Jonathan Neal
-//!   https://github.com/necolas/normalize.css
+//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and Jonathan Neal https://github.com/necolas/normalize.css
 //!
 //! The normalize.css project is licensed under the MIT License, which permits
 //! commercial use, modification, distribution, and private use. The full license
@@ -92,28 +90,34 @@
 //! - HTML Living Standard: https://html.spec.whatwg.org/
 //! - normalize.css: https://necolas.github.io/normalize.css/
 
-use crate::dom::NodeType;
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::{length::PercentageValue, pixel::PixelValue, StyleFontSize, font::StyleFontWeight, ColorU},
-        layout::{
-            display::LayoutDisplay,
-            dimensions::{LayoutWidth, LayoutHeight},
-            spacing::{
-                LayoutMarginTop, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
-                LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
-                LayoutPaddingInlineStart, LayoutPaddingInlineEnd,
-            },
-            fragmentation::{BreakInside, PageBreak},
+        basic::{
+            font::StyleFontWeight, length::PercentageValue, pixel::PixelValue, ColorU,
+            StyleFontSize,
         },
-        style::{
-            StyleTextAlign, StyleVerticalAlign, content::CounterReset, lists::StyleListStyleType,
-            border::{BorderStyle, StyleBorderTopStyle, StyleBorderTopColor, LayoutBorderTopWidth},
+        layout::{
+            dimensions::{LayoutHeight, LayoutWidth},
+            display::LayoutDisplay,
+            fragmentation::{BreakInside, PageBreak},
+            spacing::{
+                LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop,
+                LayoutPaddingBottom, LayoutPaddingInlineEnd, LayoutPaddingInlineStart,
+                LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+            },
         },
         property::{CssProperty, CssPropertyType},
+        style::{
+            border::{BorderStyle, LayoutBorderTopWidth, StyleBorderTopColor, StyleBorderTopStyle},
+            content::CounterReset,
+            lists::StyleListStyleType,
+            StyleTextAlign, StyleVerticalAlign,
+        },
     },
 };
+
+use crate::dom::NodeType;
 
 /// 100% width
 static WIDTH_100_PERCENT: CssProperty = CssProperty::Width(CssPropertyValue::Exact(
@@ -126,357 +130,313 @@ static HEIGHT_100_PERCENT: CssProperty = CssProperty::Height(CssPropertyValue::E
 ));
 
 /// display: block
-static DISPLAY_BLOCK: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::Block,
-));
+static DISPLAY_BLOCK: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::Block));
 
 /// display: inline
-static DISPLAY_INLINE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::Inline,
-));
+static DISPLAY_INLINE: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::Inline));
 
 /// display: inline-block
-static DISPLAY_INLINE_BLOCK: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::InlineBlock,
-));
+static DISPLAY_INLINE_BLOCK: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineBlock));
 
 /// display: none
-static DISPLAY_NONE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::None,
-));
+static DISPLAY_NONE: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None));
 
 /// display: table
-static DISPLAY_TABLE: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::Table,
-));
+static DISPLAY_TABLE: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::Table));
 
 /// display: table-row
-static DISPLAY_TABLE_ROW: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableRow,
-));
+static DISPLAY_TABLE_ROW: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableRow));
 
 /// display: table-cell
-static DISPLAY_TABLE_CELL: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableCell,
-));
+static DISPLAY_TABLE_CELL: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableCell));
 
 /// display: table-header-group
-static DISPLAY_TABLE_HEADER_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableHeaderGroup,
-));
+static DISPLAY_TABLE_HEADER_GROUP: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableHeaderGroup));
 
 /// display: table-row-group
-static DISPLAY_TABLE_ROW_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableRowGroup,
-));
+static DISPLAY_TABLE_ROW_GROUP: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableRowGroup));
 
 /// display: table-footer-group
-static DISPLAY_TABLE_FOOTER_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableFooterGroup,
-));
+static DISPLAY_TABLE_FOOTER_GROUP: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableFooterGroup));
 
 /// display: table-caption
-static DISPLAY_TABLE_CAPTION: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableCaption,
-));
+static DISPLAY_TABLE_CAPTION: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableCaption));
 
 /// display: table-column-group
-static DISPLAY_TABLE_COLUMN_GROUP: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableColumnGroup,
-));
+static DISPLAY_TABLE_COLUMN_GROUP: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableColumnGroup));
 
 /// display: table-column
-static DISPLAY_TABLE_COLUMN: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::TableColumn,
-));
+static DISPLAY_TABLE_COLUMN: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::TableColumn));
 
 /// display: list-item
-static DISPLAY_LIST_ITEM: CssProperty = CssProperty::Display(CssPropertyValue::Exact(
-    LayoutDisplay::ListItem,
-));
+static DISPLAY_LIST_ITEM: CssProperty =
+    CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::ListItem));
 
 /// margin-top: 0
-static MARGIN_TOP_ZERO: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_ZERO: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_px(0),
-    },
-));
+    }));
 
 /// margin-bottom: 0
-static MARGIN_BOTTOM_ZERO: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_ZERO: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_px(0),
-    },
-));
+    }));
 
 /// margin-left: 0
-static MARGIN_LEFT_ZERO: CssProperty = CssProperty::MarginLeft(CssPropertyValue::Exact(
-    LayoutMarginLeft {
+static MARGIN_LEFT_ZERO: CssProperty =
+    CssProperty::MarginLeft(CssPropertyValue::Exact(LayoutMarginLeft {
         inner: PixelValue::const_px(0),
-    },
-));
+    }));
 
 /// margin-right: 0
-static MARGIN_RIGHT_ZERO: CssProperty = CssProperty::MarginRight(CssPropertyValue::Exact(
-    LayoutMarginRight {
+static MARGIN_RIGHT_ZERO: CssProperty =
+    CssProperty::MarginRight(CssPropertyValue::Exact(LayoutMarginRight {
         inner: PixelValue::const_px(0),
-    },
-));
+    }));
 
 // Chrome User-Agent Stylesheet: body { margin: 8px; }
 /// margin-top: 8px (Chrome UA default for body)
-static MARGIN_TOP_8PX: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_8PX: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_px(8),
-    },
-));
+    }));
 
 /// margin-bottom: 8px (Chrome UA default for body)
-static MARGIN_BOTTOM_8PX: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_8PX: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_px(8),
-    },
-));
+    }));
 
 /// margin-left: 8px (Chrome UA default for body)
-static MARGIN_LEFT_8PX: CssProperty = CssProperty::MarginLeft(CssPropertyValue::Exact(
-    LayoutMarginLeft {
+static MARGIN_LEFT_8PX: CssProperty =
+    CssProperty::MarginLeft(CssPropertyValue::Exact(LayoutMarginLeft {
         inner: PixelValue::const_px(8),
-    },
-));
+    }));
 
 /// margin-right: 8px (Chrome UA default for body)
-static MARGIN_RIGHT_8PX: CssProperty = CssProperty::MarginRight(CssPropertyValue::Exact(
-    LayoutMarginRight {
+static MARGIN_RIGHT_8PX: CssProperty =
+    CssProperty::MarginRight(CssPropertyValue::Exact(LayoutMarginRight {
         inner: PixelValue::const_px(8),
-    },
-));
+    }));
 
 /// font-size: 2em (for H1)
-static FONT_SIZE_2EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
-        inner: PixelValue::const_em(2),
-    },
-));
+static FONT_SIZE_2EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    inner: PixelValue::const_em(2),
+}));
 
 /// font-size: 1.5em (for H2)
-static FONT_SIZE_1_5EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
+static FONT_SIZE_1_5EM: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::const_em_fractional(1, 5),
-    },
-));
+    }));
 
 /// font-size: 1.17em (for H3)
-static FONT_SIZE_1_17EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
+static FONT_SIZE_1_17EM: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::const_em_fractional(1, 17),
-    },
-));
+    }));
 
 /// font-size: 1em (for H4)
-static FONT_SIZE_1EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
-        inner: PixelValue::const_em(1),
-    },
-));
+static FONT_SIZE_1EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    inner: PixelValue::const_em(1),
+}));
 
 /// font-size: 0.83em (for H5)
-static FONT_SIZE_0_83EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
+static FONT_SIZE_0_83EM: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::const_em_fractional(0, 83),
-    },
-));
+    }));
 
 /// font-size: 0.67em (for H6)
-static FONT_SIZE_0_67EM: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(
-    StyleFontSize {
+static FONT_SIZE_0_67EM: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::const_em_fractional(0, 67),
-    },
-));
+    }));
 
 /// margin-top: 1em (for P)
-static MARGIN_TOP_1EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_1EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em(1),
-    },
-));
+    }));
 
 /// margin-bottom: 1em (for P)
-static MARGIN_BOTTOM_1EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_1EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em(1),
-    },
-));
+    }));
 
 /// margin-top: 0.67em (for H1)
-static MARGIN_TOP_0_67EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_0_67EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(0, 67),
-    },
-));
+    }));
 
 /// margin-bottom: 0.67em (for H1)
-static MARGIN_BOTTOM_0_67EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_0_67EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(0, 67),
-    },
-));
+    }));
 
 /// margin-top: 0.83em (for H2)
-static MARGIN_TOP_0_83EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_0_83EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(0, 83),
-    },
-));
+    }));
 
 /// margin-bottom: 0.83em (for H2)
-static MARGIN_BOTTOM_0_83EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_0_83EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(0, 83),
-    },
-));
+    }));
 
 /// margin-top: 1.33em (for H4)
-static MARGIN_TOP_1_33EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_1_33EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(1, 33),
-    },
-));
+    }));
 
 /// margin-bottom: 1.33em (for H4)
-static MARGIN_BOTTOM_1_33EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_1_33EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(1, 33),
-    },
-));
+    }));
 
 /// margin-top: 1.67em (for H5)
-static MARGIN_TOP_1_67EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_1_67EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(1, 67),
-    },
-));
+    }));
 
 /// margin-bottom: 1.67em (for H5)
-static MARGIN_BOTTOM_1_67EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_1_67EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(1, 67),
-    },
-));
+    }));
 
 /// margin-top: 2.33em (for H6)
-static MARGIN_TOP_2_33EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_2_33EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(2, 33),
-    },
-));
+    }));
 
 /// margin-bottom: 2.33em (for H6)
-static MARGIN_BOTTOM_2_33EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_2_33EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(2, 33),
-    },
-));
+    }));
 
 /// font-weight: bold (for headings)
-static FONT_WEIGHT_BOLD: CssProperty = CssProperty::FontWeight(CssPropertyValue::Exact(
-    StyleFontWeight::Bold,
-));
+static FONT_WEIGHT_BOLD: CssProperty =
+    CssProperty::FontWeight(CssPropertyValue::Exact(StyleFontWeight::Bold));
 
 /// font-weight: bolder
-static FONT_WEIGHT_BOLDER: CssProperty = CssProperty::FontWeight(CssPropertyValue::Exact(
-    StyleFontWeight::Bolder,
-));
+static FONT_WEIGHT_BOLDER: CssProperty =
+    CssProperty::FontWeight(CssPropertyValue::Exact(StyleFontWeight::Bolder));
 
 // Table cell padding - Chrome UA CSS default: 1px
-static PADDING_1PX: CssProperty = CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
-    inner: PixelValue::const_px(1),
-}));
+static PADDING_1PX: CssProperty =
+    CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
+        inner: PixelValue::const_px(1),
+    }));
 
-static PADDING_TOP_1PX: CssProperty = CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
-    inner: PixelValue::const_px(1),
-}));
+static PADDING_TOP_1PX: CssProperty =
+    CssProperty::PaddingTop(CssPropertyValue::Exact(LayoutPaddingTop {
+        inner: PixelValue::const_px(1),
+    }));
 
-static PADDING_BOTTOM_1PX: CssProperty = CssProperty::PaddingBottom(CssPropertyValue::Exact(LayoutPaddingBottom {
-    inner: PixelValue::const_px(1),
-}));
+static PADDING_BOTTOM_1PX: CssProperty =
+    CssProperty::PaddingBottom(CssPropertyValue::Exact(LayoutPaddingBottom {
+        inner: PixelValue::const_px(1),
+    }));
 
-static PADDING_LEFT_1PX: CssProperty = CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
-    inner: PixelValue::const_px(1),
-}));
+static PADDING_LEFT_1PX: CssProperty =
+    CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
+        inner: PixelValue::const_px(1),
+    }));
 
-static PADDING_RIGHT_1PX: CssProperty = CssProperty::PaddingRight(CssPropertyValue::Exact(LayoutPaddingRight {
-    inner: PixelValue::const_px(1),
-}));
+static PADDING_RIGHT_1PX: CssProperty =
+    CssProperty::PaddingRight(CssPropertyValue::Exact(LayoutPaddingRight {
+        inner: PixelValue::const_px(1),
+    }));
 
 /// text-align: center (for th elements)
-static TEXT_ALIGN_CENTER: CssProperty = CssProperty::TextAlign(CssPropertyValue::Exact(
-    StyleTextAlign::Center,
-));
+static TEXT_ALIGN_CENTER: CssProperty =
+    CssProperty::TextAlign(CssPropertyValue::Exact(StyleTextAlign::Center));
 
 /// vertical-align: center (maps to CSS vertical-align: middle for table elements)
-static VERTICAL_ALIGN_CENTER: CssProperty = CssProperty::VerticalAlign(CssPropertyValue::Exact(
-    StyleVerticalAlign::Center,
-));
+static VERTICAL_ALIGN_CENTER: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Center));
 
 /// list-style-type: disc (default for <ul>)
-static LIST_STYLE_TYPE_DISC: CssProperty = CssProperty::ListStyleType(CssPropertyValue::Exact(
-    StyleListStyleType::Disc,
-));
+static LIST_STYLE_TYPE_DISC: CssProperty =
+    CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Disc));
 
 /// list-style-type: decimal (default for <ol>)
-static LIST_STYLE_TYPE_DECIMAL: CssProperty = CssProperty::ListStyleType(CssPropertyValue::Exact(
-    StyleListStyleType::Decimal,
-));
+static LIST_STYLE_TYPE_DECIMAL: CssProperty =
+    CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Decimal));
 
 // --- HR Element Defaults ---
 // Per HTML spec, <hr> renders as a horizontal line with inset border style
 
 /// margin-top: 0.5em (for hr)
-static MARGIN_TOP_0_5EM: CssProperty = CssProperty::MarginTop(CssPropertyValue::Exact(
-    LayoutMarginTop {
+static MARGIN_TOP_0_5EM: CssProperty =
+    CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_em_fractional(0, 5),
-    },
-));
+    }));
 
 /// margin-bottom: 0.5em (for hr)
-static MARGIN_BOTTOM_0_5EM: CssProperty = CssProperty::MarginBottom(CssPropertyValue::Exact(
-    LayoutMarginBottom {
+static MARGIN_BOTTOM_0_5EM: CssProperty =
+    CssProperty::MarginBottom(CssPropertyValue::Exact(LayoutMarginBottom {
         inner: PixelValue::const_em_fractional(0, 5),
-    },
-));
+    }));
 
 /// border-top-style: inset (for hr - default browser style)
-static BORDER_TOP_STYLE_INSET: CssProperty = CssProperty::BorderTopStyle(CssPropertyValue::Exact(
-    StyleBorderTopStyle {
+static BORDER_TOP_STYLE_INSET: CssProperty =
+    CssProperty::BorderTopStyle(CssPropertyValue::Exact(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
-    },
-));
+    }));
 
 /// border-top-width: 1px (for hr)
-static BORDER_TOP_WIDTH_1PX: CssProperty = CssProperty::BorderTopWidth(CssPropertyValue::Exact(
-    LayoutBorderTopWidth {
+static BORDER_TOP_WIDTH_1PX: CssProperty =
+    CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
         inner: PixelValue::const_px(1),
-    },
-));
+    }));
 
 /// border-top-color: gray (for hr - default visible color)
-static BORDER_TOP_COLOR_GRAY: CssProperty = CssProperty::BorderTopColor(CssPropertyValue::Exact(
-    StyleBorderTopColor {
-        inner: ColorU { r: 128, g: 128, b: 128, a: 255 },
-    },
-));
+static BORDER_TOP_COLOR_GRAY: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: ColorU {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        },
+    }));
 
 /// height: 0 (for hr - the line comes from the border, not height)
-static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(
-    LayoutHeight::Px(PixelValue::const_px(0)),
-));
+static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(
+    PixelValue::const_px(0),
+)));
 
 /// counter-reset: list-item 0 (default for <ul>, <ol>)
 /// Per CSS Lists Module Level 3, list containers automatically reset the list-item counter
-static COUNTER_RESET_LIST_ITEM: CssProperty = CssProperty::CounterReset(CssPropertyValue::Exact(
-    CounterReset::list_item(),
-));
+static COUNTER_RESET_LIST_ITEM: CssProperty =
+    CssProperty::CounterReset(CssPropertyValue::Exact(CounterReset::list_item()));
 
 // === CSS Fragmentation (Page Breaking) Properties ===
 // Per CSS Fragmentation Level 3 and paged media best practices,
@@ -512,11 +472,10 @@ static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoi
 /// 2. The marker needs to be positioned relative to the list item's content box
 /// 3. Padding on <li> creates space between the marker and the text content
 /// TODO: Change to PaddingInlineStart once logical property resolution is implemented
-static PADDING_INLINE_START_40PX: CssProperty = CssProperty::PaddingLeft(CssPropertyValue::Exact(
-    LayoutPaddingLeft {
+static PADDING_INLINE_START_40PX: CssProperty =
+    CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
         inner: PixelValue::const_px(40),
-    },
-));
+    }));
 
 // TODO: Uncomment when TextDecoration is implemented in azul-css
 // const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
@@ -564,9 +523,12 @@ const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightVa
 /// let undefined = get_ua_property(NodeType::Span, CssPropertyType::Width);
 /// assert!(undefined.is_none());
 /// ```
-pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> Option<&'static CssProperty> {
-    use NodeType as NT;
+pub fn get_ua_property(
+    node_type: &NodeType,
+    property_type: CssPropertyType,
+) -> Option<&'static CssProperty> {
     use CssPropertyType as PT;
+    use NodeType as NT;
 
     let result = match (node_type, property_type) {
         // HTML Element
@@ -770,7 +732,7 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::IFrame(_), PT::Display) => Some(&DISPLAY_INLINE),
-        
+
         // Form Input Elements (inline-block behavior approximated as inline)
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE),
@@ -778,7 +740,7 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::SelectOption, PT::Display) => Some(&DISPLAY_NONE),
         (NT::OptGroup, PT::Display) => Some(&DISPLAY_NONE),
-        
+
         // Other Inline Elements
         (NT::Abbr, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Cite, PT::Display) => Some(&DISPLAY_INLINE),
@@ -797,7 +759,7 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Rt, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Rtc, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Ruby, PT::Display) => Some(&DISPLAY_INLINE),
-        
+
         // Block Container Elements
         // Per CSS Fragmentation Level 3: figures should avoid page breaks inside
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
@@ -814,18 +776,18 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         (NT::Summary, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dialog, PT::Width) => Some(&WIDTH_100_PERCENT),
-        
+
         // Table Caption
         (NT::Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
         (NT::ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
         (NT::Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
-        
+
         // Legacy/Deprecated Elements
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Menu, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dir, PT::Width) => Some(&WIDTH_100_PERCENT),
-        
+
         // Generic Container
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Html, PT::Width) => Some(&WIDTH_100_PERCENT),
@@ -839,6 +801,6 @@ pub fn get_ua_property(node_type: &NodeType, property_type: CssPropertyType) -> 
         // No default defined for other combinations
         _ => None,
     };
-    
+
     result
 }

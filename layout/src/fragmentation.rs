@@ -1,6 +1,6 @@
 //! CSS Fragmentation Engine for Paged Media
 //!
-//! This module implements the CSS Fragmentation specification (css-break-3) for 
+//! This module implements the CSS Fragmentation specification (css-break-3) for
 //! breaking content across pages, columns, or regions.
 //!
 //! ## Key Concepts
@@ -19,12 +19,16 @@
 //! 4. Split or defer content as needed
 //! 5. Handle orphans/widows for text content
 
-use alloc::{string::String, vec::Vec, boxed::Box, sync::Arc, collections::BTreeMap};
+use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::fmt;
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::dom::NodeId;
-use azul_css::props::layout::fragmentation::{PageBreak, BreakInside, Orphans, Widows, BoxDecorationBreak};
+use azul_core::{
+    dom::NodeId,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+};
+use azul_css::props::layout::fragmentation::{
+    BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows,
+};
 
 use crate::solver3::display_list::{DisplayList, DisplayListItem};
 
@@ -58,17 +62,17 @@ impl PageCounter {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn with_page_number(mut self, page: usize) -> Self {
         self.page_number = page;
         self
     }
-    
+
     pub fn with_total_pages(mut self, total: usize) -> Self {
         self.total_pages = Some(total);
         self
     }
-    
+
     /// Format page number as string (e.g., "3", "iii", "C")
     pub fn format_page_number(&self, style: PageNumberStyle) -> String {
         match style {
@@ -79,7 +83,7 @@ impl PageCounter {
             PageNumberStyle::UpperAlpha => to_upper_alpha(self.page_number),
         }
     }
-    
+
     /// Get "Page X of Y" string
     pub fn format_page_of_total(&self) -> String {
         match self.total_pages {
@@ -151,7 +155,7 @@ impl DynamicSlotContentFn {
     pub fn new<F: Fn(&PageCounter) -> String + Send + Sync + 'static>(f: F) -> Self {
         Self { func: Box::new(f) }
     }
-    
+
     pub fn call(&self, counter: &PageCounter) -> String {
         (self.func)(counter)
     }
@@ -225,7 +229,7 @@ impl PageTemplate {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Add a simple page number footer (centered)
     pub fn with_page_number_footer(mut self, height: f32) -> Self {
         self.footer_height = height;
@@ -237,7 +241,7 @@ impl PageTemplate {
         });
         self
     }
-    
+
     /// Add "Page X of Y" footer
     pub fn with_page_of_total_footer(mut self, height: f32) -> Self {
         self.footer_height = height;
@@ -249,7 +253,7 @@ impl PageTemplate {
         });
         self
     }
-    
+
     /// Add a header with title on left and page number on right
     pub fn with_book_header(mut self, title: String, height: f32) -> Self {
         self.header_height = height;
@@ -267,7 +271,7 @@ impl PageTemplate {
         });
         self
     }
-    
+
     /// Get slots for a specific page (handles left/right page differences)
     pub fn slots_for_page(&self, page_number: usize) -> &[PageSlot] {
         let is_left_page = page_number % 2 == 0;
@@ -282,7 +286,7 @@ impl PageTemplate {
         }
         &self.slots
     }
-    
+
     /// Check if header should be shown on this page
     pub fn show_header(&self, page_number: usize) -> bool {
         if page_number == 1 && !self.header_on_first_page {
@@ -290,7 +294,7 @@ impl PageTemplate {
         }
         self.header_height > 0.0
     }
-    
+
     /// Check if footer should be shown on this page
     pub fn show_footer(&self, page_number: usize) -> bool {
         if page_number == 1 && !self.footer_on_first_page {
@@ -298,11 +302,19 @@ impl PageTemplate {
         }
         self.footer_height > 0.0
     }
-    
+
     /// Get the content area height (page height minus header and footer)
     pub fn content_area_height(&self, page_height: f32, page_number: usize) -> f32 {
-        let header = if self.show_header(page_number) { self.header_height } else { 0.0 };
-        let footer = if self.show_footer(page_number) { self.footer_height } else { 0.0 };
+        let header = if self.show_header(page_number) {
+            self.header_height
+        } else {
+            0.0
+        };
+        let footer = if self.show_footer(page_number) {
+            self.footer_height
+        } else {
+            0.0
+        };
         page_height - header - footer
     }
 }
@@ -383,20 +395,20 @@ impl BreakPoint {
         if is_forced_break(&self.break_before) || is_forced_break(&self.break_after) {
             return true; // Forced breaks are always allowed
         }
-        
+
         if is_avoid_break(&self.break_before) || is_avoid_break(&self.break_after) {
             return false; // Avoid breaks
         }
-        
+
         // Rule 2: Check ancestor break-inside: avoid
         if self.ancestor_avoid_depth > 0 {
             return false;
         }
-        
+
         // Rules 3 & 4 are handled at a higher level (orphans/widows, etc.)
         true
     }
-    
+
     /// Check if this is a forced break
     pub fn is_forced(&self) -> bool {
         is_forced_break(&self.break_before) || is_forced_break(&self.break_after)
@@ -468,17 +480,27 @@ pub struct PageMargins {
 
 impl PageMargins {
     pub fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        Self { top, right, bottom, left }
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
-    
+
     pub fn uniform(margin: f32) -> Self {
-        Self { top: margin, right: margin, bottom: margin, left: margin }
+        Self {
+            top: margin,
+            right: margin,
+            bottom: margin,
+            left: margin,
+        }
     }
-    
+
     pub fn horizontal(&self) -> f32 {
         self.left + self.right
     }
-    
+
     pub fn vertical(&self) -> f32 {
         self.top + self.bottom
     }
@@ -524,9 +546,9 @@ impl FragmentationLayoutContext {
     /// Create a new fragmentation context for paged layout
     pub fn new(page_size: LogicalSize, margins: PageMargins) -> Self {
         let template = PageTemplate::default();
-        let page_content_height = page_size.height - margins.vertical() 
-            - template.header_height - template.footer_height;
-        
+        let page_content_height =
+            page_size.height - margins.vertical() - template.header_height - template.footer_height;
+
         Self {
             page_size,
             margins,
@@ -545,14 +567,14 @@ impl FragmentationLayoutContext {
             avoid_break_before_next: false,
         }
     }
-    
+
     /// Create context with a page template
     pub fn with_template(mut self, template: PageTemplate) -> Self {
         self.template = template;
         self.recalculate_content_height();
         self
     }
-    
+
     /// Create context with custom defaults
     pub fn with_defaults(mut self, defaults: FragmentationDefaults) -> Self {
         self.orphans = defaults.default_orphans;
@@ -560,7 +582,7 @@ impl FragmentationLayoutContext {
         self.defaults = defaults;
         self
     }
-    
+
     /// Recalculate content height based on template
     fn recalculate_content_height(&mut self) {
         let header = if self.template.show_header(self.current_page + 1) {
@@ -573,10 +595,11 @@ impl FragmentationLayoutContext {
         } else {
             0.0
         };
-        self.page_content_height = self.page_size.height - self.margins.vertical() - header - footer;
+        self.page_content_height =
+            self.page_size.height - self.margins.vertical() - header - footer;
         self.available_height = self.page_content_height - self.current_y;
     }
-    
+
     /// Get the content area origin for the current page
     pub fn content_origin(&self) -> LogicalPosition {
         let header = if self.template.show_header(self.current_page + 1) {
@@ -589,7 +612,7 @@ impl FragmentationLayoutContext {
             y: self.margins.top + header,
         }
     }
-    
+
     /// Get the content area size for the current page
     pub fn content_size(&self) -> LogicalSize {
         LogicalSize {
@@ -597,23 +620,23 @@ impl FragmentationLayoutContext {
             height: self.page_content_height,
         }
     }
-    
+
     /// Use space on the current page
     pub fn use_space(&mut self, height: f32) {
         self.current_y += height;
         self.available_height = (self.page_content_height - self.current_y).max(0.0);
     }
-    
+
     /// Check if content of given height can fit on current page
     pub fn can_fit(&self, height: f32) -> bool {
         self.available_height >= height
     }
-    
+
     /// Check if content would fit on an empty page
     pub fn would_fit_on_empty_page(&self, height: f32) -> bool {
         height <= self.page_content_height
     }
-    
+
     /// Advance to the next page
     pub fn advance_page(&mut self) {
         self.current_page += 1;
@@ -622,7 +645,7 @@ impl FragmentationLayoutContext {
         self.recalculate_content_height();
         self.avoid_break_before_next = false;
     }
-    
+
     /// Advance to a left (even) page
     pub fn advance_to_left_page(&mut self) {
         self.advance_page();
@@ -631,7 +654,7 @@ impl FragmentationLayoutContext {
             self.advance_page();
         }
     }
-    
+
     /// Advance to a right (odd) page
     pub fn advance_to_right_page(&mut self) {
         self.advance_page();
@@ -640,67 +663,68 @@ impl FragmentationLayoutContext {
             self.advance_page();
         }
     }
-    
+
     /// Enter a box with break-inside: avoid
     pub fn enter_avoid_break(&mut self) {
         self.break_inside_avoid_depth += 1;
     }
-    
+
     /// Exit a box with break-inside: avoid
     pub fn exit_avoid_break(&mut self) {
         self.break_inside_avoid_depth = self.break_inside_avoid_depth.saturating_sub(1);
     }
-    
+
     /// Set flag to avoid break before next content
     pub fn set_avoid_break_before_next(&mut self) {
         self.avoid_break_before_next = true;
     }
-    
+
     /// Add a page fragment
     pub fn add_fragment(&mut self, fragment: PageFragment) {
         self.fragments.push(fragment);
     }
-    
+
     /// Get the total number of pages so far
     pub fn page_count(&self) -> usize {
         self.current_page + 1
     }
-    
+
     /// Set total page count (for "Page X of Y" footers)
     pub fn set_total_pages(&mut self, total: usize) {
         self.counter.total_pages = Some(total);
     }
-    
+
     /// Convert fragments to display lists (one per page)
     pub fn into_display_lists(self) -> Vec<DisplayList> {
         let page_count = self.page_count();
-        let mut display_lists: Vec<DisplayList> = (0..page_count)
-            .map(|_| DisplayList::default())
-            .collect();
-        
+        let mut display_lists: Vec<DisplayList> =
+            (0..page_count).map(|_| DisplayList::default()).collect();
+
         for fragment in self.fragments {
             if fragment.page_index < display_lists.len() {
-                display_lists[fragment.page_index].items.extend(fragment.items);
+                display_lists[fragment.page_index]
+                    .items
+                    .extend(fragment.items);
             }
         }
-        
+
         display_lists
     }
-    
+
     /// Generate header/footer display list items for a specific page
     pub fn generate_page_chrome(&self, page_index: usize) -> Vec<DisplayListItem> {
         let mut items = Vec::new();
         let page_number = page_index + 1;
-        
+
         let counter = PageCounter {
             page_number,
             total_pages: self.counter.total_pages,
             chapter: self.counter.chapter,
             named_counters: self.counter.named_counters.clone(),
         };
-        
+
         let slots = self.template.slots_for_page(page_number);
-        
+
         for slot in slots {
             let _text = match &slot.content {
                 PageSlotContent::Text(s) => s.clone(),
@@ -709,22 +733,22 @@ impl FragmentationLayoutContext {
                 PageSlotContent::RunningHeader(s) => s.clone(),
                 PageSlotContent::Dynamic(f) => f.call(&counter),
             };
-            
+
             // Calculate position based on slot
             let (_x, _y) = self.slot_position(slot.position, page_number);
-            
+
             // TODO: Create proper text DisplayListItem
             // For now we'll need to integrate with text layout
             // This is a placeholder that shows where the text would go
         }
-        
+
         items
     }
-    
+
     /// Calculate position for a page slot
     fn slot_position(&self, position: PageSlotPosition, page_number: usize) -> (f32, f32) {
         let content_width = self.page_size.width - self.margins.horizontal();
-        
+
         let x = match position {
             PageSlotPosition::TopLeft | PageSlotPosition::BottomLeft => self.margins.left,
             PageSlotPosition::TopCenter | PageSlotPosition::BottomCenter => {
@@ -734,16 +758,18 @@ impl FragmentationLayoutContext {
                 self.page_size.width - self.margins.right
             }
         };
-        
+
         let y = match position {
-            PageSlotPosition::TopLeft | PageSlotPosition::TopCenter | PageSlotPosition::TopRight => {
-                self.margins.top + self.template.header_height / 2.0
-            }
-            PageSlotPosition::BottomLeft | PageSlotPosition::BottomCenter | PageSlotPosition::BottomRight => {
+            PageSlotPosition::TopLeft
+            | PageSlotPosition::TopCenter
+            | PageSlotPosition::TopRight => self.margins.top + self.template.header_height / 2.0,
+            PageSlotPosition::BottomLeft
+            | PageSlotPosition::BottomCenter
+            | PageSlotPosition::BottomRight => {
                 self.page_size.height - self.margins.bottom - self.template.footer_height / 2.0
             }
         };
-        
+
         (x, y)
     }
 }
@@ -783,17 +809,19 @@ pub fn decide_break(
             return BreakDecision::ForceBreakBefore;
         }
     }
-    
+
     match behavior {
         BoxBreakBehavior::Monolithic { height } => {
             decide_monolithic_break(*height, ctx, break_before)
         }
-        BoxBreakBehavior::KeepTogether { estimated_height, priority } => {
-            decide_keep_together_break(*estimated_height, *priority, ctx, break_before)
-        }
-        BoxBreakBehavior::Splittable { min_before_break, min_after_break } => {
-            decide_splittable_break(*min_before_break, *min_after_break, ctx, break_before)
-        }
+        BoxBreakBehavior::KeepTogether {
+            estimated_height,
+            priority,
+        } => decide_keep_together_break(*estimated_height, *priority, ctx, break_before),
+        BoxBreakBehavior::Splittable {
+            min_before_break,
+            min_after_break,
+        } => decide_splittable_break(*min_before_break, *min_after_break, ctx, break_before),
     }
 }
 
@@ -845,7 +873,7 @@ fn decide_splittable_break(
 ) -> BreakDecision {
     // For splittable content, we need to consider orphans/widows
     let available = ctx.available_height;
-    
+
     if available < min_before && ctx.current_y > 0.0 {
         // Can't fit minimum orphan content, move to next page
         BreakDecision::MoveToNextPage
@@ -860,8 +888,13 @@ fn decide_splittable_break(
 fn is_forced_break(page_break: &PageBreak) -> bool {
     matches!(
         page_break,
-        PageBreak::Always | PageBreak::Page | PageBreak::Left | 
-        PageBreak::Right | PageBreak::Recto | PageBreak::Verso | PageBreak::All
+        PageBreak::Always
+            | PageBreak::Page
+            | PageBreak::Left
+            | PageBreak::Right
+            | PageBreak::Recto
+            | PageBreak::Verso
+            | PageBreak::All
     )
 }
 
@@ -878,13 +911,23 @@ fn to_upper_roman(mut n: usize) -> String {
     if n == 0 {
         return String::from("0");
     }
-    
+
     let numerals = [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     ];
-    
+
     let mut result = String::new();
     for (value, numeral) in numerals.iter() {
         while n >= *value {
@@ -903,7 +946,7 @@ fn to_upper_alpha(mut n: usize) -> String {
     if n == 0 {
         return String::from("0");
     }
-    
+
     let mut result = String::new();
     while n > 0 {
         n -= 1;
@@ -916,7 +959,7 @@ fn to_upper_alpha(mut n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_roman_numerals() {
         assert_eq!(to_upper_roman(1), "I");
@@ -925,7 +968,7 @@ mod tests {
         assert_eq!(to_upper_roman(42), "XLII");
         assert_eq!(to_upper_roman(1984), "MCMLXXXIV");
     }
-    
+
     #[test]
     fn test_alpha_numerals() {
         assert_eq!(to_upper_alpha(1), "A");
@@ -933,39 +976,38 @@ mod tests {
         assert_eq!(to_upper_alpha(27), "AA");
         assert_eq!(to_upper_alpha(28), "AB");
     }
-    
+
     #[test]
     fn test_page_template_content_height() {
-        let template = PageTemplate::default()
-            .with_page_number_footer(30.0);
-        
+        let template = PageTemplate::default().with_page_number_footer(30.0);
+
         let page_height = 800.0;
         assert_eq!(template.content_area_height(page_height, 1), 770.0);
     }
-    
+
     #[test]
     fn test_fragmentation_context_page_advance() {
         let mut ctx = FragmentationLayoutContext::new(
             LogicalSize::new(600.0, 800.0),
             PageMargins::uniform(50.0),
         );
-        
+
         assert_eq!(ctx.current_page, 0);
         assert_eq!(ctx.counter.page_number, 1);
-        
+
         ctx.advance_page();
-        
+
         assert_eq!(ctx.current_page, 1);
         assert_eq!(ctx.counter.page_number, 2);
     }
-    
+
     #[test]
     fn test_break_decision_monolithic() {
         let ctx = FragmentationLayoutContext::new(
             LogicalSize::new(600.0, 800.0),
             PageMargins::uniform(50.0),
         );
-        
+
         // Small monolithic box should fit
         let behavior = BoxBreakBehavior::Monolithic { height: 100.0 };
         let decision = decide_break(&behavior, &ctx, PageBreak::Auto, PageBreak::Auto);

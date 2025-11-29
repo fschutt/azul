@@ -39,7 +39,6 @@ impl Default for DragDropManager {
 }
 
 impl DragDropManager {
-
     /// Create a new drag-drop manager
     pub fn new() -> Self {
         Self { active_drag: None }

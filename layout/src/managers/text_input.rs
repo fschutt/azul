@@ -3,7 +3,7 @@
 //! Centralizes all text editing logic for contenteditable nodes.
 //!
 //! This manager handles text input from multiple sources:
-//! 
+//!
 //! - Keyboard input (character insertion, backspace, etc.)
 //! - IME composition (multi-character input for Asian languages)
 //! - Accessibility actions (screen readers, voice control)
@@ -14,20 +14,20 @@
 //! The text input system uses a two-phase approach:
 //!
 //! 1. **Record Phase**: When text input occurs, record what changed (old_text + inserted_text)
-//! 
+//!
 //!    - Store in `pending_changeset`
 //!    - Do NOT modify any caches yet
 //!    - Return affected nodes so callbacks can be invoked
 //!
 //! 2. **Apply Phase**: After callbacks, if preventDefault was not set:
-//! 
+//!
 //!    - Compute new text using text3::edit
 //!    - Update cursor position
 //!    - Update text cache
 //!    - Mark nodes dirty for re-layout
 //!
 //! This separation allows:
-//! 
+//!
 //! - User callbacks to inspect the changeset before it's applied
 //! - preventDefault to cancel the edit
 //! - Consistent behavior across keyboard/IME/A11y sources
@@ -53,7 +53,6 @@ pub struct TextChangeset {
 }
 
 impl TextChangeset {
-
     /// Compute the resulting text after applying the edit
     ///
     /// This is a pure function that applies the inserted_text to old_text
@@ -100,7 +99,6 @@ pub struct TextInputManager {
 }
 
 impl TextInputManager {
-
     /// Create a new TextInputManager
     pub fn new() -> Self {
         Self {
@@ -115,7 +113,7 @@ impl TextInputManager {
     /// The changes are applied later in `apply_changeset()` if preventDefault is not set.
     ///
     /// # Arguments
-    /// 
+    ///
     /// - `node` - The DOM node being edited
     /// - `inserted_text` - The text being inserted
     /// - `old_text` - The current text before the edit
@@ -129,7 +127,6 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
-
         // Clear any previous changeset
         self.pending_changeset = None;
 
@@ -171,7 +168,6 @@ impl Default for TextInputManager {
 }
 
 impl EventProvider for TextInputManager {
-
     /// Get pending text input events.
     ///
     /// If there's a pending changeset, returns an Input event for the affected node.

@@ -33,9 +33,6 @@ use crate::{
     window_state::FullWindowState,
 };
 
-// Include the inline intrinsic width tests
-mod test_inline_intrinsic_width;
-
 /// Helper function to create a test font cache with in-memory fonts
 fn create_test_fc_cache() -> FcFontCache {
     let mut fc_cache = FcFontCache::default();
@@ -886,7 +883,7 @@ fn layout_test_html_simple(
 ) -> Result<(LayoutCache<azul_css::props::basic::FontRef>, DisplayList), LayoutError> {
     // Create a simple DOM with the HTML content
     let mut dom = Dom::body();
-    
+
     // Parse simple HTML tags (very basic parser for test purposes)
     // For now, just create text nodes from the HTML content
     let text_content: String = html_body.chars().collect();
@@ -939,7 +936,7 @@ fn layout_test_html_simple(
 }
 
 /// Tests that width: auto and height: auto resolve to content-based dimensions
-/// 
+///
 /// CSS Specification: CSS Box Model Level 3
 /// - For inline-level elements, 'auto' width is shrink-to-fit (max-content)
 /// - For block-level elements, 'auto' width fills available space
@@ -951,34 +948,43 @@ fn test_auto_sizing_regression() {
         "body { width: auto; height: auto; font-size: 20px; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Auto sizing layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Auto sizing layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
     assert!(!tree.nodes.is_empty(), "Layout tree should have nodes");
-    
+
     let root_node = &tree.nodes[0];
-    let size = root_node.used_size.expect("Root node should have used_size");
-    
+    let size = root_node
+        .used_size
+        .expect("Root node should have used_size");
+
     // CSS 2.1 §10.3.3: Width of inline formatting contexts
     // The width should be based on content, not zero
     assert!(
         size.width > 0.0,
-        "Auto width for inline content should be > 0, got {}px. \
-         CSS Box Model requires 'auto' to compute to max-content width for inline contexts.",
+        "Auto width for inline content should be > 0, got {}px. CSS Box Model requires 'auto' to \
+         compute to max-content width for inline contexts.",
         size.width
     );
-    
+
     // CSS 2.1 §10.6.3: Height of inline formatting contexts
     // The height should be based on line box heights
     assert!(
         size.height > 0.0,
-        "Auto height should be > 0, got {}px. \
-         CSS requires 'auto' height to be sum of line box heights.",
+        "Auto height should be > 0, got {}px. CSS requires 'auto' height to be sum of line box \
+         heights.",
         size.height
     );
-    
+
     // Verify the size is reasonable for the content "Auto Sized Content"
     // At 20px font-size, we expect width ~154px and height ~26px
     assert!(
@@ -994,7 +1000,7 @@ fn test_auto_sizing_regression() {
 }
 
 /// Tests that explicit width: 0px and height: 0px are honored exactly
-/// 
+///
 /// CSS Specification: CSS Box Model Level 3
 /// - Explicit length values must be used as-is, regardless of content
 /// - This distinguishes '0px' from 'auto' (the critical bug we fixed)
@@ -1005,34 +1011,43 @@ fn test_explicit_zero_sizing_regression() {
         "body { width: 0px; height: 0px; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Explicit zero sizing should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Explicit zero sizing should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
     assert!(!tree.nodes.is_empty(), "Layout tree should have nodes");
-    
+
     let root_node = &tree.nodes[0];
-    let size = root_node.used_size.expect("Root node should have used_size");
-    
+    let size = root_node
+        .used_size
+        .expect("Root node should have used_size");
+
     // CSS 2.1 §10.2: Content width and height
     // Explicit 0px must be honored exactly, content should be clipped
     assert_eq!(
         size.width, 0.0,
-        "Explicit width: 0px must result in exactly 0px width. \
-         Got {}px. This is a critical distinction from 'auto'.",
+        "Explicit width: 0px must result in exactly 0px width. Got {}px. This is a critical \
+         distinction from 'auto'.",
         size.width
     );
     assert_eq!(
         size.height, 0.0,
-        "Explicit height: 0px must result in exactly 0px height. \
-         Got {}px. Content overflow should be clipped.",
+        "Explicit height: 0px must result in exactly 0px height. Got {}px. Content overflow \
+         should be clipped.",
         size.height
     );
 }
 
 /// Tests that block-level elements in normal flow stack vertically
-/// 
+///
 /// CSS Specification: CSS 2.1 Section 9.5 - Floats and Section 9.4.1 - Block formatting contexts
 /// - Block boxes in a BFC are laid out vertically, one after another
 /// - The vertical distance is determined by margin properties
@@ -1044,31 +1059,38 @@ fn test_block_layout_stacking_regression() {
         "body > * { display: block; height: 40px; margin: 0; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Block stacking layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Block stacking layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
     let positions = &layout_cache.calculated_positions;
-    
+
     // In a simple case with body containing two block children:
     // - Node 0: body (root)
     // - Node 1: first text node (becomes block via CSS)
     // - Node 2: second text node (becomes block via CSS)
-    
+
     // Note: Actual structure depends on how text nodes are handled
     // The key assertion is that if we have multiple positioned nodes,
     // they should have different Y coordinates
-    
+
     let mut y_positions: Vec<f32> = positions.values().map(|pos| pos.y).collect();
     y_positions.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    
+
     // Verify we have at least some positioned elements
     assert!(
         !y_positions.is_empty(),
         "Should have positioned elements in the layout tree"
     );
-    
+
     // Check that consecutive positioned elements don't overlap
     // (allowing for floating point precision)
     for window in y_positions.windows(2) {
@@ -1076,20 +1098,21 @@ fn test_block_layout_stacking_regression() {
         if y1 == y2 {
             continue; // Same element or siblings at same level
         }
-        
+
         // CSS 2.1 §9.5: In a BFC, each box's top outer edge touches
         // the bottom outer edge of the preceding box
         assert!(
             y2 >= y1,
-            "Block boxes should stack vertically: y1={}, y2={}. \
-             CSS 2.1 requires non-overlapping vertical layout in BFC.",
-            y1, y2
+            "Block boxes should stack vertically: y1={}, y2={}. CSS 2.1 requires non-overlapping \
+             vertical layout in BFC.",
+            y1,
+            y2
         );
     }
 }
 
 /// Tests basic font-size inheritance from parent to child
-/// 
+///
 /// CSS Specification: CSS Cascade Level 4
 /// - font-size is an inherited property
 /// - Child elements inherit computed values from their parent
@@ -1101,12 +1124,18 @@ fn test_font_size_inheritance_regression() {
         "body { font-size: 32px; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Font inheritance layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Font inheritance layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, display_list) = result.unwrap();
-    
+
     // Verify that text items in the display list have the inherited font-size
-    let text_items: Vec<_> = display_list.items.iter()
+    let text_items: Vec<_> = display_list
+        .items
+        .iter()
         .filter_map(|item| {
             if let crate::solver3::display_list::DisplayListItem::Text { font_size_px, .. } = item {
                 Some(*font_size_px)
@@ -1115,25 +1144,25 @@ fn test_font_size_inheritance_regression() {
             }
         })
         .collect();
-    
+
     assert!(
         !text_items.is_empty(),
         "Display list should contain text items"
     );
-    
+
     // CSS Cascade: All text should inherit the 32px font-size from body
     for (i, &font_size) in text_items.iter().enumerate() {
         assert_eq!(
             font_size, 32.0,
-            "Text item {} should inherit font-size: 32px from body, got {}px. \
-             CSS Cascade requires inherited properties to propagate.",
+            "Text item {} should inherit font-size: 32px from body, got {}px. CSS Cascade \
+             requires inherited properties to propagate.",
             i, font_size
         );
     }
 }
 
 /// Tests percentage width resolution against containing block
-/// 
+///
 /// CSS Specification: CSS Values Level 3
 /// - Percentage values are resolved against the corresponding dimension of the containing block
 /// - For width, this is the containing block's width
@@ -1144,12 +1173,19 @@ fn test_percentage_width_resolution_regression() {
         "body { width: 400px; } body > * { width: 50%; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Percentage width layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Percentage width layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
-    
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
+
     // Find the body node and verify its width
     if let Some(body_node) = tree.nodes.get(0) {
         if let Some(body_size) = body_node.used_size {
@@ -1161,7 +1197,7 @@ fn test_percentage_width_resolution_regression() {
             );
         }
     }
-    
+
     // Child nodes (if any) should have 50% of parent's width = 200px
     // Note: The exact node structure depends on how the DOM is built
     for (idx, node) in tree.nodes.iter().enumerate().skip(1) {
@@ -1170,9 +1206,11 @@ fn test_percentage_width_resolution_regression() {
                 // CSS Values: percentage resolves to percentage * containing block dimension
                 assert!(
                     (size.width - 200.0).abs() < 1.0,
-                    "Child node {} with percentage width should be ~200px (50% of 400px), got {}px. \
-                     CSS Values Level 3 requires percentage resolution against containing block.",
-                    idx, size.width
+                    "Child node {} with percentage width should be ~200px (50% of 400px), got \
+                     {}px. CSS Values Level 3 requires percentage resolution against containing \
+                     block.",
+                    idx,
+                    size.width
                 );
             }
         }
@@ -1180,7 +1218,7 @@ fn test_percentage_width_resolution_regression() {
 }
 
 /// Tests vertical margin collapsing between adjacent block-level siblings
-/// 
+///
 /// CSS Specification: CSS 2.1 Section 8.3.1 - Collapsing margins
 /// - Adjacent vertical margins of block-level boxes collapse
 /// - The collapsed margin is the maximum of the adjoining margins
@@ -1189,49 +1227,63 @@ fn test_percentage_width_resolution_regression() {
 fn test_margin_collapsing_regression() {
     let result = layout_test_html_simple(
         "Block 1\nBlock 2",
-        "body > *:first-child { margin-bottom: 20px; height: 20px; } \
-         body > *:last-child { margin-top: 30px; height: 20px; }",
+        "body > *:first-child { margin-bottom: 20px; height: 20px; } body > *:last-child { \
+         margin-top: 30px; height: 20px; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Margin collapsing layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Margin collapsing layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
+
     let positions = &layout_cache.calculated_positions;
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
-    
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
+
     // Get all positioned nodes and sort by Y coordinate
-    let mut positioned_nodes: Vec<_> = positions.iter()
+    let mut positioned_nodes: Vec<_> = positions
+        .iter()
         .filter_map(|(idx, pos)| {
-            tree.nodes.get(*idx).and_then(|node| {
-                node.used_size.map(|size| (*idx, pos.y, size.height))
-            })
+            tree.nodes
+                .get(*idx)
+                .and_then(|node| node.used_size.map(|size| (*idx, pos.y, size.height)))
         })
         .collect();
     positioned_nodes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    
+
     // If we have at least 2 positioned blocks, verify margin collapsing
     if positioned_nodes.len() >= 2 {
         let (idx1, y1, height1) = positioned_nodes[0];
         let (idx2, y2, _height2) = positioned_nodes[1];
-        
+
         // CSS 2.1 §8.3.1: The larger margin wins
         // Block 1 has margin-bottom: 20px, Block 2 has margin-top: 30px
         // The space between should be max(20, 30) = 30px
         let expected_y2 = y1 + height1 + 30.0; // y1 + height1 + collapsed_margin
-        
+
         assert!(
             (y2 - expected_y2).abs() < 1.0,
-            "Margin collapsing failed: Block {} at y={}, Block {} at y={}. \
-             Expected y2={} (y1 {} + height {} + max_margin 30px). \
-             CSS 2.1 §8.3.1 requires adjacent margins to collapse to the maximum.",
-            idx1, y1, idx2, y2, expected_y2, y1, height1
+            "Margin collapsing failed: Block {} at y={}, Block {} at y={}. Expected y2={} (y1 {} \
+             + height {} + max_margin 30px). CSS 2.1 §8.3.1 requires adjacent margins to collapse \
+             to the maximum.",
+            idx1,
+            y1,
+            idx2,
+            y2,
+            expected_y2,
+            y1,
+            height1
         );
     }
 }
 
 /// Tests deep font-size inheritance through multiple DOM levels
-/// 
+///
 /// CSS Specification: CSS Cascade Level 4
 /// - Inherited properties propagate through the entire tree
 /// - Each level inherits the computed value from its parent
@@ -1243,12 +1295,18 @@ fn test_deep_font_size_inheritance_regression() {
         "body { font-size: 24px; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Deep inheritance layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Deep inheritance layout should succeed: {:?}",
+        result.err()
+    );
     let (_layout_cache, display_list) = result.unwrap();
-    
+
     // Verify all text items inherit the 24px font-size
-    let text_items: Vec<_> = display_list.items.iter()
+    let text_items: Vec<_> = display_list
+        .items
+        .iter()
         .filter_map(|item| {
             if let crate::solver3::display_list::DisplayListItem::Text { font_size_px, .. } = item {
                 Some(*font_size_px)
@@ -1257,25 +1315,25 @@ fn test_deep_font_size_inheritance_regression() {
             }
         })
         .collect();
-    
+
     assert!(
         !text_items.is_empty(),
         "Display list should contain text items for deep inheritance test"
     );
-    
+
     // CSS Cascade: Inheritance propagates through all levels
     for (i, &font_size) in text_items.iter().enumerate() {
         assert_eq!(
             font_size, 24.0,
-            "Text item {} should inherit font-size: 24px through the tree, got {}px. \
-             CSS Cascade requires inheritance through all ancestor levels.",
+            "Text item {} should inherit font-size: 24px through the tree, got {}px. CSS Cascade \
+             requires inheritance through all ancestor levels.",
             i, font_size
         );
     }
 }
 
 /// Tests box-sizing: border-box behavior
-/// 
+///
 /// CSS Specification: CSS Box Sizing Level 3
 /// - With border-box, padding and border are included in the specified width/height
 /// - This changes how the content box size is calculated
@@ -1286,19 +1344,28 @@ fn test_box_sizing_border_box() {
         "body { width: 200px; padding: 20px; box-sizing: border-box; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Border-box layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Border-box layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
     let root_node = &tree.nodes[0];
-    let size = root_node.used_size.expect("Root node should have used_size");
-    
+    let size = root_node
+        .used_size
+        .expect("Root node should have used_size");
+
     // CSS Box Sizing §4: With border-box, the specified width is the border-box width
     // So the total width including padding should be 200px
     let padding = &root_node.box_props.padding;
     let total_width_with_padding = size.width; // This is the border-box width
-    
+
     // Note: In our implementation, used_size might be the content-box or border-box
     // depending on how sizing.rs interprets box-sizing
     // The key is that the element doesn't exceed 200px total
@@ -1306,7 +1373,9 @@ fn test_box_sizing_border_box() {
         total_width_with_padding <= 200.0 + 0.1, // Allow small float error
         "With box-sizing: border-box and width: 200px, total width should be ≤200px, got {}px. \
          Padding ({}, {}) should be included in the 200px.",
-        total_width_with_padding, padding.left, padding.right
+        total_width_with_padding,
+        padding.left,
+        padding.right
     );
 }
 
@@ -1315,46 +1384,45 @@ fn test_box_sizing_border_box() {
 // ============================================================================
 
 /// Tests basic unordered list with disc markers
-/// 
+///
 /// CSS Specification: CSS Lists and Counters Module Level 3
 /// - list-style-type: disc produces bullet markers (•)
 /// - Markers are automatically generated for list-items
 /// - Counter "list-item" is auto-incremented
 #[test]
 fn test_unordered_list_disc() {
-    use azul_css::parser2::CssApiWrapper;
-    use azul_css::AzString;
-    
+    use azul_css::{parser2::CssApiWrapper, AzString};
+
     // Create DOM manually: <ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>
     let mut ul = Dom::div(); // Use div as container (ul/ol are div-like)
     ul.root.add_class("ul".into());
-    
+
     let mut li1 = Dom::div();
     li1.root.add_class("li".into());
     li1.add_child(Dom::text("Item 1"));
-    
+
     let mut li2 = Dom::div();
     li2.root.add_class("li".into());
     li2.add_child(Dom::text("Item 2"));
-    
+
     let mut li3 = Dom::div();
     li3.root.add_class("li".into());
     li3.add_child(Dom::text("Item 3"));
-    
+
     ul.add_child(li1);
     ul.add_child(li2);
     ul.add_child(li3);
-    
+
     let mut dom = Dom::body();
     dom.add_child(ul);
-    
+
     // Create CSS
     let css_str = ".ul { list-style-type: disc; } .li { display: list-item; }";
     let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
-    
+
     let mut styled_dom = StyledDom::new(&mut dom, css);
     styled_dom.dom_id = DomId::ROOT_ID;
-    
+
     // Set up layout
     let mut layout_cache = LayoutCache {
         tree: None,
@@ -1366,11 +1434,8 @@ fn test_unordered_list_disc() {
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager().expect("Font manager creation failed");
-    let viewport = LogicalRect::new(
-        LogicalPosition::zero(),
-        LogicalSize::new(800.0, 600.0),
-    );
-    
+    let viewport = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0));
+
     let result = layout_document(
         &mut layout_cache,
         &mut text_cache,
@@ -1385,28 +1450,36 @@ fn test_unordered_list_disc() {
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
     );
-    
-    assert!(result.is_ok(), "Unordered list layout should succeed: {:?}", result.err());
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
-    
+
+    assert!(
+        result.is_ok(),
+        "Unordered list layout should succeed: {:?}",
+        result.err()
+    );
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
+
     // CSS Lists §3.1: Each list-item generates a marker box
     // Verify that counter values exist for list items
-    let counter_count = layout_cache.counters.iter()
+    let counter_count = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .count();
-    
+
     assert!(
         counter_count > 0,
-        "List items should have counter values stored. \
-         CSS Counters requires 'list-item' counter to be auto-incremented. \
-         Found {} counter entries.",
+        "List items should have counter values stored. CSS Counters requires 'list-item' counter \
+         to be auto-incremented. Found {} counter entries.",
         counter_count
     );
 }
 
 /// Tests ordered list with decimal markers
-/// 
+///
 /// CSS Specification: CSS Lists and Counters Module Level 3
 /// - list-style-type: decimal produces numeric markers (1, 2, 3, ...)
 /// - Counter "list-item" is auto-incremented on each <li>
@@ -1417,24 +1490,30 @@ fn test_ordered_list_decimal() {
         "ol { list-style-type: decimal; } li { display: list-item; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Ordered list layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Ordered list layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
+
     // Verify counter values are sequential
-    let mut counter_values: Vec<_> = layout_cache.counters.iter()
+    let mut counter_values: Vec<_> = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .map(|(_, &value)| value)
         .collect();
-    
+
     counter_values.sort();
-    
+
     // CSS Counters §2.1: list-item counter starts at 1 and increments by 1
     assert!(
         counter_values.len() >= 3,
         "Should have at least 3 counter values for 3 list items"
     );
-    
+
     if counter_values.len() >= 3 {
         assert_eq!(
             counter_values[0], 1,
@@ -1455,7 +1534,7 @@ fn test_ordered_list_decimal() {
 }
 
 /// Tests ordered list with alphabetic markers
-/// 
+///
 /// CSS Specification: CSS Counter Styles Level 3
 /// - lower-alpha produces lowercase letters (a, b, c, ...)
 #[test]
@@ -1465,16 +1544,20 @@ fn test_ordered_list_alpha() {
         "ol { list-style-type: lower-alpha; } li { display: list-item; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Alphabetic list layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Alphabetic list layout should succeed: {:?}",
+        result.err()
+    );
 }
 
 /// Tests ordered list with Greek numerals (Unicode characters)
-/// 
+///
 /// This test verifies that the per-grapheme font fallback mechanism works
 /// correctly with non-ASCII characters. Greek numerals use characters like:
 /// - Α (Alpha) = 1
-/// - Β (Beta) = 2  
+/// - Β (Beta) = 2
 /// - Γ (Gamma) = 3
 ///
 /// The list marker generation should:
@@ -1483,39 +1566,38 @@ fn test_ordered_list_alpha() {
 /// 3. Create separate StyledRun segments for different fonts if needed
 #[test]
 fn test_list_greek_numerals_unicode_fallback() {
-    use azul_css::parser2::CssApiWrapper;
-    use azul_css::AzString;
-    
+    use azul_css::{parser2::CssApiWrapper, AzString};
+
     // Create DOM manually with Greek numeral list
     let mut ol = Dom::div();
     ol.root.add_class("ol".into());
-    
+
     let mut li1 = Dom::div();
     li1.root.add_class("li".into());
     li1.add_child(Dom::text("First"));
-    
+
     let mut li2 = Dom::div();
     li2.root.add_class("li".into());
     li2.add_child(Dom::text("Second"));
-    
+
     let mut li3 = Dom::div();
     li3.root.add_class("li".into());
     li3.add_child(Dom::text("Third"));
-    
+
     ol.add_child(li1);
     ol.add_child(li2);
     ol.add_child(li3);
-    
+
     let mut dom = Dom::body();
     dom.add_child(ol);
-    
+
     // Use upper-greek which produces: Α. Β. Γ. (Greek uppercase letters)
     let css_str = ".ol { list-style-type: upper-greek; } .li { display: list-item; }";
     let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
-    
+
     let mut styled_dom = StyledDom::new(&mut dom, css);
     styled_dom.dom_id = DomId::ROOT_ID;
-    
+
     // Set up layout
     let mut layout_cache = LayoutCache {
         tree: None,
@@ -1527,11 +1609,8 @@ fn test_list_greek_numerals_unicode_fallback() {
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager().expect("Font manager creation failed");
-    let viewport = LogicalRect::new(
-        LogicalPosition::zero(),
-        LogicalSize::new(800.0, 600.0),
-    );
-    
+    let viewport = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0));
+
     let result = layout_document(
         &mut layout_cache,
         &mut text_cache,
@@ -1546,38 +1625,51 @@ fn test_list_greek_numerals_unicode_fallback() {
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
     );
-    
+
     // Layout should succeed even with Unicode Greek characters
     assert!(
-        result.is_ok(), 
-        "Greek numeral list layout should succeed with Unicode fallback: {:?}", 
+        result.is_ok(),
+        "Greek numeral list layout should succeed with Unicode fallback: {:?}",
         result.err()
     );
-    
+
     // Verify counters exist
-    let counter_count = layout_cache.counters.iter()
+    let counter_count = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .count();
-    
+
     assert!(
         counter_count > 0,
-        "List items with Greek numerals should have counter values. \
-         Found {} counter entries. The font fallback system should handle \
-         Greek Unicode characters (Α, Β, Γ) by querying fontconfig.",
+        "List items with Greek numerals should have counter values. Found {} counter entries. The \
+         font fallback system should handle Greek Unicode characters (Α, Β, Γ) by querying \
+         fontconfig.",
         counter_count
     );
-    
+
     // Verify the counters have the correct values (1, 2, 3)
-    let mut counter_values: Vec<_> = layout_cache.counters.iter()
+    let mut counter_values: Vec<_> = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .map(|(_, &value)| value)
         .collect();
     counter_values.sort();
-    
+
     if counter_values.len() >= 3 {
-        assert_eq!(counter_values[0], 1, "First Greek numeral should be Α (value 1)");
-        assert_eq!(counter_values[1], 2, "Second Greek numeral should be Β (value 2)");
-        assert_eq!(counter_values[2], 3, "Third Greek numeral should be Γ (value 3)");
+        assert_eq!(
+            counter_values[0], 1,
+            "First Greek numeral should be Α (value 1)"
+        );
+        assert_eq!(
+            counter_values[1], 2,
+            "Second Greek numeral should be Β (value 2)"
+        );
+        assert_eq!(
+            counter_values[2], 3,
+            "Third Greek numeral should be Γ (value 3)"
+        );
     }
 }
 /// - Counters 1-26 map to a-z, 27 becomes "aa"
@@ -1588,15 +1680,21 @@ fn test_ordered_list_lower_alpha() {
         "ol { list-style-type: lower-alpha; } li { display: list-item; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Alphabetic list layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Alphabetic list layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
+
     // Verify counters exist
-    let counter_count = layout_cache.counters.iter()
+    let counter_count = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .count();
-    
+
     assert!(
         counter_count >= 3,
         "Should have at least 3 counter values for alphabetic list"
@@ -1604,7 +1702,7 @@ fn test_ordered_list_lower_alpha() {
 }
 
 /// Tests nested lists with counter scoping
-/// 
+///
 /// CSS Specification: CSS Lists Module Level 3
 /// - Nested lists create nested counter scopes
 /// - Each nesting level has its own counter sequence
@@ -1616,20 +1714,32 @@ fn test_nested_lists() {
         "ol { list-style-type: decimal; } li { display: list-item; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Nested list layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Nested list layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
-    
+
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
+
     // Count list-item nodes
-    let list_item_count = tree.nodes.iter()
+    let list_item_count = tree
+        .nodes
+        .iter()
         .filter(|node| {
-            node.formatting_context == azul_core::dom::FormattingContext::Block { establishes_new_context: true }
+            node.formatting_context
+                == azul_core::dom::FormattingContext::Block {
+                    establishes_new_context: true,
+                }
                 && node.dom_node_id.is_some()
         })
         .count();
-    
+
     // CSS Lists §4: Nested lists should maintain separate counter scopes
     // We should have at least 4 list items total (2 outer + 2 inner)
     assert!(
@@ -1640,7 +1750,7 @@ fn test_nested_lists() {
 }
 
 /// Tests counter-reset property
-/// 
+///
 /// CSS Specification: CSS Lists and Counters Module Level 3
 /// - counter-reset creates a new counter scope
 /// - Following items increment from the reset value
@@ -1651,22 +1761,26 @@ fn test_counter_reset() {
         "li { display: list-item; list-style-type: decimal; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Counter-reset layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Counter-reset layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
+
     // Verify that counters exist (actual value checking would require more context)
     let counter_count = layout_cache.counters.len();
-    
+
     assert!(
         counter_count >= 2,
-        "Should have counter values for both list items. \
-         CSS Counters §3: counter-reset should create new counter scopes."
+        "Should have counter values for both list items. CSS Counters §3: counter-reset should \
+         create new counter scopes."
     );
 }
 
 /// Tests list-style-type: roman numerals
-/// 
+///
 /// CSS Specification: CSS Counter Styles Level 3
 /// - lower-roman produces lowercase Roman numerals (i, ii, iii, iv, ...)
 /// - upper-roman produces uppercase Roman numerals (I, II, III, IV, ...)
@@ -1677,16 +1791,22 @@ fn test_ordered_list_roman() {
         "ol { list-style-type: upper-roman; } li { display: list-item; }",
         LogicalSize::new(800.0, 600.0),
     );
-    
-    assert!(result.is_ok(), "Roman numeral list layout should succeed: {:?}", result.err());
+
+    assert!(
+        result.is_ok(),
+        "Roman numeral list layout should succeed: {:?}",
+        result.err()
+    );
     let (layout_cache, _) = result.unwrap();
-    
+
     // Verify counter values are sequential
-    let counter_values: Vec<_> = layout_cache.counters.iter()
+    let counter_values: Vec<_> = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .map(|(_, &value)| value)
         .collect();
-    
+
     assert!(
         counter_values.len() >= 4,
         "Should have 4 counter values for Roman numeral list"
@@ -1694,40 +1814,39 @@ fn test_ordered_list_roman() {
 }
 
 /// Tests list-style-type: none (no markers)
-/// 
+///
 /// CSS Specification: CSS Lists Module Level 3
 /// - list-style-type: none suppresses marker generation
 /// - List items still increment counters but don't display markers
 #[test]
 fn test_list_style_none() {
-    use azul_css::parser2::CssApiWrapper;
-    use azul_css::AzString;
-    
+    use azul_css::{parser2::CssApiWrapper, AzString};
+
     // Create DOM manually: <ul><li>Item 1</li><li>Item 2</li></ul>
     let mut ul = Dom::div();
     ul.root.add_class("ul".into());
-    
+
     let mut li1 = Dom::div();
     li1.root.add_class("li".into());
     li1.add_child(Dom::text("Item 1"));
-    
+
     let mut li2 = Dom::div();
     li2.root.add_class("li".into());
     li2.add_child(Dom::text("Item 2"));
-    
+
     ul.add_child(li1);
     ul.add_child(li2);
-    
+
     let mut dom = Dom::body();
     dom.add_child(ul);
-    
+
     // Create CSS with list-style-type: none
     let css_str = ".ul { list-style-type: none; } .li { display: list-item; }";
     let css = CssApiWrapper::from_string(AzString::from_string(css_str.to_string()));
-    
+
     let mut styled_dom = StyledDom::new(&mut dom, css);
     styled_dom.dom_id = DomId::ROOT_ID;
-    
+
     // Set up layout
     let mut layout_cache = LayoutCache {
         tree: None,
@@ -1739,11 +1858,8 @@ fn test_list_style_none() {
     };
     let mut text_cache = TextLayoutCache::new();
     let font_manager = create_test_font_manager().expect("Font manager creation failed");
-    let viewport = LogicalRect::new(
-        LogicalPosition::zero(),
-        LogicalSize::new(800.0, 600.0),
-    );
-    
+    let viewport = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0));
+
     let result = layout_document(
         &mut layout_cache,
         &mut text_cache,
@@ -1758,22 +1874,28 @@ fn test_list_style_none() {
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
     );
-    
-    assert!(result.is_ok(), "List with style:none should succeed: {:?}", result.err());
-    
+
+    assert!(
+        result.is_ok(),
+        "List with style:none should succeed: {:?}",
+        result.err()
+    );
+
     // Even with list-style-type: none, counters should still be tracked
-    let counter_count = layout_cache.counters.iter()
+    let counter_count = layout_cache
+        .counters
+        .iter()
         .filter(|((_, name), _)| name == "list-item")
         .count();
-    
-    eprintln!("Counter count: {}, counters: {:?}", counter_count, layout_cache.counters);
-    
+
+    eprintln!(
+        "Counter count: {}, counters: {:?}",
+        counter_count, layout_cache.counters
+    );
+
     assert!(
         counter_count >= 2,
-        "Counters should be tracked even with list-style-type: none. \
-         CSS Lists §3.3: Markers are suppressed but counters still increment."
+        "Counters should be tracked even with list-style-type: none. CSS Lists §3.3: Markers are \
+         suppressed but counters still increment."
     );
 }
-
-
-

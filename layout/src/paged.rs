@@ -103,7 +103,8 @@ impl Fragmentainer {
     ///
     /// # Arguments
     /// * `size` - The logical size (width and height) of this fragmentainer
-    /// * `is_fixed_size` - Whether this fragmentainer has a fixed size (true for pages, false for continuous)
+    /// * `is_fixed_size` - Whether this fragmentainer has a fixed size (true for pages, false for
+    ///   continuous)
     pub fn new(size: LogicalSize, is_fixed_size: bool) -> Self {
         Self {
             size,
@@ -190,9 +191,15 @@ impl FragmentationContext {
     pub fn current(&self) -> &Fragmentainer {
         match self {
             Self::Continuous { container, .. } => container,
-            Self::Paged { pages, .. } => pages.last().expect("Paged context must have at least one page"),
-            Self::MultiColumn { columns, .. } => columns.last().expect("MultiColumn context must have at least one column"),
-            Self::Regions { regions } => regions.last().expect("Regions context must have at least one region"),
+            Self::Paged { pages, .. } => pages
+                .last()
+                .expect("Paged context must have at least one page"),
+            Self::MultiColumn { columns, .. } => columns
+                .last()
+                .expect("MultiColumn context must have at least one column"),
+            Self::Regions { regions } => regions
+                .last()
+                .expect("Regions context must have at least one region"),
         }
     }
 
@@ -200,9 +207,15 @@ impl FragmentationContext {
     pub fn current_mut(&mut self) -> &mut Fragmentainer {
         match self {
             Self::Continuous { container, .. } => container,
-            Self::Paged { pages, .. } => pages.last_mut().expect("Paged context must have at least one page"),
-            Self::MultiColumn { columns, .. } => columns.last_mut().expect("MultiColumn context must have at least one column"),
-            Self::Regions { regions } => regions.last_mut().expect("Regions context must have at least one region"),
+            Self::Paged { pages, .. } => pages
+                .last_mut()
+                .expect("Paged context must have at least one page"),
+            Self::MultiColumn { columns, .. } => columns
+                .last_mut()
+                .expect("MultiColumn context must have at least one column"),
+            Self::Regions { regions } => regions
+                .last_mut()
+                .expect("Regions context must have at least one region"),
         }
     }
 
@@ -254,7 +267,7 @@ impl FragmentationContext {
             Self::Regions { regions } => regions.iter().collect(),
         }
     }
-    
+
     /// Get the page size for paged media, or None for other contexts.
     pub fn page_size(&self) -> Option<LogicalSize> {
         match self {
@@ -262,7 +275,7 @@ impl FragmentationContext {
             _ => None,
         }
     }
-    
+
     /// Get the page content height (page height minus margins).
     /// For continuous media, returns f32::MAX.
     pub fn page_content_height(&self) -> f32 {
@@ -270,12 +283,10 @@ impl FragmentationContext {
             Self::Continuous { .. } => f32::MAX,
             Self::Paged { page_size, .. } => page_size.height,
             Self::MultiColumn { column_height, .. } => *column_height,
-            Self::Regions { regions } => regions.first()
-                .map(|r| r.size.height)
-                .unwrap_or(f32::MAX),
+            Self::Regions { regions } => regions.first().map(|r| r.size.height).unwrap_or(f32::MAX),
         }
     }
-    
+
     /// Check if this is paged media.
     pub fn is_paged(&self) -> bool {
         matches!(self, Self::Paged { .. })
@@ -316,23 +327,23 @@ impl FragmentationState {
             total_pages: 1,
         }
     }
-    
+
     /// Check if content of the given height can fit on the current page.
     pub fn can_fit(&self, height: f32) -> bool {
         self.available_height >= height
     }
-    
+
     /// Check if content would fit on an empty page.
     pub fn would_fit_on_empty_page(&self, height: f32) -> bool {
         height <= self.page_content_height
     }
-    
+
     /// Use space on the current page.
     pub fn use_space(&mut self, height: f32) {
         self.current_page_y += height;
         self.available_height = (self.page_content_height - self.current_page_y).max(0.0);
     }
-    
+
     /// Advance to the next page.
     pub fn advance_page(&mut self) {
         self.current_page += 1;
@@ -340,7 +351,7 @@ impl FragmentationState {
         self.available_height = self.page_content_height;
         self.total_pages = self.total_pages.max(self.current_page + 1);
     }
-    
+
     /// Calculate which page a Y position belongs to.
     pub fn page_for_y(&self, y: f32) -> usize {
         if self.page_content_height <= 0.0 {
@@ -348,14 +359,12 @@ impl FragmentationState {
         }
         (y / self.page_content_height).floor() as usize
     }
-    
+
     /// Calculate the Y offset for a given page (to convert to page-relative coordinates).
     pub fn page_y_offset(&self, page: usize) -> f32 {
         page as f32 * self.page_content_height
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

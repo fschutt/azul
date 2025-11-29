@@ -725,7 +725,10 @@ impl StyledDom {
         // Anonymous nodes are marked with is_anonymous=true and are skipped by CallbackInfo
         #[cfg(feature = "table_layout")]
         if let Err(e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
-            eprintln!("Warning: Failed to generate anonymous table elements: {:?}", e);
+            eprintln!(
+                "Warning: Failed to generate anonymous table elements: {:?}",
+                e
+            );
         }
 
         styled_dom
@@ -845,15 +848,17 @@ impl StyledDom {
         );
 
         // Apply UA CSS properties before computing inheritance
-        self.css_property_cache.downcast_mut().apply_ua_css(
-            self.node_data.as_container().internal,
-        );
+        self.css_property_cache
+            .downcast_mut()
+            .apply_ua_css(self.node_data.as_container().internal);
 
         // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
-        self.css_property_cache.downcast_mut().compute_inherited_values(
-            self.node_hierarchy.as_container().internal,
-            self.node_data.as_container().internal,
-        );
+        self.css_property_cache
+            .downcast_mut()
+            .compute_inherited_values(
+                self.node_hierarchy.as_container().internal,
+                self.node_data.as_container().internal,
+            );
 
         // Restyling may change the tag IDs
         let mut styled_nodes_mut = self.styled_nodes.as_container_mut();

@@ -313,7 +313,7 @@ impl LayoutWindow {
     pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
             #[cfg(feature = "pdf")]
-            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0), // Default width, will be updated on first layout
+            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0), /* Default width, will be updated on first layout */
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 calculated_positions: BTreeMap::new(),
@@ -508,24 +508,24 @@ impl LayoutWindow {
         // Font Resolution And Loading
         // This must happen BEFORE layout_document() is called
         {
-            use crate::solver3::getters::{
-                collect_and_resolve_font_chains, 
-                collect_font_ids_from_chains,
-                compute_fonts_to_load,
-                load_fonts_from_disk,
+            use crate::{
+                solver3::getters::{
+                    collect_and_resolve_font_chains, collect_font_ids_from_chains,
+                    compute_fonts_to_load, load_fonts_from_disk,
+                },
+                text3::default::PathLoader,
             };
-            use crate::text3::default::PathLoader;
-            
+
             // Step 1: Resolve font chains (cached by FontChainKey)
             let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
-            
+
             // Step 2: Get required font IDs from chains
             let required_fonts = collect_font_ids_from_chains(&chains);
-            
+
             // Step 3: Compute which fonts need to be loaded (diff with already loaded)
             let already_loaded = self.font_manager.get_loaded_font_ids();
             let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-            
+
             // Step 4: Load missing fonts
             if !fonts_to_load.is_empty() {
                 let loader = PathLoader::new();
@@ -534,20 +534,21 @@ impl LayoutWindow {
                     &self.font_manager.fc_cache,
                     |bytes, index| loader.load_font(bytes, index),
                 );
-                
+
                 // Insert loaded fonts into the font manager
                 self.font_manager.insert_fonts(load_result.loaded);
-                
+
                 // Log any failures
                 for (font_id, error) in &load_result.failed {
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::warning(format!(
-                            "[FontLoading] Failed to load font {:?}: {}", font_id, error
+                            "[FontLoading] Failed to load font {:?}: {}",
+                            font_id, error
                         )));
                     }
                 }
             }
-            
+
             // Step 5: Update font chain cache
             self.font_manager.set_font_chain_cache(chains.into_inner());
         }
@@ -686,9 +687,7 @@ impl LayoutWindow {
         // We need to take ownership of the display list, so we replace it with an empty one
         self.layout_results
             .get_mut(&dom_id)
-            .map(|result| {
-                std::mem::replace(&mut result.display_list, DisplayList::default())
-            })
+            .map(|result| std::mem::replace(&mut result.display_list, DisplayList::default()))
             .ok_or(solver3::LayoutError::InvalidTree)
     }
 
@@ -1596,7 +1595,10 @@ impl LayoutWindow {
         let layout_index = *layout_indices.first()?;
 
         let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node.inline_layout_result.as_ref().map(|c| c.get_layout())
+        layout_node
+            .inline_layout_result
+            .as_ref()
+            .map(|c| c.get_layout())
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
@@ -5053,7 +5055,10 @@ impl LayoutWindow {
             .find(|node| node.dom_node_id == Some(node_id))?;
 
         // Return the inline layout result
-        layout_node.inline_layout_result.as_ref().map(|c| c.clone_layout())
+        layout_node
+            .inline_layout_result
+            .as_ref()
+            .map(|c| c.clone_layout())
     }
 
     /// Sync cursor from CursorManager to SelectionManager for rendering
@@ -5433,7 +5438,8 @@ impl LayoutWindow {
 
                                     // Extract font family from font selector (use first from stack)
                                     let default_font = crate::text3::cache::FontSelector::default();
-                                    let first_font = style.font_stack.first().unwrap_or(&default_font);
+                                    let first_font =
+                                        style.font_stack.first().unwrap_or(&default_font);
                                     let font_family = Some(first_font.family.clone());
 
                                     // Check if bold/italic from font selector

@@ -608,8 +608,7 @@ impl ScrollManager {
         let scale = LogicalPosition::new(1.0, container_height / SCROLLBAR_WIDTH);
 
         // Track rect (positioned at right edge of container)
-        let track_x = scroll_state.container_rect.origin.x
-            + scroll_state.container_rect.size.width
+        let track_x = scroll_state.container_rect.origin.x + scroll_state.container_rect.size.width
             - SCROLLBAR_WIDTH;
         let track_y = scroll_state.container_rect.origin.y;
         let track_rect = LogicalRect::new(

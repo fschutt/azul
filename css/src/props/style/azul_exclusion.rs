@@ -1,20 +1,20 @@
 // Azul-specific CSS properties for advanced layout features
 
-use crate::{
-    corety::AzString,
-    format_rust_code::FormatAsRustCode,
-    props::{
-        basic::{FloatValue, length::parse_float_value},
-        formatter::{FormatAsCssValue, PrintAsCssValue},
-    },
-};
 use std::num::ParseFloatError;
 
 #[cfg(feature = "parser")]
 use crate::macros::*;
+use crate::{
+    corety::AzString,
+    format_rust_code::FormatAsRustCode,
+    props::{
+        basic::{length::parse_float_value, FloatValue},
+        formatter::{FormatAsCssValue, PrintAsCssValue},
+    },
+};
 
 /// `-azul-exclusion-margin` property: defines margin around shape exclusions
-/// 
+///
 /// This property controls the spacing between text and shapes that text flows around.
 /// It's similar to `shape-margin` but specifically for exclusions (text wrapping).
 ///
@@ -80,10 +80,7 @@ impl_display! { StyleExclusionMarginParseError, {
 }}
 
 #[cfg(feature = "parser")]
-impl_from!(
-    ParseFloatError,
-    StyleExclusionMarginParseError::FloatValue
-);
+impl_from!(ParseFloatError, StyleExclusionMarginParseError::FloatValue);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -108,9 +105,7 @@ impl StyleExclusionMarginParseErrorOwned {
         match self {
             Self::FloatValue(e) => {
                 // ParseFloatError doesn't have to_shared, so we recreate it from string
-                StyleExclusionMarginParseError::FloatValue(
-                    e.parse::<f32>().unwrap_err()
-                )
+                StyleExclusionMarginParseError::FloatValue(e.parse::<f32>().unwrap_err())
             }
         }
     }
@@ -126,7 +121,7 @@ pub fn parse_style_exclusion_margin(
 }
 
 /// `-azul-hyphenation-language` property: specifies language for hyphenation
-/// 
+///
 /// This property defines the language code (BCP 47 format) used for automatic
 /// hyphenation. Examples: "en-US", "de-DE", "fr-FR"
 ///

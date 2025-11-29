@@ -257,7 +257,7 @@ impl VecContents {
 
 pub fn format_pixel_value(p: &PixelValue) -> String {
     let value = p.number.get();
-    
+
     // Extract integer and fractional parts
     // For example: 1.5 -> pre_comma=1, post_comma=50
     //              0.83 -> pre_comma=0, post_comma=83
@@ -266,7 +266,7 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
     let fraction = value - pre_comma as f32;
     // Multiply by 100 to get two decimal places, then round
     let post_comma = libm::roundf(fraction * 100.0) as isize;
-    
+
     match p.metric {
         SizeMetric::Px => format!(
             "PixelValue::const_from_metric_fractional(SizeMetric::Px, {}, {})",

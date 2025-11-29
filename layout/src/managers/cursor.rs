@@ -17,7 +17,7 @@
 //! `CursorManager::initialize_cursor_at_end()` to place the cursor at the end of the text.
 //!
 //! This happens for:
-//! 
+//!
 //! - User clicks on contenteditable element
 //! - Tab navigation to contenteditable element
 //! - Programmatic focus via `AccessibilityAction::Focus`
@@ -26,7 +26,7 @@
 //! ## Integration with Text Layout
 //!
 //! The cursor manager uses the `TextLayoutCache` to determine:
-//! 
+//!
 //! - Total number of grapheme clusters in the text
 //! - Position of the last grapheme cluster (for cursor-at-end)
 //! - Bounding rectangles for scroll-into-view
@@ -72,7 +72,6 @@ impl Default for CursorManager {
 }
 
 impl CursorManager {
-
     /// Create a new cursor manager with no cursor
     pub fn new() -> Self {
         Self {

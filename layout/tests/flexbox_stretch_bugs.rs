@@ -1,5 +1,5 @@
 /// Tests for the 5 flexbox stretch bugs that were fixed
-/// 
+///
 /// These tests verify the fixes for:
 /// 1. Bug #1: align-items default (should be Stretch for flexbox)
 /// 2. Bug #2: max-height: auto translation (should not become concrete dimension)

@@ -11,10 +11,9 @@ use rust_fontconfig::FcFontCache;
 // Imports from the layout engine's module
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontManager, FontSelector, Glyph, GlyphOrientation,
-        GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone,
-        StyleProperties, TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics,
-        WritingMode,
+        BidiLevel, Direction, FontManager, FontSelector, Glyph, GlyphOrientation, GlyphSource,
+        LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
+        TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
     },
     script::Script, // estimate_script_and_language removed with text2
 };
@@ -42,7 +41,7 @@ pub fn font_ref_from_bytes(
     // Parse the font bytes into ParsedFont
     let mut warnings = Vec::new();
     let parsed_font = ParsedFont::from_bytes(font_bytes, font_index, &mut warnings)?;
-    
+
     Some(crate::parsed_font_to_font_ref(parsed_font))
 }
 
@@ -173,7 +172,7 @@ impl ParsedFont {
     ) -> Result<Vec<Glyph>, LayoutError> {
         // Use the common shaping implementation
         let shaped = shape_text_internal(self, text, script, language, direction, style)?;
-        
+
         // Convert Glyph - now using font_hash and font_metrics instead of font reference
         let font_hash = font_ref.get_hash();
         let font_metrics = LayoutFontMetrics {
@@ -182,28 +181,31 @@ impl ParsedFont {
             line_gap: self.font_metrics.line_gap,
             units_per_em: self.font_metrics.units_per_em,
         };
-        
-        Ok(shaped.into_iter().map(|g| Glyph {
-            glyph_id: g.glyph_id,
-            codepoint: g.codepoint,
-            font_hash,
-            font_metrics: font_metrics.clone(),
-            style: g.style,
-            source: g.source,
-            logical_byte_index: g.logical_byte_index,
-            logical_byte_len: g.logical_byte_len,
-            content_index: g.content_index,
-            cluster: g.cluster,
-            advance: g.advance,
-            kerning: g.kerning,
-            offset: g.offset,
-            vertical_advance: g.vertical_advance,
-            vertical_origin_y: g.vertical_origin_y,
-            vertical_bearing: g.vertical_bearing,
-            orientation: g.orientation,
-            script: g.script,
-            bidi_level: g.bidi_level,
-        }).collect())
+
+        Ok(shaped
+            .into_iter()
+            .map(|g| Glyph {
+                glyph_id: g.glyph_id,
+                codepoint: g.codepoint,
+                font_hash,
+                font_metrics: font_metrics.clone(),
+                style: g.style,
+                source: g.source,
+                logical_byte_index: g.logical_byte_index,
+                logical_byte_len: g.logical_byte_len,
+                content_index: g.content_index,
+                cluster: g.cluster,
+                advance: g.advance,
+                kerning: g.kerning,
+                offset: g.offset,
+                vertical_advance: g.vertical_advance,
+                vertical_origin_y: g.vertical_origin_y,
+                vertical_bearing: g.vertical_bearing,
+                orientation: g.orientation,
+                script: g.script,
+                bidi_level: g.bidi_level,
+            })
+            .collect())
     }
 
     fn get_hash(&self) -> u64 {
@@ -268,10 +270,10 @@ impl ParsedFont {
 /// are enabled rather than relying on allsorts' defaults which may change.
 fn build_feature_mask_for_script(script: Script) -> FeatureMask {
     use Script::*;
-    
+
     // Start with common features that apply to most scripts
     let mut mask = FeatureMask::default(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
-    
+
     // Add script-specific features
     match script {
         // Arabic and related scripts - require positional forms
@@ -280,16 +282,17 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             mask |= FeatureMask::MEDI; // Medial forms (middle of word)
             mask |= FeatureMask::FINA; // Final forms (end of word)
             mask |= FeatureMask::ISOL; // Isolated forms (standalone)
-            // Note: RLIG (required ligatures) already in default for lam-alef ligatures
+                                       // Note: RLIG (required ligatures) already in default for
+                                       // lam-alef ligatures
         }
-        
+
         // Indic scripts - require complex conjunct formation and reordering
-        Devanagari | Bengali | Gujarati | Gurmukhi | Kannada | Malayalam | 
-        Oriya | Tamil | Telugu => {
+        Devanagari | Bengali | Gujarati | Gurmukhi | Kannada | Malayalam | Oriya | Tamil
+        | Telugu => {
             mask |= FeatureMask::NUKT; // Nukta forms
             mask |= FeatureMask::AKHN; // Akhand ligatures
             mask |= FeatureMask::RPHF; // Reph form
-            mask |= FeatureMask::RKRF; // Rakar form  
+            mask |= FeatureMask::RKRF; // Rakar form
             mask |= FeatureMask::PREF; // Pre-base forms
             mask |= FeatureMask::BLWF; // Below-base forms
             mask |= FeatureMask::ABVF; // Above-base forms
@@ -298,14 +301,14 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             mask |= FeatureMask::VATU; // Vattu variants
             mask |= FeatureMask::CJCT; // Conjunct forms
         }
-        
+
         // Myanmar (Burmese) - has complex reordering
         Myanmar => {
             mask |= FeatureMask::PREF; // Pre-base forms
             mask |= FeatureMask::BLWF; // Below-base forms
             mask |= FeatureMask::PSTF; // Post-base forms
         }
-        
+
         // Khmer - has complex reordering and stacking
         Khmer => {
             mask |= FeatureMask::PREF; // Pre-base forms
@@ -313,32 +316,32 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             mask |= FeatureMask::ABVF; // Above-base forms
             mask |= FeatureMask::PSTF; // Post-base forms
         }
-        
+
         // Thai - has tone marks and vowel reordering
         Thai => {
             // Thai mostly uses default features, but may have some special marks
             // The default mask is sufficient for most Thai fonts
         }
-        
+
         // Hebrew - may have contextual forms but less complex than Arabic
         Hebrew => {
             // Hebrew fonts may use contextual alternates already in default
             // Some fonts have special features but they're rare
         }
-        
+
         // Hangul (Korean) - has complex syllable composition
         Hangul => {
-            // Note: Hangul jamo features (LJMO, VJMO, TJMO) are not available in allsorts' FeatureMask
-            // Most modern Hangul fonts work correctly with the default features
-            // as syllable composition is usually handled at a lower level
+            // Note: Hangul jamo features (LJMO, VJMO, TJMO) are not available in allsorts'
+            // FeatureMask Most modern Hangul fonts work correctly with the default
+            // features as syllable composition is usually handled at a lower level
         }
-        
+
         // Ethiopic - has syllabic script with some ligatures
         Ethiopic => {
             // Default features are usually sufficient
             // LIGA and CLIG already in default mask
         }
-        
+
         // Latin, Greek, Cyrillic - standard features are sufficient
         Latin | Greek | Cyrillic => {
             // Default mask includes all needed features:
@@ -347,19 +350,19 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             // - CALT: contextual alternates
             // - CCMP: mark composition
         }
-        
+
         // Georgian - uses standard features
         Georgian => {
             // Default features sufficient
         }
-        
+
         // CJK scripts (Hiragana, Katakana, Mandarin/Hani)
         Hiragana | Katakana | Mandarin => {
             // CJK fonts may use vertical alternates, but those are controlled
             // by writing-mode, not GSUB features in the horizontal direction.
             // Default features are sufficient.
         }
-        
+
         // Sinhala - Indic-derived but simpler
         Sinhala => {
             mask |= FeatureMask::AKHN; // Akhand ligatures
@@ -367,7 +370,7 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             mask |= FeatureMask::VATU; // Vattu variants
         }
     }
-    
+
     mask
 }
 
@@ -649,7 +652,10 @@ fn shape_text_internal(
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
     if let Some(gpos) = parsed_font.gpos_cache.as_ref() {
-        let kern_table = parsed_font.opt_kern_table.as_ref().map(|kt| kt.as_borrowed());
+        let kern_table = parsed_font
+            .opt_kern_table
+            .as_ref()
+            .map(|kt| kt.as_borrowed());
         let apply_kerning = kern_table.is_some();
         gpos::apply(
             gpos,

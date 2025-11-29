@@ -482,7 +482,9 @@ pub fn extract_types_from_function_data(fn_data: &FunctionData) -> HashSet<Strin
 
 /// Extract types from CallbackDefinition
 /// Skips types behind pointers
-pub fn extract_types_from_callback_definition(callback_def: &CallbackDefinition) -> HashSet<String> {
+pub fn extract_types_from_callback_definition(
+    callback_def: &CallbackDefinition,
+) -> HashSet<String> {
     let mut types = HashSet::new();
 
     // Extract return type

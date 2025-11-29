@@ -3,9 +3,10 @@
 //! Collects input samples, detects drags, double-clicks, long presses, swipes,
 //! pinch/rotate gestures, and manages drag state for nodes, windows, and file drops.
 
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+
 use azul_core::{
     dom::{DomId, NodeId},
     geom::LogicalPosition,
@@ -140,7 +141,6 @@ pub struct InputSession {
 }
 
 impl InputSession {
-
     /// Create a new input session
     fn new(session_id: u64, first_sample: InputSample) -> Self {
         Self {
@@ -361,7 +361,7 @@ pub enum DropEffect {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DragData {
     /// MIME type -> data mapping
-    /// 
+    ///
     /// e.g., "text/plain" -> "Hello World"
     pub data: BTreeMap<AzString, Vec<u8>>,
     /// Allowed drag operations
@@ -388,7 +388,6 @@ impl Default for DragData {
 }
 
 impl DragData {
-
     /// Create new empty drag data
     pub fn new() -> Self {
         Self {
@@ -425,7 +424,7 @@ impl DragData {
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
-/// Designed for testability and clear separation of input collection 
+/// Designed for testability and clear separation of input collection
 /// vs. detection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GestureAndDragManager {
@@ -454,7 +453,6 @@ impl Default for GestureAndDragManager {
 }
 
 impl GestureAndDragManager {
-
     /// Create a new gesture and drag manager
     pub fn new() -> Self {
         Self {
@@ -566,7 +564,6 @@ impl GestureAndDragManager {
         tilt: (f32, f32),
         touch_radius: (f32, f32),
     ) -> bool {
-
         let session = match self.input_sessions.last_mut() {
             Some(s) => s,
             None => return false,
@@ -592,7 +589,7 @@ impl GestureAndDragManager {
             tilt,
             touch_radius,
         });
-        
+
         true
     }
 
@@ -611,7 +608,6 @@ impl GestureAndDragManager {
     /// Call this periodically (e.g., every frame) to prevent memory leaks.
     /// Sessions older than `config.sample_cleanup_interval_ms` are removed.
     pub fn clear_old_sessions(&mut self, current_time: CoreInstant) {
-        
         self.input_sessions.retain(|session| {
             if let Some(last_sample) = session.last_sample() {
                 let duration = current_time.duration_since(&last_sample.timestamp);
@@ -625,7 +621,7 @@ impl GestureAndDragManager {
         // Also clear long press callback tracking for removed sessions
         let valid_session_ids: Vec<u64> =
             self.input_sessions.iter().map(|s| s.session_id).collect();
-        
+
         self.long_press_callbacks_invoked
             .retain(|id| valid_session_ids.contains(id));
     }
@@ -742,7 +738,7 @@ impl GestureAndDragManager {
 
     /// Mark long press callback as invoked for a session
     ///
-    /// Call this after invoking the long press callback to prevent 
+    /// Call this after invoking the long press callback to prevent
     /// repeated invocations.
     pub fn mark_long_press_callback_invoked(&mut self, session_id: u64) {
         if !self.long_press_callbacks_invoked.contains(&session_id) {
@@ -797,16 +793,16 @@ impl GestureAndDragManager {
         let dy = last.position.y - first.position.y;
 
         let direction = if dx.abs() > dy.abs() {
-            if dx > 0.0 { 
-                GestureDirection::Right 
-            } else { 
-                GestureDirection::Left 
+            if dx > 0.0 {
+                GestureDirection::Right
+            } else {
+                GestureDirection::Left
             }
         } else {
-            if dy > 0.0 { 
-                GestureDirection::Down 
-            } else { 
-                GestureDirection::Up 
+            if dy > 0.0 {
+                GestureDirection::Down
+            } else {
+                GestureDirection::Up
             }
         };
         Some(direction)
@@ -1160,9 +1156,7 @@ impl GestureAndDragManager {
 
         // Apply to initial window position
         match drag.initial_window_position {
-            WindowPosition::Initialized(initial_pos) => {
-                Some((delta_x as i32, delta_y as i32))
-            }
+            WindowPosition::Initialized(initial_pos) => Some((delta_x as i32, delta_y as i32)),
             _ => None,
         }
     }
@@ -1179,12 +1173,12 @@ impl GestureAndDragManager {
         let delta_y = drag.current_position.y - drag.start_position.y;
 
         match drag.initial_window_position {
-            WindowPosition::Initialized(initial_pos) => Some(
-                WindowPosition::Initialized(PhysicalPositionI32::new(
+            WindowPosition::Initialized(initial_pos) => {
+                Some(WindowPosition::Initialized(PhysicalPositionI32::new(
                     initial_pos.x + delta_x as i32,
                     initial_pos.y + delta_y as i32,
-                )),
-            ),
+                )))
+            }
             _ => None,
         }
     }
