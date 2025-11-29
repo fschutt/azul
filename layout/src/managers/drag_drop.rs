@@ -1,4 +1,4 @@
-//! Node drag and drop state management
+//! **Node** drag and drop state management
 
 use azul_core::dom::{DomId, DomNodeId, NodeId};
 use azul_css::AzString;
@@ -39,6 +39,7 @@ impl Default for DragDropManager {
 }
 
 impl DragDropManager {
+
     /// Create a new drag-drop manager
     pub fn new() -> Self {
         Self { active_drag: None }

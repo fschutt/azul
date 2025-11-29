@@ -730,6 +730,35 @@ impl NodeType {
             Self::Placeholder => NodeTypeTag::Placeholder,
         }
     }
+
+    /// Returns whether this node type is a semantic HTML element that should
+    /// automatically generate an accessibility tree node.
+    ///
+    /// These are elements with inherent semantic meaning that assistive
+    /// technologies should be aware of, even without explicit ARIA attributes.
+    pub const fn is_semantic_for_accessibility(&self) -> bool {
+        matches!(
+            self,
+            Self::Button
+                | Self::Input
+                | Self::TextArea
+                | Self::Select
+                | Self::A
+                | Self::H1
+                | Self::H2
+                | Self::H3
+                | Self::H4
+                | Self::H5
+                | Self::H6
+                | Self::Article
+                | Self::Section
+                | Self::Nav
+                | Self::Main
+                | Self::Header
+                | Self::Footer
+                | Self::Aside
+        )
+    }
 }
 
 /// Represents the CSS formatting context for an element

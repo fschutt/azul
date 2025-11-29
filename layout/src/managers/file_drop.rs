@@ -1,4 +1,4 @@
-//! File drag & drop management
+//! **File** drag & drop management
 //!
 //! Manages hovered files (drag-and-drop).
 
@@ -20,6 +20,7 @@ impl Default for FileDropManager {
 }
 
 impl FileDropManager {
+
     /// Create a new cursor manager
     pub fn new() -> Self {
         Self {

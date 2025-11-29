@@ -1,38 +1,11 @@
-//! Gesture and Drag Manager
+//! Gesture and drag manager for multi-frame gestures and drag operations.
 //!
-//! This module manages multi-frame gestures and drag operations that span multiple
-//! events and can't be handled by single-frame event callbacks.
-//!
-//! ## Architecture
-//!
-//! The manager collects raw input samples (mouse positions with timestamps) and
-//! analyzes them to detect gestures. It's designed to be:
-//!
-//! - **Testable**: Uses injected timestamps (via ExternalSystemCallbacks) for easy mocking
-//! - **Stateless queries**: Event loop queries "was this a drag?" without mutating state
-//! - **Timer-driven**: Long presses use system timers to invoke callbacks periodically
-//! - **Auto-clearing**: Old samples are automatically cleared after timeout
-//!
-//! ## Usage Flow
-//!
-//! 1. **Input Recording**: On mouse down, start recording samples
-//! 2. **Timer Setup**: Start a system timer that periodically updates the manager
-//! 3. **Query Detection**: Event loop queries manager for detected gestures
-//! 4. **State Activation**: If gesture detected, promote to active drag/gesture state
-//! 5. **Cleanup**: On mouse up or timeout, clear samples
-//!
-//! ## Supported Gestures
-//!
-//! - **Drag**: Mouse moved while button pressed beyond threshold
-//! - **Double-click**: Two clicks within time/distance threshold
-//! - **Long press**: Button held down for extended time
-//! - **Swipe**: Fast directional movement (future: touch gestures)
-//! - **Pinch/Rotate**: Multi-touch gestures (future, groundwork laid)
+//! Collects input samples, detects drags, double-clicks, long presses, swipes,
+//! pinch/rotate gestures, and manages drag state for nodes, windows, and file drops.
 
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use azul_core::{
     dom::{DomId, NodeId},
     geom::LogicalPosition,
@@ -48,10 +21,10 @@ pub fn allocate_event_id() -> u64 {
     NEXT_EVENT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Allocate a new unique event ID (no_std fallback - returns 0)
+/// Allocate a new unique event ID (no_std fallback: returns 0)
 #[cfg(not(feature = "std"))]
 pub fn allocate_event_id() -> u64 {
-    0 // In no_std environments, event IDs are not available
+    0
 }
 
 /// Helper function to convert CoreDuration to milliseconds
@@ -826,35 +799,32 @@ impl GestureAndDragManager {
         }
     }
 
-    /// Detect if last two sessions form a double-click
+    /// Detect if last two sessions form a double-click.
     ///
     /// Returns true if timing and distance match double-click criteria.
     pub fn detect_double_click(&self) -> bool {
-        if self.input_sessions.len() < 2 {
+        let sessions = &self.input_sessions;
+        if sessions.len() < 2 {
             return false;
         }
 
-        let prev_session = &self.input_sessions[self.input_sessions.len() - 2];
-        let last_session = &self.input_sessions[self.input_sessions.len() - 1];
+        let prev_session = &sessions[sessions.len() - 2];
+        let last_session = &sessions[sessions.len() - 1];
 
         // Both sessions must have ended (button released)
         if !prev_session.ended || !last_session.ended {
             return false;
         }
 
-        let prev_first = match prev_session.first_sample() {
-            Some(s) => s,
-            None => return false,
-        };
-
-        let last_first = match last_session.first_sample() {
-            Some(s) => s,
-            None => return false,
+        let prev_first = prev_session.first_sample();
+        let last_first = last_session.first_sample();
+        let (prev_first, last_first) = match (prev_first, last_first) {
+            (Some(p), Some(l)) => (p, l),
+            _ => return false,
         };
 
         let duration = last_first.timestamp.duration_since(&prev_first.timestamp);
         let time_delta_ms = duration_to_millis(duration);
-
         if time_delta_ms > self.config.double_click_time_threshold_ms {
             return false;
         }
@@ -866,7 +836,7 @@ impl GestureAndDragManager {
         distance < self.config.double_click_distance_threshold
     }
 
-    /// Get the primary direction of current drag
+    /// Get the primary direction of current drag.
     pub fn get_drag_direction(&self) -> Option<GestureDirection> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
@@ -875,19 +845,12 @@ impl GestureAndDragManager {
         let dx = last.position.x - first.position.x;
         let dy = last.position.y - first.position.y;
 
-        if dx.abs() > dy.abs() {
-            if dx > 0.0 {
-                Some(GestureDirection::Right)
-            } else {
-                Some(GestureDirection::Left)
-            }
+        let direction = if dx.abs() > dy.abs() {
+            if dx > 0.0 { GestureDirection::Right } else { GestureDirection::Left }
         } else {
-            if dy > 0.0 {
-                Some(GestureDirection::Down)
-            } else {
-                Some(GestureDirection::Up)
-            }
-        }
+            if dy > 0.0 { GestureDirection::Down } else { GestureDirection::Up }
+        };
+        Some(direction)
     }
 
     /// Get average velocity of current gesture (pixels per second)
@@ -909,13 +872,11 @@ impl GestureAndDragManager {
         Some(total_distance / duration_secs)
     }
 
-    /// Check if current gesture is a swipe (fast directional movement)
+    /// Check if current gesture is a swipe (fast directional movement).
     pub fn is_swipe(&self) -> bool {
-        if let Some(velocity) = self.get_gesture_velocity() {
-            velocity >= self.config.swipe_velocity_threshold
-        } else {
-            false
-        }
+        self.get_gesture_velocity()
+            .map(|v| v >= self.config.swipe_velocity_threshold)
+            .unwrap_or(false)
     }
 
     /// Detect swipe with specific direction
@@ -1209,12 +1170,11 @@ impl GestureAndDragManager {
         self.file_drop.as_ref()
     }
 
-    /// Check if a specific node is being dragged
+    /// Check if a specific node is being dragged.
     pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.node_drag
             .as_ref()
-            .map(|d| d.dom_id == dom_id && d.node_id == node_id)
-            .unwrap_or(false)
+            .is_some_and(|d| d.dom_id == dom_id && d.node_id == node_id)
     }
 
     /// Get number of active input sessions

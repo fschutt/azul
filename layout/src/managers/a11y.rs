@@ -1,6 +1,7 @@
 //! Accessibility Manager for integrating with `accesskit`.
 //!
 //! This module provides the `A11yManager` which:
+//! 
 //! - Maintains the accessibility tree state
 //! - Generates `TreeUpdate`s after each layout pass
 //! - Handles `ActionRequest`s from assistive technologies
@@ -20,6 +21,7 @@ use azul_core::{
 /// Manager for accessibility tree state and updates.
 ///
 /// The `A11yManager` sits within `LayoutWindow` and is responsible for:
+/// 
 /// 1. Maintaining the current accessibility tree state
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
@@ -35,6 +37,7 @@ pub struct A11yManager {
 
 #[cfg(feature = "a11y")]
 impl A11yManager {
+
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
     pub fn new() -> Self {
         let root_id = A11yNodeId(0);
@@ -94,29 +97,8 @@ impl A11yManager {
 
                 // Only create accessibility nodes for elements with accessibility info
                 // or semantic HTML elements
-                let node_type = &node_data.node_type;
-                let should_create_node = a11y_info.is_some()
-                    || matches!(
-                        node_type,
-                        NodeType::Button
-                            | NodeType::Input
-                            | NodeType::TextArea
-                            | NodeType::Select
-                            | NodeType::A
-                            | NodeType::H1
-                            | NodeType::H2
-                            | NodeType::H3
-                            | NodeType::H4
-                            | NodeType::H5
-                            | NodeType::H6
-                            | NodeType::Article
-                            | NodeType::Section
-                            | NodeType::Nav
-                            | NodeType::Main
-                            | NodeType::Header
-                            | NodeType::Footer
-                            | NodeType::Aside
-                    );
+                let should_create_node =
+                    a11y_info.is_some() || node_data.node_type.is_semantic_for_accessibility();
 
                 if !should_create_node {
                     continue;
@@ -214,6 +196,8 @@ impl A11yManager {
         layout_node: &crate::solver3::layout_tree::LayoutNode,
         a11y_info: Option<&azul_core::dom::AccessibilityInfo>,
     ) -> Node {
+        use azul_core::dom::AccessibilityState;
+
         // Set role based on NodeType or AccessibilityInfo
         let role = if let Some(info) = a11y_info {
             Self::map_role(&info.role)
@@ -236,7 +220,6 @@ impl A11yManager {
             }
 
             // States from AccessibilityStateVec
-            use azul_core::dom::AccessibilityState;
             for state in info.states.as_ref() {
                 match state {
                     AccessibilityState::Unavailable => {
@@ -255,8 +238,8 @@ impl A11yManager {
                         builder.set_expanded(false);
                     }
                     _ => {
-                        // Other states: Focused (handled by focus manager), Selected, Focusable,
-                        // etc.
+                        // Other states: Focused (handled by focus manager), 
+                        // Selected, Focusable, etc.
                     }
                 }
             }
@@ -351,7 +334,8 @@ impl A11yManager {
             AccessibilityRole::PropertyPage => Role::TabPanel,
             AccessibilityRole::Indicator => Role::Meter,
             AccessibilityRole::Graphic => Role::Image,
-            AccessibilityRole::StaticText => Role::Label, // StaticText -> Label in accesskit 0.17
+            // StaticText -> Label in accesskit 0.17
+            AccessibilityRole::StaticText => Role::Label,
             AccessibilityRole::Text => Role::TextInput,
             AccessibilityRole::PushButton => Role::Button,
             AccessibilityRole::CheckButton => Role::CheckBox,
@@ -367,7 +351,8 @@ impl A11yManager {
             AccessibilityRole::Animation => Role::GenericContainer,
             AccessibilityRole::Equation => Role::Math,
             AccessibilityRole::ButtonDropdown => Role::Button,
-            AccessibilityRole::ButtonMenu => Role::Button, // No MenuButton in accesskit 0.17
+            // No MenuButton in accesskit 0.17
+            AccessibilityRole::ButtonMenu => Role::Button,
             AccessibilityRole::ButtonDropdownGrid => Role::Button,
             AccessibilityRole::Whitespace => Role::GenericContainer,
             AccessibilityRole::PageTabList => Role::TabList,
@@ -387,10 +372,17 @@ impl A11yManager {
         &self,
         request: ActionRequest,
     ) -> Option<(DomNodeId, AccessibilityAction)> {
+        
+        use azul_core::geom::LogicalPosition;
+        use azul_css::{props::basic::FloatValue, AzString};
+        
         // Decode the A11yNodeId back into DomId + NodeId.
+        //
         // The A11yNodeId encodes both values in a single u64:
+        //
         //   - Upper 32 bits: DomId (which DOM tree the node belongs to)
         //   - Lower 32 bits: NodeId (index within that DOM tree)
+        // 
         // This encoding matches the format used in update_tree().
         let dom_id = DomId {
             inner: (request.target.0 >> 32) as usize,
@@ -402,85 +394,88 @@ impl A11yManager {
             node: hierarchy_id,
         };
 
-        // Map accesskit Action to AccessibilityAction
-        use azul_core::geom::LogicalPosition;
-        use azul_css::{props::basic::FloatValue, AzString};
-        let action = match request.action {
-            Action::Click => AccessibilityAction::Default,
-            Action::Focus => AccessibilityAction::Focus,
-            Action::Blur => AccessibilityAction::Blur,
-            Action::Collapse => AccessibilityAction::Collapse,
-            Action::Expand => AccessibilityAction::Expand,
-            Action::ScrollIntoView => AccessibilityAction::ScrollIntoView,
-            Action::Increment => AccessibilityAction::Increment,
-            Action::Decrement => AccessibilityAction::Decrement,
-            Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
-            Action::HideTooltip => AccessibilityAction::HideTooltip,
-            Action::ShowTooltip => AccessibilityAction::ShowTooltip,
-            Action::ScrollUp => AccessibilityAction::ScrollUp,
-            Action::ScrollDown => AccessibilityAction::ScrollDown,
-            Action::ScrollLeft => AccessibilityAction::ScrollLeft,
-            Action::ScrollRight => AccessibilityAction::ScrollRight,
-            Action::ReplaceSelectedText => {
-                if let Some(accesskit::ActionData::Value(value)) = request.data {
-                    AccessibilityAction::ReplaceSelectedText(AzString::from(value.as_ref()))
-                } else {
-                    return None; // Invalid request
-                }
-            }
-            Action::ScrollToPoint => {
-                if let Some(accesskit::ActionData::ScrollToPoint(point)) = request.data {
-                    AccessibilityAction::ScrollToPoint(LogicalPosition {
-                        x: point.x as f32,
-                        y: point.y as f32,
-                    })
-                } else {
-                    return None;
-                }
-            }
-            Action::SetScrollOffset => {
-                if let Some(accesskit::ActionData::SetScrollOffset(point)) = request.data {
-                    AccessibilityAction::SetScrollOffset(LogicalPosition {
-                        x: point.x as f32,
-                        y: point.y as f32,
-                    })
-                } else {
-                    return None;
-                }
-            }
-            Action::SetTextSelection => {
-                if let Some(accesskit::ActionData::SetTextSelection(selection)) = request.data {
-                    AccessibilityAction::SetTextSelection(azul_core::dom::TextSelectionStartEnd {
-                        start: selection.anchor.character_index,
-                        end: selection.focus.character_index,
-                    })
-                } else {
-                    return None;
-                }
-            }
-            Action::SetSequentialFocusNavigationStartingPoint => {
-                AccessibilityAction::SetSequentialFocusNavigationStartingPoint
-            }
-            Action::SetValue => match request.data {
-                Some(accesskit::ActionData::Value(value)) => {
-                    AccessibilityAction::SetValue(AzString::from(value.as_ref()))
-                }
-                Some(accesskit::ActionData::NumericValue(value)) => {
-                    AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
-                }
-                _ => return None,
-            },
-            Action::CustomAction => {
-                if let Some(accesskit::ActionData::CustomAction(id)) = request.data {
-                    AccessibilityAction::CustomAction(id)
-                } else {
-                    return None;
-                }
-            }
-        };
-
-        Some((dom_node_id, action))
+        Some((dom_node_id, map_accesskit_action(request)?))
     }
+}
+
+/// Maps an accesskit `Action` and optional `ActionData` to an Azul `AccessibilityAction`.
+///
+/// Returns `None` if the action requires data that was not provided or is invalid.
+#[cfg(feature = "a11y")]
+fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
+    use azul_core::geom::LogicalPosition;
+    use azul_css::{props::basic::FloatValue, AzString};
+
+    let action = match request.action {
+        Action::Click => AccessibilityAction::Default,
+        Action::Focus => AccessibilityAction::Focus,
+        Action::Blur => AccessibilityAction::Blur,
+        Action::Collapse => AccessibilityAction::Collapse,
+        Action::Expand => AccessibilityAction::Expand,
+        Action::ScrollIntoView => AccessibilityAction::ScrollIntoView,
+        Action::Increment => AccessibilityAction::Increment,
+        Action::Decrement => AccessibilityAction::Decrement,
+        Action::ShowContextMenu => AccessibilityAction::ShowContextMenu,
+        Action::HideTooltip => AccessibilityAction::HideTooltip,
+        Action::ShowTooltip => AccessibilityAction::ShowTooltip,
+        Action::ScrollUp => AccessibilityAction::ScrollUp,
+        Action::ScrollDown => AccessibilityAction::ScrollDown,
+        Action::ScrollLeft => AccessibilityAction::ScrollLeft,
+        Action::ScrollRight => AccessibilityAction::ScrollRight,
+        Action::SetSequentialFocusNavigationStartingPoint => {
+            AccessibilityAction::SetSequentialFocusNavigationStartingPoint
+        }
+        Action::ReplaceSelectedText => {
+            let accesskit::ActionData::Value(value) = request.data? else {
+                return None;
+            };
+            AccessibilityAction::ReplaceSelectedText(AzString::from(value.as_ref()))
+        }
+        Action::ScrollToPoint => {
+            let accesskit::ActionData::ScrollToPoint(point) = request.data? else {
+                return None;
+            };
+            AccessibilityAction::ScrollToPoint(LogicalPosition {
+                x: point.x as f32,
+                y: point.y as f32,
+            })
+        }
+        Action::SetScrollOffset => {
+            let accesskit::ActionData::SetScrollOffset(point) = request.data? else {
+                return None;
+            };
+            AccessibilityAction::SetScrollOffset(LogicalPosition {
+                x: point.x as f32,
+                y: point.y as f32,
+            })
+        }
+        Action::SetTextSelection => {
+            let accesskit::ActionData::SetTextSelection(selection) = request.data? else {
+                return None;
+            };
+            AccessibilityAction::SetTextSelection(azul_core::dom::TextSelectionStartEnd {
+                start: selection.anchor.character_index,
+                end: selection.focus.character_index,
+            })
+        }
+        Action::SetValue => match request.data? {
+            accesskit::ActionData::Value(value) => {
+                AccessibilityAction::SetValue(AzString::from(value.as_ref()))
+            }
+            accesskit::ActionData::NumericValue(value) => {
+                AccessibilityAction::SetNumericValue(FloatValue::new(value as f32))
+            }
+            _ => return None,
+        },
+        Action::CustomAction => {
+            let accesskit::ActionData::CustomAction(id) = request.data? else {
+                return None;
+            };
+            AccessibilityAction::CustomAction(id)
+        }
+    };
+
+    Some(action)
 }
 
 /// Stub implementation when accessibility feature is disabled.
