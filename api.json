@@ -5748,6 +5748,9 @@
                 "MenuItem": {
                   "doc": "Menu item."
                 },
+                "Dir": {
+                  "doc": "Directory list (deprecated)."
+                },
                 "Table": {
                   "doc": "Table container."
                 },
@@ -5898,6 +5901,27 @@
                 "Bdo": {
                   "doc": "Bi-directional override."
                 },
+                "Bdi": {
+                  "doc": "Bi-directional isolate."
+                },
+                "Wbr": {
+                  "doc": "Word break opportunity."
+                },
+                "Ruby": {
+                  "doc": "Ruby annotation."
+                },
+                "Rt": {
+                  "doc": "Ruby text."
+                },
+                "Rtc": {
+                  "doc": "Ruby text container."
+                },
+                "Rp": {
+                  "doc": "Ruby parenthesis."
+                },
+                "Data": {
+                  "doc": "Machine-readable data."
+                },
                 "Canvas": {
                   "doc": "Canvas for graphics."
                 },
@@ -5927,6 +5951,9 @@
                 },
                 "Area": {
                   "doc": "Image map area."
+                },
+                "Svg": {
+                  "doc": "SVG graphics."
                 },
                 "Title": {
                   "doc": "Document title."
@@ -5960,15 +5987,15 @@
                 },
                 "Text": {
                   "type": "AzString",
-                  "doc": "Text content."
+                  "doc": "Text content, ::text"
                 },
                 "Image": {
                   "type": "ImageRef",
-                  "doc": "Image element."
+                  "doc": "Image element, ::image"
                 },
                 "IFrame": {
                   "type": "IFrameNode",
-                  "doc": "IFrame (embedded content)."
+                  "doc": "IFrame (embedded content)"
                 }
               }
             ]
@@ -7113,10 +7140,16 @@
                   "doc": "`:something`"
                 },
                 "DirectChildren": {
-                  "doc": "Represents the `>` selector"
+                  "doc": "Represents the `>` selector (direct child)"
                 },
                 "Children": {
-                  "doc": "Represents the ` ` selector"
+                  "doc": "Represents the ` ` selector (descendant)"
+                },
+                "AdjacentSibling": {
+                  "doc": "Represents the `+` selector (adjacent sibling)"
+                },
+                "GeneralSibling": {
+                  "doc": "Represents the `~` selector (general sibling)"
                 }
               }
             ]
@@ -7138,6 +7171,9 @@
                 "SelectionColor": {
                   "type": "SelectionColorValue"
                 },
+                "SelectionRadius": {
+                  "type": "SelectionRadiusValue"
+                },
                 "TextColor": {
                   "type": "StyleTextColorValue"
                 },
@@ -7147,14 +7183,44 @@
                 "FontFamily": {
                   "type": "StyleFontFamilyVecValue"
                 },
+                "FontWeight": {
+                  "type": "StyleFontWeightValue"
+                },
+                "FontStyle": {
+                  "type": "StyleFontStyleValue"
+                },
                 "TextAlign": {
                   "type": "StyleTextAlignValue"
                 },
                 "TextJustify": {
                   "type": "LayoutTextJustifyValue"
                 },
+                "VerticalAlign": {
+                  "type": "StyleVerticalAlignValue"
+                },
                 "LetterSpacing": {
                   "type": "StyleLetterSpacingValue"
+                },
+                "TextIndent": {
+                  "type": "StyleTextIndentValue"
+                },
+                "InitialLetter": {
+                  "type": "StyleInitialLetterValue"
+                },
+                "LineClamp": {
+                  "type": "StyleLineClampValue"
+                },
+                "HangingPunctuation": {
+                  "type": "StyleHangingPunctuationValue"
+                },
+                "TextCombineUpright": {
+                  "type": "StyleTextCombineUprightValue"
+                },
+                "ExclusionMargin": {
+                  "type": "StyleExclusionMarginValue"
+                },
+                "HyphenationLanguage": {
+                  "type": "StyleHyphenationLanguageValue"
                 },
                 "LineHeight": {
                   "type": "StyleLineHeightValue"
@@ -7333,6 +7399,12 @@
                 "PaddingBottom": {
                   "type": "LayoutPaddingBottomValue"
                 },
+                "PaddingInlineStart": {
+                  "type": "LayoutPaddingInlineStartValue"
+                },
+                "PaddingInlineEnd": {
+                  "type": "LayoutPaddingInlineEndValue"
+                },
                 "MarginTop": {
                   "type": "LayoutMarginTopValue"
                 },
@@ -7495,11 +7567,32 @@
                 "ShapeOutside": {
                   "type": "ShapeOutsideValue"
                 },
+                "ShapeInside": {
+                  "type": "ShapeInsideValue"
+                },
+                "ClipPath": {
+                  "type": "ClipPathValue"
+                },
                 "ShapeMargin": {
                   "type": "ShapeMarginValue"
                 },
                 "ShapeImageThreshold": {
                   "type": "ShapeImageThresholdValue"
+                },
+                "TableLayout": {
+                  "type": "LayoutTableLayoutValue"
+                },
+                "BorderCollapse": {
+                  "type": "StyleBorderCollapseValue"
+                },
+                "BorderSpacing": {
+                  "type": "LayoutBorderSpacingValue"
+                },
+                "CaptionSide": {
+                  "type": "StyleCaptionSideValue"
+                },
+                "EmptyCells": {
+                  "type": "StyleEmptyCellsValue"
                 },
                 "Content": {
                   "type": "ContentValue"
@@ -7509,6 +7602,12 @@
                 },
                 "CounterIncrement": {
                   "type": "CounterIncrementValue"
+                },
+                "ListStyleType": {
+                  "type": "StyleListStyleTypeValue"
+                },
+                "ListStylePosition": {
+                  "type": "StyleListStylePositionValue"
                 },
                 "StringSet": {
                   "type": "StringSetValue"
@@ -7721,12 +7820,23 @@
                 "CaretAnimationDuration": {},
                 "SelectionBackgroundColor": {},
                 "SelectionColor": {},
+                "SelectionRadius": {},
                 "TextColor": {},
                 "FontSize": {},
                 "FontFamily": {},
+                "FontWeight": {},
+                "FontStyle": {},
                 "TextAlign": {},
                 "TextJustify": {},
+                "VerticalAlign": {},
                 "LetterSpacing": {},
+                "TextIndent": {},
+                "InitialLetter": {},
+                "LineClamp": {},
+                "HangingPunctuation": {},
+                "TextCombineUpright": {},
+                "ExclusionMargin": {},
+                "HyphenationLanguage": {},
                 "LineHeight": {},
                 "WordSpacing": {},
                 "TabWidth": {},
@@ -7786,6 +7896,8 @@
                 "PaddingLeft": {},
                 "PaddingRight": {},
                 "PaddingBottom": {},
+                "PaddingInlineStart": {},
+                "PaddingInlineEnd": {},
                 "MarginTop": {},
                 "MarginLeft": {},
                 "MarginRight": {},
@@ -7839,11 +7951,20 @@
                 "FlowInto": {},
                 "FlowFrom": {},
                 "ShapeOutside": {},
+                "ShapeInside": {},
+                "ClipPath": {},
                 "ShapeMargin": {},
                 "ShapeImageThreshold": {},
+                "TableLayout": {},
+                "BorderCollapse": {},
+                "BorderSpacing": {},
+                "CaptionSide": {},
+                "EmptyCells": {},
                 "Content": {},
                 "CounterReset": {},
                 "CounterIncrement": {},
+                "ListStyleType": {},
+                "ListStylePosition": {},
                 "StringSet": {}
               }
             ]
@@ -7911,6 +8032,7 @@
                 "Dd": {},
                 "Menu": {},
                 "MenuItem": {},
+                "Dir": {},
                 "Table": {},
                 "Caption": {},
                 "THead": {},
@@ -7961,6 +8083,13 @@
                 "Small": {},
                 "Big": {},
                 "Bdo": {},
+                "Bdi": {},
+                "Wbr": {},
+                "Ruby": {},
+                "Rt": {},
+                "Rtc": {},
+                "Rp": {},
+                "Data": {},
                 "Canvas": {},
                 "Object": {},
                 "Param": {},
@@ -7971,6 +8100,7 @@
                 "Track": {},
                 "Map": {},
                 "Area": {},
+                "Svg": {},
                 "Title": {},
                 "Meta": {},
                 "Link": {},
@@ -8060,10 +8190,23 @@
                 "Px": {},
                 "Pt": {},
                 "Em": {},
+                "Rem": {},
                 "In": {},
                 "Cm": {},
                 "Mm": {},
-                "Percent": {}
+                "Percent": {},
+                "Vw": {
+                  "doc": "Viewport width: 1vw = 1% of viewport width"
+                },
+                "Vh": {
+                  "doc": "Viewport height: 1vh = 1% of viewport height"
+                },
+                "Vmin": {
+                  "doc": "Viewport minimum: 1vmin = 1% of smaller viewport dimension"
+                },
+                "Vmax": {
+                  "doc": "Viewport maximum: 1vmax = 1% of larger viewport dimension"
+                }
               }
             ]
           },
@@ -8371,9 +8514,7 @@
                 "RunIn": {},
                 "Marker": {},
                 "Grid": {},
-                "InlineGrid": {},
-                "Initial": {},
-                "Inherit": {}
+                "InlineGrid": {}
               }
             ]
           },
@@ -8433,6 +8574,7 @@
             ],
             "enum_fields": [
               {
+                "Auto": {},
                 "Px": {
                   "type": "PixelValue"
                 },
@@ -8685,6 +8827,7 @@
             ],
             "enum_fields": [
               {
+                "Auto": {},
                 "Px": {
                   "type": "PixelValue"
                 },
@@ -12590,6 +12733,8 @@
                 "None": {},
                 "Initial": {},
                 "Inherit": {},
+                "Revert": {},
+                "Unset": {},
                 "Exact": {
                   "type": "T"
                 }
@@ -12603,8 +12748,11 @@
             "external": "azul_css::props::style::content::CounterReset",
             "struct_fields": [
               {
-                "inner": {
+                "counter_name": {
                   "type": "AzString"
+                },
+                "value": {
+                  "type": "i32"
                 }
               }
             ]
@@ -13364,8 +13512,11 @@
             "external": "azul_css::props::style::content::CounterIncrement",
             "struct_fields": [
               {
-                "inner": {
+                "counter_name": {
                   "type": "AzString"
+                },
+                "value": {
+                  "type": "i32"
                 }
               }
             ]
@@ -33657,12 +33808,8 @@
                   "doc": "Attributes of an XML node (note: not yet filtered and / or broken into function arguments!)"
                 },
                 "children": {
-                  "type": "XmlNodeVec",
-                  "doc": "Direct children of this node"
-                },
-                "text": {
-                  "type": "XmlTextContent",
-                  "doc": "String content of the node, i.e the \"Hello\" in `<p>Hello</p>`"
+                  "type": "XmlNodeChildVec",
+                  "doc": "Direct children of this node (can be text or element nodes)"
                 }
               }
             ]
