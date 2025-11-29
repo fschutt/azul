@@ -18,6 +18,9 @@ use azul_css::{
     css::CssPropertyValue,
     format_rust_code::GetHash,
     props::{
+        basic::{
+            pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
+        },
         layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
         property::CssProperty,
     },
@@ -858,8 +861,6 @@ fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// - Text nodes
 /// - Generated content
 fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    use azul_core::dom::NodeType;
-
     // Text nodes are always inline-level
     let node_data = &styled_dom.node_data.as_container()[node_id];
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
@@ -958,10 +959,9 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .and_then(|v| v.get_property().cloned())
         .map(|v| {
             // Fallback using hardcoded 16px base
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
             v.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
         })
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
+        .unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 /// Helper function to get parent's computed font-size
@@ -987,8 +987,6 @@ fn create_resolution_context(
     dom_id: NodeId,
     containing_block_size: Option<azul_css::props::basic::PhysicalSize>,
 ) -> azul_css::props::basic::ResolutionContext {
-    use azul_css::props::basic::{PhysicalSize, ResolutionContext};
-
     let element_font_size = get_element_font_size(styled_dom, dom_id);
     let parent_font_size = get_parent_font_size(styled_dom, dom_id);
     let root_font_size = get_root_font_size(styled_dom);
@@ -1008,8 +1006,6 @@ fn resolve_box_props(
     dom_id: NodeId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> BoxProps {
-    use azul_css::props::basic::{PixelValue, PropertyContext};
-
     use crate::solver3::getters::*;
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -1112,8 +1108,6 @@ fn resolve_box_props(
 /// Checks if a DOM node is whitespace-only text (for table anonymous box generation).
 /// Returns true if the node is a text node containing only whitespace characters.
 fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-    use azul_core::dom::NodeType;
-
     let binding = styled_dom.node_data.as_container();
     let node_data = binding.get(node_id);
     if let Some(data) = node_data {
@@ -1297,7 +1291,6 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> FormattingContext {
     // Special case: Text nodes should be treated as inline content.
     // They participate in their parent's inline formatting context.
-    use azul_core::dom::NodeType;
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {

@@ -16,9 +16,14 @@ use azul_core::{
 use azul_css::{
     css::CssPropertyValue,
     props::{
+        basic::{
+            font::{StyleFontStyle, StyleFontWeight},
+            pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+            PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
+        },
         layout::{
-            LayoutClear, LayoutDisplay, LayoutFloat, LayoutJustifyContent, LayoutOverflow,
-            LayoutPosition, LayoutTextJustify, LayoutWritingMode,
+            LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight, LayoutJustifyContent,
+            LayoutOverflow, LayoutPosition, LayoutTextJustify, LayoutWidth, LayoutWritingMode,
         },
         property::CssProperty,
         style::{StyleHyphens, StyleTextAlign, StyleVerticalAlign},
@@ -38,14 +43,18 @@ use crate::{
     },
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
-        getters::{get_display_property, get_style_properties, get_writing_mode},
+        getters::{
+            get_css_height, get_css_width, get_display_property, get_element_font_size, get_float,
+            get_overflow_x, get_overflow_y, get_parent_font_size, get_root_font_size,
+            get_style_properties, get_writing_mode,
+        },
         layout_tree::{CachedInlineLayout, LayoutNode, LayoutTree},
         positioning::get_position_type,
         scrollbar::ScrollbarInfo,
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
-    text3::cache::AvailableSpace as Text3AvailableSpace,
+    text3::cache::{AvailableSpace as Text3AvailableSpace, TextAlign as Text3TextAlign},
 };
 
 /// Result of BFC layout with margin escape information
@@ -295,7 +304,6 @@ fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
 pub(crate) fn convert_font_style(
     style: azul_css::props::basic::font::StyleFontStyle,
 ) -> crate::font_traits::FontStyle {
-    use azul_css::props::basic::font::StyleFontStyle;
     match style {
         StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
         StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
@@ -307,7 +315,6 @@ pub(crate) fn convert_font_style(
 pub(crate) fn convert_font_weight(
     weight: azul_css::props::basic::font::StyleFontWeight,
 ) -> rust_fontconfig::FcWeight {
-    use azul_css::props::basic::font::StyleFontWeight;
     match weight {
         StyleFontWeight::W100 => rust_fontconfig::FcWeight::Thin,
         StyleFontWeight::W200 => rust_fontconfig::FcWeight::ExtraLight,
@@ -335,13 +342,6 @@ pub(crate) fn convert_font_weight(
 /// This is critical for correct float interaction: normal blocks should overlap floats
 /// (not shrink around them), while their inline content wraps around floats.
 fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &LayoutNode) -> bool {
-    use azul_core::{dom::FormattingContext, styled_dom::StyledNodeState};
-    use azul_css::props::layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition};
-
-    use crate::solver3::getters::{
-        get_display_property, get_float, get_overflow_x, get_overflow_y,
-    };
-
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
@@ -456,9 +456,6 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             let (explicit_width, has_explicit_width) = node
                 .dom_node_id
                 .map(|id| {
-                    use azul_css::props::layout::LayoutWidth;
-
-                    use crate::solver3::getters::get_css_width;
                     let width = get_css_width(
                         &ctx.styled_dom,
                         id,
@@ -468,10 +465,6 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
                         LayoutWidth::Auto => (None, false),
                         LayoutWidth::Px(px) => {
                             // Resolve to pixels using containing block (parent) size
-                            use azul_css::props::basic::{
-                                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-                                SizeMetric,
-                            };
                             let pixels = match px.metric {
                                 SizeMetric::Px => px.number.get(),
                                 SizeMetric::Pt => px.number.get() * PT_TO_PX,
@@ -493,9 +486,6 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
             let (explicit_height, has_explicit_height) = node
                 .dom_node_id
                 .map(|id| {
-                    use azul_css::props::layout::LayoutHeight;
-
-                    use crate::solver3::getters::get_css_height;
                     let height = get_css_height(
                         &ctx.styled_dom,
                         id,
@@ -505,10 +495,6 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
                         LayoutHeight::Auto => (None, false),
                         LayoutHeight::Px(px) => {
                             // Resolve to pixels using containing block (parent) size
-                            use azul_css::props::basic::{
-                                pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-                                SizeMetric,
-                            };
                             let pixels = match px.metric {
                                 SizeMetric::Px => px.number.get(),
                                 SizeMetric::Pt => px.number.get() * PT_TO_PX,
@@ -2016,8 +2002,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
-    use crate::text3::cache::TextAlign as Text3TextAlign;
-
     // Convert floats into exclusion zones for text3 to flow around.
     let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
         debug_info!(
@@ -2093,7 +2077,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 azul_css::props::layout::dimensions::LayoutHeight::Px(v) => {
                     // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
                     // since we can't resolve relative units without proper context
-                    use azul_css::props::basic::{pixel::PT_TO_PX, SizeMetric};
                     match v.metric {
                         SizeMetric::Px => Some(v.number.get()),
                         SizeMetric::Pt => Some(v.number.get() * PT_TO_PX),
@@ -2208,7 +2191,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     // Get font-size for resolving line-height
     // Use helper function which checks dependency chain first
-    use crate::solver3::getters::get_element_font_size;
     let font_size = get_element_font_size(styled_dom, id, node_state);
 
     let line_height_value = styled_dom
@@ -2263,12 +2245,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_text_indent(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|ti| {
-            use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
-
-            use crate::solver3::getters::{
-                get_element_font_size, get_parent_font_size, get_root_font_size,
-            };
-
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
                 parent_font_size: get_parent_font_size(styled_dom, id, node_state),
@@ -2301,12 +2277,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_column_gap(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|cg| {
-            use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
-
-            use crate::solver3::getters::{
-                get_element_font_size, get_parent_font_size, get_root_font_size,
-            };
-
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
                 parent_font_size: get_parent_font_size(styled_dom, id, node_state),
@@ -2669,7 +2639,6 @@ fn get_border_info<T: ParsedFontTrait>(
     node: &LayoutNode,
     source: BorderSource,
 ) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::{
         basic::{
             pixel::{PhysicalSize, PropertyContext, ResolutionContext},
@@ -2837,7 +2806,6 @@ fn get_table_layout_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> azul_css::props::layout::LayoutTableLayout {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::layout::LayoutTableLayout;
 
     let Some(dom_id) = node.dom_node_id else {
@@ -2860,7 +2828,6 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> azul_css::props::layout::StyleBorderCollapse {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::layout::StyleBorderCollapse;
 
     let Some(dom_id) = node.dom_node_id else {
@@ -2883,7 +2850,6 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> azul_css::props::layout::LayoutBorderSpacing {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::layout::LayoutBorderSpacing;
 
     if let Some(dom_id) = node.dom_node_id {
@@ -2915,7 +2881,6 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> azul_css::props::layout::StyleCaptionSide {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::layout::StyleCaptionSide;
 
     if let Some(dom_id) = node.dom_node_id {
@@ -2948,7 +2913,6 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNode,
 ) -> bool {
-    use azul_core::styled_dom::StyledNodeState;
     use azul_css::props::style::StyleVisibility;
 
     if let Some(dom_id) = node.dom_node_id {
@@ -4376,7 +4340,6 @@ fn position_table_cells<T: ParsedFontTrait>(
         // Apply vertical-align to cell content if it has inline layout
         if let Some(ref cached_layout) = cell_node.inline_layout_result {
             let inline_result = &cached_layout.layout;
-            use azul_core::styled_dom::StyledNodeState;
             use azul_css::props::style::StyleVerticalAlign;
 
             // Get vertical-align property from styled_dom

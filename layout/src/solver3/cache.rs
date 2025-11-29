@@ -26,7 +26,8 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         layout::{
-            LayoutFlexWrap, LayoutJustifyContent, LayoutOverflow, LayoutWrap, LayoutWritingMode,
+            LayoutDisplay, LayoutFlexWrap, LayoutJustifyContent, LayoutOverflow, LayoutWrap,
+            LayoutWritingMode,
         },
         property::{CssProperty, CssPropertyType},
         style::StyleTextAlign,
@@ -427,7 +428,6 @@ pub fn reconcile_recursive(
     // This must be done after the node is created but before processing children
     // Per CSS Lists Module Level 3, ::marker is generated as the first child of list-items
     {
-        use azul_css::props::layout::LayoutDisplay;
         let node_data = &styled_dom.node_data.as_container()[new_dom_id];
         let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].state;
         let cache = &styled_dom.css_property_cache.ptr;
@@ -1215,8 +1215,6 @@ pub fn compute_counters(
     counters: &mut BTreeMap<(usize, String), i32>,
 ) {
     use std::collections::HashMap;
-
-    use azul_css::props::property::CssProperty;
 
     // Track counter stacks: counter_name -> Vec<value>
     // Each entry in the Vec represents a nested scope

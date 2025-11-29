@@ -4,19 +4,30 @@
 //! fallbacks and type conversions.
 
 use azul_core::{
-    dom::NodeId,
+    dom::{NodeId, NodeType},
     geom::LogicalSize,
+    id::NodeId as CoreNodeId,
     styled_dom::{StyledDom, StyledNodeState},
 };
-use azul_css::props::{
-    basic::ColorU,
-    layout::{
-        LayoutClear, LayoutDisplay, LayoutFlexWrap, LayoutFloat, LayoutHeight,
-        LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutWidth, LayoutWritingMode,
-    },
-    style::{
-        lists::{StyleListStylePosition, StyleListStyleType},
-        StyleTextAlign,
+use azul_css::{
+    css::CssPropertyValue,
+    props::{
+        basic::{
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
+            ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
+        },
+        layout::{
+            BoxDecorationBreak, BreakInside, LayoutClear, LayoutDisplay, LayoutFlexWrap,
+            LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition,
+            LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
+        },
+        property::{CssProperty, CssPropertyType},
+        style::{
+            border_radius::StyleBorderRadius,
+            lists::{StyleListStylePosition, StyleListStyleType},
+            StyleTextAlign,
+        },
     },
 };
 
@@ -73,14 +84,10 @@ pub fn get_element_font_size(
                 })
                 .and_then(|chain| chain.cached_pixels)
         })
-        .unwrap_or_else(|| {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-            DEFAULT_FONT_SIZE
-        });
+        .unwrap_or(DEFAULT_FONT_SIZE);
 
     // Get root font-size (avoid recursion by checking cache first)
     let root_font_size = {
-        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
         let root_id = NodeId::new(0);
         cache
             .dependency_chains
@@ -95,10 +102,6 @@ pub fn get_element_font_size(
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .map(|v| {
-            use azul_css::props::basic::pixel::{
-                PhysicalSize, PropertyContext, ResolutionContext, DEFAULT_FONT_SIZE,
-            };
-
             let context = ResolutionContext {
                 element_font_size: DEFAULT_FONT_SIZE, // Not used for FontSize property
                 parent_font_size,
@@ -111,10 +114,7 @@ pub fn get_element_font_size(
             v.inner
                 .resolve_with_context(&context, PropertyContext::FontSize)
         })
-        .unwrap_or_else(|| {
-            use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-            DEFAULT_FONT_SIZE
-        })
+        .unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 /// Helper function to get parent's computed font-size
@@ -325,8 +325,6 @@ trait CssPropertyPixelInner {
 
 impl CssPropertyPixelInner for azul_css::props::property::CssProperty {
     fn get_pixel_inner(&self) -> Option<PixelValue> {
-        use azul_css::{css::CssPropertyValue, props::property::CssProperty};
-
         match self {
             CssProperty::Left(CssPropertyValue::Exact(v)) => Some(v.inner),
             CssProperty::Right(CssPropertyValue::Exact(v)) => Some(v.inner),
@@ -393,7 +391,6 @@ where
 }
 
 // Implement extraction for all layout types
-use azul_css::css::CssPropertyValue;
 
 impl ExtractPropertyValue<LayoutWidth> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<LayoutWidth> {
@@ -622,8 +619,6 @@ pub fn get_style_border_radius(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> azul_css::props::style::border_radius::StyleBorderRadius {
-    use azul_css::props::{basic::PixelValue, style::border_radius::StyleBorderRadius};
-
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     let top_left = styled_dom
@@ -814,7 +809,6 @@ pub fn get_background_color(
     // CSS Background Propagation: Special handling for <html> root element
     // Only check propagation if this is an Html node AND has transparent background (no
     // color/image)
-    use azul_core::dom::NodeType;
     if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
         // Not Html or has its own background - return own background or transparent
         return own_bg.unwrap_or(ColorU {
@@ -1100,7 +1094,6 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .as_container()
         .get(dom_id)
         .and_then(|node| {
-            use azul_core::id::NodeId as CoreNodeId;
             let parent_id = CoreNodeId::from_usize(node.parent)?;
             // Recursively get parent's font-size
             cache
@@ -1265,14 +1258,11 @@ pub fn get_list_style_position(
 
 // New: Taffy Bridge Getters - Box Model Properties with Ua Css Fallback
 
-use azul_css::props::{
-    basic::pixel::PixelValue,
-    layout::{
-        LayoutBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
-        LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
-        LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutRight,
-        LayoutTop,
-    },
+use azul_css::props::layout::{
+    LayoutBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
+    LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
+    LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutRight,
+    LayoutTop,
 };
 
 /// Get inset (position) properties - returns MultiValue<PixelValue>
@@ -1393,8 +1383,6 @@ get_css_property_pixel!(
 );
 
 // Fragmentation (page breaking) properties
-
-use azul_css::props::layout::{BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows};
 
 /// Get break-before property for paged media
 pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
@@ -1523,8 +1511,6 @@ pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
 
 use std::collections::HashMap;
 
-use azul_core::dom::NodeType;
-use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
 use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
 
 use crate::text3::cache::{FontChainKey, FontSelector, FontStyle};

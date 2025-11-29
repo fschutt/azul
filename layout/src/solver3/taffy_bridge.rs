@@ -9,6 +9,9 @@ use azul_css::{
         layout::{
             flex::LayoutFlexBasis,
             grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
+            LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutDisplay,
+            LayoutFlexDirection, LayoutFlexWrap, LayoutGridAutoFlow, LayoutJustifyContent,
+            LayoutPosition, LayoutWritingMode,
         },
         property::{
             LayoutAlignContentValue, LayoutAlignItemsValue, LayoutAlignSelfValue,
@@ -79,10 +82,6 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
     let px_to_float = |pv: PixelValue| -> f32 {
         // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
         // TODO: Add proper context for em/rem resolution
-        use azul_css::props::basic::{
-            pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
-            SizeMetric,
-        };
         match pv.metric {
             SizeMetric::Px => pv.number.get(),
             SizeMetric::Pt => pv.number.get() * PT_TO_PX,
@@ -147,7 +146,6 @@ fn minmax(min: MinTrackSizingFunction, max: MaxTrackSizingFunction) -> taffy::Tr
 }
 
 pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
-    use azul_css::props::layout::LayoutDisplay;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutDisplay::None => taffy::Display::None,
         LayoutDisplay::Flex | LayoutDisplay::InlineFlex => taffy::Display::Flex,
@@ -157,7 +155,6 @@ pub fn layout_display_to_taffy(val: LayoutDisplayValue) -> taffy::Display {
 }
 
 pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
-    use azul_css::props::layout::LayoutPosition;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutPosition::Absolute => taffy::Position::Absolute,
         LayoutPosition::Fixed => taffy::Position::Absolute, // Taffy kennt kein Fixed
@@ -168,7 +165,6 @@ pub fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
 }
 
 pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
-    use azul_css::props::layout::LayoutGridAutoFlow;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
         LayoutGridAutoFlow::Column => taffy::GridAutoFlow::Column,
@@ -178,7 +174,6 @@ pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoF
 }
 
 pub fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::FlexDirection {
-    use azul_css::props::layout::LayoutFlexDirection;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutFlexDirection::Row => taffy::FlexDirection::Row,
         LayoutFlexDirection::RowReverse => taffy::FlexDirection::RowReverse,
@@ -188,7 +183,6 @@ pub fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::F
 }
 
 pub fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
-    use azul_css::props::layout::LayoutFlexWrap;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutFlexWrap::NoWrap => taffy::FlexWrap::NoWrap,
         LayoutFlexWrap::Wrap => taffy::FlexWrap::Wrap,
@@ -197,7 +191,6 @@ pub fn layout_flex_wrap_to_taffy(val: LayoutFlexWrapValue) -> taffy::FlexWrap {
 }
 
 pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignItems {
-    use azul_css::props::layout::LayoutAlignItems;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignItems::Stretch => taffy::AlignItems::Stretch,
         LayoutAlignItems::Center => taffy::AlignItems::Center,
@@ -208,7 +201,6 @@ pub fn layout_align_items_to_taffy(val: LayoutAlignItemsValue) -> taffy::AlignIt
 }
 
 pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::AlignSelf> {
-    use azul_css::props::layout::LayoutAlignSelf;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignSelf::Auto => None, // Auto means inherit from parent's align-items
         LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
@@ -220,7 +212,6 @@ pub fn layout_align_self_to_taffy(val: LayoutAlignSelfValue) -> Option<taffy::Al
 }
 
 pub fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::AlignContent {
-    use azul_css::props::layout::LayoutAlignContent;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutAlignContent::Start => taffy::AlignContent::FlexStart,
         LayoutAlignContent::End => taffy::AlignContent::FlexEnd,
@@ -232,7 +223,6 @@ pub fn layout_align_content_to_taffy(val: LayoutAlignContentValue) -> taffy::Ali
 }
 
 pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy::JustifyContent {
-    use azul_css::props::layout::LayoutJustifyContent;
     match val.get_property_or_default().unwrap_or_default() {
         LayoutJustifyContent::FlexStart => taffy::JustifyContent::FlexStart,
         LayoutJustifyContent::FlexEnd => taffy::JustifyContent::FlexEnd,
@@ -250,12 +240,9 @@ pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy:
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use azul_core::{dom::NodeId, styled_dom::StyledDom};
+use azul_core::{dom::NodeId, geom::LogicalSize, styled_dom::StyledDom};
 use azul_css::props::{
-    layout::{
-        LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexWrap,
-        LayoutGridAutoFlow, LayoutHeight, LayoutJustifyContent, LayoutPosition, LayoutWidth,
-    },
+    layout::{LayoutHeight, LayoutWidth},
     property::{CssProperty, CssPropertyType},
 };
 use taffy::{
@@ -267,7 +254,10 @@ use taffy::{
 use crate::{
     font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
-        fc::{translate_taffy_point_back, translate_taffy_size_back},
+        fc::{
+            translate_taffy_point_back, translate_taffy_size_back, FloatingContext,
+            LayoutConstraints, TextAlign as FcTextAlign,
+        },
         getters::{
             get_css_border_bottom_width, get_css_border_left_width, get_css_border_right_width,
             get_css_border_top_width, get_css_bottom, get_css_height, get_css_left,
@@ -973,11 +963,6 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Compute layout for non-flex/grid nodes by delegating to layout_formatting_context.
     /// This handles Block, Inline, Table, InlineBlock formatting contexts recursively.
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
-        use azul_core::geom::LogicalSize;
-        use azul_css::props::layout::LayoutWritingMode;
-
-        use crate::solver3::fc::{FloatingContext, LayoutConstraints, TextAlign as FcTextAlign};
-
         // Determine available size from Taffy's inputs
         // For MinContent/MaxContent, we need to handle differently - use 0 for MinContent
         // to get the minimum width, and infinity for MaxContent

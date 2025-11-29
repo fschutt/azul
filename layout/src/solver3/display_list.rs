@@ -46,7 +46,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use allsorts::glyph_position;
 use azul_core::{
-    dom::{NodeId, NodeType, ScrollbarOrientation},
+    dom::{FormattingContext, NodeId, NodeType, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     resources::{IdNamespace, ImageKey, ImageRefHash},
@@ -59,7 +59,7 @@ use azul_css::{
     format_rust_code::GetHash,
     props::{
         basic::{ColorU, FontRef},
-        layout::{LayoutOverflow, LayoutPosition},
+        layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
         style::{
             border_radius::StyleBorderRadius, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
@@ -1202,7 +1202,6 @@ where
         // Inline-blocks participate in inline formatting context and their backgrounds
         // must be positioned by the text layout engine, not the block layout engine
         if let Some(dom_id) = node.dom_node_id {
-            use azul_css::props::layout::LayoutDisplay;
             let styled_node_state = self.get_styled_node_state(dom_id);
             let display = self
                 .ctx
@@ -1225,7 +1224,6 @@ where
 
         // CSS 2.2 Section 17.5.1: Tables in the visual formatting model
         // Tables have a special 6-layer background painting order
-        use azul_core::dom::FormattingContext;
         if matches!(node.formatting_context, FormattingContext::Table) {
             debug_info!(
                 self.ctx,
@@ -1337,7 +1335,6 @@ where
         }
 
         // Traverse table children to paint layers 2-6
-        use azul_core::dom::FormattingContext;
 
         // Layer 2: Column group backgrounds
         // Layer 3: Column backgrounds (columns are children of column groups)
@@ -1402,7 +1399,6 @@ where
         // Layer 6: Paint cell backgrounds (topmost layer)
         let row_node = self.positioned_tree.tree.get(row_idx);
         if let Some(node) = row_node {
-            use azul_core::dom::FormattingContext;
             for &cell_idx in &node.children {
                 self.paint_element_background(builder, cell_idx)?;
             }

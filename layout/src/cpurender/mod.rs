@@ -7,7 +7,10 @@
 use azul_core::{
     dom::ScrollbarOrientation,
     geom::LogicalRect,
-    resources::{FontInstanceKey, ImageKey, RendererResources},
+    resources::{
+        DecodedImage, FontInstanceKey, GlyphOutlineOperation, ImageKey, ImageRefHash,
+        RendererResources,
+    },
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
@@ -448,8 +451,6 @@ fn render_text(
 
     // Draw each glyph
     for glyph in glyphs {
-        use azul_core::resources::GlyphOutlineOperation;
-
         let glyph_index = glyph.index as u16;
 
         // glyph.point is the absolute baseline position of the glyph
@@ -614,8 +615,6 @@ fn render_image(
     dpi_factor: f32,
     renderer_resources: &RendererResources,
 ) -> Result<(), String> {
-    use azul_core::resources::{DecodedImage, ImageRefHash};
-
     // Look up the image in renderer_resources
     let image_ref_hash = ImageRefHash(key.key as usize);
 
