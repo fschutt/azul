@@ -234,40 +234,17 @@ impl TextChangeset {
     }
 }
 
-/*
-/// Create changesets from internal system events (pre-callback phase)
-///
-/// This function analyzes system events and creates changesets WITHOUT applying them.
-/// Changesets are then passed to user callbacks for inspection, and only applied
-/// in post-callback phase if !preventDefault.
-///
-/// ## Arguments
-/// * `events` - Internal system events from pre-callback filter
-/// * `layout_window` - Window state for reading current positions/selections
-///
-/// ## Returns
-/// Vector of changesets ready for inspection and conditional application
-pub fn create_changesets_from_system_events(
-    events: &[azul_core::events::PreCallbackSystemEvent],
-    layout_window: &crate::window::LayoutWindow,
-) -> Vec<TextChangeset> {
-    // NOTE: This is planned future architecture. Current implementation:
-    // - Text input handled by process_text_input() in event_v2.rs
-    // - Clipboard operations (copy/cut/paste) handled in event_v2.rs
-    // - Selection handled by SelectionManager
-    // - Cursor handled by FocusManager
-    unimplemented!("Future architecture - not yet implemented")
-}
-*/
-
-// Changeset Creation Helpers
-
+/// Returns the current system time using external callbacks.
 fn get_current_time() -> Instant {
     let external = crate::callbacks::ExternalSystemCallbacks::rust_internal();
     (external.get_system_time_fn.cb)().into()
 }
 
-fn create_copy_changeset(
+/// Creates a copy changeset from the current selection.
+///
+/// Extracts the selected text content and creates a `TextChangeset` with a `Copy`
+/// operation. Returns `None` if there is no selection or no content to copy.
+pub fn create_copy_changeset(
     target: DomNodeId,
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
@@ -290,7 +267,12 @@ fn create_copy_changeset(
     ))
 }
 
-fn create_cut_changeset(
+/// Creates a cut changeset from the current selection.
+///
+/// Extracts the selected text content and creates a `TextChangeset` with a `Cut`
+/// operation that will delete the selected text after copying it to clipboard.
+/// Returns `None` if there is no selection or no content to cut.
+pub fn create_cut_changeset(
     target: DomNodeId,
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
@@ -318,22 +300,27 @@ fn create_cut_changeset(
     ))
 }
 
-fn create_paste_changeset(
+/// Creates a paste changeset at the current cursor position.
+///
+/// Note: The actual clipboard content must be provided by the caller (typically
+/// `event_v2.rs`), as clipboard access is platform-specific and not available
+/// in the layout engine. This function currently returns `None` and paste
+/// operations are initiated from `event_v2.rs` with pre-read clipboard content.
+pub fn create_paste_changeset(
     target: DomNodeId,
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // NOTE: This function creates a changeset for paste operations.
-    // The actual clipboard content must be provided by the caller (event_v2.rs),
-    // as clipboard access is platform-specific and not available in layout engine.
-    // This is called with pre-read clipboard content.
-
-    // For now, return None - paste is initiated from event_v2.rs with content
-    // This will be refactored when we add clipboard parameter
+    // Paste is handled by event_v2.rs with clipboard content parameter.
+    // This stub exists for API consistency with other changeset creators.
     None
 }
 
-fn create_select_all_changeset(
+/// Creates a select-all changeset for the target node.set for the target node.
+///
+/// Selects all text content in the target node from the beginning to the end.
+/// Returns `None` if the node has no text content.
+pub fn create_select_all_changeset(
     target: DomNodeId,
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
@@ -386,7 +373,15 @@ fn create_select_all_changeset(
     ))
 }
 
-fn create_delete_selection_changeset(
+/// Creates a delete changeset for the current selection or single character.
+///
+/// If there is an active selection, deletes the entire selection.
+/// If there is only a cursor (no selection), deletes a single character:
+/// - `forward = true` (Delete key): deletes the character after the cursor
+/// - `forward = false` (Backspace): deletes the character before the cursor
+///
+/// Returns `None` if there is nothing to delete (e.g., cursor at document boundary).
+pub fn create_delete_selection_changeset(
     target: DomNodeId,
     forward: bool,
     timestamp: Instant,
