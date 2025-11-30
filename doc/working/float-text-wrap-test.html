@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Float Text Wrapping Test</title>
+    <style>
+        * { margin: 0; padding: 0; }
+        body {
+            width: 400px;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .red-float {
+            float: left;
+            width: 100px;
+            height: 100px;
+            background: #ff0000;
+            margin-right: 10px;
+        }
+        .blue-float {
+            float: right;
+            width: 100px;
+            height: 100px;
+            background: #0000ff;
+            margin-left: 10px;
+        }
+        .text-box {
+            background: #ffff00;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="red-float"></div>
+    <div class="blue-float"></div>
+    <div class="text-box">
+        <p>This is some text that should wrap around the red box on the left and the blue box on the right. The yellow box should be full width behind the floats, but the text inside should wrap between them. Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    </div>
+</body>
+</html>

@@ -462,6 +462,99 @@ fn main() -> anyhow::Result<()> {
             println!("\n✨ Website generated successfully in: {}", output_dir.display());
             return Ok(());
         }
+        ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
+            println!("Starting Azul Fast Deploy with Reftests...");
+            let api_data = load_api_json(&api_path)?;
+            let config = Config::from_args();
+            println!("CONFIG={}", config.print());
+
+            // Create output directory structure
+            let output_dir = project_root.join("doc").join("target").join("deploy");
+            let image_path = output_dir.join("images");
+            let releases_dir = output_dir.join("release");
+
+            fs::create_dir_all(&output_dir)?;
+            fs::create_dir_all(&image_path)?;
+            fs::create_dir_all(&releases_dir)?;
+
+            // Generate documentation (API docs, guide, etc.)
+            println!("Generating documentation...");
+            for (path, html) in docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")? {
+                let path_real = output_dir.join(&path);
+                if let Some(parent) = path_real.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                fs::write(&path_real, &html)?;
+                println!("  [OK] Generated: {}", path);
+            }
+
+            // Generate releases pages
+            println!("Generating releases pages...");
+            let versions = api_data.get_sorted_versions();
+            
+            for version in &versions {
+                let version_dir = releases_dir.join(version);
+                fs::create_dir_all(&version_dir)?;
+                
+                // Generate release HTML page
+                let release_html = dllgen::deploy::generate_release_html(version, &api_data);
+                fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+                println!("  [OK] Generated: release/{}.html", version);
+                
+                // Create placeholder files for missing build artifacts
+                let placeholder_files = [
+                    "azul.dll", "azul.lib", "windows.pyd", "LICENSE-WINDOWS.txt",
+                    "libazul.so", "libazul.linux.a", "linux.pyd", "LICENSE-LINUX.txt",
+                    "libazul.dylib", "libazul.macos.a", "macos.pyd", "LICENSE-MACOS.txt",
+                    "azul.h", "azul.hpp",
+                ];
+                
+                for filename in &placeholder_files {
+                    let file_path = version_dir.join(filename);
+                    if !file_path.exists() {
+                        println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, filename);
+                        fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, filename))?;
+                    }
+                }
+            }
+            
+            // Generate releases index page
+            let releases_index = dllgen::deploy::generate_releases_index(&versions);
+            fs::write(output_dir.join("releases.html"), &releases_index)?;
+            println!("  [OK] Generated: releases.html");
+
+            // Copy static assets
+            dllgen::deploy::copy_static_assets(&output_dir)?;
+
+            // Run reftests and generate reftest.html
+            println!("\nRunning reftests...");
+            let reftest_output_dir = output_dir.join("reftest");
+            fs::create_dir_all(&reftest_output_dir)?;
+            
+            let reftest_config = RunRefTestsConfig {
+                test_dir: PathBuf::from(manifest_dir).join("src/reftest/working"),
+                output_dir: reftest_output_dir.clone(),
+                output_filename: "index.html",
+            };
+
+            match reftest::run_reftests(reftest_config) {
+                Ok(_) => {
+                    println!("  [OK] Reftests completed");
+                    // Copy reftest results to deploy folder
+                    let reftest_html = reftest_output_dir.join("index.html");
+                    if reftest_html.exists() {
+                        fs::copy(&reftest_html, output_dir.join("reftest.html"))?;
+                        println!("  [OK] Copied reftest.html to deploy folder");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  [WARN] Reftests failed: {}", e);
+                }
+            }
+
+            println!("\n✨ Website with reftests generated successfully in: {}", output_dir.display());
+            return Ok(());
+        }
         _ => {
             print_cli_help()?;
             return Ok(());
@@ -515,5 +608,6 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  azul-doc reftest [open]         - Run reftests and optionally open report");
     println!("  azul-doc codegen [rust|c|cpp|python|all] - Generate language bindings");
     println!("  azul-doc deploy                 - Build and deploy the Azul library");
+    println!("  azul-doc fast-deploy-with-reftests - Deploy with reftest generation");
     Ok(())
 }

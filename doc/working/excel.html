@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="UTF-8" />
+<title>Book1 - Excel</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 11px; overflow: hidden; }
+
+.titlebar {
+  height: 32px;
+  background: #217346;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+.titlebar-left { display: flex; align-items: center; gap: 8px; }
+.titlebar-center { font-size: 12px; }
+.titlebar-right { display: flex; gap: 12px; }
+.titlebar-btn { background: none; border: none; color: white; cursor: pointer; padding: 4px 8px; }
+
+.ribbon-tabs {
+  height: 24px;
+  background: #217346;
+  display: flex;
+  padding-left: 8px;
+  border-bottom: 1px solid #1a5c37;
+}
+.ribbon-tab {
+  padding: 4px 16px;
+  color: white;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-size: 11px;
+}
+.ribbon-tab.active { background: white; color: #217346; }
+
+.ribbon {
+  height: 92px;
+  background: #f1f1f1;
+  border-bottom: 1px solid #d4d4d4;
+  display: flex;
+  padding: 4px 8px;
+  gap: 12px;
+}
+.ribbon-group {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #d4d4d4;
+  padding-right: 12px;
+}
+.ribbon-group-content {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  align-items: center;
+}
+.ribbon-group-label {
+  font-size: 10px;
+  color: #444;
+  text-align: center;
+  padding-top: 2px;
+}
+
+.ribbon-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 6px;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  gap: 2px;
+}
+.ribbon-btn:hover { background: #e5e5e5; border: 1px solid #d4d4d4; }
+.ribbon-btn-icon {
+  width: 32px;
+  height: 32px;
+  background: #c5c5c5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #444;
+  border: 1px solid #aaa;
+}
+.ribbon-btn-label { font-size: 10px; }
+
+.ribbon-btn-small {
+  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid #d4d4d4;
+  cursor: pointer;
+  height: 22px;
+  background: white;
+}
+.ribbon-btn-small:hover { background: #e5e5e5; }
+.ribbon-icon-small {
+  width: 18px;
+  height: 18px;
+  background: #c5c5c5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 1px solid #aaa;
+}
+
+.dropdown-box {
+  min-width: 120px;
+  height: 22px;
+  border: 1px solid #d4d4d4;
+  background: white;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  justify-content: space-between;
+  cursor: pointer;
+}
+.dropdown-box:hover { background: #e5e5e5; }
+
+.formula-bar {
+  height: 24px;
+  background: white;
+  border-bottom: 1px solid #d4d4d4;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  gap: 4px;
+}
+.name-box {
+  width: 100px;
+  height: 20px;
+  border: 1px solid #d4d4d4;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+}
+.formula-buttons { display: flex; gap: 2px; }
+.formula-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d4d4d4;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #444;
+}
+.formula-input {
+  flex: 1;
+  height: 20px;
+  border: 1px solid #d4d4d4;
+  padding: 0 4px;
+}
+
+.worksheet-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.row-headers {
+  width: 48px;
+  background: #f1f1f1;
+  border-right: 1px solid #d4d4d4;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.row-header {
+  height: 20px;
+  border-bottom: 1px solid #d4d4d4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #444;
+  cursor: pointer;
+}
+.row-header:hover { background: #e5e5e5; }
+
+.grid-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+.column-headers {
+  height: 20px;
+  background: #f1f1f1;
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.column-header {
+  width: 64px;
+  height: 20px;
+  border-right: 1px solid #d4d4d4;
+  border-bottom: 1px solid #d4d4d4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #444;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.column-header:hover { background: #e5e5e5; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(11, 64px);
+}
+.cell {
+  width: 64px;
+  height: 20px;
+  border-right: 1px solid #d4d4d4;
+  border-bottom: 1px solid #d4d4d4;
+  padding: 2px 4px;
+  background: white;
+  cursor: cell;
+}
+.cell:hover { background: #f8f8f8; }
+.cell.selected {
+  border: 2px solid #217346;
+  background: white;
+  outline: none;
+}
+
+.sheet-tabs {
+  height: 24px;
+  background: #f1f1f1;
+  border-top: 1px solid #d4d4d4;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+}
+.sheet-nav {
+  display: flex;
+  gap: 2px;
+  padding-right: 8px;
+}
+.sheet-nav-btn {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #d4d4d4;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+.sheet-tab {
+  padding: 4px 16px;
+  background: white;
+  border: 1px solid #d4d4d4;
+  border-bottom: none;
+  cursor: pointer;
+  font-size: 11px;
+}
+.sheet-tab.active {
+  background: white;
+  border-bottom: 2px solid #217346;
+  font-weight: bold;
+}
+.sheet-add {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #d4d4d4;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+}
+
+.status-bar {
+  height: 20px;
+  background: #f1f1f1;
+  border-top: 1px solid #d4d4d4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.status-left { display: flex; gap: 12px; }
+.status-right { display: flex; gap: 8px; align-items: center; }
+.zoom-slider {
+  width: 100px;
+  height: 4px;
+  background: #d4d4d4;
+  position: relative;
+}
+.zoom-thumb {
+  width: 12px;
+  height: 12px;
+  background: white;
+  border: 1px solid #217346;
+  position: absolute;
+  top: -4px;
+  right: 0;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+</style>
+</head>
+<body>
+<div class="main-content">
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <div style="width: 24px; height: 24px; background: white; color: #217346; display: flex; align-items: center; justify-content: center; font-weight: bold;">X</div>
+    </div>
+    <div class="titlebar-center">Book1 - Excel</div>
+    <div class="titlebar-right">
+      <button class="titlebar-btn">Sign in</button>
+      <button class="titlebar-btn">―</button>
+      <button class="titlebar-btn">□</button>
+      <button class="titlebar-btn">✕</button>
+    </div>
+  </div>
+
+  <div class="ribbon-tabs">
+    <button class="ribbon-tab">File</button>
+    <button class="ribbon-tab active">Home</button>
+    <button class="ribbon-tab">Insert</button>
+    <button class="ribbon-tab">Page Layout</button>
+    <button class="ribbon-tab">Formulas</button>
+    <button class="ribbon-tab">Data</button>
+    <button class="ribbon-tab">Review</button>
+    <button class="ribbon-tab">View</button>
+    <button class="ribbon-tab">Help</button>
+    <div style="flex: 1;"></div>
+    <button class="ribbon-tab">🔆 Tell me</button>
+    <button class="ribbon-tab">👤 Share</button>
+  </div>
+
+  <div class="ribbon">
+    <div class="ribbon-group">
+      <div class="ribbon-group-content">
+        <button class="ribbon-btn">
+          <div class="ribbon-btn-icon"></div>
+          <div class="ribbon-btn-label">Paste</div>
+        </button>
+      </div>
+      <div class="ribbon-group-label">Clipboard</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-content" style="flex-direction: column; align-items: flex-start; gap: 3px;">
+        <div style="display: flex; gap: 2px; width: 100%;">
+          <div class="dropdown-box" style="flex: 1;">
+            <span>Calibri</span>
+            <span>▼</span>
+          </div>
+          <div class="dropdown-box" style="width: 60px;">
+            <span>11</span>
+            <span>▼</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 2px;">
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small" style="min-width: 30px;"><span>▼</span></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+        </div>
+      </div>
+      <div class="ribbon-group-label">Font</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-content" style="flex-direction: column; align-items: flex-start; gap: 3px;">
+        <div style="display: flex; gap: 2px;">
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+        </div>
+        <div style="display: flex; gap: 2px;">
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small"><div class="ribbon-icon-small"></div></button>
+          <button class="ribbon-btn-small" style="min-width: 30px;"><span>▼</span></button>
+        </div>
+      </div>
+      <div class="ribbon-group-label">Alignment</div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-content">
+        <button class="ribbon-btn">
+          <div class="ribbon-btn-icon"></div>
+          <div class="ribbon-btn-label">Number</div>
+        </button>
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <button class="ribbon-btn-small" style="padding: 2px 4px; min-width: 36px;">%</button>
+          <button class="ribbon-btn-small" style="padding: 2px 4px; min-width: 36px;">,</button>
+        </div>
+      </div>
+      <div class="ribbon-group-label"></div>
+    </div>
+
+    <div class="ribbon-group">
+      <div class="ribbon-group-content" style="flex-direction: column; align-items: flex-start; gap: 2px;">
+        <button class="ribbon-btn-small" style="width: 180px; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <div class="ribbon-icon-small"></div>
+            <span>Conditional Formatting</span>
+          </div>
+          <span>▼</span>
+        </button>
+        <button class="ribbon-btn-small" style="width: 180px; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <div class="ribbon-icon-small"></div>
+            <span>Format as Table</span>
+          </div>
+          <span>▼</span>
+        </button>
+        <button class="ribbon-btn-small" style="width: 180px; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <div class="ribbon-icon-small"></div>
+            <span>Cell Styles</span>
+          </div>
+          <span>▼</span>
+        </button>
+      </div>
+      <div class="ribbon-group-label">Styles</div>
+    </div>
+
+    <div class="ribbon-group" style="border: none;">
+      <div class="ribbon-group-content">
+        <button class="ribbon-btn">
+          <div class="ribbon-btn-icon"></div>
+          <div class="ribbon-btn-label">Cells</div>
+        </button>
+        <button class="ribbon-btn">
+          <div class="ribbon-btn-icon"></div>
+          <div class="ribbon-btn-label">Editing</div>
+        </button>
+      </div>
+      <div class="ribbon-group-label"></div>
+    </div>
+  </div>
+
+  <div class="formula-bar">
+    <div class="name-box">A1</div>
+    <div class="formula-buttons">
+      <button class="formula-btn">✕</button>
+      <button class="formula-btn">✓</button>
+      <button class="formula-btn">ƒx</button>
+    </div>
+    <div class="formula-input"></div>
+  </div>
+
+  <div class="worksheet-area" style="flex: 1; display: flex;">
+    <div class="row-headers">
+      <div class="row-header" style="height: 20px;"></div>
+      <div class="row-header">1</div>
+      <div class="row-header">2</div>
+      <div class="row-header">3</div>
+      <div class="row-header">4</div>
+      <div class="row-header">5</div>
+      <div class="row-header">6</div>
+      <div class="row-header">7</div>
+      <div class="row-header">8</div>
+      <div class="row-header">9</div>
+      <div class="row-header">10</div>
+      <div class="row-header">11</div>
+      <div class="row-header">12</div>
+      <div class="row-header">13</div>
+      <div class="row-header">14</div>
+      <div class="row-header">15</div>
+      <div class="row-header">16</div>
+      <div class="row-header">17</div>
+      <div class="row-header">18</div>
+      <div class="row-header">19</div>
+      <div class="row-header">20</div>
+      <div class="row-header">21</div>
+      <div class="row-header">22</div>
+      <div class="row-header">23</div>
+      <div class="row-header">24</div>
+      <div class="row-header">25</div>
+      <div class="row-header">26</div>
+      <div class="row-header">27</div>
+      <div class="row-header">28</div>
+      <div class="row-header">29</div>
+      <div class="row-header">30</div>
+      <div class="row-header">31</div>
+      <div class="row-header">32</div>
+      <div class="row-header">33</div>
+      <div class="row-header">34</div>
+      <div class="row-header">35</div>
+      <div class="row-header">36</div>
+      <div class="row-header">37</div>
+      <div class="row-header">38</div>
+      <div class="row-header">39</div>
+      <div class="row-header">40</div>
+      <div class="row-header">41</div>
+      <div class="row-header">42</div>
+      <div class="row-header">43</div>
+      <div class="row-header">44</div>
+      <div class="row-header">45</div>
+      <div class="row-header">46</div>
+      <div class="row-header">47</div>
+      <div class="row-header">48</div>
+      <div class="row-header">49</div>
+      <div class="row-header">50</div>
+    </div>
+
+    <div class="grid-container">
+      <div class="column-headers">
+        <div class="column-header">A</div>
+        <div class="column-header">B</div>
+        <div class="column-header">C</div>
+        <div class="column-header">D</div>
+        <div class="column-header">E</div>
+        <div class="column-header">F</div>
+        <div class="column-header">G</div>
+        <div class="column-header">H</div>
+        <div class="column-header">I</div>
+        <div class="column-header">J</div>
+        <div class="column-header">K</div>
+      </div>
+      <div class="grid">
+        <div class="cell selected"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+        <div class="cell"></div>
+    </div>
+  </div>
+</div>
+</div>
+</body>
+</html>

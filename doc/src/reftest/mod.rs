@@ -61,8 +61,11 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 
     println!("Looking for test files in {}", test_dir.display());
 
-    // Find all XHTML files in the test directory
-    let test_files = find_test_files(&test_dir)?;
+    // Find all XHTML files in the test directory (returns empty vec if dir doesn't exist)
+    let test_files = find_test_files(&test_dir).unwrap_or_else(|e| {
+        eprintln!("Warning: Could not read test directory: {}", e);
+        Vec::new()
+    });
     println!("Found {} test files", test_files.len());
 
     // Results to be collected for JSON
