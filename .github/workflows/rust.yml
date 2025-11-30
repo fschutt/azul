@@ -20,6 +20,7 @@ on:
         options:
           - ci
           - deploy
+          - prod-deploy
         required: true
         default: 'ci'
 
@@ -41,8 +42,8 @@ jobs:
 
   lint_and_check:
     name: Lint & Static Checks
-    # Run this job for push, pull_request, or if 'ci' mode is manually selected
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    # Run this job for push, pull_request, or if 'ci' or 'prod-deploy' mode is manually selected
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -80,7 +81,7 @@ jobs:
 
   test_heavy:
     name: Run Heavy Tests
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     runs-on: ubuntu-latest
     needs: lint_and_check # Run after linting passes
     steps:
@@ -108,7 +109,7 @@ jobs:
 
   build_binaries:
     name: Build Binaries on ${{ matrix.os }}
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     needs: lint_and_check # Run after linting passes
     runs-on: ${{ matrix.os }}
     strategy:
@@ -181,6 +182,7 @@ jobs:
 
   # ===================================================================
   # ==               PAGES DEPLOYMENT ('deploy' mode)                ==
+  # ==         Tolerant mode - deploys even if builds fail           ==
   # ===================================================================
 
   build_pages:
@@ -267,6 +269,95 @@ jobs:
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-latest
     needs: merge_and_prepare_pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ===================================================================
+  # ==           PROD DEPLOYMENT ('prod-deploy' mode)                ==
+  # ==    Strict mode - fails if any test or build fails             ==
+  # ===================================================================
+
+  build_pages_prod:
+    name: Build Pages (Prod) on ${{ matrix.os }}
+    if: github.event.inputs.run_mode == 'prod-deploy'
+    needs: [test_heavy, build_binaries]  # Wait for all CI tests to pass
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true  # Stop all builds if one fails
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Chrome (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run Reftests (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
+
+      - name: Build website for ${{ matrix.platform }}
+        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}
+
+      - name: Upload ${{ matrix.platform }} page artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-pages-artifact-${{ matrix.platform }}
+          path: 'doc/target/deploy'
+          if-no-files-found: error  # Fail if no files generated
+
+  merge_and_prepare_pages_prod:
+    name: Merge & Prepare Pages Artifacts (Prod)
+    if: github.event.inputs.run_mode == 'prod-deploy'
+    runs-on: ubuntu-latest
+    needs: build_pages_prod
+    steps:
+      - name: Create merged directory
+        run: mkdir -p merged-artifacts
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: temp-artifacts/
+          pattern: prod-pages-artifact-*
+          merge-multiple: true
+
+      - name: Merge artifacts into final directory
+        run: |
+          echo "Merging downloaded artifacts..."
+          cp -r temp-artifacts/* merged-artifacts/
+          echo "Merged artifact contents:"
+          ls -R merged-artifacts
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload merged artifacts for Pages deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'merged-artifacts'
+
+  deploy_pages_prod:
+    name: Deploy to GitHub Pages (Prod)
+    if: github.event.inputs.run_mode == 'prod-deploy'
+    runs-on: ubuntu-latest
+    needs: merge_and_prepare_pages_prod
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
