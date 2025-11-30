@@ -19,6 +19,7 @@ on:
         type: choice
         options:
           - ci
+          - fast-deploy
           - deploy
           - prod-deploy
         required: true
@@ -179,6 +180,65 @@ jobs:
           path: ${{ matrix.artifact_path }}
           retention-days: 7
           if-no-files-found: error
+
+  # ===================================================================
+  # ==            FAST DEPLOYMENT ('fast-deploy' mode)               ==
+  # ==   Skips builds and reftests - just generates and deploys      ==
+  # ===================================================================
+
+  build_pages_fast:
+    name: Fast Build Pages
+    if: github.event.inputs.run_mode == 'fast-deploy'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build website (docs only, no platform builds)
+        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy
+
+      - name: Upload page artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-pages-artifact
+          path: 'doc/target/deploy'
+          if-no-files-found: error
+
+  prepare_pages_fast:
+    name: Prepare Pages Artifacts (Fast)
+    if: github.event.inputs.run_mode == 'fast-deploy'
+    runs-on: ubuntu-latest
+    needs: build_pages_fast
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fast-pages-artifact
+          path: merged-artifacts/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifacts for Pages deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'merged-artifacts'
+
+  deploy_pages_fast:
+    name: Deploy to GitHub Pages (Fast)
+    if: github.event.inputs.run_mode == 'fast-deploy'
+    runs-on: ubuntu-latest
+    needs: prepare_pages_fast
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   # ===================================================================
   # ==               PAGES DEPLOYMENT ('deploy' mode)                ==
