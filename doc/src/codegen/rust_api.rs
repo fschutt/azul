@@ -27,6 +27,18 @@ static RUST_API_PATCHES: &[(&str, &str)] = &[
     ("callbacks", include_str!("./api-patch/callbacks.rs")),
 ];
 
+/// Primitive types that should never get an Az prefix
+const PRIMITIVE_TYPES: &[&str] = &[
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
+    "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
+    "str", "char", "c_char", "c_schar", "c_uchar",
+];
+
+/// Single-letter types are usually generic type parameters
+fn is_generic_type_param(type_name: &str) -> bool {
+    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+}
+
 /// Generate Rust API code from API data
 pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     let mut module_file_map = HashMap::new();
@@ -43,7 +55,12 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     let mut structs_map = std::collections::HashMap::new();
     for (module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
+            // Skip primitive types and generic type parameters
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
             let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
+            // Always add prefix, even if type already has it (consistency)
             let prefixed_name = format!("{}{}", prefix, class_name);
             structs_map.insert(prefixed_name, metadata);
         }
@@ -134,6 +151,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
             let class_can_be_cloned = class_data.clone.unwrap_or(true);
 
             let c_is_stack_allocated = !class_is_boxed_object;
+            // Always add prefix, even if type already has it (consistency)
             let class_ptr_name = format!("{}{}", prefix, class_name);
 
             code.push_str("\r\n");

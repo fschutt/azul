@@ -590,15 +590,40 @@ pub fn is_behind_pointer(type_str: &str) -> bool {
     false
 }
 
+/// Primitive types that should never be added to the API as classes
+/// These are built-in language types that don't need Az prefix
+const PRIMITIVE_TYPES: &[&str] = &[
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
+    "slice", "u128", "u16", "u32", "u64", "u8", "()", "usize", "c_void",
+    "str", "char", "c_char", "c_schar", "c_uchar",
+];
+
+/// Single-letter types are usually generic type parameters
+fn is_generic_type_param(type_name: &str) -> bool {
+    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+}
+
 /// Extract base type from a type string (removes Vec, Option, Box, etc.)
-/// BUT: If the type is behind a pointer/smart pointer, return empty string
-/// to signal that this type should not be recursively followed
+/// BUT: If the type is behind a pointer/smart pointer, return None
+/// Also returns None for primitive types (they shouldn't be added to API)
 pub fn extract_base_type_if_not_opaque(type_str: &str) -> Option<String> {
     if is_behind_pointer(type_str) {
         return None; // Don't follow types behind pointers
     }
 
-    Some(extract_base_type(type_str))
+    let base_type = extract_base_type(type_str);
+    
+    // Don't return primitive types - they're built-in and shouldn't be in API
+    if PRIMITIVE_TYPES.contains(&base_type.as_str()) {
+        return None;
+    }
+    
+    // Don't return single-letter generic type parameters (T, U, V, etc.)
+    if is_generic_type_param(&base_type) {
+        return None;
+    }
+    
+    Some(base_type)
 }
 
 /// Collect all type references from the entire API

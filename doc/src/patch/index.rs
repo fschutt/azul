@@ -263,46 +263,137 @@ impl WorkspaceIndex {
     /// 2. Then check struct/enum/type declarations
     /// 3. Last resort: just presence in file (likely import)
     pub fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
-        let mut best_match: Option<(&PathBuf, i32)> = None;
+        let mut best_match: Option<(&PathBuf, i32, bool)> = None; // (path, score, is_from_macro)
 
         for (file_path, source) in &self.file_sources {
             if !source.contains(type_name) {
                 continue;
             }
 
-            let score = self.calculate_match_score(source, type_name);
+            let (score, is_from_macro) = self.calculate_match_score_with_macro_info(source, type_name);
 
-            if let Some((_, current_score)) = best_match {
+            if let Some((_, current_score, _)) = best_match {
                 if score > current_score {
-                    best_match = Some((file_path, score));
+                    best_match = Some((file_path, score, is_from_macro));
                 }
             } else {
-                best_match = Some((file_path, score));
+                best_match = Some((file_path, score, is_from_macro));
             }
         }
 
-        if let Some((file_path, _)) = best_match {
-            if let Ok(full_path) = self.deduce_full_path(file_path, type_name) {
-                return Some(ParsedTypeInfo {
-                    full_path: full_path.clone(),
-                    type_name: type_name.to_string(),
-                    file_path: file_path.clone(),
-                    module_path: vec![],
-                    kind: TypeKind::Struct {
-                        fields: IndexMap::new(),
-                        has_repr_c: self
-                            .file_sources
+        if let Some((file_path, _score, is_from_macro)) = best_match {
+            match self.deduce_full_path(file_path, type_name) {
+                Ok(full_path) => {
+                    // If type is from a macro like impl_vec! or define_spacing_property!,
+                    // we know these macros generate #[repr(C)] types
+                    let has_repr_c = if is_from_macro {
+                        true
+                    } else {
+                        self.file_sources
                             .get(file_path)
                             .map(|s| s.contains("#[repr(C)]"))
-                            .unwrap_or(false),
-                        doc: None,
-                    },
-                    source_code: String::new(),
-                });
+                            .unwrap_or(false)
+                    };
+                    
+                    return Some(ParsedTypeInfo {
+                        full_path: full_path.clone(),
+                        type_name: type_name.to_string(),
+                        file_path: file_path.clone(),
+                        module_path: vec![],
+                        kind: TypeKind::Struct {
+                            fields: IndexMap::new(),
+                            has_repr_c,
+                            doc: None,
+                        },
+                        source_code: String::new(),
+                    });
+                }
+                Err(_e) => {
+                    // Failed to deduce full path - skip this match
+                }
             }
         }
 
         None
+    }
+
+    /// Calculate match score for a type in source code
+    /// Higher score = more likely to be the actual definition
+    /// Also returns whether the type was found in a macro invocation
+    fn calculate_match_score_with_macro_info(&self, source: &str, type_name: &str) -> (i32, bool) {
+        let mut score = 0;
+        let mut is_from_macro = false;
+
+        // Macros that are known to generate #[repr(C)] types
+        const REPR_C_MACROS: &[&str] = &[
+            "impl_vec!",
+            "impl_vec_clone!",
+            "define_spacing_property!",
+        ];
+
+        // HIGHEST PRIORITY: Type appears in macro invocation
+        // Example: impl_vec!(Type, TypeVec, TypeDestructor)
+        for cap in MACRO_INVOCATION_REGEX.captures_iter(source) {
+            if let Some(macro_content) = cap.get(1) {
+                let content = macro_content.as_str();
+                // Check if type_name appears as a separate identifier in macro args
+                // Split by common separators: comma, semicolon, whitespace
+                let tokens: Vec<&str> = content
+                    .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if tokens.contains(&type_name) {
+                    score += 1000; // Very high priority
+                    
+                    // Check if this macro is known to generate #[repr(C)] types
+                    // We need to look for the macro name before the captured content
+                    if let Some(full_match) = cap.get(0) {
+                        let match_start = full_match.start();
+                        // Look backwards for the macro name
+                        let before_match = &source[..match_start];
+                        for macro_name in REPR_C_MACROS {
+                            let macro_prefix = &macro_name[..macro_name.len()-1]; // Remove the '!'
+                            if before_match.trim_end().ends_with(macro_prefix) {
+                                is_from_macro = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // HIGH PRIORITY: Public declarations
+        if source.contains(&format!("pub struct {}", type_name)) {
+            score += 100;
+        }
+        if source.contains(&format!("pub enum {}", type_name)) {
+            score += 100;
+        }
+        if source.contains(&format!("pub type {}", type_name)) {
+            score += 100;
+        }
+
+        // MEDIUM PRIORITY: Non-public declarations
+        if source.contains(&format!("struct {}", type_name)) {
+            score += 50;
+        }
+        if source.contains(&format!("enum {}", type_name)) {
+            score += 50;
+        }
+        if source.contains(&format!("type {}", type_name)) {
+            score += 50;
+        }
+
+        // LOW PRIORITY: Just mentioned (likely import)
+        // Already checked by contains() in caller
+        if score == 0 {
+            score = 1; // Minimal score for just being present
+        }
+
+        (score, is_from_macro)
     }
 
     /// Calculate match score for a type in source code
@@ -379,10 +470,36 @@ impl WorkspaceIndex {
             }
         }
 
-        let crate_name =
-            crate_name.ok_or_else(|| anyhow::anyhow!("No crate found for {:?}", file_path))?;
-        let relative_path =
-            relative_path.ok_or_else(|| anyhow::anyhow!("Could not get relative path"))?;
+        // Fallback: Try to deduce crate name from path if not found in crate_names
+        // This handles cases where file_sources contains files but crate_names lookup fails
+        let (crate_name, relative_path) = if crate_name.is_none() {
+            // Look for common crate directories in the path
+            let path_str = file_path.to_string_lossy();
+            let known_crates = [
+                ("core/src/", "azul_core"),
+                ("css/src/", "azul_css"),
+                ("layout/src/", "azul_layout"),
+                ("dll/src/", "azul_dll"),
+                ("doc/src/", "azul_doc"),
+            ];
+            
+            let mut found = None;
+            for (pattern, crate_name) in known_crates {
+                if let Some(idx) = path_str.find(pattern) {
+                    let after_pattern = &path_str[idx + pattern.len()..];
+                    found = Some((crate_name.to_string(), PathBuf::from(after_pattern)));
+                    break;
+                }
+            }
+            
+            if let Some((name, rel_path)) = found {
+                (name, rel_path)
+            } else {
+                return Err(anyhow::anyhow!("No crate found for {:?}", file_path));
+            }
+        } else {
+            (crate_name.unwrap().clone(), relative_path.unwrap())
+        };
 
         // Build module path from file path
         // Remove "src/" prefix and file extension
@@ -663,8 +780,23 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 }
 
                 let has_repr_c = s.attrs.iter().any(|attr| {
-                    attr.path().is_ident("repr")
-                        && attr.meta.to_token_stream().to_string().contains("C")
+                    if !attr.path().is_ident("repr") {
+                        return false;
+                    }
+                    let repr_str = attr.meta.to_token_stream().to_string();
+                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
+                    repr_str.contains("C")
+                        || repr_str.contains("transparent")
+                        || repr_str.contains("u8")
+                        || repr_str.contains("u16")
+                        || repr_str.contains("u32")
+                        || repr_str.contains("u64")
+                        || repr_str.contains("i8")
+                        || repr_str.contains("i16")
+                        || repr_str.contains("i32")
+                        || repr_str.contains("i64")
+                        || repr_str.contains("usize")
+                        || repr_str.contains("isize")
                 });
 
                 types.push(ParsedTypeInfo {
@@ -710,8 +842,23 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 }
 
                 let has_repr_c = e.attrs.iter().any(|attr| {
-                    attr.path().is_ident("repr")
-                        && attr.meta.to_token_stream().to_string().contains("C")
+                    if !attr.path().is_ident("repr") {
+                        return false;
+                    }
+                    let repr_str = attr.meta.to_token_stream().to_string();
+                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
+                    repr_str.contains("C")
+                        || repr_str.contains("transparent")
+                        || repr_str.contains("u8")
+                        || repr_str.contains("u16")
+                        || repr_str.contains("u32")
+                        || repr_str.contains("u64")
+                        || repr_str.contains("i8")
+                        || repr_str.contains("i16")
+                        || repr_str.contains("i32")
+                        || repr_str.contains("i64")
+                        || repr_str.contains("usize")
+                        || repr_str.contains("isize")
                 });
 
                 types.push(ParsedTypeInfo {

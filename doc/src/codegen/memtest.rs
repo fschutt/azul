@@ -433,12 +433,40 @@ fn generate_dll_module(
 
     println!("      [STATS] Collecting structs...");
     // Collect all structs for this version
-    let mut structs_map = HashMap::new();
+    // Use entry API to prefer versions with struct_fields/enum_fields over empty external references
+    let mut structs_map: HashMap<String, StructMetadata> = HashMap::new();
     for (_module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
-            let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
+            // Skip primitive types and generic type parameters
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
+            // Always add prefix, even if type already has it (consistency)
             let prefixed_name = format!("{}{}", prefix, class_name);
-            structs_map.insert(prefixed_name, metadata);
+            
+            // Check if this class has actual content (struct_fields or enum_fields)
+            let has_content = class_data.struct_fields.is_some() 
+                || class_data.enum_fields.is_some() 
+                || class_data.callback_typedef.is_some()
+                || class_data.type_alias.is_some();
+            
+            // Only insert if:
+            // 1. The type doesn't exist yet, or
+            // 2. The new version has content and the existing one doesn't
+            if let Some(existing) = structs_map.get(&prefixed_name) {
+                let existing_has_content = existing.struct_fields.is_some() 
+                    || existing.enum_fields.is_some()
+                    || existing.callback_typedef.is_some()
+                    || existing.type_alias.is_some();
+                if has_content && !existing_has_content {
+                    let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
+                    structs_map.insert(prefixed_name, metadata);
+                }
+                // else: keep existing (it either has content or both don't)
+            } else {
+                let metadata = StructMetadata::from_class_data(class_name.clone(), class_data);
+                structs_map.insert(prefixed_name, metadata);
+            }
         }
     }
     println!("      📚 Found {} types", structs_map.len());
@@ -554,6 +582,18 @@ fn generate_public_api_modules(
     Ok(output)
 }
 
+/// Primitive types that should never get an Az prefix
+const PRIMITIVE_TYPES: &[&str] = &[
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
+    "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
+    "str", "char", "c_char", "c_schar", "c_uchar",
+];
+
+/// Single-letter types are usually generic type parameters
+fn is_generic_type_param(type_name: &str) -> bool {
+    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+}
+
 /// Generate re-exports for a module: pub use Az1Type as Type;
 fn generate_reexports(
     version_data: &VersionData,
@@ -565,6 +605,10 @@ fn generate_reexports(
 
     if let Some(module_data) = version_data.api.get(module_name) {
         for class_name in module_data.classes.keys() {
+            // Skip primitive types and generic type parameters - they don't need re-exports
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
             output.push_str(&format!(
                 "    pub use super::dll::{}{} as {};\n",
                 prefix, class_name, class_name
@@ -674,6 +718,9 @@ fn process_patch_content(
         // So crate::dll:: needs to become super::dll:: when inside pub mod vec
         adjusted_line = adjusted_line.replace("crate::dll::", "super::dll::");
         adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
+        // Special case: crate::str::String needs to become super::str::{prefix}AzString
+        // because AzString is in api.json and gets prefixed
+        adjusted_line = adjusted_line.replace("crate::str::String", &format!("super::str::{}AzString", prefix));
         adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
         adjusted_line = adjusted_line.replace("crate::option::", "super::option::");
         adjusted_line = adjusted_line.replace("crate::dom::", "super::dom::");

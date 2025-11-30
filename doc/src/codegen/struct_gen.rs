@@ -182,8 +182,11 @@ fn generate_single_type(
         // Check if target is a function pointer (starts with "extern")
         let is_function_ptr = type_alias_info.target.starts_with("extern");
 
-        let target_name = if is_primitive || is_function_ptr {
+        let target_name = if is_primitive {
             type_alias_info.target.clone()
+        } else if is_function_ptr {
+            // For extern fn types, we need to prefix all types within the function signature
+            prefix_types_in_extern_fn_string(version_data, &type_alias_info.target, &config.prefix)
         } else {
             format!("{}{}", config.prefix, type_alias_info.target)
         };
@@ -608,9 +611,26 @@ fn generate_struct_definition(
                     ));
                 } else {
                     // Complex type - need to resolve and add prefix
-                    if let Some((_, class_name)) =
-                        search_for_class_by_class_name(version_data, &base_type)
+                    
+                    // First, check if a version with the prefix already exists
+                    // e.g., if base_type is "String", check if "AzString" exists
+                    // This handles cases where api.json has both "String" and "AzString"
+                    let prefixed_base_type = format!("{}{}", &config.prefix, &base_type);
+                    let resolved_class_name = if let Some((_, class_name)) = 
+                        search_for_class_by_class_name(version_data, &prefixed_base_type) 
                     {
+                        // Found a prefixed version (e.g., AzString) - use it
+                        Some(class_name.to_string())
+                    } else if let Some((_, class_name)) = 
+                        search_for_class_by_class_name(version_data, &base_type) 
+                    {
+                        // Found the base type - use it
+                        Some(class_name.to_string())
+                    } else {
+                        None
+                    };
+                    
+                    if let Some(class_name) = resolved_class_name {
                         let visibility = if field_name == "ptr" {
                             "pub(crate)"
                         } else {
@@ -622,7 +642,7 @@ fn generate_struct_definition(
                         let prevent_wrapper_recursion = !config.wrapper_postfix.is_empty()
                             && struct_name.ends_with(&config.wrapper_postfix);
 
-                        if let Some(found_class) = get_class(version_data, "", class_name) {
+                        if let Some(found_class) = get_class(version_data, "", &class_name) {
                             let found_is_enum = found_class.enum_fields.is_some();
                             if !found_is_enum || prevent_wrapper_recursion {
                                 field_postfix.clear();
@@ -911,6 +931,58 @@ fn generate_enum_definition(
     code.push_str(&format!("{}}}\n\n", indent_str));
 
     Ok(code)
+}
+
+/// Prefix types in an extern "C" fn signature string
+/// Takes a raw extern fn string like `extern "C" fn (&mut RefAny, &mut CallbackInfo) -> Update`
+/// and returns it with all known types prefixed
+fn prefix_types_in_extern_fn_string(
+    version_data: &VersionData,
+    fn_string: &str,
+    prefix: &str,
+) -> String {
+    // Collect all known type names from api.json
+    let mut known_types = std::collections::HashSet::new();
+    for module_data in version_data.api.values() {
+        for class_name in module_data.classes.keys() {
+            known_types.insert(class_name.as_str());
+        }
+    }
+
+    // Process the string, replacing known types with prefixed versions
+    let mut result = fn_string.to_string();
+    
+    // Sort types by length descending to avoid partial matches (e.g., "String" before "Str")
+    let mut types_vec: Vec<&str> = known_types.iter().copied().collect();
+    types_vec.sort_by(|a, b| b.len().cmp(&a.len()));
+    
+    for type_name in types_vec {
+        // Skip types that are likely not meant to be prefixed
+        if type_name == "String" || type_name == "Vec" {
+            continue;
+        }
+        
+        // Skip primitive types
+        if matches!(type_name, "bool" | "f32" | "f64" | "i8" | "i16" | "i32" | "i64" | "i128" 
+            | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "c_void" | "char") {
+            continue;
+        }
+        
+        // Replace whole words only using word boundaries (\b)
+        // Always add prefix, even if type already has it (consistency)
+        let pattern = format!(r"\b{}\b", regex::escape(type_name));
+        match regex::Regex::new(&pattern) {
+            Ok(re) => {
+                let replacement = format!("{}{}", prefix, type_name);
+                result = re.replace_all(&result, replacement.as_str()).to_string();
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to compile regex for {}: {:?}", type_name, e);
+            }
+        }
+    }
+    
+    result
 }
 
 /// Generate a Rust callback function type definition

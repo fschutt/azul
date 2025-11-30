@@ -41,6 +41,18 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
     let mut structs_map = IndexMap::new();
     let mut rust_functions_map = IndexMap::new();
 
+    // Primitive types that should never get an Az prefix
+    const PRIMITIVE_TYPES: &[&str] = &[
+        "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
+        "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
+        "str", "char", "c_char", "c_schar", "c_uchar",
+    ];
+
+    // Single-letter types are usually generic type parameters
+    fn is_generic_type_param(type_name: &str) -> bool {
+        type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    }
+
     // Process all modules and classes
     for (module_name, module) in &version_data.api {
         eprintln!(
@@ -50,6 +62,11 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
         );
 
         for (class_name, class_data) in &module.classes {
+            // Skip primitive types and generic type parameters
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
+
             // Debug print for LayoutZIndexValue
             if class_name == "LayoutZIndexValue" {
                 eprintln!("DEBUG: Found LayoutZIndexValue");
@@ -64,6 +81,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
             if let Some(type_alias_info) = &class_data.type_alias {
                 eprintln!("DEBUG: Generating type alias for {}", class_name);
 
+                // Always add prefix, even if type already has it (consistency)
                 let class_ptr_name = format!("{}{}", PREFIX, class_name);
 
                 // Add documentation
@@ -73,6 +91,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
                 // Generate type alias: pub type Az1LayoutZIndexValue =
                 // Az1CssPropertyValue<Az1LayoutZIndex>;
+                // Always add prefix, even if type already has it (consistency)
                 let target_with_prefix = format!("{}{}", PREFIX, type_alias_info.target);
                 let args_with_prefix: Vec<String> = type_alias_info
                     .generic_args
@@ -113,6 +132,7 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
             // Stack-allocated structs/enums don't have destructors
             let c_is_stack_allocated = !class_is_boxed_object;
 
+            // Always add prefix, even if type already has it (consistency)
             let class_ptr_name = format!("{}{}", PREFIX, class_name);
 
             // Add class documentation

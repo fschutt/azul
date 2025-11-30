@@ -57,6 +57,7 @@ impl WindowCreateOptions {
 
 /// Full window state including internal fields not exposed to callbacks
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct FullWindowState {
     pub theme: WindowTheme,
     pub title: AzString,

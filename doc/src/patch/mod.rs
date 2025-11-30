@@ -605,7 +605,19 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
                 Err(e) => result.errors.push(e.to_string()),
             }
         } else {
-            result.errors.push(format!("Module '{}' not found", module_name));
+            // Module doesn't exist - create it with the classes from the patch
+            println!("  [ADD] Creating new module '{}' from patch", module_name);
+            let mut new_module = crate::api::ModuleData {
+                doc: None,
+                classes: indexmap::IndexMap::new(),
+            };
+            match apply_module_patch(&mut new_module, module_patch, module_name) {
+                Ok(count) => {
+                    version_data.api.insert(module_name.clone(), new_module);
+                    result.patches_applied += count;
+                }
+                Err(e) => result.errors.push(e.to_string()),
+            }
         }
     }
 

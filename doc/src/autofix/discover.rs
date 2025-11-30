@@ -305,8 +305,23 @@ pub fn parse_type_definition(
             Item::Struct(s) if s.ident == type_name => {
                 let mut fields = IndexMap::new();
                 let has_repr_c = s.attrs.iter().any(|attr| {
-                    attr.path().is_ident("repr")
-                        && attr.meta.to_token_stream().to_string().contains("C")
+                    if !attr.path().is_ident("repr") {
+                        return false;
+                    }
+                    let repr_str = attr.meta.to_token_stream().to_string();
+                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
+                    repr_str.contains("C")
+                        || repr_str.contains("transparent")
+                        || repr_str.contains("u8")
+                        || repr_str.contains("u16")
+                        || repr_str.contains("u32")
+                        || repr_str.contains("u64")
+                        || repr_str.contains("i8")
+                        || repr_str.contains("i16")
+                        || repr_str.contains("i32")
+                        || repr_str.contains("i64")
+                        || repr_str.contains("usize")
+                        || repr_str.contains("isize")
                 });
 
                 for (idx, field) in s.fields.iter().enumerate() {
@@ -339,8 +354,23 @@ pub fn parse_type_definition(
             Item::Enum(e) if e.ident == type_name => {
                 let mut variants = IndexMap::new();
                 let has_repr_c = e.attrs.iter().any(|attr| {
-                    attr.path().is_ident("repr")
-                        && attr.meta.to_token_stream().to_string().contains("C")
+                    if !attr.path().is_ident("repr") {
+                        return false;
+                    }
+                    let repr_str = attr.meta.to_token_stream().to_string();
+                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
+                    repr_str.contains("C")
+                        || repr_str.contains("transparent")
+                        || repr_str.contains("u8")
+                        || repr_str.contains("u16")
+                        || repr_str.contains("u32")
+                        || repr_str.contains("u64")
+                        || repr_str.contains("i8")
+                        || repr_str.contains("i16")
+                        || repr_str.contains("i32")
+                        || repr_str.contains("i64")
+                        || repr_str.contains("usize")
+                        || repr_str.contains("isize")
                 });
 
                 for variant in &e.variants {
@@ -479,8 +509,18 @@ pub fn parse_expanded_type(
 ) -> Result<OracleTypeInfo> {
     let type_name = type_path.split("::").last().unwrap();
 
-    // Look for repr(C) attribute
-    let has_repr_c = expanded.contains("#[repr(C)]") || expanded.contains("#[repr(C, u8)]");
+    // Look for repr(C) or integer repr attribute
+    let has_repr_c = expanded.contains("#[repr(C)]")
+        || expanded.contains("#[repr(C,")
+        || expanded.contains("#[repr(transparent)]")
+        || expanded.contains("#[repr(u8)]")
+        || expanded.contains("#[repr(u16)]")
+        || expanded.contains("#[repr(u32)]")
+        || expanded.contains("#[repr(u64)]")
+        || expanded.contains("#[repr(i8)]")
+        || expanded.contains("#[repr(i16)]")
+        || expanded.contains("#[repr(i32)]")
+        || expanded.contains("#[repr(i64)]");
 
     let mut info = OracleTypeInfo {
         correct_path: Some(type_path.to_string()),

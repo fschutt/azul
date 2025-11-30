@@ -39,15 +39,9 @@ pub fn should_suppress_type_not_found(type_name: &str) -> bool {
         "String", "str", "Vec", "Option", "Result", "Box", "Rc", "Arc", "RefCell", "Cell",
     ];
 
-    // Type aliases that are commonly used but internal
+    // Type aliases that are commonly used but internal (no longer suppressed for macro-generated types)
     const INTERNAL_ALIASES: &[&str] = &[
-        "CoreCallbackDataVec",
-        "AttributeVec",
-        "AccessibilityActionVec",
         "BoxCssPropertyCache",
-        "GridTrackSizingVec",
-        "LayoutRowGap",
-        "LayoutColumnGap",
         "Widows",
         "Orphans",
         "OptionStyledDom",
