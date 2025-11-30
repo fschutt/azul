@@ -90,11 +90,11 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         format!("<div style='box-shadow:none;padding: 0px; max-width: 700px;'>"),
         format!("<h2>Notes for non-Rust languages</h2>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/{version}/NotesForPython'>Notes for Python</a>"),
+        format!("<a href='https://azul.rs/guide/NotesForPython'>Notes for Python</a>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/{version}/NotesForC'>Notes for C</a>"),
+        format!("<a href='https://azul.rs/guide/NotesForC'>Notes for C</a>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/{version}/NotesForC++'>Notes for C++</a>"),
+        format!("<a href='https://azul.rs/guide/NotesForCpp'>Notes for C++</a>"),
         format!("</div>"),
     ]
     .join("\r\n");

@@ -395,10 +395,81 @@ fn main() -> anyhow::Result<()> {
             println!("\n✨ All language bindings generated successfully!");
             return Ok(());
         }
-        ["deploy"] => {
+        ["deploy"] | ["deploy", ..] => {
             println!("Starting Azul Build and Deploy System...");
             let api_data = load_api_json(&api_path)?;
             let config = Config::from_args();
+            println!("CONFIG={}", config.print());
+
+            // Create output directory structure
+            let output_dir = project_root.join("doc").join("target").join("deploy");
+            let image_path = output_dir.join("images");
+            let releases_dir = output_dir.join("release");
+
+            fs::create_dir_all(&output_dir)?;
+            fs::create_dir_all(&image_path)?;
+            fs::create_dir_all(&releases_dir)?;
+
+            // Generate documentation (API docs, guide, etc.)
+            println!("Generating documentation...");
+            for (path, html) in docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")? {
+                let path_real = output_dir.join(&path);
+                if let Some(parent) = path_real.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                fs::write(&path_real, &html)?;
+                println!("  [OK] Generated: {}", path);
+            }
+
+            // Generate releases pages
+            println!("Generating releases pages...");
+            let versions = api_data.get_sorted_versions();
+            
+            for version in &versions {
+                let version_dir = releases_dir.join(version);
+                fs::create_dir_all(&version_dir)?;
+                
+                // Generate release HTML page
+                let release_html = dllgen::deploy::generate_release_html(version, &api_data);
+                fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+                println!("  [OK] Generated: release/{}.html", version);
+                
+                // Create placeholder files for missing build artifacts
+                let placeholder_files = [
+                    "azul.dll", "azul.lib", "windows.pyd", "LICENSE-WINDOWS.txt",
+                    "libazul.so", "libazul.linux.a", "linux.pyd", "LICENSE-LINUX.txt",
+                    "libazul.dylib", "libazul.macos.a", "macos.pyd", "LICENSE-MACOS.txt",
+                    "azul.h", "azul.hpp",
+                ];
+                
+                for filename in &placeholder_files {
+                    let file_path = version_dir.join(filename);
+                    if !file_path.exists() {
+                        println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, filename);
+                        fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, filename))?;
+                    }
+                }
+            }
+            
+            // Generate releases index page
+            let releases_index = dllgen::deploy::generate_releases_index(&versions);
+            fs::write(output_dir.join("releases.html"), &releases_index)?;
+            println!("  [OK] Generated: releases.html");
+
+            // Copy static assets
+            let static_files = [
+                ("main.css", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/main.css"))),
+                ("logo.svg", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/logo.svg"))),
+            ];
+
+            for (name, content) in &static_files {
+                let path = output_dir.join(name);
+                fs::write(&path, content)?;
+                println!("  [OK] Copied: {}", name);
+            }
+
+            println!("\n✨ Website generated successfully in: {}", output_dir.display());
+            return Ok(());
         }
         _ => {
             print_cli_help()?;

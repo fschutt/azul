@@ -425,7 +425,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData) -> String {
               <strong>Links:</strong>
               <ul>
                 <li><a href='https://azul.rs/api/{version}'>Documentation for this release</a></li>
-                <li><a href='https://azul.rs/guide/{version}'>Guide for this release</a></li>
+                <li><a href='https://azul.rs/guide'>Guide</a></li>
                 <br/>
 
                 <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>

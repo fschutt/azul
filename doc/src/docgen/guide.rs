@@ -4,122 +4,119 @@ use super::HTML_ROOT;
 
 /// Guide information structure
 pub struct Guide {
+    /// Title extracted from first H1 header in markdown (for navigation)
     pub title: String,
+    /// File name derived from the .md filename (for URL)
     pub file_name: String,
+    /// Raw markdown content
     pub content: String,
+}
+
+/// Extract the first H1 header from markdown content as the title
+fn extract_title_from_markdown(content: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("# ") {
+            return trimmed[2..].trim().to_string();
+        }
+    }
+    "Untitled".to_string()
+}
+
+/// Create a Guide from a markdown file path and content
+fn guide_from_md(md_filename: &str, content: &'static str) -> Guide {
+    // Remove .md extension and any leading numbers/underscores for URL
+    let file_name = md_filename
+        .trim_end_matches(".md")
+        .to_string();
+    
+    let title = extract_title_from_markdown(content);
+    
+    Guide {
+        title,
+        file_name,
+        content: content.to_string(),
+    }
+}
+
+/// Pre-process markdown content:
+/// - Remove mermaid code blocks (not supported in HTML output)
+/// Note: We keep the first H1 header now since that's the real title
+fn preprocess_markdown_content(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    
+    // Remove mermaid code blocks
+    let mut result = Vec::new();
+    let mut in_mermaid_block = false;
+    
+    for line in lines {
+        if line.trim().starts_with("```mermaid") {
+            in_mermaid_block = true;
+            continue;
+        }
+        if in_mermaid_block {
+            if line.trim() == "```" {
+                in_mermaid_block = false;
+            }
+            continue;
+        }
+        result.push(line);
+    }
+    
+    result.join("\n")
 }
 
 /// Get a list of all guides
 pub fn get_guide_list() -> Vec<Guide> {
-    // In a real implementation, this would scan the guide directory
-    // and read the markdown files, converting them to HTML
-
     vec![
-        Guide {
-            title: "Installation".to_string(),
-            file_name: "Installation".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/installation.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Getting Started".to_string(),
-            file_name: "GettingStarted".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/01_Getting_Started.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Application Architecture".to_string(),
-            file_name: "ApplicationArchitecture".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/architecture.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "CSS Styling".to_string(),
-            file_name: "CssStyling".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/03_CSS_Styling.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Images, SVG and Charts".to_string(),
-            file_name: "ImagesSvgAndCharts".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/04_Images_SVG.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Timers, Threads and Animations".to_string(),
-            file_name: "TimersThreadsAndAnimations".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/05_Timers_Threads_Animations.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "OpenGL".to_string(),
-            file_name: "OpenGL".to_string(),
-            content: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/06_OpenGL.md"))
-                .to_string(),
-        },
-        Guide {
-            title: "Unit Testing".to_string(),
-            file_name: "UnitTesting".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/07_Unit_Testing.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "XHTML and azul-workbench".to_string(),
-            file_name: "XhtmlAndAzulWorkbench".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/08_XHTML_And_Workbench.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Notes for C".to_string(),
-            file_name: "NotesForC".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/09_NotesForC.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Notes for C++".to_string(),
-            file_name: "NotesForCpp".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/10_NotesForCpp.md"
-            ))
-            .to_string(),
-        },
-        Guide {
-            title: "Notes for Python".to_string(),
-            file_name: "NotesForPython".to_string(),
-            content: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/11_NotesForPython.md"
-            ))
-            .to_string(),
-        },
+        guide_from_md("installation", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/installation.md"
+        ))),
+        guide_from_md("01_Getting_Started", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/01_Getting_Started.md"
+        ))),
+        guide_from_md("architecture", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/architecture.md"
+        ))),
+        guide_from_md("03_CSS_Styling", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/03_CSS_Styling.md"
+        ))),
+        guide_from_md("04_Images_SVG", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/04_Images_SVG.md"
+        ))),
+        guide_from_md("05_Timers_Threads_Animations", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/05_Timers_Threads_Animations.md"
+        ))),
+        guide_from_md("06_OpenGL", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/06_OpenGL.md"
+        ))),
+        guide_from_md("07_Unit_Testing", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/07_Unit_Testing.md"
+        ))),
+        guide_from_md("08_XHTML_And_Workbench", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/08_XHTML_And_Workbench.md"
+        ))),
+        guide_from_md("09_NotesForC", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/09_NotesForC.md"
+        ))),
+        guide_from_md("10_NotesForCpp", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/10_NotesForCpp.md"
+        ))),
+        guide_from_md("11_NotesForPython", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/11_NotesForPython.md"
+        ))),
     ]
 }
 
@@ -127,8 +124,12 @@ pub fn get_guide_list() -> Vec<Guide> {
 pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let header_tags = crate::docgen::get_common_head_tags();
     let sidebar = crate::docgen::get_sidebar();
+    
+    // Pre-process content: remove first H1 header (we add our own) and mermaid diagrams
+    let processed_content = preprocess_markdown_content(&guide.content);
+    
     let content = comrak::markdown_to_html_with_plugins(
-        &guide.content,
+        &processed_content,
         &comrak::Options {
             render: Render::default(),
             parse: Parse::default(),
@@ -167,19 +168,23 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
 
     let css = "
         h1, h2, h3, h4 { cursor: pointer; }
-        h2 { margin-top: 10px;margin-bottom: 10px;}
-        h3 { margin-top: 10px;margin-bottom: 5px; }
-        #guide { max-width: 700px; line-height: 1.5; }
+        h1 { margin-top: 30px; margin-bottom: 10px; }
+        h2 { margin-top: 30px; margin-bottom: 10px; }
+        h3 { margin-top: 25px; margin-bottom: 5px; }
+        h4 { margin-top: 20px; margin-bottom: 5px; }
+        #guide { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
         #guide img { max-width: 700px; margin-top: 10px; margin-bottom: 10px;}
-        #guide ul {
+        #guide ul, #guide ol {
             margin-top: 10px;
             margin-bottom: 10px;
             margin-left: 30px;
         }
+        #guide li {
+            font-size: 1em;
+        }
         #guide p {
-            margin-bottom: 5px;
-            margin-top: 5px;
-            font-size: 1.2em;
+            margin-bottom: 15px;
+            margin-top: 10px;
         }
         #guide code {
             font-family: monospace;
@@ -237,7 +242,6 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         </aside>
 
         <main>
-            <h1>{title}</h1>
             <div id='guide'>
             <style>
                 {css}
@@ -245,7 +249,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             {content}
             </div>
             <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/guide/{version}'>Back to guide index</a>
+            <a href='{HTML_ROOT}/guide'>Back to guide index</a>
             </p>
         </main>
 
@@ -259,7 +263,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let mut version_items = String::new();
     for guide_page in get_guide_list() {
         version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{version}/{}\">{}</a></li>\n",
+            "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a></li>\n",
             guide_page.file_name, guide_page.title,
         ));
     }

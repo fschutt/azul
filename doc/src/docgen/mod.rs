@@ -40,26 +40,19 @@ pub fn generate_docs(
 
     let latest_version = api_data.get_latest_version_str().unwrap();
 
-    // Generate guide pages
+    // Generate guide pages (version-agnostic, only one master version)
     for guide in guide::get_guide_list() {
         let guide_html = guide::generate_guide_html(&guide, latest_version);
         docs.insert(
-            format!("guide/{}/{}.html", latest_version, guide.file_name),
+            format!("guide/{}.html", guide.file_name),
             guide_html,
-        );
-    }
-
-    for version in api_data.get_sorted_versions() {
-        docs.insert(
-            format!("guide/{version}.html"),
-            guide::generate_guide_mainpage(latest_version),
         );
     }
 
     // Generate combined guide page
     docs.insert(
         "guide.html".to_string(),
-        guide::generate_guide_index(&api_data.get_sorted_versions()),
+        guide::generate_guide_mainpage(latest_version),
     );
 
     Ok(docs)
