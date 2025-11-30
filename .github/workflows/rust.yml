@@ -20,6 +20,7 @@ on:
         options:
           - ci
           - fast-deploy
+          - fast-deploy-with-reftests
           - deploy
           - prod-deploy
         required: true
@@ -232,6 +233,68 @@ jobs:
     if: github.event.inputs.run_mode == 'fast-deploy'
     runs-on: ubuntu-latest
     needs: prepare_pages_fast
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ===================================================================
+  # ==      FAST DEPLOYMENT WITH REFTESTS ('fast-deploy-with-reftests')
+  # ==   Skips platform builds but includes reftests                 ==
+  # ===================================================================
+
+  build_pages_fast_with_reftests:
+    name: Fast Build Pages with Reftests
+    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Build website with reftests
+        run: cargo run --manifest-path doc/Cargo.toml --release -- fast-deploy-with-reftests
+
+      - name: Upload page artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-reftests-pages-artifact
+          path: 'doc/target/deploy'
+          if-no-files-found: error
+
+  prepare_pages_fast_with_reftests:
+    name: Prepare Pages Artifacts (Fast with Reftests)
+    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
+    runs-on: ubuntu-latest
+    needs: build_pages_fast_with_reftests
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fast-reftests-pages-artifact
+          path: merged-artifacts/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifacts for Pages deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'merged-artifacts'
+
+  deploy_pages_fast_with_reftests:
+    name: Deploy to GitHub Pages (Fast with Reftests)
+    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
+    runs-on: ubuntu-latest
+    needs: prepare_pages_fast_with_reftests
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
