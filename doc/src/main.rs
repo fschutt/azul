@@ -457,16 +457,7 @@ fn main() -> anyhow::Result<()> {
             println!("  [OK] Generated: releases.html");
 
             // Copy static assets
-            let static_files = [
-                ("main.css", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/main.css"))),
-                ("logo.svg", include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/logo.svg"))),
-            ];
-
-            for (name, content) in &static_files {
-                let path = output_dir.join(name);
-                fs::write(&path, content)?;
-                println!("  [OK] Copied: {}", name);
-            }
+            dllgen::deploy::copy_static_assets(&output_dir)?;
 
             println!("\n✨ Website generated successfully in: {}", output_dir.display());
             return Ok(());

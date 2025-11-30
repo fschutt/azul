@@ -1,3 +1,5 @@
+# Getting Started
+
 ## A simple window
 
 The code to create a simple application with an empty window looks like this:

@@ -4,7 +4,7 @@ use super::HTML_ROOT;
 
 /// Guide information structure
 pub struct Guide {
-    /// Title extracted from first H1 header in markdown (for navigation)
+    /// Title for navigation (from api.json or hardcoded)
     pub title: String,
     /// File name derived from the .md filename (for URL)
     pub file_name: String,
@@ -12,28 +12,15 @@ pub struct Guide {
     pub content: String,
 }
 
-/// Extract the first H1 header from markdown content as the title
-fn extract_title_from_markdown(content: &str) -> String {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("# ") {
-            return trimmed[2..].trim().to_string();
-        }
-    }
-    "Untitled".to_string()
-}
-
-/// Create a Guide from a markdown file path and content
-fn guide_from_md(md_filename: &str, content: &'static str) -> Guide {
-    // Remove .md extension and any leading numbers/underscores for URL
+/// Create a Guide from a markdown file path, content, and explicit title
+fn guide_from_md(md_filename: &str, title: &str, content: &'static str) -> Guide {
+    // Remove .md extension for URL
     let file_name = md_filename
         .trim_end_matches(".md")
         .to_string();
     
-    let title = extract_title_from_markdown(content);
-    
     Guide {
-        title,
+        title: title.to_string(),
         file_name,
         content: content.to_string(),
     }
@@ -69,53 +56,41 @@ fn preprocess_markdown_content(content: &str) -> String {
 /// Get a list of all guides
 pub fn get_guide_list() -> Vec<Guide> {
     vec![
-        guide_from_md("installation", include_str!(concat!(
+        guide_from_md("installation", "Installation", include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/guide/installation.md"
         ))),
-        guide_from_md("01_Getting_Started", include_str!(concat!(
+        guide_from_md("getting-started-rust", "Getting Started (Rust)", include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/guide/01_Getting_Started.md"
+            "/guide/getting-started-rust.md"
         ))),
-        guide_from_md("architecture", include_str!(concat!(
+        guide_from_md("getting-started-c", "Getting Started (C)", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/getting-started-c.md"
+        ))),
+        guide_from_md("getting-started-cpp", "Getting Started (C++)", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/getting-started-cpp.md"
+        ))),
+        guide_from_md("getting-started-python", "Getting Started (Python)", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/getting-started-python.md"
+        ))),
+        guide_from_md("css-styling", "CSS Styling", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/css-styling.md"
+        ))),
+        guide_from_md("widgets", "Widgets", include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/guide/widgets.md"
+        ))),
+        guide_from_md("architecture", "Architecture", include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/guide/architecture.md"
         ))),
-        guide_from_md("03_CSS_Styling", include_str!(concat!(
+        guide_from_md("comparison", "Comparison with Other Frameworks", include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/guide/03_CSS_Styling.md"
-        ))),
-        guide_from_md("04_Images_SVG", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/04_Images_SVG.md"
-        ))),
-        guide_from_md("05_Timers_Threads_Animations", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/05_Timers_Threads_Animations.md"
-        ))),
-        guide_from_md("06_OpenGL", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/06_OpenGL.md"
-        ))),
-        guide_from_md("07_Unit_Testing", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/07_Unit_Testing.md"
-        ))),
-        guide_from_md("08_XHTML_And_Workbench", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/08_XHTML_And_Workbench.md"
-        ))),
-        guide_from_md("09_NotesForC", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/09_NotesForC.md"
-        ))),
-        guide_from_md("10_NotesForCpp", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/10_NotesForCpp.md"
-        ))),
-        guide_from_md("11_NotesForPython", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/11_NotesForPython.md"
+            "/guide/comparison.md"
         ))),
     ]
 }
@@ -263,7 +238,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let mut version_items = String::new();
     for guide_page in get_guide_list() {
         version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a></li>\n",
+            "<li><a href=\"{HTML_ROOT}/guide/{}\">{}</a></li>\n",
             guide_page.file_name, guide_page.title,
         ));
     }

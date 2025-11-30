@@ -1,3 +1,5 @@
+# Installation
+
 ## Using a precompiled binary release
 
 In order to use Azul from languages other than Rust you need to use a 

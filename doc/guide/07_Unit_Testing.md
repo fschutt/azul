@@ -1,3 +1,5 @@
+# Unit Testing
+
 Unit testing can be done by using the `Dom::assert_eq` function, which
 tests your DOM against a certain XML string:
 

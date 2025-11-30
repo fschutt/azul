@@ -1,3 +1,5 @@
+# Timers, Threads & Animations
+
 This page mainly concerns itself with offloading callbacks to background threads,
 for example in order to keep the UI responsive while waiting for a large file to load.
 

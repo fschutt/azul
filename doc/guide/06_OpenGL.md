@@ -1,3 +1,5 @@
+# OpenGL Integration
+
 ## WebRender and OpenGL
 
 The general concept of interacting between OpenGL and webrender is fairly simple - you draw to a texture,

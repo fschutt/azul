@@ -193,8 +193,9 @@ pub fn get_common_head_tags() -> String {
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
   
-      <link rel='preload' as='font' href='https://azul.rs/fonts/SourceSerifPro-Regular.ttf' type='font/ttf'>
-      <link rel='preload' as='font' href='../fonts/Morris Jenson Initialen.ttf' type='font/ttf'>
+      <link rel='preload' as='font' href='https://azul.rs/fonts/SourceSerifPro-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='https://azul.rs/fonts/Morris%20Jenson%20Initialen.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='https://azul.rs/fonts/EBGaramond-Medium.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='https://azul.rs/favicon.ico'>
       <link rel='stylesheet' type='text/css' href='https://azul.rs/main.css'>
     ")
