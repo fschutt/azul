@@ -612,6 +612,7 @@ fn is_result_type(type_name: &str) -> bool {
 }
 
 /// Generate standard Vec structure: ptr, len, cap, destructor
+/// Each field must be a separate IndexMap element to conform to the API schema
 fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
     use indexmap::IndexMap;
 
@@ -619,8 +620,10 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
 
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
 
-    let mut field_map = IndexMap::new();
-    field_map.insert(
+    // IMPORTANT: Each field must be its own IndexMap element to preserve order
+    // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}]
+    let mut ptr_field = IndexMap::new();
+    ptr_field.insert(
         "ptr".to_string(),
         FieldData {
             r#type: format!("*const {}", element_type),
@@ -628,7 +631,9 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             derive: None,
         },
     );
-    field_map.insert(
+
+    let mut len_field = IndexMap::new();
+    len_field.insert(
         "len".to_string(),
         FieldData {
             r#type: "usize".to_string(),
@@ -636,7 +641,9 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             derive: None,
         },
     );
-    field_map.insert(
+
+    let mut cap_field = IndexMap::new();
+    cap_field.insert(
         "cap".to_string(),
         FieldData {
             r#type: "usize".to_string(),
@@ -644,7 +651,9 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             derive: None,
         },
     );
-    field_map.insert(
+
+    let mut destructor_field = IndexMap::new();
+    destructor_field.insert(
         "destructor".to_string(),
         FieldData {
             r#type: destructor_type,
@@ -660,7 +669,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             element_type
         )),
         custom_destructor: Some(true),
-        struct_fields: Some(vec![field_map]),
+        struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field]),
         ..Default::default()
     }
 }
@@ -872,24 +881,30 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             class_patch.doc = doc.clone();
 
             // Convert IndexMap<String, FieldInfo> to Vec<IndexMap<String, FieldData>>
-            let mut field_map = IndexMap::new();
-            for (field_name, field_info) in fields {
-                // Normalize the field type for FFI (Box<T> -> *const c_void, etc.)
-                let (normalized_type, _) =
-                    crate::autofix::utils::normalize_generic_type(&field_info.ty);
+            // IMPORTANT: Each field must be its own IndexMap element to preserve order
+            // Schema: [{"field1": {...}}, {"field2": {...}}, ...]
+            let struct_fields: Vec<IndexMap<String, FieldData>> = fields
+                .iter()
+                .map(|(field_name, field_info)| {
+                    // Normalize the field type for FFI (Box<T> -> *const c_void, etc.)
+                    let (normalized_type, _) =
+                        crate::autofix::utils::normalize_generic_type(&field_info.ty);
 
-                field_map.insert(
-                    field_name.clone(),
-                    FieldData {
-                        r#type: normalized_type,
-                        doc: field_info.doc.clone(),
-                        derive: None,
-                    },
-                );
-            }
+                    let mut single_field = IndexMap::new();
+                    single_field.insert(
+                        field_name.clone(),
+                        FieldData {
+                            r#type: normalized_type,
+                            doc: field_info.doc.clone(),
+                            derive: None,
+                        },
+                    );
+                    single_field
+                })
+                .collect();
 
-            if !field_map.is_empty() {
-                class_patch.struct_fields = Some(vec![field_map]);
+            if !struct_fields.is_empty() {
+                class_patch.struct_fields = Some(struct_fields);
             }
         }
         TypeKind::Enum { variants, doc, .. } => {
@@ -1185,13 +1200,10 @@ pub fn has_field_changes(
                 return true;
             };
 
-            // struct_fields is an array with one element that is a map of all fields
-            // Extract the actual fields from the first (and only) map element
-            let api_field_count = if let Some(first_map) = api_fields.first() {
-                first_map.len()
-            } else {
-                0
-            };
+            // struct_fields is an array where each element is a single-key map
+            // Schema: [{"field1": {...}}, {"field2": {...}}, ...]
+            // Count the total number of fields across all maps (should be 1 per map)
+            let api_field_count = api_fields.len();
 
             // Compare field count
             if fields.len() != api_field_count {
@@ -1206,18 +1218,22 @@ pub fn has_field_changes(
                 return true;
             }
 
-            // Compare each field - iterate through the keys in the first map
-            if let Some(api_field_map) = api_fields.first() {
-                for (workspace_field_name, _workspace_field) in fields.iter() {
-                    if !api_field_map.contains_key(workspace_field_name) {
-                        messages.push(AutofixMessage::GenericWarning {
-                            message: format!(
-                                "{}: Field '{}' not found in API",
-                                class_name, workspace_field_name
-                            ),
-                        });
-                        return true;
-                    }
+            // Build a set of all field names in the API
+            let api_field_names: std::collections::HashSet<&String> = api_fields
+                .iter()
+                .flat_map(|field_map| field_map.keys())
+                .collect();
+
+            // Compare each field - check if workspace fields exist in API
+            for (workspace_field_name, _workspace_field) in fields.iter() {
+                if !api_field_names.contains(workspace_field_name) {
+                    messages.push(AutofixMessage::GenericWarning {
+                        message: format!(
+                            "{}: Field '{}' not found in API",
+                            class_name, workspace_field_name
+                        ),
+                    });
+                    return true;
                 }
             }
 
@@ -1235,13 +1251,10 @@ pub fn has_field_changes(
                 return true;
             };
 
-            // enum_fields is an array with one element that is a map of all variants
-            // Extract the actual variant count from the first (and only) map element
-            let api_variant_count = if let Some(first_map) = api_variants.first() {
-                first_map.len()
-            } else {
-                0
-            };
+            // enum_fields is an array where each element is a single-key map
+            // Schema: [{"Variant1": {...}}, {"Variant2": {...}}, ...]
+            // Count the total number of variants
+            let api_variant_count = api_variants.len();
 
             // Compare variant count
             if variants.len() != api_variant_count {
@@ -1256,18 +1269,22 @@ pub fn has_field_changes(
                 return true;
             }
 
-            // Compare each variant name - check if they exist in the first map
-            if let Some(api_variant_map) = api_variants.first() {
-                for workspace_variant_name in variants.keys() {
-                    if !api_variant_map.contains_key(workspace_variant_name) {
-                        messages.push(AutofixMessage::GenericWarning {
-                            message: format!(
-                                "{}: Variant '{}' not found in API",
-                                class_name, workspace_variant_name
-                            ),
-                        });
-                        return true;
-                    }
+            // Build a set of all variant names in the API
+            let api_variant_names: std::collections::HashSet<&String> = api_variants
+                .iter()
+                .flat_map(|variant_map| variant_map.keys())
+                .collect();
+
+            // Compare each variant name - check if workspace variants exist in API
+            for workspace_variant_name in variants.keys() {
+                if !api_variant_names.contains(workspace_variant_name) {
+                    messages.push(AutofixMessage::GenericWarning {
+                        message: format!(
+                            "{}: Variant '{}' not found in API",
+                            class_name, workspace_variant_name
+                        ),
+                    });
+                    return true;
                 }
             }
         }
