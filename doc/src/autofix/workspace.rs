@@ -43,6 +43,10 @@ pub enum TypeOrigin {
     GenericArgument { parent_type: String },
     /// Type was found in a callback typedef parameter
     CallbackParameter { parent_type: String },
+    /// Type was found as a callback argument
+    CallbackArg { parent_type: String },
+    /// Type was found as a callback return type
+    CallbackReturn { parent_type: String },
 }
 
 impl fmt::Display for TypeOrigin {
@@ -69,6 +73,12 @@ impl fmt::Display for TypeOrigin {
             }
             Self::CallbackParameter { parent_type } => {
                 write!(f, "Callback parameter in '{}'", parent_type)
+            }
+            Self::CallbackArg { parent_type } => {
+                write!(f, "Callback argument in '{}'", parent_type)
+            }
+            Self::CallbackReturn { parent_type } => {
+                write!(f, "Callback return type in '{}'", parent_type)
             }
         }
     }
@@ -314,6 +324,34 @@ pub fn collect_referenced_types_from_type_info(
                 }
             }
         }
+        TypeKind::CallbackTypedef {
+            fn_args,
+            returns,
+            ..
+        } => {
+            // Add all argument types
+            for arg in fn_args {
+                if let Some(base_type) = extract_base_type_if_not_opaque(&arg.ty) {
+                    types.insert(
+                        base_type.clone(),
+                        TypeOrigin::CallbackArg {
+                            parent_type: parent_type.clone(),
+                        },
+                    );
+                }
+            }
+            // Add return type if present
+            if let Some(ret) = returns {
+                if let Some(base_type) = extract_base_type_if_not_opaque(ret) {
+                    types.insert(
+                        base_type.clone(),
+                        TypeOrigin::CallbackReturn {
+                            parent_type: parent_type.clone(),
+                        },
+                    );
+                }
+            }
+        }
     }
 
     types
@@ -421,6 +459,11 @@ pub fn generate_patches(
         if is_vec_type(&class_name) {
             generate_synthetic_vec_types(&class_name, &type_info.full_path, &mut all_patches);
         }
+        
+        // If this is an Option type, generate the synthetic Option enum in the "option" module
+        if is_option_type(&class_name) {
+            generate_synthetic_option_type(&class_name, &type_info.full_path, &mut all_patches);
+        }
     }
 
     // 2. Add patches for external path changes
@@ -455,6 +498,15 @@ pub fn generate_patches(
             // If this is a Vec type, generate the synthetic Destructor and DestructorType
             if is_vec_type(&change.class_name) {
                 generate_synthetic_vec_types(
+                    &change.class_name,
+                    &change.new_path,
+                    &mut all_patches,
+                );
+            }
+            
+            // If this is an Option type, generate the synthetic Option enum in the "option" module
+            if is_option_type(&change.class_name) {
+                generate_synthetic_option_type(
                     &change.class_name,
                     &change.new_path,
                     &mut all_patches,
@@ -625,22 +677,28 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
     let base_name = type_name.trim_end_matches("VecDestructor");
     let destructor_callback_simple = format!("{}VecDestructorType", base_name);
 
-    let mut variant_map = IndexMap::new();
-    variant_map.insert(
+    // IMPORTANT: Each variant must be its own IndexMap element to preserve order
+    // Schema: [{"DefaultRust": {}}, {"NoDestructor": {}}, {"External": {"type": "T"}}]
+    let mut default_rust = IndexMap::new();
+    default_rust.insert(
         "DefaultRust".to_string(),
         EnumVariantData {
             r#type: None,
             doc: None,
         },
     );
-    variant_map.insert(
+    
+    let mut no_destructor = IndexMap::new();
+    no_destructor.insert(
         "NoDestructor".to_string(),
         EnumVariantData {
             r#type: None,
             doc: None,
         },
     );
-    variant_map.insert(
+    
+    let mut external = IndexMap::new();
+    external.insert(
         "External".to_string(),
         EnumVariantData {
             r#type: Some(destructor_callback_simple),
@@ -651,7 +709,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
     ClassPatch {
         external: Some(external_path.to_string()),
         derive: Some(vec!["Copy".to_string()]),
-        enum_fields: Some(vec![variant_map]),
+        enum_fields: Some(vec![default_rust, no_destructor, external]),
         ..Default::default()
     }
 }
@@ -723,6 +781,81 @@ fn generate_synthetic_vec_types(
         .or_insert_with(|| generate_vec_destructor_callback(vec_type_name));
 }
 
+/// Generate synthetic Option type enum: None, Some(T)
+/// All Option types go into the "option" module regardless of their source module
+fn generate_synthetic_option_type(
+    option_type_name: &str,
+    external_path: &str,
+    all_patches: &mut std::collections::BTreeMap<(String, String), crate::patch::ClassPatch>,
+) {
+    use indexmap::IndexMap;
+    use crate::api::EnumVariantData;
+
+    // Extract the inner type from OptionFoo -> Foo
+    let inner_type = option_type_name.trim_start_matches("Option");
+    
+    if inner_type.is_empty() {
+        return; // Invalid option type name
+    }
+
+    // All Option types go into the "option" module
+    let option_key = ("option".to_string(), option_type_name.to_string());
+    
+    // Check if already exists with proper enum_fields
+    if let Some(existing) = all_patches.get(&option_key) {
+        if existing.enum_fields.is_some() {
+            return; // Already properly defined
+        }
+    }
+
+    // Generate the Option enum with proper schema:
+    // [{"None": {}}, {"Some": {"type": "InnerType"}}]
+    let mut none_variant = IndexMap::new();
+    none_variant.insert(
+        "None".to_string(),
+        EnumVariantData {
+            r#type: None,
+            doc: None,
+        },
+    );
+
+    let mut some_variant = IndexMap::new();
+    some_variant.insert(
+        "Some".to_string(),
+        EnumVariantData {
+            r#type: Some(inner_type.to_string()),
+            doc: None,
+        },
+    );
+
+    // Only add Copy derive for primitive inner types that are definitely Copy
+    // For complex types, we can't know if they're Copy without checking all_patches
+    let primitive_copy_types = [
+        "F32", "F64", "I8", "I16", "I32", "I64", "I128",
+        "U8", "U16", "U32", "U64", "U128", "Usize", "Isize",
+        "Bool", "Char",
+        // Also some specific types we know are Copy
+        "NodeId", "DomNodeId", "ThreadId", "TimerId", "ColorU",
+        "LayoutRect", "LayoutPoint", "LogicalPosition", "LogicalSize",
+        "PhysicalPosition", "PhysicalSize", "WindowTheme",
+    ];
+    
+    let derive = if primitive_copy_types.contains(&inner_type) {
+        Some(vec!["Copy".to_string()])
+    } else {
+        None // Don't assume Copy for complex types
+    };
+
+    let class_patch = ClassPatch {
+        external: Some(external_path.to_string()),
+        derive,
+        enum_fields: Some(vec![none_variant, some_variant]),
+        ..Default::default()
+    };
+
+    all_patches.insert(option_key, class_patch);
+}
+
 /// Convert ParsedTypeInfo to ClassPatch
 pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatch {
     use indexmap::IndexMap;
@@ -763,25 +896,32 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             class_patch.doc = doc.clone();
 
             // Convert IndexMap<String, VariantInfo> to Vec<IndexMap<String, EnumVariantData>>
-            let mut variant_map = IndexMap::new();
-            for (variant_name, variant_info) in variants {
-                // Normalize variant type for FFI (Box<T> -> *const c_void, etc.)
-                let normalized_type = variant_info
-                    .ty
-                    .as_ref()
-                    .map(|ty| crate::autofix::utils::normalize_generic_type(ty).0);
+            // IMPORTANT: Each variant must be its own IndexMap element in the Vec
+            // to preserve variant order (JSON objects don't guarantee order)
+            // Schema: [{"Variant1": {}}, {"Variant2": {"type": "T"}}]
+            let enum_fields: Vec<IndexMap<String, EnumVariantData>> = variants
+                .iter()
+                .map(|(variant_name, variant_info)| {
+                    // Normalize variant type for FFI (Box<T> -> *const c_void, etc.)
+                    let normalized_type = variant_info
+                        .ty
+                        .as_ref()
+                        .map(|ty| crate::autofix::utils::normalize_generic_type(ty).0);
 
-                variant_map.insert(
-                    variant_name.clone(),
-                    EnumVariantData {
-                        r#type: normalized_type,
-                        doc: variant_info.doc.clone(),
-                    },
-                );
-            }
+                    let mut single_variant = IndexMap::new();
+                    single_variant.insert(
+                        variant_name.clone(),
+                        EnumVariantData {
+                            r#type: normalized_type,
+                            doc: variant_info.doc.clone(),
+                        },
+                    );
+                    single_variant
+                })
+                .collect();
 
-            if !variant_map.is_empty() {
-                class_patch.enum_fields = Some(vec![variant_map]);
+            if !enum_fields.is_empty() {
+                class_patch.enum_fields = Some(enum_fields);
             }
         }
         TypeKind::TypeAlias {
@@ -812,6 +952,44 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                     generic_args: vec![],
                 });
             }
+        }
+        TypeKind::CallbackTypedef {
+            fn_args,
+            returns,
+            doc,
+        } => {
+            // For callback typedefs, create the callback_typedef structure
+            use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData};
+            
+            let callback_args: Vec<CallbackArgData> = fn_args.iter().map(|arg| {
+                CallbackArgData {
+                    r#type: arg.ty.clone(),
+                    ref_kind: arg.ref_kind.clone(),
+                    doc: None,
+                }
+            }).collect();
+            
+            let return_data = returns.as_ref().map(|ret| {
+                ReturnTypeData {
+                    r#type: ret.clone(),
+                    doc: None,
+                }
+            });
+            
+            class_patch.callback_typedef = Some(CallbackDefinition {
+                fn_args: callback_args,
+                returns: return_data,
+            });
+            
+            // Don't set type_alias for callbacks - it would be corrupt anyway
+            class_patch.type_alias = None;
+            
+            // Use existing doc or create one describing the callback
+            class_patch.doc = doc.clone().or_else(|| {
+                let args_str = fn_args.iter().map(|a| format!("{} {}", a.ref_kind, a.ty)).collect::<Vec<_>>().join(", ");
+                let ret_str = returns.as_ref().map(|r| format!(" -> {}", r)).unwrap_or_default();
+                Some(format!("Callback function: fn({}){}", args_str, ret_str))
+            });
         }
     }
 
@@ -901,6 +1079,7 @@ pub fn virtual_patch_application(
                     TypeKind::Struct { has_repr_c, .. } => *has_repr_c,
                     TypeKind::Enum { has_repr_c, .. } => *has_repr_c,
                     TypeKind::TypeAlias { .. } => true, // Type aliases don't have layout
+                    TypeKind::CallbackTypedef { .. } => true, // Callbacks are extern "C"
                 };
 
                 if !has_repr_c {
@@ -1102,6 +1281,17 @@ pub fn has_field_changes(
                 return true;
             }
             // Type alias exists in both - no field comparison needed
+            return false;
+        }
+        TypeKind::CallbackTypedef { .. } => {
+            // Check if API has callback_typedef field
+            if api_class.callback_typedef.is_none() {
+                messages.push(AutofixMessage::GenericWarning {
+                    message: format!("{}: API missing callback_typedef field, will update", class_name),
+                });
+                return true;
+            }
+            // Callback typedef exists in both - no field comparison needed
             return false;
         }
     }

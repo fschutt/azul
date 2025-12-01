@@ -38,8 +38,16 @@ impl CompiledRegexes {
         // Pre-compile a regex for each type (for whole-word matching)
         let mut type_regexes = HashMap::new();
         for type_name in &all_types {
-            // Skip special cases
+            // Skip special cases and primitive types
             if type_name == "String" || type_name == "Vec" {
+                continue;
+            }
+            // Skip primitive types that should never get a prefix
+            if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
+                continue;
+            }
+            // Skip single-letter generic type parameters (e.g., T, U, V)
+            if is_generic_type_param(type_name) {
                 continue;
             }
 

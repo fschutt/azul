@@ -283,6 +283,10 @@ pub fn autofix_api_recursive(
                         // Type aliases don't have layout attributes, allow them
                         true
                     }
+                    TypeKind::CallbackTypedef { .. } => {
+                        // Callback typedefs are always extern "C", allow them
+                        true
+                    }
                 };
 
                 if !has_repr_c {

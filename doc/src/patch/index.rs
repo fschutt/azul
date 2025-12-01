@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
+use quote::ToTokens;
 use regex::Regex;
 use syn::{File, Item};
 
@@ -61,6 +62,23 @@ pub enum TypeKind {
         generic_args: Vec<String>,
         doc: Option<String>,
     },
+    /// Callback function pointer type: `extern "C" fn(...) -> ReturnType`
+    CallbackTypedef {
+        /// Arguments to the callback function
+        fn_args: Vec<CallbackArgInfo>,
+        /// Return type of the callback (None = void)
+        returns: Option<String>,
+        doc: Option<String>,
+    },
+}
+
+/// Information about a callback function argument
+#[derive(Debug, Clone)]
+pub struct CallbackArgInfo {
+    /// The type of the argument (e.g., "c_void", "RefAny")
+    pub ty: String,
+    /// How the argument is passed: "ref" (*const), "refmut" (*mut), "value"
+    pub ref_kind: String,
 }
 
 #[derive(Debug, Clone)]
@@ -596,6 +614,13 @@ impl WorkspaceIndex {
                 has_repr_c: false,
                 is_enum: false,
             },
+            TypeKind::CallbackTypedef { .. } => crate::autofix::discover::OracleTypeInfo {
+                correct_path: Some(type_info.full_path.clone()),
+                fields: IndexMap::new(),
+                variants: IndexMap::new(),
+                has_repr_c: false,
+                is_enum: false,
+            },
         }
     }
 }
@@ -877,24 +902,61 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
             Item::Type(t) => {
                 let type_name = t.ident.to_string();
                 let full_path = build_full_path(&crate_name, &module_path, &type_name);
+                let doc = crate::autofix::utils::extract_doc_comments(&t.attrs);
+                let source_code = t.to_token_stream().to_string();
 
-                // Parse the target type and extract generic information
-                let (generic_base, generic_args) = parse_generic_type_alias(&t.ty);
-                let target = t.ty.to_token_stream().to_string();
+                // Check if this is an extern "C" fn type (callback typedef)
+                if let syn::Type::BareFn(bare_fn) = &*t.ty {
+                    // Parse the callback function arguments
+                    let fn_args: Vec<CallbackArgInfo> = bare_fn.inputs.iter().map(|arg| {
+                        parse_callback_arg(&arg.ty)
+                    }).collect();
+                    
+                    // Parse the return type
+                    let returns = match &bare_fn.output {
+                        syn::ReturnType::Default => None,
+                        syn::ReturnType::Type(_, ty) => {
+                            let ret_str = ty.to_token_stream().to_string();
+                            let cleaned = crate::autofix::utils::clean_type_string(&ret_str);
+                            if cleaned.is_empty() || cleaned == "()" {
+                                None
+                            } else {
+                                Some(cleaned)
+                            }
+                        }
+                    };
 
-                types.push(ParsedTypeInfo {
-                    full_path,
-                    type_name,
-                    file_path: parsed_file.path.clone(),
-                    module_path: module_path.clone(),
-                    kind: TypeKind::TypeAlias {
-                        target: crate::autofix::utils::clean_type_string(&target),
-                        generic_base,
-                        generic_args,
-                        doc: crate::autofix::utils::extract_doc_comments(&t.attrs),
-                    },
-                    source_code: t.to_token_stream().to_string(),
-                });
+                    types.push(ParsedTypeInfo {
+                        full_path,
+                        type_name,
+                        file_path: parsed_file.path.clone(),
+                        module_path: module_path.clone(),
+                        kind: TypeKind::CallbackTypedef {
+                            fn_args,
+                            returns,
+                            doc,
+                        },
+                        source_code,
+                    });
+                } else {
+                    // Regular type alias
+                    let (generic_base, generic_args) = parse_generic_type_alias(&t.ty);
+                    let target = t.ty.to_token_stream().to_string();
+
+                    types.push(ParsedTypeInfo {
+                        full_path,
+                        type_name,
+                        file_path: parsed_file.path.clone(),
+                        module_path: module_path.clone(),
+                        kind: TypeKind::TypeAlias {
+                            target: crate::autofix::utils::clean_type_string(&target),
+                            generic_base,
+                            generic_args,
+                            doc,
+                        },
+                        source_code,
+                    });
+                }
             }
             _ => {}
         }
@@ -905,6 +967,52 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 
 /// Parse a type alias to extract generic base type and arguments
 /// e.g., "CssPropertyValue<LayoutZIndex>" -> ("CssPropertyValue", ["LayoutZIndex"])
+/// Parse a callback function argument to extract type and ref_kind
+fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
+    match ty {
+        syn::Type::Ptr(ptr) => {
+            // Handle *const T or *mut T
+            let inner_type = crate::autofix::utils::clean_type_string(
+                &ptr.elem.to_token_stream().to_string()
+            );
+            let ref_kind = if ptr.mutability.is_some() {
+                "refmut".to_string()
+            } else {
+                "ref".to_string()
+            };
+            CallbackArgInfo {
+                ty: inner_type,
+                ref_kind,
+            }
+        }
+        syn::Type::Reference(reference) => {
+            // Handle &T or &mut T
+            let inner_type = crate::autofix::utils::clean_type_string(
+                &reference.elem.to_token_stream().to_string()
+            );
+            let ref_kind = if reference.mutability.is_some() {
+                "refmut".to_string()
+            } else {
+                "ref".to_string()
+            };
+            CallbackArgInfo {
+                ty: inner_type,
+                ref_kind,
+            }
+        }
+        _ => {
+            // Value type
+            let type_str = crate::autofix::utils::clean_type_string(
+                &ty.to_token_stream().to_string()
+            );
+            CallbackArgInfo {
+                ty: type_str,
+                ref_kind: "value".to_string(),
+            }
+        }
+    }
+}
+
 fn parse_generic_type_alias(ty: &syn::Type) -> (Option<String>, Vec<String>) {
     match ty {
         syn::Type::Path(type_path) => {
