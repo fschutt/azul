@@ -64,6 +64,7 @@ pub fn generate_rust_dll_bindings(
         private_pointers: config.private_pointers,
         no_derive: false,
         wrapper_postfix: config.wrapper_postfix.clone(),
+        ..Default::default()
     };
 
     let types_code = generate_structs(version_data, structs_map, &types_config)?;
@@ -179,18 +180,23 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
                 .derive
                 .as_ref()
                 .map_or(false, |d| d.contains(&"Copy".to_string()));
-            let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
+            let class_has_custom_drop = class_data.has_custom_drop();
             let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
 
-            if !class_can_be_copied && (class_has_custom_destructor || treat_external_as_ptr) {
+            if !class_can_be_copied && (class_has_custom_drop || treat_external_as_ptr) {
                 let delete_fn_name = format!("{}_delete", class_ptr_name);
                 let delete_args = format!("object: &mut {}", class_ptr_name);
                 functions_map.insert(delete_fn_name, (delete_args, String::new()));
             }
 
             // Add deepCopy function if needed
-            let class_can_be_cloned = class_data.clone.unwrap_or(true);
-            if treat_external_as_ptr && class_can_be_cloned {
+            let class_has_custom_clone = class_data.has_custom_clone() 
+                || class_data.has_custom_impl("Clone");
+            // Generate deepCopy ONLY if: boxed object AND has explicit custom Clone impl
+            // Note: can_derive_clone() is NOT sufficient because treat_external_as_ptr
+            // disables auto-derive Clone in struct_gen.rs, so we'd generate a _deepCopy
+            // function that calls object.clone() on a type without Clone
+            if treat_external_as_ptr && class_has_custom_clone {
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
                 functions_map.insert(copy_fn_name, (copy_args, class_ptr_name.clone()));

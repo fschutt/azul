@@ -63,6 +63,27 @@
     }
 
     
+    impl Clone for crate::str::String {
+        fn clone(&self) -> Self {
+            Self { vec: self.vec.clone() }
+        }
+    }
+
+    
+    impl PartialEq for crate::str::String {
+        fn eq(&self, other: &Self) -> bool {
+            self.as_str() == other.as_str()
+        }
+    }
+
+    
+    impl PartialOrd for crate::str::String {
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            self.as_str().partial_cmp(other.as_str())
+        }
+    }
+
+    
     impl crate::str::String {
 
         #[inline(always)]

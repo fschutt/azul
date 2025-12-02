@@ -28,6 +28,10 @@ pub struct GenerateConfig {
     pub no_derive: bool,
     /// Suffix to add to enum wrapper types
     pub wrapper_postfix: String,
+    /// Whether to ignore `derive: []` and still generate auto-derives
+    /// Used for memtest where we need derives even for types that
+    /// normally get their traits from impl_option!/impl_vec! macros
+    pub ignore_empty_derive: bool,
 }
 
 impl Default for GenerateConfig {
@@ -39,6 +43,7 @@ impl Default for GenerateConfig {
             private_pointers: true,
             no_derive: false,
             wrapper_postfix: String::new(),
+            ignore_empty_derive: false,
         }
     }
 }
@@ -50,6 +55,9 @@ pub struct StructMetadata {
     pub doc: Option<String>,
     pub external: Option<String>,
     pub derive: Vec<String>,
+    /// True if derive was explicitly set (even if empty), false if defaulted
+    /// When true and derive is empty, no auto-derives will be generated
+    pub has_explicit_derive: bool,
     pub is_callback_typedef: bool,
     pub can_be_copied: bool,
     pub can_be_serde_serialized: bool,
@@ -69,11 +77,14 @@ pub struct StructMetadata {
     pub callback_typedef: Option<crate::api::CallbackDefinition>,
     pub type_alias: Option<crate::api::TypeAliasInfo>,
     pub generic_params: Option<Vec<String>>,
+    /// Traits with manual implementations (e.g., ["Clone", "Drop"])
+    pub custom_impls: Vec<String>,
 }
 
 impl StructMetadata {
     /// Extract metadata from ClassData
     pub fn from_class_data(name: String, class_data: &ClassData) -> Self {
+        let has_explicit_derive = class_data.derive.is_some();
         let derive = class_data.derive.clone().unwrap_or_default();
 
         let is_callback_typedef = class_data.callback_typedef.is_some();
@@ -85,16 +96,32 @@ impl StructMetadata {
         let implements_ord = derive.contains(&"Ord".to_string());
         let implements_hash = derive.contains(&"Hash".to_string());
 
-        let has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
-        let can_be_cloned = class_data.clone.unwrap_or(true);
+        let has_custom_destructor = class_data.has_custom_drop();
+        let can_be_cloned = class_data.can_derive_clone();
         let is_boxed_object = class_data.is_boxed_object;
         let treat_external_as_ptr = class_data.external.is_some() && is_boxed_object;
+        let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
+
+        // DEBUG: Print custom_impls for RefAny specifically
+        if name == "RefAny" {
+            eprintln!("[DEBUG from_class_data] RefAny:");
+            eprintln!("  class_data.custom_impls: {:?}", class_data.custom_impls);
+            eprintln!("  custom_impls: {:?}", custom_impls);
+            eprintln!("  has_custom_clone: {}", has_custom_destructor);
+            eprintln!("  can_be_cloned: {}", can_be_cloned);
+        }
+        
+        // DEBUG: Print custom_impls for types that have them
+        if !custom_impls.is_empty() {
+            eprintln!("[DEBUG] Type '{}' has custom_impls: {:?}", name, custom_impls);
+        }
 
         Self {
             name,
             doc: class_data.doc.clone(),
             external: class_data.external.clone(),
             derive,
+            has_explicit_derive,
             is_callback_typedef,
             can_be_copied,
             can_be_serde_serialized,
@@ -114,6 +141,7 @@ impl StructMetadata {
             callback_typedef: class_data.callback_typedef.clone(),
             type_alias: class_data.type_alias.clone(),
             generic_params: class_data.generic_params.clone(),
+            custom_impls,
         }
     }
 }
@@ -395,23 +423,30 @@ fn generate_struct_definition(
 ) -> Result<String> {
     let mut code = String::new();
 
+    // If derive was explicitly set to empty [], don't generate any auto-derives
+    // This is used for Vec/Option types that get their traits from impl_vec!/impl_option! macros
+    // UNLESS ignore_empty_derive is set (for memtest, where we need derives)
+    let skip_auto_derives = struct_meta.has_explicit_derive 
+        && struct_meta.derive.is_empty() 
+        && !config.ignore_empty_derive;
+
     // Determine derives
-    let mut opt_derive_debug = if !config.no_derive {
+    let mut opt_derive_debug = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Debug)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_clone = if !config.no_derive {
+    let mut opt_derive_clone = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Clone)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_copy = if !config.no_derive {
+    let mut opt_derive_copy = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Copy)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_other = if !config.no_derive {
+    let mut opt_derive_other = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(PartialEq, PartialOrd)]\n", indent_str)
     } else {
         String::new()
@@ -438,8 +473,12 @@ fn generate_struct_definition(
         opt_derive_copy.clear();
     }
 
+    // For pointer types (treat_external_as_ptr), normally we don't derive Clone
+    // because Clone needs special handling (ref-counting, etc.)
+    // BUT: if ignore_empty_derive is set (memtest), we DO want derive Clone
+    // because there are no manual impl_vec!/impl_option! macros
     if !struct_meta.can_be_cloned
-        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned)
+        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned && !config.ignore_empty_derive)
     {
         opt_derive_clone.clear();
     }
@@ -448,7 +487,18 @@ fn generate_struct_definition(
         opt_derive_debug.clear();
     }
 
-    if struct_meta.has_custom_destructor || !config.autoderive || struct_name == "AzU8VecRef" {
+    // For types with custom destructor: they can't be Copy, but can still have Debug/PartialEq/etc
+    // Only clear Clone if has_custom_destructor (since we generate impl Clone)
+    // BUT: if ignore_empty_derive is set (memtest), we need derive Clone
+    if struct_meta.has_custom_destructor && !config.ignore_empty_derive {
+        opt_derive_copy.clear();
+        opt_derive_clone.clear(); // Will be manually implemented
+    } else if struct_meta.has_custom_destructor {
+        opt_derive_copy.clear(); // Copy is never allowed with custom destructor
+    }
+    
+    // Completely disable all derives for U8VecRef and when autoderive is off
+    if !config.autoderive || struct_name == "AzU8VecRef" {
         opt_derive_copy.clear();
         opt_derive_debug.clear();
         opt_derive_clone.clear();
@@ -674,6 +724,42 @@ fn generate_struct_definition(
 
     code.push_str(&format!("{}}}\n\n", indent_str));
 
+    // Generate impl Clone if custom_impls contains "Clone"
+    if struct_meta.custom_impls.contains(&"Clone".to_string()) {
+        code.push_str(&format!(
+            "{}impl Clone for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn clone(&self) -> Self {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ {}_deepCopy(self) }}\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // Generate impl Drop if custom_impls contains "Drop"
+    if struct_meta.custom_impls.contains(&"Drop".to_string()) {
+        code.push_str(&format!(
+            "{}impl Drop for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn drop(&mut self) {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ {}_delete(self) }}\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
     Ok(code)
 }
 
@@ -702,23 +788,30 @@ fn generate_enum_definition(
         repr = format!("{}#[repr({})]\n", indent_str, custom_repr);
     }
 
+    // If derive was explicitly set to empty [], don't generate any auto-derives
+    // This is used for Vec/Option types that get their traits from impl_vec!/impl_option! macros
+    // UNLESS ignore_empty_derive is set (for memtest, where we need derives)
+    let skip_auto_derives = struct_meta.has_explicit_derive 
+        && struct_meta.derive.is_empty() 
+        && !config.ignore_empty_derive;
+
     // Determine derives (same logic as structs)
-    let mut opt_derive_debug = if !config.no_derive {
+    let mut opt_derive_debug = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Debug)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_clone = if !config.no_derive {
+    let mut opt_derive_clone = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Clone)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_copy = if !config.no_derive {
+    let mut opt_derive_copy = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(Copy)]\n", indent_str)
     } else {
         String::new()
     };
-    let mut opt_derive_other = if !config.no_derive {
+    let mut opt_derive_other = if !config.no_derive && !skip_auto_derives {
         format!("{}#[derive(PartialEq, PartialOrd)]\n", indent_str)
     } else {
         String::new()
@@ -731,13 +824,17 @@ fn generate_enum_definition(
         opt_derive_copy.clear();
     }
 
+    // For pointer types, normally we don't derive Clone, but for memtest we do
     if !struct_meta.can_be_cloned
-        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned)
+        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned && !config.ignore_empty_derive)
     {
         opt_derive_clone.clear();
     }
 
-    if struct_meta.has_custom_destructor || !config.autoderive {
+    // For types with explicit empty derive, skip the has_custom_destructor clearing
+    // since they already have skip_auto_derives set
+    // For memtest (ignore_empty_derive), we still need derives
+    if !skip_auto_derives && !config.ignore_empty_derive && (struct_meta.has_custom_destructor || !config.autoderive) {
         opt_derive_copy.clear();
         opt_derive_debug.clear();
         opt_derive_clone.clear();
@@ -1126,6 +1223,9 @@ mod tests {
             struct_fields: Some(struct_fields),
             enum_fields: None,
             callback_typedef: None,
+            type_alias: None,
+            generic_params: None,
+            custom_impls: Vec::new(),
         };
 
         let mut structs_map = HashMap::new();
@@ -1209,6 +1309,9 @@ mod tests {
             struct_fields: None,
             enum_fields: Some(enum_fields),
             callback_typedef: None,
+            type_alias: None,
+            generic_params: None,
+            custom_impls: Vec::new(),
         };
 
         let mut structs_map = HashMap::new();
@@ -1281,6 +1384,9 @@ mod tests {
             struct_fields: None,
             enum_fields: Some(enum_fields),
             callback_typedef: None,
+            type_alias: None,
+            generic_params: None,
+            custom_impls: Vec::new(),
         };
 
         let mut structs_map = HashMap::new();

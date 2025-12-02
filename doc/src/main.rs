@@ -590,6 +590,22 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
                 type_alias_count
             );
         }
+        
+        // DEBUG: Check if custom_impls was deserialized for RefAny
+        if let Some(refany_module) = version_data.api.get("refany") {
+            if let Some(refany_class) = refany_module.classes.get("RefAny") {
+                eprintln!("DEBUG load_api_json: RefAny found");
+                eprintln!("  custom_impls: {:?}", refany_class.custom_impls);
+                eprintln!("  clone: {:?}", refany_class.clone);
+                eprintln!("  custom_destructor: {:?}", refany_class.custom_destructor);
+                eprintln!("  has_custom_clone(): {}", refany_class.has_custom_clone());
+                eprintln!("  has_custom_drop(): {}", refany_class.has_custom_drop());
+            } else {
+                eprintln!("DEBUG load_api_json: RefAny NOT found in refany.classes");
+            }
+        } else {
+            eprintln!("DEBUG load_api_json: refany module NOT found");
+        }
     }
 
     Ok(api_data)

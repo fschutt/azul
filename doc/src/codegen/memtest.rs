@@ -488,13 +488,77 @@ fn generate_dll_module(
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
+        // For memtest, ignore derive: [] because we need the derives
+        // (Vec/Option types won't have impl_vec!/impl_option! macros)
+        ignore_empty_derive: true,
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
     );
 
+    // Generate Debug/PartialEq/PartialOrd implementations for VecDestructor types
+    // These contain function pointers which can't derive these traits, so we compare by pointer address
+    println!("      [IMPL] Generating VecDestructor trait implementations...");
+    dll_code.push_str("\n    // ===== VecDestructor Trait Implementations =====\n");
+    dll_code.push_str("    // Function pointers compared by address as usize\n\n");
+    
+    for prefixed_name in structs_map.keys() {
+        // Keys are already prefixed like "AzU8VecDestructor"
+        if prefixed_name.ends_with("VecDestructor") && !prefixed_name.ends_with("VecDestructorType") {
+            // Debug implementation
+            dll_code.push_str(&format!(
+                r#"    impl core::fmt::Debug for {name} {{
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{
+            match self {{
+                {name}::DefaultRust => write!(f, "{name}::DefaultRust"),
+                {name}::NoDestructor => write!(f, "{name}::NoDestructor"),
+                {name}::External(fn_ptr) => write!(f, "{name}::External({{:p}})", *fn_ptr as *const ()),
+            }}
+        }}
+    }}
+
+"#, name = prefixed_name));
+
+            // PartialEq implementation
+            dll_code.push_str(&format!(
+                r#"    impl PartialEq for {name} {{
+        fn eq(&self, other: &Self) -> bool {{
+            match (self, other) {{
+                ({name}::DefaultRust, {name}::DefaultRust) => true,
+                ({name}::NoDestructor, {name}::NoDestructor) => true,
+                ({name}::External(a), {name}::External(b)) => (*a as usize) == (*b as usize),
+                _ => false,
+            }}
+        }}
+    }}
+
+"#, name = prefixed_name));
+
+            // PartialOrd implementation
+            dll_code.push_str(&format!(
+                r#"    impl PartialOrd for {name} {{
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{
+            let self_ord = match self {{
+                {name}::DefaultRust => 0usize,
+                {name}::NoDestructor => 1usize,
+                {name}::External(f) => 2usize + (*f as usize),
+            }};
+            let other_ord = match other {{
+                {name}::DefaultRust => 0usize,
+                {name}::NoDestructor => 1usize,
+                {name}::External(f) => 2usize + (*f as usize),
+            }};
+            self_ord.partial_cmp(&other_ord)
+        }}
+    }}
+
+"#, name = prefixed_name));
+        }
+    }
+
     println!("      [TARGET] Generating function stubs...");
     // Generate unimplemented!() stubs for all exported C functions
+    // EXCEPT for _deepCopy and _delete which get real implementations
     let functions_map = build_functions_map(version_data, prefix).map_err(|e| e.to_string())?;
     println!("      [LINK] Found {} functions", functions_map.len());
     dll_code.push_str("\n    // --- C-ABI Function Stubs ---\n");
@@ -505,10 +569,21 @@ fn generate_dll_module(
             format!(" -> {}", fn_return)
         };
 
+        // Generate real implementations for _deepCopy and _delete functions
+        let fn_body = if fn_name.ends_with("_deepCopy") {
+            // _deepCopy calls Clone::clone() on the object
+            "object.clone()".to_string()
+        } else if fn_name.ends_with("_delete") {
+            // _delete calls Drop::drop() - but we use std::ptr::drop_in_place for &mut
+            "std::ptr::drop_in_place(object)".to_string()
+        } else {
+            // All other functions get unimplemented!() stubs
+            format!("unimplemented!(\"{}\")", fn_name)
+        };
+
         dll_code.push_str(&format!(
-            "    #[allow(unused_variables)]\n    pub unsafe extern \"C\" fn {}({}){} {{ \
-             unimplemented!(\"{}\") }}\n",
-            fn_name, fn_args, return_str, fn_name
+            "    #[allow(unused_variables)]\n    pub unsafe extern \"C\" fn {}({}){} {{ {} }}\n",
+            fn_name, fn_args, return_str, fn_body
         ));
     }
     dll_code.push_str("    // --- End C-ABI Function Stubs ---\n\n");
@@ -547,17 +622,22 @@ fn generate_public_api_modules(
     let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
 
     // Map patch files to their module names
+    // NOTE: vec.rs and option.rs are EXCLUDED because they contain impl_vec!/impl_option! macros
+    // that generate Clone/Debug/PartialEq/PartialOrd, which conflict with #[derive(...)]
+    // For memtest, we use ignore_empty_derive: true so the derives are generated on structs
     let patches = vec![
         ("string.rs", "str"),
-        ("vec.rs", "vec"),
-        ("option.rs", "option"),
+        // ("vec.rs", "vec"), // Excluded: impl_vec! macros conflict with derives
+        // ("option.rs", "option"), // Excluded: impl_option! macros conflict with derives
         ("dom.rs", "dom"),
         ("gl.rs", "gl"),
         ("css.rs", "css"),
         ("window.rs", "window"),
         // ("callbacks.rs", "callbacks"), // Excluded: callback types need workspace search
-        // fallback
     ];
+
+    // Modules that need to exist but without patches (just re-exports)
+    let modules_without_patches = vec!["vec", "option"];
 
     let mut output = String::new();
     output.push_str("// ===== Public API Modules =====\n");
@@ -584,6 +664,15 @@ fn generate_public_api_modules(
             )?);
         }
 
+        output.push_str("}\n\n");
+    }
+
+    // Generate modules without patches (just re-exports, traits come from derives)
+    for module_name in modules_without_patches {
+        output.push_str(&format!("pub mod {} {{\n", module_name));
+        output.push_str("    use core::ffi::c_void;\n");
+        output.push_str("    use super::dll::*;\n\n");
+        output.push_str(&generate_reexports(version_data, prefix, module_name)?);
         output.push_str("}\n\n");
     }
 

@@ -48,11 +48,19 @@ pub enum TypeKind {
         fields: IndexMap<String, FieldInfo>,
         has_repr_c: bool,
         doc: Option<String>,
+        /// Generic type parameters (e.g., ["T"] for PhysicalPosition<T>)
+        generic_params: Vec<String>,
+        /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
+        implemented_traits: Vec<String>,
     },
     Enum {
         variants: IndexMap<String, VariantInfo>,
         has_repr_c: bool,
         doc: Option<String>,
+        /// Generic type parameters (e.g., ["T"] for CssPropertyValue<T>)
+        generic_params: Vec<String>,
+        /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
+        implemented_traits: Vec<String>,
     },
     TypeAlias {
         target: String,
@@ -322,6 +330,8 @@ impl WorkspaceIndex {
                             fields: IndexMap::new(),
                             has_repr_c,
                             doc: None,
+                            generic_params: Vec::new(),
+                            implemented_traits: Vec::new(),
                         },
                         source_code: String::new(),
                     });
@@ -789,6 +799,13 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 let type_name = s.ident.to_string();
                 let full_path = build_full_path(&crate_name, &module_path, &type_name);
 
+                // Extract generic type parameters (e.g., T from PhysicalPosition<T>)
+                let generic_params: Vec<String> = s
+                    .generics
+                    .type_params()
+                    .map(|tp| tp.ident.to_string())
+                    .collect();
+
                 let mut fields = IndexMap::new();
                 for field in s.fields.iter() {
                     if let Some(field_name) = field.ident.as_ref() {
@@ -833,6 +850,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         fields,
                         has_repr_c,
                         doc: crate::autofix::utils::extract_doc_comments(&s.attrs),
+                        generic_params,
+                        implemented_traits: Vec::new(),
                     },
                     source_code: s.to_token_stream().to_string(),
                 });
@@ -840,6 +859,13 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
             Item::Enum(e) => {
                 let type_name = e.ident.to_string();
                 let full_path = build_full_path(&crate_name, &module_path, &type_name);
+
+                // Extract generic type parameters (e.g., T from CssPropertyValue<T>)
+                let generic_params: Vec<String> = e
+                    .generics
+                    .type_params()
+                    .map(|tp| tp.ident.to_string())
+                    .collect();
 
                 let mut variants = IndexMap::new();
                 for variant in &e.variants {
@@ -895,6 +921,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         variants,
                         has_repr_c,
                         doc: crate::autofix::utils::extract_doc_comments(&e.attrs),
+                        generic_params,
+                        implemented_traits: Vec::new(),
                     },
                     source_code: e.to_token_stream().to_string(),
                 });

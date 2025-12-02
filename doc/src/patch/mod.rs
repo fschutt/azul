@@ -52,10 +52,13 @@ pub struct ClassPatch {
     /// Update is_boxed_object flag
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_boxed_object: Option<bool>,
-    /// Update clone flag
+    /// Traits with manual `impl Trait for Type` blocks (e.g., ["Clone", "Drop"])
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_impls: Option<Vec<String>>,
+    // DEPRECATED: Use custom_impls: ["Clone"] instead
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clone: Option<bool>,
-    /// Update custom_destructor flag
+    // DEPRECATED: Use custom_impls: ["Drop"] instead
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_destructor: Option<bool>,
     /// Update serde attribute
@@ -76,6 +79,9 @@ pub struct ClassPatch {
     /// Patch or replace enum fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
+    /// Generic type parameters (e.g., ["T"] for PhysicalPosition<T>)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generic_params: Option<Vec<String>>,
     /// Type alias information (for generic type instantiations)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_alias: Option<TypeAliasInfo>,
@@ -101,6 +107,7 @@ impl ClassPatch {
             && self.doc.is_none()
             && self.derive.is_none()
             && self.is_boxed_object.is_none()
+            && self.custom_impls.is_none()
             && self.clone.is_none()
             && self.custom_destructor.is_none()
             && self.serde.is_none()
@@ -109,6 +116,7 @@ impl ClassPatch {
             && self.constants.is_none()
             && self.struct_fields.is_none()
             && self.enum_fields.is_none()
+            && self.generic_params.is_none()
             && self.type_alias.is_none()
             && self.callback_typedef.is_none()
             && self.constructors.is_none()
@@ -121,6 +129,7 @@ impl ClassPatch {
             && self.doc.is_none()
             && self.derive.is_none()
             && self.is_boxed_object.is_none()
+            && self.custom_impls.is_none()
             && self.clone.is_none()
             && self.custom_destructor.is_none()
             && self.serde.is_none()
@@ -129,6 +138,7 @@ impl ClassPatch {
             && self.constants.is_none()
             && self.struct_fields.is_none()
             && self.enum_fields.is_none()
+            && self.generic_params.is_none()
             && self.type_alias.is_none()
             && self.callback_typedef.is_none()
             && self.constructors.is_none()
@@ -728,6 +738,17 @@ fn apply_class_patch(
         patches_applied += 1;
     }
 
+    if let Some(ref new_custom_impls) = patch.custom_impls {
+        println!(
+            "  [NOTE] Patching {}.{}: custom_impls",
+            module_name, class_name
+        );
+        println!("     Old: {:?}", class_data.custom_impls);
+        println!("     New: {:?}", new_custom_impls);
+        class_data.custom_impls = Some(new_custom_impls.clone());
+        patches_applied += 1;
+    }
+
     if let Some(new_serde) = &patch.serde {
         println!("  [NOTE] Patching {}.{}: serde", module_name, class_name);
         println!("     Old: {:?}", class_data.serde);
@@ -814,6 +835,7 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
         doc: patch.doc.clone(),
         external: patch.external.clone(),
         is_boxed_object: patch.is_boxed_object.unwrap_or(false),
+        custom_impls: patch.custom_impls.clone(),
         clone: patch.clone,
         custom_destructor: patch.custom_destructor,
         derive: patch.derive.clone(),
@@ -827,7 +849,7 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
         functions: patch.functions.clone(),
         use_patches: None,
         repr: patch.repr.clone(),
-        generic_params: None, // Patches don't contain generic_params yet
+        generic_params: patch.generic_params.clone(),
         type_alias: patch.type_alias.clone(),
     }
 }

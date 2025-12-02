@@ -261,8 +261,14 @@ pub struct ClassData {
     pub external: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")] // Skip if false
     pub is_boxed_object: bool,
+    /// Traits with manual `impl Trait for Type` blocks (e.g., ["Clone", "Drop"])
+    /// These require DLL functions like `AzTypeName_deepCopy` and `AzTypeName_delete`
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clone: Option<bool>, // If missing, generation logic should assume true
+    pub custom_impls: Option<Vec<String>>,
+    // DEPRECATED: Use custom_impls: ["Clone"] instead. Kept for backwards compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clone: Option<bool>,
+    // DEPRECATED: Use custom_impls: ["Drop"] instead. Kept for backwards compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_destructor: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -294,6 +300,52 @@ pub struct ClassData {
     pub generic_params: Option<Vec<String>>, // e.g., ["T", "U"] for generic types
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_alias: Option<TypeAliasInfo>, // Information about type aliases
+}
+
+impl ClassData {
+    /// Check if this type has a custom `impl Clone` (not #[derive(Clone)])
+    /// Returns true if custom_impls contains "Clone" OR legacy clone field is Some(false)
+    pub fn has_custom_clone(&self) -> bool {
+        if let Some(ref impls) = self.custom_impls {
+            if impls.iter().any(|s| s == "Clone") {
+                return true;
+            }
+        }
+        // Legacy: clone: false means "don't derive Clone" which implies custom impl needed
+        // clone: true or None means "derive Clone automatically"
+        false
+    }
+
+    /// Check if this type has a custom `impl Drop` (not automatic)
+    /// Returns true if custom_impls contains "Drop" OR legacy custom_destructor is true
+    pub fn has_custom_drop(&self) -> bool {
+        if let Some(ref impls) = self.custom_impls {
+            if impls.iter().any(|s| s == "Drop") {
+                return true;
+            }
+        }
+        // Legacy: custom_destructor: true means custom Drop impl
+        self.custom_destructor.unwrap_or(false)
+    }
+
+    /// Check if Clone can be derived automatically (not custom impl)
+    /// Returns true if no custom Clone impl exists
+    pub fn can_derive_clone(&self) -> bool {
+        !self.has_custom_clone() && self.clone.unwrap_or(true)
+    }
+
+    /// Check if a specific trait has a custom implementation
+    pub fn has_custom_impl(&self, trait_name: &str) -> bool {
+        if let Some(ref impls) = self.custom_impls {
+            return impls.iter().any(|s| s == trait_name);
+        }
+        // Handle legacy fields
+        match trait_name {
+            "Drop" => self.custom_destructor.unwrap_or(false),
+            "Clone" => false, // Legacy clone field doesn't indicate custom impl
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

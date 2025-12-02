@@ -17,44 +17,259 @@ use crate::{
 
 // --- TYPE DEFINITIONS ---
 
-macro_rules! define_spacing_property {
-    ($struct_name:ident) => {
-        #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        #[repr(C)]
-        pub struct $struct_name {
-            pub inner: PixelValue,
-        }
+// Spacing properties - wrapper structs around PixelValue for type safety
 
-        impl ::core::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner)
-            }
-        }
-
-        impl PixelValueTaker for $struct_name {
-            fn from_pixel_value(inner: PixelValue) -> Self {
-                Self { inner }
-            }
-        }
-
-        impl_pixel_value!($struct_name);
-    };
+/// Layout padding top value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingTop {
+    pub inner: PixelValue,
 }
 
-define_spacing_property!(LayoutPaddingTop);
-define_spacing_property!(LayoutPaddingRight);
-define_spacing_property!(LayoutPaddingBottom);
-define_spacing_property!(LayoutPaddingLeft);
-define_spacing_property!(LayoutPaddingInlineStart);
-define_spacing_property!(LayoutPaddingInlineEnd);
+impl ::core::fmt::Debug for LayoutPaddingTop {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
 
-define_spacing_property!(LayoutMarginTop);
-define_spacing_property!(LayoutMarginRight);
-define_spacing_property!(LayoutMarginBottom);
-define_spacing_property!(LayoutMarginLeft);
+impl PixelValueTaker for LayoutPaddingTop {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
 
-define_spacing_property!(LayoutColumnGap);
-define_spacing_property!(LayoutRowGap);
+impl_pixel_value!(LayoutPaddingTop);
+
+/// Layout padding right value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingRight {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutPaddingRight {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutPaddingRight {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutPaddingRight);
+
+/// Layout padding bottom value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingBottom {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutPaddingBottom {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutPaddingBottom {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutPaddingBottom);
+
+/// Layout padding left value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingLeft {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutPaddingLeft {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutPaddingLeft {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutPaddingLeft);
+
+/// Layout padding inline start value (for RTL/LTR support)
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingInlineStart {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutPaddingInlineStart {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutPaddingInlineStart {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutPaddingInlineStart);
+
+/// Layout padding inline end value (for RTL/LTR support)
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutPaddingInlineEnd {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutPaddingInlineEnd {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutPaddingInlineEnd {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutPaddingInlineEnd);
+
+/// Layout margin top value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutMarginTop {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutMarginTop {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutMarginTop {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutMarginTop);
+
+/// Layout margin right value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutMarginRight {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutMarginRight {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutMarginRight {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutMarginRight);
+
+/// Layout margin bottom value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutMarginBottom {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutMarginBottom {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutMarginBottom {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutMarginBottom);
+
+/// Layout margin left value
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutMarginLeft {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutMarginLeft {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutMarginLeft {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutMarginLeft);
+
+/// Layout column gap value (for flexbox/grid)
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutColumnGap {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutColumnGap {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutColumnGap {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutColumnGap);
+
+/// Layout row gap value (for flexbox/grid)
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct LayoutRowGap {
+    pub inner: PixelValue,
+}
+
+impl ::core::fmt::Debug for LayoutRowGap {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl PixelValueTaker for LayoutRowGap {
+    fn from_pixel_value(inner: PixelValue) -> Self {
+        Self { inner }
+    }
+}
+
+impl_pixel_value!(LayoutRowGap);
 
 // --- PARSERS ---
 

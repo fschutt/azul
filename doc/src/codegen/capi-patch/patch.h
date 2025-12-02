@@ -33,7 +33,7 @@
 #define AzDom_new(nt) { \
     .root = AzNodeData_new(nt),\
     .children = AzDomVec_empty, \
-    .total_children = 0, \
+    .estimated_total_children = 0, \
 }
 
 /* Macro to initialize the default AppConfig struct, must be in a header file

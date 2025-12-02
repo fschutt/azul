@@ -81,30 +81,45 @@ impl PrintAsCssValue for BreakInside {
 
 // --- widows / orphans ---
 
-macro_rules! define_widow_orphan_property {
-    ($struct_name:ident) => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        #[repr(C)]
-        pub struct $struct_name {
-            pub inner: u32,
-        }
-
-        impl Default for $struct_name {
-            fn default() -> Self {
-                Self { inner: 2 }
-            }
-        }
-
-        impl PrintAsCssValue for $struct_name {
-            fn print_as_css_value(&self) -> String {
-                self.inner.to_string()
-            }
-        }
-    };
+/// CSS `widows` property - minimum number of lines in a block container
+/// that must be shown at the top of a page, region, or column.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct Widows {
+    pub inner: u32,
 }
 
-define_widow_orphan_property!(Widows);
-define_widow_orphan_property!(Orphans);
+impl Default for Widows {
+    fn default() -> Self {
+        Self { inner: 2 }
+    }
+}
+
+impl PrintAsCssValue for Widows {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+/// CSS `orphans` property - minimum number of lines in a block container
+/// that must be shown at the bottom of a page, region, or column.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct Orphans {
+    pub inner: u32,
+}
+
+impl Default for Orphans {
+    fn default() -> Self {
+        Self { inner: 2 }
+    }
+}
+
+impl PrintAsCssValue for Orphans {
+    fn print_as_css_value(&self) -> String {
+        self.inner.to_string()
+    }
+}
 
 // --- box-decoration-break ---
 

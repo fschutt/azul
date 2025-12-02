@@ -669,6 +669,9 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             element_type
         )),
         custom_destructor: Some(true),
+        // Empty derive list = don't generate any #[derive(...)] attributes
+        // The impl_vec! macro provides Debug, Clone, PartialEq, PartialOrd, Drop
+        derive: Some(vec![]),
         struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field]),
         ..Default::default()
     }
@@ -849,10 +852,12 @@ fn generate_synthetic_option_type(
         "PhysicalPosition", "PhysicalSize", "WindowTheme",
     ];
     
+    // Empty derive list = don't generate any #[derive(...)] attributes
+    // The impl_option! macro provides Debug, Clone, PartialEq, PartialOrd, Default
     let derive = if primitive_copy_types.contains(&inner_type) {
         Some(vec!["Copy".to_string()])
     } else {
-        None // Don't assume Copy for complex types
+        Some(vec![]) // Explicitly empty - impl_option! provides traits
     };
 
     let class_patch = ClassPatch {
@@ -877,8 +882,13 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
     };
 
     match &type_info.kind {
-        TypeKind::Struct { fields, doc, .. } => {
+        TypeKind::Struct { fields, doc, generic_params, .. } => {
             class_patch.doc = doc.clone();
+            
+            // Set generic_params if not empty
+            if !generic_params.is_empty() {
+                class_patch.generic_params = Some(generic_params.clone());
+            }
 
             // Convert IndexMap<String, FieldInfo> to Vec<IndexMap<String, FieldData>>
             // IMPORTANT: Each field must be its own IndexMap element to preserve order
@@ -907,8 +917,13 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 class_patch.struct_fields = Some(struct_fields);
             }
         }
-        TypeKind::Enum { variants, doc, .. } => {
+        TypeKind::Enum { variants, doc, generic_params, .. } => {
             class_patch.doc = doc.clone();
+            
+            // Set generic_params if not empty
+            if !generic_params.is_empty() {
+                class_patch.generic_params = Some(generic_params.clone());
+            }
 
             // Convert IndexMap<String, VariantInfo> to Vec<IndexMap<String, EnumVariantData>>
             // IMPORTANT: Each variant must be its own IndexMap element in the Vec

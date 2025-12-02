@@ -77,6 +77,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
+        ..Default::default()
     };
 
     let dll_code =
