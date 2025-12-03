@@ -300,6 +300,13 @@ pub struct ClassData {
     pub generic_params: Option<Vec<String>>, // e.g., ["T", "U"] for generic types
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_alias: Option<TypeAliasInfo>, // Information about type aliases
+    /// For VecRef/VecRefMut types: the element type (e.g., "u8" for U8VecRef)
+    /// This auto-generates `as_slice()` / `as_mut_slice()` methods and `From<&[T]>` impl
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vec_ref_element_type: Option<String>,
+    /// Whether this is a mutable VecRef (VecRefMut) - affects generated method signatures
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub vec_ref_is_mut: bool,
 }
 
 impl ClassData {
@@ -399,6 +406,15 @@ pub struct FunctionData {
         skip_serializing_if = "Option::is_none"
     )]
     pub use_patches: Option<Vec<String>>, // Which languages this patch applies to
+    /// Whether this function should be `const fn` in Rust
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub const_fn: bool,
+    /// Generic type parameters for this function (e.g., ["T", "U"])
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generic_params: Option<Vec<String>>,
+    /// Generic type bounds/constraints (e.g., ["T: Clone", "U: Default"])
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generic_bounds: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

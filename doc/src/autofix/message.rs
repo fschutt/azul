@@ -331,6 +331,7 @@ pub struct PatchSummary {
 #[derive(Debug)]
 pub struct ExternalPathChange {
     pub class_name: String,
+    pub module_name: String,
     pub old_path: String,
     pub new_path: String,
 }

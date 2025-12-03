@@ -22,7 +22,19 @@ use crate::api::{EnumVariantData, FieldData};
 static MACRO_INVOCATION_REGEX: Lazy<Regex> = Lazy::new(|| {
     // Matches type names inside macro invocations like: impl_vec!(Type, TypeVec, TypeDestructor)
     // Captures everything between "!(" and the closing ")"
-    Regex::new(r"!\s*\(((?:[^()]|\([^()]*\))*)\)").unwrap()
+    // Uses (?s) flag for DOTALL mode to match across newlines
+    Regex::new(r"(?s)!\s*\(((?:[^()]|\([^()]*\))*)\)").unwrap()
+});
+
+/// Regex to match `use` statements (single line or multi-line blocks)
+/// This helps identify "exclusion zones" where types are imported, not defined
+/// Note: This regex only matches `use` at the start of a line (with optional whitespace)
+/// to avoid matching "use" in comments or strings
+static USE_BLOCK_REGEX: Lazy<Regex> = Lazy::new(|| {
+    // Matches: use foo::bar; or use foo::{bar, baz}; or use foo::*;
+    // Only matches `use` at the start of a line (with optional leading whitespace)
+    // This avoids matching "use" in comments like "// use u32 instead"
+    Regex::new(r"(?m)^\s*use\s+(?:[^;{]+(?:\{[^}]*\})?[^;]*);").unwrap()
 });
 
 /// Represents a parsed type definition in the workspace
@@ -291,8 +303,28 @@ impl WorkspaceIndex {
     pub fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         let mut best_match: Option<(&PathBuf, i32, bool)> = None; // (path, score, is_from_macro)
 
+        // Self crate name to exclude build tool files
+        let self_crate_name = env!("CARGO_PKG_NAME").replace('-', "_");
+
         for (file_path, source) in &self.file_sources {
             if !source.contains(type_name) {
+                continue;
+            }
+
+            // Skip files from the self crate (build tools, not part of API)
+            let crate_name = self
+                .crate_names
+                .iter()
+                .find(|(crate_dir, _)| file_path.starts_with(crate_dir))
+                .map(|(_, name)| name.as_str());
+
+            if crate_name == Some(self_crate_name.as_str()) {
+                continue;
+            }
+
+            // Skip dll/lib.rs - this is generated code with wrapper types, not definitions
+            let path_str = file_path.to_string_lossy();
+            if path_str.ends_with("dll/lib.rs") || path_str.ends_with("dll/python.rs") {
                 continue;
             }
 
@@ -302,7 +334,7 @@ impl WorkspaceIndex {
                 if score > current_score {
                     best_match = Some((file_path, score, is_from_macro));
                 }
-            } else {
+            } else if score > 0 {
                 best_match = Some((file_path, score, is_from_macro));
             }
         }
@@ -352,10 +384,38 @@ impl WorkspaceIndex {
         let mut score = 0;
         let mut is_from_macro = false;
 
+        // First, identify all "use exclusion zones" - ranges where imports are defined
+        // Types found in these zones are IMPORTS, not definitions
+        let use_exclusion_zones: Vec<(usize, usize)> = USE_BLOCK_REGEX
+            .find_iter(source)
+            .map(|m| (m.start(), m.end()))
+            .collect();
+
+        // Helper: check if a position is inside a use exclusion zone
+        let is_in_use_zone = |pos: usize| -> bool {
+            use_exclusion_zones.iter().any(|(start, end)| pos >= *start && pos < *end)
+        };
+
+        // Check if this type is IMPORTED via a use statement
+        // If so, this file is NOT the definition site
+        let type_pattern = format!(r"\b{}\b", regex::escape(type_name));
+        let type_is_imported = if let Ok(type_regex) = Regex::new(&type_pattern) {
+            type_regex.find_iter(source).any(|m| is_in_use_zone(m.start()))
+        } else {
+            false
+        };
+
+        // If type is imported via `use`, this file is NOT the definition
+        // Return score 0 to skip this file entirely
+        if type_is_imported {
+            return (0, false);
+        }
+
         // Macros that are known to generate #[repr(C)] types
         const REPR_C_MACROS: &[&str] = &[
             "impl_vec!",
             "impl_vec_clone!",
+            "impl_option!",
             "define_spacing_property!",
         ];
 
@@ -427,56 +487,17 @@ impl WorkspaceIndex {
     /// Calculate match score for a type in source code
     /// Higher score = more likely to be the actual definition
     fn calculate_match_score(&self, source: &str, type_name: &str) -> i32 {
-        let mut score = 0;
-
-        // HIGHEST PRIORITY: Type appears in macro invocation
-        // Example: impl_vec!(Type, TypeVec, TypeDestructor)
-        for cap in MACRO_INVOCATION_REGEX.captures_iter(source) {
-            if let Some(macro_content) = cap.get(1) {
-                let content = macro_content.as_str();
-                // Check if type_name appears as a separate identifier in macro args
-                // Split by common separators: comma, semicolon, whitespace
-                let tokens: Vec<&str> = content
-                    .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                if tokens.contains(&type_name) {
-                    score += 1000; // Very high priority
-                }
-            }
-        }
-
-        // HIGH PRIORITY: Public declarations
-        if source.contains(&format!("pub struct {}", type_name)) {
-            score += 100;
-        }
-        if source.contains(&format!("pub enum {}", type_name)) {
-            score += 100;
-        }
-        if source.contains(&format!("pub type {}", type_name)) {
-            score += 100;
-        }
-
-        // MEDIUM PRIORITY: Non-public declarations
-        if source.contains(&format!("struct {}", type_name)) {
-            score += 50;
-        }
-        if source.contains(&format!("enum {}", type_name)) {
-            score += 50;
-        }
-        if source.contains(&format!("type {}", type_name)) {
-            score += 50;
-        }
-
-        // LOW PRIORITY: Just mentioned (likely import)
-        // Already checked by contains() in caller
-        if score == 0 {
-            score = 1; // Minimal score for just being present
-        }
-
+        let (score, _is_from_macro) = self.calculate_match_score_with_macro_info(source, type_name);
         score
+    }
+
+    /// Identify all "use exclusion zones" - byte ranges where imports are defined
+    /// Types found ONLY in these zones should not be considered definitions
+    pub fn get_use_exclusion_zones(source: &str) -> Vec<(usize, usize)> {
+        USE_BLOCK_REGEX
+            .find_iter(source)
+            .map(|m| (m.start(), m.end()))
+            .collect()
     }
 
     /// Deduce the full type path from file path and type name
@@ -641,17 +662,22 @@ fn build_crate_name_map(project_root: &Path) -> Result<HashMap<PathBuf, String>>
 
     let cargo_tomls = find_files_with_name(project_root, "Cargo.toml")?;
 
-    for toml_path in cargo_tomls {
-        if let Ok(content) = fs::read_to_string(&toml_path) {
-            if let Ok(toml_value) = content.parse::<toml::Value>() {
-                if let Some(package) = toml_value.get("package") {
-                    if let Some(name) = package.get("name") {
-                        if let Some(name_str) = name.as_str() {
-                            let crate_dir = toml_path.parent().unwrap().to_path_buf();
-                            // Normalize: azul-core -> azul_core
-                            let normalized = name_str.replace('-', "_");
-                            map.insert(crate_dir, normalized);
-                        }
+    // Regex to extract package name from Cargo.toml
+    // Matches: name = "crate-name" or name = 'crate-name'
+    let name_regex = Regex::new(r#"(?m)^\s*name\s*=\s*["']([^"']+)["']"#).unwrap();
+
+    for toml_path in &cargo_tomls {
+        if let Ok(content) = fs::read_to_string(toml_path) {
+            // Check if this is a [package] section (not just [workspace])
+            if content.contains("[package]") {
+                // Use regex to extract the package name
+                if let Some(caps) = name_regex.captures(&content) {
+                    if let Some(name_match) = caps.get(1) {
+                        let name_str = name_match.as_str();
+                        let crate_dir = toml_path.parent().unwrap().to_path_buf();
+                        // Normalize: azul-core -> azul_core
+                        let normalized = name_str.replace('-', "_");
+                        map.insert(crate_dir, normalized);
                     }
                 }
             }

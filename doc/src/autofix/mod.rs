@@ -142,7 +142,15 @@ pub fn autofix_api_recursive(
     println!("\n[REFRESH] Running analysis (this may take a moment)...\n");
 
     // Step 1: Collect all types referenced in API
-    let api_types = collect_all_api_types(api_data);
+    // Now returns Vec<(class_name, module_name, type_path)> to handle all occurrences
+    let api_types_list = collect_all_api_types(api_data);
+    
+    // Build a set of class names for quick lookup (used for filtering)
+    let api_type_names: std::collections::HashSet<String> = api_types_list
+        .iter()
+        .map(|(class_name, _, _)| class_name.clone())
+        .collect();
+    
     let referenced_types = collect_all_referenced_types_from_api(api_data);
 
     // Collect all callback_typedefs from API - these don't need discovery
@@ -170,7 +178,7 @@ pub fn autofix_api_recursive(
         .iter()
         .filter(|type_name| {
             // Skip if already in API
-            if api_types.contains_key(*type_name) {
+            if api_type_names.contains(*type_name) {
                 return false;
             }
             // Skip if it's a callback_typedef in API (will be handled separately)
@@ -314,7 +322,7 @@ pub fn autofix_api_recursive(
 
                 // Add sub-types to discovery queue if not yet known
                 for (sub_type, origin) in sub_types {
-                    if !api_types.contains_key(&sub_type)
+                    if !api_type_names.contains(&sub_type)
                         && !discovered_types.contains_key(&sub_type)
                         && !visited_types.contains(&sub_type)
                     {
@@ -345,6 +353,12 @@ pub fn autofix_api_recursive(
 
     // Step 5: Virtual Patch Application - Apply patches in-memory and re-discover
     // This enables truly recursive discovery by finding dependencies of newly added types
+    // Build a HashMap for virtual_patch_application (it needs type_name -> path mapping)
+    let api_types_map: HashMap<String, String> = api_types_list
+        .iter()
+        .map(|(class_name, _, type_path)| (class_name.clone(), type_path.clone()))
+        .collect();
+    
     let (mut final_types_to_add, final_patch_summary) = if !types_to_add.is_empty() {
         // Virtual patching will be reflected in final report
 
@@ -352,7 +366,7 @@ pub fn autofix_api_recursive(
             api_data,
             &workspace_index,
             types_to_add,
-            api_types.clone(), // Clone to avoid move
+            api_types_map, // Use the HashMap version
             &mut messages,
         )?
     } else {
@@ -364,7 +378,8 @@ pub fn autofix_api_recursive(
     let mut patch_summary = final_patch_summary;
 
     // Step 6: Check for field changes in existing types
-    for (class_name, api_type_path) in &api_types {
+    // Now iterates over ALL occurrences, not just unique class names
+    for (class_name, module_name, api_type_path) in &api_types_list {
         if let Some(workspace_type) =
             find_type_in_workspace(&workspace_index, class_name, api_type_path, &mut messages)
         {
@@ -385,6 +400,7 @@ pub fn autofix_api_recursive(
                     .external_path_changes
                     .push(ExternalPathChange {
                         class_name: class_name.clone(),
+                        module_name: module_name.clone(),
                         old_path: api_type_path.clone(),
                         new_path: workspace_type.full_path.clone(),
                     });
@@ -402,6 +418,7 @@ pub fn autofix_api_recursive(
                         .external_path_changes
                         .push(ExternalPathChange {
                             class_name: class_name.clone(),
+                            module_name: module_name.clone(),
                             old_path: api_type_path.clone(),
                             new_path: workspace_type.full_path.clone(),
                         });

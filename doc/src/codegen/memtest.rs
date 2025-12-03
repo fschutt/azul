@@ -188,10 +188,23 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     // Collect all test cases
     let mut test_cases = Vec::new();
 
+    // Valid external crate prefixes that we can test against
+    let valid_crate_prefixes = ["azul_core::", "azul_css::", "azul_layout::"];
+
     for (version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 if let Some(external_path) = &class_data.external {
+                    // Skip generic types - they can't be tested without concrete type parameters
+                    let is_generic = class_data.generic_params.is_some();
+                    
+                    // Skip types from crates we don't have as dependencies
+                    let has_valid_crate = valid_crate_prefixes.iter()
+                        .any(|prefix| external_path.starts_with(prefix));
+                    if !has_valid_crate {
+                        continue;
+                    }
+                    
                     test_cases.push(TestCase {
                         version: version_name.clone(),
                         module: module_name.clone(),
@@ -200,6 +213,7 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
                         has_struct: class_data.struct_fields.is_some(),
                         has_enum: class_data.enum_fields.is_some(),
                         enum_fields: class_data.enum_fields.clone(),
+                        is_generic,
                     });
                 }
             }
@@ -210,6 +224,11 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
 
     // Generate test for each type
     for test_case in &test_cases {
+        // Skip generic types - they require concrete type parameters
+        if test_case.is_generic {
+            continue;
+        }
+        
         output.push_str(&generate_size_and_align_test(&test_case)?);
         output.push_str("\n");
 
@@ -233,6 +252,7 @@ struct TestCase {
     has_struct: bool,
     has_enum: bool,
     enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
+    is_generic: bool,
 }
 
 fn generate_size_and_align_test(test: &TestCase) -> Result<String> {
@@ -437,7 +457,88 @@ fn generate_dll_module(
     let mut dll_code = String::new();
     dll_code.push_str("pub mod dll {\n");
     dll_code.push_str("    use super::c_void;\n");
-    dll_code.push_str("    use std::{string, vec, slice, mem, fmt, cmp, hash, iter};\n\n");
+    dll_code.push_str("    use std::{string, vec, slice, mem, fmt, cmp, hash, iter};\n");
+    dll_code.push_str("    use std::sync::atomic::AtomicUsize;\n");
+    dll_code.push_str("    use std::sync::Arc;\n\n");
+
+    // Add GL type aliases (from gl_context_loader crate)
+    dll_code.push_str("    // ===== GL Type Aliases =====\n");
+    dll_code.push_str("    pub type GLenum = u32;\n");
+    dll_code.push_str("    pub type GLboolean = u8;\n");
+    dll_code.push_str("    pub type GLbitfield = u32;\n");
+    dll_code.push_str("    pub type GLvoid = c_void;\n");
+    dll_code.push_str("    pub type GLbyte = i8;\n");
+    dll_code.push_str("    pub type GLshort = i16;\n");
+    dll_code.push_str("    pub type GLint = i32;\n");
+    dll_code.push_str("    pub type GLclampx = i32;\n");
+    dll_code.push_str("    pub type GLubyte = u8;\n");
+    dll_code.push_str("    pub type GLushort = u16;\n");
+    dll_code.push_str("    pub type GLuint = u32;\n");
+    dll_code.push_str("    pub type GLsizei = i32;\n");
+    dll_code.push_str("    pub type GLfloat = f32;\n");
+    dll_code.push_str("    pub type GLclampf = f32;\n");
+    dll_code.push_str("    pub type GLdouble = f64;\n");
+    dll_code.push_str("    pub type GLclampd = f64;\n");
+    dll_code.push_str("    pub type GLeglImageOES = *const c_void;\n");
+    dll_code.push_str("    pub type GLchar = i8;\n");
+    dll_code.push_str("    pub type GLcharARB = i8;\n");
+    dll_code.push_str("    pub type GLhandleARB = u32;\n");
+    dll_code.push_str("    pub type GLhalfARB = u16;\n");
+    dll_code.push_str("    pub type GLhalf = u16;\n");
+    dll_code.push_str("    pub type GLfixed = i32;\n");
+    dll_code.push_str("    pub type GLintptr = isize;\n");
+    dll_code.push_str("    pub type GLsizeiptr = isize;\n");
+    dll_code.push_str("    pub type GLint64 = i64;\n");
+    dll_code.push_str("    pub type GLuint64 = u64;\n");
+    dll_code.push_str("    pub type GLintptrARB = isize;\n");
+    dll_code.push_str("    pub type GLsizeiptrARB = isize;\n");
+    dll_code.push_str("    pub type GLint64EXT = i64;\n");
+    dll_code.push_str("    pub type GLuint64EXT = u64;\n");
+    dll_code.push_str("    pub type GLhalfNV = u16;\n");
+    dll_code.push_str("    pub type GLvdpauSurfaceNV = isize;\n\n");
+
+    // Add missing type aliases for primitives used in api.json generics
+    dll_code.push_str("    // ===== Primitive Type Aliases (for generic instantiations) =====\n");
+    dll_code.push_str(&format!("    pub type {}I32 = i32;\n", prefix));
+    dll_code.push_str(&format!("    pub type {}U32 = u32;\n", prefix));
+    dll_code.push_str(&format!("    pub type {}F32 = f32;\n", prefix));
+    dll_code.push_str(&format!("    pub type {}Usize = usize;\n", prefix));
+    dll_code.push_str(&format!("    pub type {}C_void = c_void;\n", prefix));
+    // Non-prefixed aliases for Option variants
+    dll_code.push_str("    pub type Usize = usize;\n");
+    dll_code.push_str("    pub type U8 = u8;\n");
+    dll_code.push_str("    pub type I16 = i16;\n");
+    dll_code.push_str("    pub type Char = char;\n");
+    dll_code.push_str("    pub type Optionu32 = Option<u32>;\n");
+    dll_code.push_str("    pub type OptionU8 = Option<u8>;\n");
+    dll_code.push_str("    pub type Optionusize = Option<usize>;\n");
+    dll_code.push_str("    pub type OptionString = Option<string::String>;\n");
+    // Internal types that are referenced but not defined in api.json
+    // These need the prefix since they're referenced with prefix in generated code
+    dll_code.push_str(&format!("    pub type {}NodeId = usize;\n", prefix));
+    dll_code.push_str("    pub type NodeId = usize;\n");
+    dll_code.push_str("    pub type TagId = usize;\n");
+    dll_code.push_str("    pub type ScanCode = u32;\n");
+    dll_code.push_str("    pub type RefCountInner = usize;\n");
+    dll_code.push_str("    pub type AccessibilityAction = u32;\n");
+    dll_code.push_str("    pub type CoreCallbackData = *const c_void;\n");
+    dll_code.push_str("    pub type CoreMenuCallback = *const c_void;\n");
+    dll_code.push_str("    pub type BoxCssPropertyCache = *const c_void;\n");
+    dll_code.push_str("    pub type FastHashMap<K, V> = std::collections::HashMap<K, V>;\n");
+    dll_code.push_str("    pub type ImageRef = *const c_void;\n");
+    dll_code.push_str("    pub type DecodedImage = *const c_void;\n");
+    dll_code.push_str("    pub type X11Visual = *const c_void;\n");
+    dll_code.push_str("    pub type HwndHandle = *const c_void;\n");
+    dll_code.push_str("    pub type XmlNodeChild = *const c_void;\n");
+    dll_code.push_str("    pub type Attribute = *const c_void;\n");
+    dll_code.push_str("    pub type SystemStyle = *const c_void;\n");
+    dll_code.push_str("    pub type LinuxDecorationsState = u8;\n");
+    dll_code.push_str("    pub type GridTrackSizing = *const c_void;\n");
+    dll_code.push_str("    pub type GridTrackSizingVec = *const c_void;\n");
+    dll_code.push_str("    pub type ComputedScrollbarStyle = *const c_void;\n");
+    dll_code.push_str("    pub type OptionComputedScrollbarStyle = Option<*const c_void>;\n");
+    dll_code.push_str("    pub type AzClipboard = *const c_void;\n");
+    dll_code.push_str("\n");
 
     println!("      [STATS] Collecting structs...");
     // Collect all structs for this version
@@ -556,6 +657,239 @@ fn generate_dll_module(
         }
     }
 
+    // Generate VecRef as_slice/as_mut_slice methods and From implementations
+    // Based on vec_ref_element_type field in api.json
+    println!("      [IMPL] Generating VecRef slice methods...");
+    dll_code.push_str("\n    // ===== VecRef Slice Methods =====\n\n");
+    
+    for (prefixed_name, struct_meta) in &structs_map {
+        if let Some(element_type) = &struct_meta.vec_ref_element_type {
+            let is_mut = struct_meta.vec_ref_is_mut;
+            let unprefixed_name = prefixed_name.strip_prefix(prefix).unwrap_or(prefixed_name);
+            
+            // Determine the element type with prefix if it's a custom type
+            let prefixed_element = if PRIMITIVE_TYPES.contains(&element_type.as_str()) {
+                element_type.clone()
+            } else {
+                format!("{}{}", prefix, element_type)
+            };
+            
+            if is_mut {
+                // Mutable VecRef: as_slice and as_mut_slice
+                dll_code.push_str(&format!(
+                    r#"    impl {name} {{
+        pub fn as_slice(&self) -> &[{elem}] {{
+            unsafe {{ core::slice::from_raw_parts(self.ptr, self.len) }}
+        }}
+        pub fn as_mut_slice(&mut self) -> &mut [{elem}] {{
+            unsafe {{ core::slice::from_raw_parts_mut(self.ptr, self.len) }}
+        }}
+    }}
+
+    impl<'a> From<&'a mut [{elem}]> for {name} {{
+        fn from(s: &'a mut [{elem}]) -> Self {{
+            Self {{ ptr: s.as_mut_ptr(), len: s.len() }}
+        }}
+    }}
+
+"#, name = prefixed_name, elem = prefixed_element));
+            } else {
+                // Immutable VecRef: only as_slice
+                // Special case for Refstr (which is &str, not a slice)
+                if unprefixed_name == "Refstr" {
+                    dll_code.push_str(&format!(
+                        r#"    impl {name} {{
+        pub fn as_str(&self) -> &str {{
+            unsafe {{ core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) }}
+        }}
+    }}
+
+    impl<'a> From<&'a str> for {name} {{
+        fn from(s: &'a str) -> Self {{
+            Self {{ ptr: s.as_ptr(), len: s.len() }}
+        }}
+    }}
+
+"#, name = prefixed_name));
+                } else {
+                    dll_code.push_str(&format!(
+                        r#"    impl {name} {{
+        pub fn as_slice(&self) -> &[{elem}] {{
+            unsafe {{ core::slice::from_raw_parts(self.ptr, self.len) }}
+        }}
+    }}
+
+    impl<'a> From<&'a [{elem}]> for {name} {{
+        fn from(s: &'a [{elem}]) -> Self {{
+            Self {{ ptr: s.as_ptr(), len: s.len() }}
+        }}
+    }}
+
+"#, name = prefixed_name, elem = prefixed_element));
+                }
+            }
+        }
+    }
+
+    // Generate trait implementations for VecRef types
+    // These are slice wrappers that can derive traits based on their element type
+    println!("      [IMPL] Generating VecRef trait implementations...");
+    dll_code.push_str("\n    // ===== VecRef Trait Implementations =====\n\n");
+    
+    // Types that don't implement Ord/Hash (floating point types)
+    let no_ord_hash_types = ["f32", "f64"];
+    
+    for (prefixed_name, struct_meta) in &structs_map {
+        if let Some(element_type) = &struct_meta.vec_ref_element_type {
+            let is_mut = struct_meta.vec_ref_is_mut;
+            let unprefixed_name = prefixed_name.strip_prefix(prefix).unwrap_or(prefixed_name);
+            
+            // Refstr uses as_str() instead of as_slice()
+            let slice_method = if unprefixed_name == "Refstr" { "as_str" } else { "as_slice" };
+            
+            // Check if element type supports Ord/Hash
+            let supports_ord_hash = !no_ord_hash_types.contains(&element_type.as_str());
+            
+            // Determine the element type with prefix if it's a custom type
+            let prefixed_element = if PRIMITIVE_TYPES.contains(&element_type.as_str()) {
+                element_type.clone()
+            } else {
+                format!("{}{}", prefix, element_type)
+            };
+            
+            // Debug implementation
+            dll_code.push_str(&format!(
+                r#"    impl core::fmt::Debug for {name} {{
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{
+            self.{method}().fmt(f)
+        }}
+    }}
+
+"#, name = prefixed_name, method = slice_method));
+
+            // Clone implementation (creates a new reference to same data)
+            dll_code.push_str(&format!(
+                r#"    impl Clone for {name} {{
+        fn clone(&self) -> Self {{
+            Self {{ ptr: self.ptr, len: self.len }}
+        }}
+    }}
+
+"#, name = prefixed_name));
+
+            // Copy implementation (VecRef is just a fat pointer, so it's Copy)
+            dll_code.push_str(&format!(
+                r#"    impl Copy for {name} {{}}
+
+"#, name = prefixed_name));
+
+            // PartialEq implementation (compare slices)
+            dll_code.push_str(&format!(
+                r#"    impl PartialEq for {name} {{
+        fn eq(&self, other: &Self) -> bool {{
+            self.{method}() == other.{method}()
+        }}
+    }}
+
+"#, name = prefixed_name, method = slice_method));
+
+            // PartialOrd implementation (always available)
+            dll_code.push_str(&format!(
+                r#"    impl PartialOrd for {name} {{
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{
+            self.{method}().partial_cmp(other.{method}())
+        }}
+    }}
+
+"#, name = prefixed_name, method = slice_method));
+
+            // Eq, Ord and Hash only for types that support it (not f32/f64)
+            if supports_ord_hash {
+                // Eq implementation (f32/f64 don't implement Eq due to NaN)
+                dll_code.push_str(&format!(
+                    r#"    impl Eq for {name} {{}}
+
+"#, name = prefixed_name));
+
+                // Ord implementation
+                dll_code.push_str(&format!(
+                    r#"    impl Ord for {name} {{
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {{
+            self.{method}().cmp(other.{method}())
+        }}
+    }}
+
+"#, name = prefixed_name, method = slice_method));
+
+                // Hash implementation
+                dll_code.push_str(&format!(
+                    r#"    impl core::hash::Hash for {name} {{
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{
+            self.{method}().hash(state)
+        }}
+    }}
+
+"#, name = prefixed_name, method = slice_method));
+            }
+        }
+    }
+
+    // Generate trait implementations for String type (wrapper around U8Vec)
+    // String is special because it contains a Vec, not just a pointer
+    println!("      [IMPL] Generating String trait implementations...");
+    dll_code.push_str("\n    // ===== String Trait Implementations =====\n\n");
+    
+    let string_name = format!("{}String", prefix);
+    dll_code.push_str(&format!(
+        r#"    impl {name} {{
+        pub fn as_str(&self) -> &str {{
+            unsafe {{ core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }}
+        }}
+    }}
+
+    impl core::fmt::Debug for {name} {{
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{
+            self.as_str().fmt(f)
+        }}
+    }}
+
+    impl core::fmt::Display for {name} {{
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{
+            write!(f, "{{}}", self.as_str())
+        }}
+    }}
+
+    impl PartialEq for {name} {{
+        fn eq(&self, other: &Self) -> bool {{
+            self.as_str() == other.as_str()
+        }}
+    }}
+
+    impl Eq for {name} {{}}
+
+    impl PartialOrd for {name} {{
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{
+            self.as_str().partial_cmp(other.as_str())
+        }}
+    }}
+
+    impl Ord for {name} {{
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {{
+            self.as_str().cmp(other.as_str())
+        }}
+    }}
+
+    impl core::hash::Hash for {name} {{
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{
+            self.as_str().hash(state)
+        }}
+    }}
+
+"#, name = string_name));
+
+    // NOTE: Callback trait implementations are now auto-generated by generate_structs
+    // when a struct has exactly one field whose type is a callback_typedef
+
     println!("      [TARGET] Generating function stubs...");
     // Generate unimplemented!() stubs for all exported C functions
     // EXCEPT for _deepCopy and _delete which get real implementations
@@ -588,25 +922,8 @@ fn generate_dll_module(
     }
     dll_code.push_str("    // --- End C-ABI Function Stubs ---\n\n");
 
-    // Add patches from api-patch/dll.rs
-    let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
-    let dll_patch_path = format!("{}/dll.rs", patch_dir);
-    if let Ok(patch_content) = fs::read_to_string(&dll_patch_path) {
-        dll_code.push_str("    // ===== Trait Implementations (from dll.rs patch) =====\n\n");
-        let processed =
-            process_patch_content(&patch_content, prefix, version_data, config, regexes)?;
-        // Add 4-space indentation to match dll module
-        for line in processed.lines() {
-            if line.trim().is_empty() {
-                dll_code.push('\n');
-            } else {
-                dll_code.push_str("    ");
-                dll_code.push_str(line);
-                dll_code.push('\n');
-            }
-        }
-        dll_code.push('\n');
-    }
+    // NOTE: dll.rs patch is excluded for memtest - we only need struct definitions for memory layout tests
+    // The patch contains impl blocks that reference missing functions/types
 
     dll_code.push_str("}\n\n");
     Ok(dll_code)
@@ -622,22 +939,21 @@ fn generate_public_api_modules(
     let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
 
     // Map patch files to their module names
-    // NOTE: vec.rs and option.rs are EXCLUDED because they contain impl_vec!/impl_option! macros
-    // that generate Clone/Debug/PartialEq/PartialOrd, which conflict with #[derive(...)]
-    // For memtest, we use ignore_empty_derive: true so the derives are generated on structs
-    let patches = vec![
-        ("string.rs", "str"),
+    // For memtest, we don't need any patches - only struct definitions for memory layout tests
+    // All patches are excluded to avoid compilation errors from missing functions/macros
+    let patches: Vec<(&str, &str)> = vec![
+        // ("string.rs", "str"), // Excluded: contains impl blocks that reference missing types
         // ("vec.rs", "vec"), // Excluded: impl_vec! macros conflict with derives
         // ("option.rs", "option"), // Excluded: impl_option! macros conflict with derives
-        ("dom.rs", "dom"),
-        ("gl.rs", "gl"),
-        ("css.rs", "css"),
-        ("window.rs", "window"),
+        // ("dom.rs", "dom"), // Excluded: contains macro calls and missing types
+        // ("gl.rs", "gl"), // Excluded: VecRef methods auto-generated, GL types added to dll module
+        // ("css.rs", "css"), // Excluded: contains macro calls and missing variants
+        // ("window.rs", "window"), // Excluded: contains impl blocks that reference missing types
         // ("callbacks.rs", "callbacks"), // Excluded: callback types need workspace search
     ];
 
-    // Modules that need to exist but without patches (just re-exports)
-    let modules_without_patches = vec!["vec", "option"];
+    // All modules just get re-exports, no patches
+    let modules_without_patches = vec!["str", "vec", "option", "dom", "gl", "css", "window"];
 
     let mut output = String::new();
     output.push_str("// ===== Public API Modules =====\n");
@@ -815,9 +1131,8 @@ fn process_patch_content(
         // So crate::dll:: needs to become super::dll:: when inside pub mod vec
         adjusted_line = adjusted_line.replace("crate::dll::", "super::dll::");
         adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
-        // Special case: crate::str::String needs to become super::str::{prefix}AzString
-        // because AzString is in api.json and gets prefixed
-        adjusted_line = adjusted_line.replace("crate::str::String", &format!("super::str::{}AzString", prefix));
+        // crate::str::String -> super::str::AzString (String in api.json becomes AzString with prefix)
+        adjusted_line = adjusted_line.replace("crate::str::String", &format!("super::str::{}String", prefix));
         adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
         adjusted_line = adjusted_line.replace("crate::option::", "super::option::");
         adjusted_line = adjusted_line.replace("crate::dom::", "super::dom::");

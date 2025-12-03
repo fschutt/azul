@@ -851,6 +851,8 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
         repr: patch.repr.clone(),
         generic_params: patch.generic_params.clone(),
         type_alias: patch.type_alias.clone(),
+        vec_ref_element_type: None,
+        vec_ref_is_mut: false,
     }
 }
 
@@ -1122,6 +1124,9 @@ mod tests {
 /// This updates all references throughout the API
 pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
     let mut renames = Vec::new();
+    
+    // The prefix used in generated code
+    const PREFIX: &str = "Az";
 
     // First pass: collect all renames needed
     for (version_name, version_data) in &api_data.0 {
@@ -1133,6 +1138,14 @@ pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
 
                     // If names don't match, schedule rename
                     if external_name != class_name {
+                        // IMPORTANT: Don't rename if external_name starts with PREFIX
+                        // because that would cause double-prefixing (AzAzString)
+                        // The api.json should use the UNPREFIXED name (String, not AzString)
+                        if external_name.starts_with(PREFIX) {
+                            // Skip - the external path has prefix, api.json name should be without prefix
+                            continue;
+                        }
+                        
                         renames.push((
                             version_name.clone(),
                             module_name.clone(),

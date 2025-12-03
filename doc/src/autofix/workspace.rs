@@ -85,11 +85,12 @@ impl fmt::Display for TypeOrigin {
 }
 
 /// Collect all types currently in the API (including callback_typedefs)
-pub fn collect_all_api_types(api_data: &ApiData) -> HashMap<String, String> {
-    let mut types = HashMap::new();
+/// Returns a Vec of (class_name, module_name, type_path) to handle duplicate class names
+pub fn collect_all_api_types(api_data: &ApiData) -> Vec<(String, String, String)> {
+    let mut types = Vec::new();
 
     for (_version_name, version_data) in &api_data.0 {
-        for (_module_name, module_data) in &version_data.api {
+        for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Include callback_typedefs - they need patches for FFI
                 // (e.g. FooDestructorType is callback_typedef but needs patch)
@@ -101,7 +102,7 @@ pub fn collect_all_api_types(api_data: &ApiData) -> HashMap<String, String> {
                     .unwrap_or(class_name.as_str())
                     .to_string();
 
-                types.insert(class_name.clone(), type_path);
+                types.push((class_name.clone(), module_name.clone(), type_path));
             }
         }
     }
@@ -167,7 +168,8 @@ pub fn is_workspace_type(full_path: &str) -> bool {
     ];
 
     // Exclude self crate (build tools)
-    let self_crate_name = env!("CARGO_PKG_NAME");
+    // Note: CARGO_PKG_NAME uses hyphens, but Rust paths use underscores
+    let self_crate_name = env!("CARGO_PKG_NAME").replace('-', "_");
     let self_crate_prefix = format!("{}::", self_crate_name);
     if full_path.starts_with(&self_crate_prefix) {
         return false;
@@ -468,8 +470,8 @@ pub fn generate_patches(
 
     // 2. Add patches for external path changes
     for change in &patch_summary.external_path_changes {
-        let module = infer_module_from_path(&change.new_path);
-        let key = (module.clone(), change.class_name.clone());
+        // Use the module_name from the change (the module where the type is defined in api.json)
+        let key = (change.module_name.clone(), change.class_name.clone());
 
         // Get struct/enum info from workspace if available
         if let Some(type_info) = workspace_index.find_type_by_path(&change.new_path) {
@@ -753,7 +755,27 @@ fn generate_synthetic_vec_types(
     // Extract element type and crate from external path
     // e.g. "azul_core::callbacks::CoreCallbackDataVec" -> "CoreCallbackData"
     let base_name = vec_type_name.trim_end_matches("Vec");
-    let element_type = base_name; // Simplified, would need proper element type extraction
+    
+    // Map Pascal-case primitive types to lowercase Rust primitives
+    let element_type = match base_name {
+        "U8" => "u8",
+        "U16" => "u16",
+        "U32" => "u32",
+        "U64" => "u64",
+        "U128" => "u128",
+        "Usize" => "usize",
+        "I8" => "i8",
+        "I16" => "i16",
+        "I32" => "i32",
+        "I64" => "i64",
+        "I128" => "i128",
+        "Isize" => "isize",
+        "F32" => "f32",
+        "F64" => "f64",
+        "Bool" => "bool",
+        "Char" => "char",
+        other => other, // Keep as-is for non-primitive types
+    };
 
     // Generate external paths for the destructor types
     let destructor_name = format!("{}VecDestructor", base_name);
@@ -804,11 +826,33 @@ fn generate_synthetic_option_type(
     use crate::api::EnumVariantData;
 
     // Extract the inner type from OptionFoo -> Foo
-    let inner_type = option_type_name.trim_start_matches("Option");
+    let inner_type_raw = option_type_name.trim_start_matches("Option");
     
-    if inner_type.is_empty() {
+    if inner_type_raw.is_empty() {
         return; // Invalid option type name
     }
+    
+    // Map Pascal-case primitive types to lowercase Rust primitives
+    // These are special because api.json should use lowercase for primitives
+    let inner_type = match inner_type_raw {
+        "U8" => "u8",
+        "U16" => "u16",
+        "U32" => "u32",
+        "U64" => "u64",
+        "U128" => "u128",
+        "Usize" => "usize",
+        "I8" => "i8",
+        "I16" => "i16",
+        "I32" => "i32",
+        "I64" => "i64",
+        "I128" => "i128",
+        "Isize" => "isize",
+        "F32" => "f32",
+        "F64" => "f64",
+        "Bool" => "bool",
+        "Char" => "char",
+        other => other, // Keep as-is for non-primitive types
+    };
 
     // All Option types go into the "option" module
     let option_key = ("option".to_string(), option_type_name.to_string());
@@ -842,10 +886,11 @@ fn generate_synthetic_option_type(
 
     // Only add Copy derive for primitive inner types that are definitely Copy
     // For complex types, we can't know if they're Copy without checking all_patches
+    // Use lowercase for primitives (matching what we normalized above)
     let primitive_copy_types = [
-        "F32", "F64", "I8", "I16", "I32", "I64", "I128",
-        "U8", "U16", "U32", "U64", "U128", "Usize", "Isize",
-        "Bool", "Char",
+        "f32", "f64", "i8", "i16", "i32", "i64", "i128",
+        "u8", "u16", "u32", "u64", "u128", "usize", "isize",
+        "bool", "char",
         // Also some specific types we know are Copy
         "NodeId", "DomNodeId", "ThreadId", "TimerId", "ColorU",
         "LayoutRect", "LayoutPoint", "LogicalPosition", "LogicalSize",

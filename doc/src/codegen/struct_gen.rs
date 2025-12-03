@@ -79,6 +79,10 @@ pub struct StructMetadata {
     pub generic_params: Option<Vec<String>>,
     /// Traits with manual implementations (e.g., ["Clone", "Drop"])
     pub custom_impls: Vec<String>,
+    /// For VecRef types: the element type (e.g., "u8" for U8VecRef)
+    pub vec_ref_element_type: Option<String>,
+    /// Whether this is a mutable VecRef (VecRefMut)
+    pub vec_ref_is_mut: bool,
 }
 
 impl StructMetadata {
@@ -142,6 +146,8 @@ impl StructMetadata {
             type_alias: class_data.type_alias.clone(),
             generic_params: class_data.generic_params.clone(),
             custom_impls,
+            vec_ref_element_type: class_data.vec_ref_element_type.clone(),
+            vec_ref_is_mut: class_data.vec_ref_is_mut,
         }
     }
 }
@@ -155,13 +161,60 @@ pub fn generate_structs(
     let indent_str = " ".repeat(config.indent);
     let mut code = String::new();
 
-    for (struct_name, struct_meta) in structs_map {
+    // First pass: collect all callback_typedef type names (without prefix)
+    // These are function pointer types like CallbackType, LayoutCallbackType, etc.
+    let callback_typedef_types: std::collections::HashSet<String> = structs_map
+        .iter()
+        .filter(|(_, meta)| meta.is_callback_typedef)
+        .map(|(name, _)| {
+            // Remove prefix to get base type name
+            name.strip_prefix(&config.prefix).unwrap_or(name).to_string()
+        })
+        .collect();
+
+    // Sort structs to ensure fundamental types come first
+    // This is necessary because derive(Clone) on a struct requires its fields to be Clone
+    // Types like AzU8Vec, AzString must be defined before structs that use them
+    let mut sorted_structs: Vec<_> = structs_map.iter().collect();
+    sorted_structs.sort_by(|(name_a, _), (name_b, _)| {
+        // Define priority: lower number = earlier in output
+        fn priority(name: &str) -> u32 {
+            // Most fundamental types first (used by many other types)
+            if name.ends_with("Vec") && !name.contains("VecDestructor") && !name.contains("VecRef") {
+                return 0; // U8Vec, StringVec, etc.
+            }
+            if name.ends_with("String") {
+                return 1; // AzString
+            }
+            if name.ends_with("VecRef") {
+                return 2; // VecRef types
+            }
+            if name.ends_with("VecDestructor") {
+                return 3; // VecDestructor types
+            }
+            if name.contains("Option") {
+                return 4; // Option types
+            }
+            // Everything else at same priority, sort alphabetically for determinism
+            10
+        }
+        let priority_a = priority(name_a);
+        let priority_b = priority(name_b);
+        if priority_a != priority_b {
+            priority_a.cmp(&priority_b)
+        } else {
+            name_a.cmp(name_b)
+        }
+    });
+
+    for (struct_name, struct_meta) in sorted_structs {
         code.push_str(&generate_single_type(
             version_data,
             struct_name,
             struct_meta,
             config,
             &indent_str,
+            &callback_typedef_types,
         )?);
     }
 
@@ -174,6 +227,7 @@ fn generate_single_type(
     struct_meta: &StructMetadata,
     config: &GenerateConfig,
     indent_str: &str,
+    callback_typedef_types: &std::collections::HashSet<String>,
 ) -> Result<String> {
     let mut code = String::new();
 
@@ -205,16 +259,24 @@ fn generate_single_type(
                 | "bool"
                 | "char"
                 | "str"
+                | "c_void"
         );
 
         // Check if target is a function pointer (starts with "extern")
         let is_function_ptr = type_alias_info.target.starts_with("extern");
+        
+        // Check if target is a pointer type (*const T or *mut T)
+        let is_pointer_type = type_alias_info.target.starts_with("*const ") 
+            || type_alias_info.target.starts_with("*mut ");
 
         let target_name = if is_primitive {
             type_alias_info.target.clone()
         } else if is_function_ptr {
             // For extern fn types, we need to prefix all types within the function signature
             prefix_types_in_extern_fn_string(version_data, &type_alias_info.target, &config.prefix)
+        } else if is_pointer_type {
+            // For pointer types like "*mut c_void", don't add prefix
+            type_alias_info.target.clone()
         } else {
             format!("{}{}", config.prefix, type_alias_info.target)
         };
@@ -230,7 +292,14 @@ fn generate_single_type(
             let args_with_prefix: Vec<String> = type_alias_info
                 .generic_args
                 .iter()
-                .map(|arg| format!("{}{}", config.prefix, arg))
+                .map(|arg| {
+                    // Don't prefix primitive types
+                    if is_primitive_arg(arg) {
+                        arg.clone()
+                    } else {
+                        format!("{}{}", config.prefix, arg)
+                    }
+                })
                 .collect();
 
             code.push_str(&format!(
@@ -266,12 +335,15 @@ fn generate_single_type(
             struct_fields,
             config,
             indent_str,
+            callback_typedef_types,
         )?);
 
-        // Generate callback trait implementations if this struct has a `cb` field
-        if is_callback_struct(struct_fields) {
+        // Generate callback trait implementations if this struct wraps a callback_typedef type
+        // A callback wrapper struct has exactly one field whose type is a callback_typedef
+        if let Some(field_name) = get_callback_wrapper_field(struct_fields, callback_typedef_types) {
             code.push_str(&generate_callback_trait_impls(
                 struct_name,
+                &field_name,
                 config,
                 indent_str,
             )?);
@@ -292,17 +364,41 @@ fn generate_single_type(
     Ok(code)
 }
 
-/// Check if a struct is a callback struct (has a field named `cb`)
-fn is_callback_struct(struct_fields: &[IndexMap<String, FieldData>]) -> bool {
-    struct_fields
-        .iter()
-        .any(|field_map| field_map.keys().any(|field_name| field_name == "cb"))
+/// Check if a struct is a callback wrapper struct
+/// A callback wrapper has exactly one field whose type is a callback_typedef type
+/// Examples: Callback (has cb: CallbackType), IFrameCallback (has cb: IFrameCallbackType)
+/// Returns the field name if it's a callback wrapper, None otherwise
+fn get_callback_wrapper_field(
+    struct_fields: &[IndexMap<String, FieldData>],
+    callback_typedef_types: &std::collections::HashSet<String>,
+) -> Option<String> {
+    // Count total fields
+    let total_fields: usize = struct_fields.iter().map(|m| m.len()).sum();
+    
+    // Must have exactly one field
+    if total_fields != 1 {
+        return None;
+    }
+    
+    // Check if that single field's type is a callback_typedef
+    for field_map in struct_fields {
+        for (field_name, field_data) in field_map {
+            let field_type = &field_data.r#type;
+            // Check if this type is in our callback_typedef set
+            if callback_typedef_types.contains(field_type) {
+                return Some(field_name.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Generate trait implementations for callback structs
 /// This replicates the behavior of the `impl_callback!` macro from core/src/macros.rs
+/// The `field_name` is the name of the single field containing the function pointer
 fn generate_callback_trait_impls(
     struct_name: &str,
+    field_name: &str,
     config: &GenerateConfig,
     indent_str: &str,
 ) -> Result<String> {
@@ -318,8 +414,8 @@ fn generate_callback_trait_impls(
         indent_str
     ));
     code.push_str(&format!(
-        "{}        write!(f, \"{} @ 0x{{:x}}\", self.cb as usize)\n",
-        indent_str, struct_name
+        "{}        write!(f, \"{} @ 0x{{:x}}\", self.{} as usize)\n",
+        indent_str, struct_name, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -331,8 +427,8 @@ fn generate_callback_trait_impls(
     ));
     code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
     code.push_str(&format!(
-        "{}        {} {{ cb: self.cb.clone() }}\n",
-        indent_str, struct_name
+        "{}        {} {{ {}: self.{}.clone() }}\n",
+        indent_str, struct_name, field_name, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -350,8 +446,8 @@ fn generate_callback_trait_impls(
     code.push_str(&format!("{}        H: ::core::hash::Hasher,\n", indent_str));
     code.push_str(&format!("{}    {{\n", indent_str));
     code.push_str(&format!(
-        "{}        state.write_usize(self.cb as usize);\n",
-        indent_str
+        "{}        state.write_usize(self.{} as usize);\n",
+        indent_str, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -366,8 +462,8 @@ fn generate_callback_trait_impls(
         indent_str
     ));
     code.push_str(&format!(
-        "{}        self.cb as usize == rhs.cb as usize\n",
-        indent_str
+        "{}        self.{} as usize == rhs.{} as usize\n",
+        indent_str, field_name, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -382,8 +478,8 @@ fn generate_callback_trait_impls(
         indent_str
     ));
     code.push_str(&format!(
-        "{}        Some((self.cb as usize).cmp(&(other.cb as usize)))\n",
-        indent_str
+        "{}        Some((self.{} as usize).cmp(&(other.{} as usize)))\n",
+        indent_str, field_name, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -398,8 +494,8 @@ fn generate_callback_trait_impls(
         indent_str
     ));
     code.push_str(&format!(
-        "{}        (self.cb as usize).cmp(&(other.cb as usize))\n",
-        indent_str
+        "{}        (self.{} as usize).cmp(&(other.{} as usize))\n",
+        indent_str, field_name, field_name
     ));
     code.push_str(&format!("{}    }}\n", indent_str));
     code.push_str(&format!("{}}}\n", indent_str));
@@ -407,6 +503,12 @@ fn generate_callback_trait_impls(
     // Eq implementation (marker trait)
     code.push_str(&format!(
         "\n{}impl Eq for {} {{}}\n",
+        indent_str, struct_name
+    ));
+
+    // Copy implementation (marker trait) - function pointers are Copy
+    code.push_str(&format!(
+        "\n{}impl Copy for {} {{}}\n",
         indent_str, struct_name
     ));
 
@@ -420,6 +522,7 @@ fn generate_struct_definition(
     struct_fields: &[IndexMap<String, FieldData>],
     config: &GenerateConfig,
     indent_str: &str,
+    callback_typedef_types: &std::collections::HashSet<String>,
 ) -> Result<String> {
     let mut code = String::new();
 
@@ -455,15 +558,59 @@ fn generate_struct_definition(
     let mut opt_derive_ord = String::new();
     let mut opt_derive_hash = String::new();
 
-    // If this is a callback struct (has a `cb` field), don't derive any traits
-    // because we'll generate custom implementations later
-    let is_callback = is_callback_struct(struct_fields);
-    if is_callback {
+    // If this is a callback wrapper struct (has exactly one field that is a callback_typedef),
+    // don't derive any traits because we'll generate custom implementations later
+    let is_callback_wrapper = get_callback_wrapper_field(struct_fields, callback_typedef_types).is_some();
+    if is_callback_wrapper {
         opt_derive_copy.clear();
         opt_derive_debug.clear();
         opt_derive_clone.clear();
         opt_derive_other.clear();
         opt_derive_eq.clear();
+        opt_derive_ord.clear();
+        opt_derive_hash.clear();
+    }
+
+    // If this is a VecRef type (has vec_ref_element_type), don't derive traits
+    // because we generate custom implementations in memtest that use as_slice()
+    if struct_meta.vec_ref_element_type.is_some() {
+        opt_derive_copy.clear();
+        opt_derive_debug.clear();
+        opt_derive_clone.clear();
+        opt_derive_other.clear();
+        opt_derive_eq.clear();
+        opt_derive_ord.clear();
+        opt_derive_hash.clear();
+    }
+
+    // Check if struct has any c_void fields - these can't derive most traits
+    // c_void is an opaque type that doesn't implement Clone, PartialEq, PartialOrd, etc.
+    let has_c_void_field = struct_fields.iter().any(|field_map| {
+        field_map.values().any(|field_data| field_data.r#type == "c_void")
+    });
+    if has_c_void_field {
+        opt_derive_clone.clear();
+        opt_derive_copy.clear();
+        opt_derive_other.clear(); // PartialEq, PartialOrd
+        opt_derive_eq.clear();
+        opt_derive_ord.clear();
+        opt_derive_hash.clear();
+    }
+
+    // Check if struct has any HashMap/FastHashMap fields - these don't support PartialOrd/Ord
+    let has_hashmap_field = struct_fields.iter().any(|field_map| {
+        field_map.values().any(|field_data| {
+            field_data.r#type.contains("HashMap") || field_data.r#type.contains("FastHashMap")
+        })
+    });
+    if has_hashmap_field {
+        // HashMap doesn't implement PartialOrd, Ord, or Hash
+        // Keep PartialEq though, as HashMap does implement PartialEq
+        opt_derive_other = if !config.no_derive && !skip_auto_derives {
+            format!("{}#[derive(PartialEq)]\n", indent_str)
+        } else {
+            String::new()
+        };
         opt_derive_ord.clear();
         opt_derive_hash.clear();
     }
@@ -483,8 +630,16 @@ fn generate_struct_definition(
         opt_derive_clone.clear();
     }
 
-    if struct_name == "AzString" {
+    // AzString (generated from "String" in api.json) should not derive most traits
+    // because it has custom implementations in memtest.rs for traits that need as_str()
+    // BUT: Clone can still use derive since it's just copying the inner U8Vec
+    if struct_name.ends_with("String") && struct_name.starts_with(&config.prefix) {
         opt_derive_debug.clear();
+        // Keep opt_derive_clone - derive(Clone) works fine for String
+        opt_derive_other.clear();
+        opt_derive_eq.clear();
+        opt_derive_ord.clear();
+        opt_derive_hash.clear();
     }
 
     // For types with custom destructor: they can't be Copy, but can still have Debug/PartialEq/etc
@@ -662,19 +817,10 @@ fn generate_struct_definition(
                 } else {
                     // Complex type - need to resolve and add prefix
                     
-                    // First, check if a version with the prefix already exists
-                    // e.g., if base_type is "String", check if "AzString" exists
-                    // This handles cases where api.json has both "String" and "AzString"
-                    let prefixed_base_type = format!("{}{}", &config.prefix, &base_type);
+                    // Look up the type in api.json
                     let resolved_class_name = if let Some((_, class_name)) = 
-                        search_for_class_by_class_name(version_data, &prefixed_base_type) 
-                    {
-                        // Found a prefixed version (e.g., AzString) - use it
-                        Some(class_name.to_string())
-                    } else if let Some((_, class_name)) = 
                         search_for_class_by_class_name(version_data, &base_type) 
                     {
-                        // Found the base type - use it
                         Some(class_name.to_string())
                     } else {
                         None
@@ -957,6 +1103,32 @@ fn generate_enum_definition(
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
             if let Some(variant_type) = &variant_data.r#type {
+                // Check if this is a tuple type (multiple types separated by commas)
+                if variant_type.contains(',') {
+                    // Split by comma and prefix each type
+                    let prefixed_types: Vec<String> = variant_type
+                        .split(',')
+                        .map(|t| {
+                            let t = t.trim();
+                            let (prefix, base_type, suffix) = analyze_type(t);
+                            if is_primitive_arg(&base_type) {
+                                format!("{}{}{}", prefix, base_type, suffix)
+                            } else if let Some((_, class_name)) =
+                                search_for_class_by_class_name(version_data, &base_type)
+                            {
+                                format!("{}{}{}{}", prefix, &config.prefix, class_name, suffix)
+                            } else {
+                                t.to_string()
+                            }
+                        })
+                        .collect();
+                    code.push_str(&format!(
+                        "{}    {}({}),\n",
+                        indent_str, variant_name, prefixed_types.join(", ")
+                    ));
+                    continue;
+                }
+
                 // Check if this is a generic type parameter (like T)
                 let is_generic_param = struct_meta
                     .generic_params
@@ -1226,6 +1398,9 @@ mod tests {
             type_alias: None,
             generic_params: None,
             custom_impls: Vec::new(),
+            vec_ref_element_type: None,
+            vec_ref_is_mut: false,
+            has_explicit_derive: true,
         };
 
         let mut structs_map = HashMap::new();
@@ -1312,6 +1487,9 @@ mod tests {
             type_alias: None,
             generic_params: None,
             custom_impls: Vec::new(),
+            vec_ref_element_type: None,
+            vec_ref_is_mut: false,
+            has_explicit_derive: true,
         };
 
         let mut structs_map = HashMap::new();
@@ -1387,6 +1565,9 @@ mod tests {
             type_alias: None,
             generic_params: None,
             custom_impls: Vec::new(),
+            vec_ref_element_type: None,
+            vec_ref_is_mut: false,
+            has_explicit_derive: true,
         };
 
         let mut structs_map = HashMap::new();
