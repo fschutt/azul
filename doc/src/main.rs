@@ -58,6 +58,84 @@ fn main() -> anyhow::Result<()> {
             patch::explain_patches(&patches_dir)?;
             return Ok(());
         }
+        ["unused"] => {
+            println!("[SEARCH] Finding unused types in api.json (recursive analysis)...\n");
+            let api_data = load_api_json(&api_path)?;
+            let unused_types = api::find_all_unused_types_recursive(&api_data);
+            
+            if unused_types.is_empty() {
+                println!("[OK] No unused types found. All types are reachable from the public API.");
+            } else {
+                println!("[WARN] Found {} unused types:\n", unused_types.len());
+                
+                // Group by module for better readability
+                let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+                for info in &unused_types {
+                    by_module.entry(info.module_name.clone())
+                        .or_default()
+                        .push(info.type_name.clone());
+                }
+                
+                for (module, types) in &by_module {
+                    println!("  Module `{}`:", module);
+                    for type_name in types {
+                        println!("    - {}", type_name);
+                    }
+                    println!();
+                }
+                
+                println!("To generate removal patches, run: azul-doc unused patch");
+            }
+            return Ok(());
+        }
+        ["unused", "patch"] => {
+            println!("[SEARCH] Generating patches to remove unused types (recursive)...\n");
+            let api_data = load_api_json(&api_path)?;
+            let unused_types = api::find_all_unused_types_recursive(&api_data);
+            
+            if unused_types.is_empty() {
+                println!("[OK] No unused types found. Nothing to patch.");
+                return Ok(());
+            }
+            
+            let patches_dir = project_root.join("target").join("unused_types_patches");
+            
+            // Clean existing patches directory
+            if patches_dir.exists() {
+                fs::remove_dir_all(&patches_dir)?;
+            }
+            fs::create_dir_all(&patches_dir)?;
+            
+            // Generate removal patches using the new API function
+            let patches = api::generate_removal_patches(&unused_types);
+            
+            // Write each patch to a file (one per module)
+            for (idx, patch) in patches.iter().enumerate() {
+                // Extract module name from the patch for the filename
+                let (module_name, type_count) = patch.versions.values()
+                    .flat_map(|v| v.modules.iter())
+                    .next()
+                    .map(|(m, mp)| (m.clone(), mp.classes.len()))
+                    .unwrap_or_else(|| (format!("patch_{}", idx), 0));
+                
+                let patch_filename = format!("{:03}_remove_{}.patch.json", idx, module_name);
+                let patch_path = patches_dir.join(&patch_filename);
+                
+                let json = serde_json::to_string_pretty(&patch)?;
+                fs::write(&patch_path, json)?;
+                
+                println!("  [PATCH] {} ({} types)", patch_filename, type_count);
+            }
+            
+            println!("\n[OK] Generated {} removal patch files for {} types in:", patches.len(), unused_types.len());
+            println!("     {}", patches_dir.display());
+            println!("\nTo review a patch:");
+            println!("  cat {}/*.patch.json", patches_dir.display());
+            println!("\nTo apply the patches:");
+            println!("  cargo run -- patch {}", patches_dir.display());
+            
+            return Ok(());
+        }
         ["patch", "safe", patch_dir] => {
             println!("[FIX] Applying safe (path-only) patches to api.json...\n");
 
@@ -159,6 +237,74 @@ fn main() -> anyhow::Result<()> {
                     // Save updated api.json
                     let api_json = serde_json::to_string_pretty(&api_data)?;
                     fs::write(&api_path, api_json)?;
+                    println!("\n[SAVE] Saved updated api.json");
+                }
+                
+                // After applying patches, recursively remove all unused types
+                // This handles the cascading effect where removing one type makes others unused
+                let mut total_removed = 0;
+                let mut pass = 0;
+                let max_passes = 50;
+                
+                loop {
+                    pass += 1;
+                    if pass > max_passes {
+                        eprintln!("[WARN] Max passes ({}) reached for unused type removal", max_passes);
+                        break;
+                    }
+                    
+                    // Re-load api.json to get fresh state
+                    let api_json_str = fs::read_to_string(&api_path)?;
+                    let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
+                    
+                    // Find unused types (single pass - not recursive simulation)
+                    let unused = api::find_unused_types(&fresh_api_data);
+                    
+                    if unused.is_empty() {
+                        break;
+                    }
+                    
+                    if pass == 1 {
+                        println!("\n[CLEANUP] Removing unused types...");
+                    }
+                    
+                    // Generate and apply removal patches directly
+                    let removal_patches = api::generate_removal_patches(&unused);
+                    let mut changes_this_pass = 0;
+                    
+                    for patch in &removal_patches {
+                        if let Ok((count, _)) = patch.apply(&mut fresh_api_data) {
+                            changes_this_pass += count;
+                        }
+                    }
+                    
+                    if changes_this_pass == 0 {
+                        break;
+                    }
+                    
+                    total_removed += unused.len();
+                    
+                    // Save the updated api.json
+                    let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
+                    fs::write(&api_path, api_json)?;
+                }
+                
+                if total_removed > 0 {
+                    println!("[OK] Removed {} unused types in {} passes", total_removed, pass - 1);
+                }
+                
+                // Remove empty modules after removing unused types
+                let api_json_str = fs::read_to_string(&api_path)?;
+                let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
+                let empty_modules_removed = api::remove_empty_modules(&mut fresh_api_data);
+                
+                if empty_modules_removed > 0 {
+                    println!("[OK] Removed {} empty modules", empty_modules_removed);
+                    let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
+                    fs::write(&api_path, api_json)?;
+                }
+                
+                if total_removed > 0 || empty_modules_removed > 0 {
                     println!("\n[SAVE] Saved updated api.json");
                 }
 
@@ -569,44 +715,6 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
         .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
     let api_data =
         api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
-
-    // DEBUG: Check if type_alias field was deserialized
-    if let Some(version_data) = api_data.0.values().next() {
-        if let Some(css_module) = version_data.api.get("css") {
-            if let Some(lziv) = css_module.classes.get("LayoutZIndexValue") {
-                eprintln!("DEBUG load_api_json: LayoutZIndexValue found");
-                eprintln!("  type_alias: {:?}", lziv.type_alias);
-            } else {
-                eprintln!("DEBUG load_api_json: LayoutZIndexValue NOT found in css.classes");
-            }
-
-            let type_alias_count = css_module
-                .classes
-                .values()
-                .filter(|c| c.type_alias.is_some())
-                .count();
-            eprintln!(
-                "DEBUG load_api_json: {} classes have type_alias",
-                type_alias_count
-            );
-        }
-        
-        // DEBUG: Check if custom_impls was deserialized for RefAny
-        if let Some(refany_module) = version_data.api.get("refany") {
-            if let Some(refany_class) = refany_module.classes.get("RefAny") {
-                eprintln!("DEBUG load_api_json: RefAny found");
-                eprintln!("  custom_impls: {:?}", refany_class.custom_impls);
-                eprintln!("  clone: {:?}", refany_class.clone);
-                eprintln!("  custom_destructor: {:?}", refany_class.custom_destructor);
-                eprintln!("  has_custom_clone(): {}", refany_class.has_custom_clone());
-                eprintln!("  has_custom_drop(): {}", refany_class.has_custom_drop());
-            } else {
-                eprintln!("DEBUG load_api_json: RefAny NOT found in refany.classes");
-            }
-        } else {
-            eprintln!("DEBUG load_api_json: refany module NOT found");
-        }
-    }
 
     Ok(api_data)
 }

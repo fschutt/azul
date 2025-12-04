@@ -16,7 +16,7 @@ use self::{
     },
 };
 use crate::{
-    api::{collect_all_referenced_types_from_api, ApiData},
+    api::{collect_all_referenced_types_from_api, find_all_unused_types_recursive, generate_removal_patches, ApiData},
     patch::index::{TypeKind, WorkspaceIndex},
 };
 
@@ -441,16 +441,53 @@ pub fn autofix_api_recursive(
         &mut messages,
     )?;
 
+    // Step 7: Generate patches to remove unused types (recursively finds all)
+    // These are written to the same patches directory so a single "patch" command applies everything
+    let unused_types = find_all_unused_types_recursive(api_data);
+    let mut total_unused_removed = 0;
+    
+    if !unused_types.is_empty() {
+        println!("\n[CLEANUP] Found {} unused types to remove (recursive analysis)", unused_types.len());
+        
+        // Generate removal patches and write to the main patches directory
+        let removal_patches = generate_removal_patches(&unused_types);
+        
+        for (idx, patch) in removal_patches.iter().enumerate() {
+            // Use zzz_ prefix to ensure removal patches are applied LAST
+            // (after all other patches have been applied)
+            let patch_filename = format!("zzz_{:03}_remove_unused.patch.json", idx);
+            let patch_path = patches_dir.join(&patch_filename);
+            let patch_json = serde_json::to_string_pretty(patch)?;
+            fs::write(&patch_path, patch_json)?;
+        }
+        
+        total_unused_removed = unused_types.len();
+        
+        // List the unused types
+        let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+        for ut in &unused_types {
+            by_module.entry(ut.module_name.clone()).or_default().push(ut.type_name.clone());
+        }
+        
+        for (module, types) in &by_module {
+            println!("   • {}: {}", module, types.join(", "));
+        }
+    }
+
     // Analysis complete - print comprehensive report
     let duration = start_time.elapsed();
-    println!("[OK] Analysis complete ({:.1}s)\n", duration.as_secs_f32());
+    println!("\n[OK] Analysis complete ({:.1}s)\n", duration.as_secs_f32());
 
     messages.print_report(
         &patch_summary,
         duration.as_secs_f32(),
         &patches_dir,
-        patch_count,
+        patch_count + total_unused_removed,
     );
+    
+    if total_unused_removed > 0 {
+        println!("\n[CLEANUP] {} unused type removal patches included", total_unused_removed);
+    }
 
     Ok(())
 }

@@ -292,9 +292,6 @@
                 "fn_body": "AzSystemCallbacks::rust_internal()"
               }
             }
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
           }
         }
       },
@@ -694,85 +691,6 @@
                 "a_native_window": {
                   "type": "*mut c_void",
                   "doc": "A pointer to an ANativeWindow."
-                }
-              }
-            ]
-          },
-          "XWindowType": {
-            "doc": "X window type. Maps directly to [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).",
-            "external": "azul_core::window::XWindowType",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Desktop": {
-                  "doc": "A desktop feature. This can include a single window containing desktop icons with the same dimensions as the screen, allowing the desktop environment to have full control of the desktop, without the need for proxying root window clicks."
-                }
-              },
-              {
-                "Dock": {
-                  "doc": "A dock or panel feature. Typically a Window Manager would keep such windows on top of all other windows."
-                }
-              },
-              {
-                "Toolbar": {
-                  "doc": "Toolbar windows. \"Torn off\" from the main application."
-                }
-              },
-              {
-                "Menu": {
-                  "doc": "Pinnable menu windows. \"Torn off\" from the main application."
-                }
-              },
-              {
-                "Utility": {
-                  "doc": "A small persistent utility window, such as a palette or toolbox."
-                }
-              },
-              {
-                "Splash": {
-                  "doc": "The window is a splash screen displayed as an application is starting up."
-                }
-              },
-              {
-                "Dialog": {
-                  "doc": "This is a dialog window."
-                }
-              },
-              {
-                "DropdownMenu": {
-                  "doc": "A dropdown menu that usually appears when the user clicks on an item in a menu bar. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "PopupMenu": {
-                  "doc": "A popup menu that usually appears when the user right clicks on an object. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "Tooltip": {
-                  "doc": "A tooltip window. Usually used to show additional information when hovering over an object with the cursor. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "Notification": {
-                  "doc": "The window is a notification. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "Combo": {
-                  "doc": "This should be used on the windows that are popped up by combo boxes. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "Dnd": {
-                  "doc": "This indicates the the window is being dragged. This property is typically used on override-redirect windows."
-                }
-              },
-              {
-                "Normal": {
-                  "doc": "This is a normal, top-level window."
                 }
               }
             ]
@@ -1450,31 +1368,6 @@
               },
               {
                 "Cut": {}
-              }
-            ]
-          },
-          "AcceleratorKey": {
-            "doc": "Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`",
-            "external": "azul_core::window::AcceleratorKey",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "enum_fields": [
-              {
-                "Ctrl": {}
-              },
-              {
-                "Alt": {}
-              },
-              {
-                "Shift": {}
-              },
-              {
-                "Key": {
-                  "type": "VirtualKeyCode"
-                }
               }
             ]
           },
@@ -2397,7 +2290,7 @@
             ]
           },
           "WindowState": {
-            "external": "azul_dll::desktop::shell2::common::callback_processing::WindowState",
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState",
             "struct_fields": [
               {
                 "title": {
@@ -2603,34 +2496,6 @@
               }
             ]
           },
-          "FullScreenMode": {
-            "external": "azul_core::window::FullScreenMode",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "SlowFullScreen": {
-                  "doc": "- macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode - other: Does the same as `FastFullScreen`."
-                }
-              },
-              {
-                "FastFullScreen": {
-                  "doc": "Window should immediately go into fullscreen mode (on macOS this is not the default behaviour)."
-                }
-              },
-              {
-                "SlowWindowed": {
-                  "doc": "- macOS: If the window is in fullscreen mode, transitions slowly back to windowed state. - other: Does the same as `FastWindowed`."
-                }
-              },
-              {
-                "FastWindowed": {
-                  "doc": "If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour)."
-                }
-              }
-            ]
-          },
           "WindowTheme": {
             "doc": "State, size, etc of the window, for comparing to the last frame",
             "external": "azul_core::window::WindowTheme",
@@ -2751,47 +2616,6 @@
                 "is_primary_monitor": {
                   "type": "bool",
                   "doc": "Whether this is the primary/main monitor"
-                }
-              }
-            ]
-          },
-          "VideoMode": {
-            "doc": "Describes a rendering configuration for a monitor",
-            "external": "azul_core::window::VideoMode",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "size": {
-                  "type": "LayoutSize"
-                }
-              },
-              {
-                "bit_depth": {
-                  "type": "u16"
-                }
-              },
-              {
-                "refresh_rate": {
-                  "type": "u16"
-                }
-              }
-            ]
-          },
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks",
-            "struct_fields": [
-              {
-                "create_thread": {
-                  "type": "*const c_void"
-                }
-              },
-              {
-                "get_system_time": {
-                  "type": "*const c_void"
                 }
               }
             ]
@@ -2985,27 +2809,6 @@
               "target": "*mut c_void",
               "generic_args": []
             }
-          },
-          "StringPair": {
-            "external": "azul_core::window::AzStringPair",
-            "struct_fields": [
-              {
-                "key": {
-                  "type": "String"
-                }
-              },
-              {
-                "value": {
-                  "type": "String"
-                }
-              }
-            ]
-          },
-          "U32": {
-            "external": "azul_dll::widgets::text_input::U32"
-          },
-          "FontCache": {
-            "external": "azul_layout::window::FontCache"
           }
         }
       },
@@ -4244,187 +4047,6 @@
               }
             }
           },
-          "InlineLine": {
-            "external": "azul_core::callbacks::InlineLine",
-            "struct_fields": [
-              {
-                "words": {
-                  "type": "InlineWordVec",
-                  "doc": "List of words in this line (includes tabs, return and spaces)"
-                }
-              },
-              {
-                "bounds": {
-                  "type": "LogicalRect",
-                  "doc": "Size and origin of the line, relative to the inline text origin (top left corner)"
-                }
-              }
-            ]
-          },
-          "InlineWord": {
-            "external": "azul_core::callbacks::InlineWord",
-            "enum_fields": [
-              {
-                "Tab": {
-                  "doc": "Tab character, width depends on `TextLayoutOptions.tab_width`"
-                }
-              },
-              {
-                "Return": {
-                  "doc": "Return character"
-                }
-              },
-              {
-                "Space": {
-                  "doc": "Space character"
-                }
-              },
-              {
-                "Word": {
-                  "type": "InlineTextContents",
-                  "doc": "Actual word containing renderable glyphs"
-                }
-              }
-            ]
-          },
-          "InlineTextContents": {
-            "external": "azul_dll::python::InlineTextContents",
-            "struct_fields": [
-              {
-                "glyphs": {
-                  "type": "InlineGlyphVec",
-                  "doc": "List of glyphs in this word"
-                }
-              },
-              {
-                "bounds": {
-                  "type": "LogicalRect",
-                  "doc": "origin and size of the word relative to the line origin (top left corner of the line)"
-                }
-              }
-            ]
-          },
-          "InlineGlyph": {
-            "external": "azul_core::callbacks::InlineGlyph",
-            "struct_fields": [
-              {
-                "bounds": {
-                  "type": "LogicalRect"
-                }
-              },
-              {
-                "unicode_codepoint": {
-                  "type": "OptionChar"
-                }
-              },
-              {
-                "glyph_index": {
-                  "type": "u32"
-                }
-              }
-            ]
-          },
-          "InlineTextHit": {
-            "external": "azul_core::callbacks::InlineTextHit",
-            "struct_fields": [
-              {
-                "unicode_codepoint": {
-                  "type": "OptionChar",
-                  "doc": "`Option<char>`, if the glyph was a character (as opposed to a diacritic mark), contains the unicode codepoint of the character"
-                }
-              },
-              {
-                "hit_relative_to_inline_text": {
-                  "type": "LogicalPosition",
-                  "doc": "Position of the hit relative to the top left corner of the inline text"
-                }
-              },
-              {
-                "hit_relative_to_line": {
-                  "type": "LogicalPosition",
-                  "doc": "Position of the hit relative to the top left corner of the line"
-                }
-              },
-              {
-                "hit_relative_to_text_content": {
-                  "type": "LogicalPosition",
-                  "doc": "Position of the hit relative to the top left corner of the word"
-                }
-              },
-              {
-                "hit_relative_to_glyph": {
-                  "type": "LogicalPosition",
-                  "doc": "Position of the hit relative to the top left corner of the glyph"
-                }
-              },
-              {
-                "line_index_relative_to_text": {
-                  "type": "usize",
-                  "doc": "Index of the line in the text"
-                }
-              },
-              {
-                "word_index_relative_to_text": {
-                  "type": "usize",
-                  "doc": "Index of the word in the text (note: words include `Space`, `Tab` and `Return`)"
-                }
-              },
-              {
-                "text_content_index_relative_to_text": {
-                  "type": "usize",
-                  "doc": "Index of the text content in the text"
-                }
-              },
-              {
-                "glyph_index_relative_to_text": {
-                  "type": "usize",
-                  "doc": "Index of the hit glyph in the text (note: one glyph is not one character, glyphs include diacritic marks)"
-                }
-              },
-              {
-                "char_index_relative_to_text": {
-                  "type": "usize",
-                  "doc": "Index of the hit character (unicode codepoint) in the text."
-                }
-              },
-              {
-                "word_index_relative_to_line": {
-                  "type": "usize",
-                  "doc": "Index of the hit word (note: includes `Tab`, `Space`, `Return`) in the hit line"
-                }
-              },
-              {
-                "text_content_index_relative_to_line": {
-                  "type": "usize",
-                  "doc": "Index of the hit text content (\"word\") in the hit line"
-                }
-              },
-              {
-                "glyph_index_relative_to_line": {
-                  "type": "usize",
-                  "doc": "Index of the hit glyph in the line (includes diacritic marks)"
-                }
-              },
-              {
-                "char_index_relative_to_line": {
-                  "type": "usize",
-                  "doc": "Index of the hit character (unicode codepoint) in the line"
-                }
-              },
-              {
-                "glyph_index_relative_to_word": {
-                  "type": "usize",
-                  "doc": "Index of the hit glyph in the word (includes diacritic marks)"
-                }
-              },
-              {
-                "char_index_relative_to_word": {
-                  "type": "usize",
-                  "doc": "Index of the hit character (unicode codepoint) in the word"
-                }
-              }
-            ]
-          },
           "FocusTarget": {
             "doc": "Defines the focus_targeted node ID for the next frame",
             "external": "azul_core::callbacks::FocusTarget",
@@ -4605,7 +4227,7 @@
               },
               {
                 "duration": {
-                  "type": "Duration",
+                  "type": "AzDuration",
                   "doc": "The time it takes for the animation to complete one cycle."
                 }
               },
@@ -4827,20 +4449,6 @@
                 "virtual_scroll_offset": {
                   "type": "LogicalPosition",
                   "doc": "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
-                }
-              }
-            ]
-          },
-          "RenderImageCallback": {
-            "doc": "Callback that returns a rendered OpenGL texture **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallback` with a `cb: usize` field. When creating callbacks in the data model, function pointers are cast to usize. This type is used in azul-layout where we can safely work with the actual function pointer type.",
-            "external": "azul_layout::callbacks::RenderImageCallback",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "RenderImageCallbackType"
                 }
               }
             ]
@@ -5474,9 +5082,6 @@
                 }
               }
             ]
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
           },
           "CoreCallback": {
             "doc": "Stores a callback as usize (actually a function pointer cast to usize) **IMPORTANT**: The `cb` field stores a function pointer disguised as usize to avoid circular dependencies between azul-core and azul-layout. When creating a CoreCallback, you can directly assign a function pointer - Rust will implicitly cast it to usize. When invoking, the usize must be unsafely cast back to the function pointer type. Must return an `Update` that denotes if the screen should be redrawn.",
@@ -6268,26 +5873,6 @@
                 "data": {
                   "type": "RefAny",
                   "doc": "The application data passed to the iframe's layout callback."
-                }
-              }
-            ]
-          },
-          "CallbackData": {
-            "external": "azul_core::refany::CallbackData",
-            "struct_fields": [
-              {
-                "event": {
-                  "type": "EventFilter"
-                }
-              },
-              {
-                "callback": {
-                  "type": "Callback"
-                }
-              },
-              {
-                "data": {
-                  "type": "RefAny"
                 }
               }
             ]
@@ -8470,92 +8055,6 @@
               }
             ]
           },
-          "AccessibilityState": {
-            "doc": "Defines the current state of an element for accessibility APIs (e.g., focused, checked). These states provide dynamic information to assistive technologies about the element's condition. See the [MSDN State Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants) for more details.",
-            "external": "azul_core::dom::AccessibilityState",
-            "enum_fields": [
-              {
-                "Unavailable": {
-                  "doc": "The element is unavailable and cannot be interacted with. - **Purpose**: To indicate that a control is disabled or grayed out. - **When to use**: For disabled buttons, non-interactive menu items, or any control that is temporarily non-functional. - **Example**: A \"Save\" button that is disabled until the user makes changes to a document."
-                }
-              },
-              {
-                "Selected": {
-                  "doc": "The element is selected. - **Purpose**: To indicate that an item is currently chosen or highlighted. This is distinct from having focus. - **When to use**: For selected items in a list, highlighted text, or the currently active tab in a tab list. - **Example**: A file highlighted in a file explorer, or multiple selected emails in an inbox."
-                }
-              },
-              {
-                "Focused": {
-                  "doc": "The element has the keyboard focus. - **Purpose**: To identify the single element that will receive keyboard input. - **When to use**: For the control that is currently active and ready to be manipulated by the keyboard. - **Example**: A text box with a blinking cursor, or a button with a dotted outline around it."
-                }
-              },
-              {
-                "Checked": {
-                  "doc": "The element is checked, toggled, or in a mixed state. - **Purpose**: To represent the state of controls like checkboxes, radio buttons, and toggle buttons. - **When to use**: For checkboxes that are ticked, selected radio buttons, or toggle buttons that are \"on.\" - **Example**: A checked \"I agree\" checkbox, a selected \"Yes\" radio button, or an active \"Bold\" button in a toolbar."
-                }
-              },
-              {
-                "Readonly": {
-                  "doc": "The element's content cannot be edited by the user. - **Purpose**: To indicate that the element's value can be viewed and copied, but not modified. - **When to use**: For display-only text fields or documents. - **Example**: A text box displaying a license agreement that the user can scroll through but cannot edit."
-                }
-              },
-              {
-                "Default": {
-                  "doc": "The element is the default action in a dialog or form. - **Purpose**: To identify the button that will be activated if the user presses the Enter key. - **When to use**: For the primary confirmation button in a dialog. - **Example**: The \"OK\" button in a dialog box, which often has a thicker or colored border."
-                }
-              },
-              {
-                "Expanded": {
-                  "doc": "The element is expanded, showing its child items. - **Purpose**: To indicate that a collapsible element is currently open and its contents are visible. - **When to use**: For tree view nodes, combo boxes with their lists open, or expanded accordion panels. - **Example**: A folder in a file explorer's tree view that has been clicked to show its subfolders."
-                }
-              },
-              {
-                "Collapsed": {
-                  "doc": "The element is collapsed, hiding its child items. - **Purpose**: To indicate that a collapsible element is closed and its contents are hidden. - **When to use**: The counterpart to `Expanded` for any collapsible UI element. - **Example**: A closed folder in a file explorer's tree view, hiding its contents."
-                }
-              },
-              {
-                "Busy": {
-                  "doc": "The element is busy and cannot respond to user interaction. - **Purpose**: To indicate that the element or application is performing an operation and is temporarily unresponsive. - **When to use**: When an application is loading, processing data, or otherwise occupied. - **Example**: A window that is grayed out and shows a spinning cursor while saving a large file."
-                }
-              },
-              {
-                "Offscreen": {
-                  "doc": "The element is not currently visible on the screen. - **Purpose**: To indicate that an element exists but is currently scrolled out of the visible area. - **When to use**: For items in a long list or a large document that are not within the current viewport. - **Example**: A list item in a long dropdown that you would have to scroll down to see."
-                }
-              },
-              {
-                "Focusable": {
-                  "doc": "The element can accept keyboard focus. - **Purpose**: To indicate that the user can navigate to this element using the keyboard (e.g., with the Tab key). - **When to use**: On all interactive elements like buttons, links, and input fields, whether they currently have focus or not. - **Example**: A button that can receive focus, even if it is not the currently focused element."
-                }
-              },
-              {
-                "Selectable": {
-                  "doc": "The element is a container whose children can be selected. - **Purpose**: To indicate that the element contains items that can be chosen. - **When to use**: On container controls like list boxes, tree views, or text spans where text can be highlighted. - **Example**: A list box control is `Selectable`, while its individual list items have the `Selected` state when chosen."
-                }
-              },
-              {
-                "Linked": {
-                  "doc": "The element is a hyperlink. - **Purpose**: To identify an object that navigates to another resource or location when activated. - **When to use**: On any object that functions as a hyperlink. - **Example**: Text or an image that, when clicked, opens a web page."
-                }
-              },
-              {
-                "Traversed": {
-                  "doc": "The element is a hyperlink that has been visited. - **Purpose**: To indicate that a hyperlink has already been followed by the user. - **When to use**: On a `Linked` object that the user has previously activated. - **Example**: A hyperlink on a web page that has changed color to show it has been visited."
-                }
-              },
-              {
-                "Multiselectable": {
-                  "doc": "The element allows multiple of its children to be selected at once. - **Purpose**: To indicate that a container control supports multi-selection. - **When to use**: On container controls like list boxes or file explorers that support multiple selections (e.g., with Ctrl-click). - **Example**: A file list that allows the user to select several files at once for a copy operation."
-                }
-              },
-              {
-                "Protected": {
-                  "doc": "The element contains protected content that should not be read aloud. - **Purpose**: To prevent assistive technologies from speaking the content of a sensitive field. - **When to use**: Primarily for password input fields. - **Example**: A password text box where typed characters are masked with asterisks or dots."
-                }
-              }
-            ]
-          },
           "TabIndex": {
             "doc": "Determines the behavior of an element in sequential focus navigation",
             "external": "azul_core::dom::TabIndex",
@@ -8577,76 +8076,6 @@
               {
                 "NoKeyboardFocus": {
                   "doc": "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (-1)."
-                }
-              }
-            ]
-          },
-          "IdOrClass": {
-            "doc": "An enum that holds either a CSS ID or a class name as a string.",
-            "external": "azul_core::dom::IdOrClass",
-            "enum_fields": [
-              {
-                "Id": {
-                  "type": "String"
-                }
-              },
-              {
-                "Class": {
-                  "type": "String"
-                }
-              }
-            ]
-          },
-          "NodeDataInlineCssProperty": {
-            "doc": "Represents an inline CSS property attached to a node for a specific interaction state. This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node.",
-            "external": "azul_core::dom::NodeDataInlineCssProperty",
-            "enum_fields": [
-              {
-                "Normal": {
-                  "type": "CssProperty",
-                  "doc": "A standard, non-interactive style property. - **CSS Equivalent**: ` ` (no pseudo-class)"
-                }
-              },
-              {
-                "Active": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element is active (e.g., being clicked). - **CSS Equivalent**: `:active`"
-                }
-              },
-              {
-                "Focus": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element has focus. - **CSS Equivalent**: `:focus`"
-                }
-              },
-              {
-                "Hover": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element is being hovered by the mouse. - **CSS Equivalent**: `:hover`"
-                }
-              },
-              {
-                "Disabled": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element is disabled and cannot be interacted with. - **CSS Equivalent**: `:disabled`"
-                }
-              },
-              {
-                "Checked": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element is checked (e.g., a checkbox or radio button). - **CSS Equivalent**: `:checked`"
-                }
-              },
-              {
-                "FocusWithin": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies when the element or one of its descendants has focus. - **CSS Equivalent**: `:focus-within`"
-                }
-              },
-              {
-                "Visited": {
-                  "type": "CssProperty",
-                  "doc": "A style property that applies to a link that has been visited. - **CSS Equivalent**: `:visited`"
                 }
               }
             ]
@@ -9083,31 +8512,13 @@
             ]
           },
           "WindowState": {
-            "external": "azul_dll::desktop::menu::WindowState"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
       "css": {
         "doc": "`Css` parsing module",
         "classes": {
-          "CssRuleBlock": {
-            "doc": "One block of rules that applies a bunch of rules to a \"path\" in the style, i.e. `div#myid.myclass -> { (\"justify-content\", \"center\") }`",
-            "external": "azul_css::css::CssRuleBlock",
-            "struct_fields": [
-              {
-                "path": {
-                  "type": "CssPath",
-                  "doc": "The css path (full selector) of the style ruleset"
-                }
-              },
-              {
-                "declarations": {
-                  "type": "CssDeclarationVec",
-                  "doc": "`\"justify-content: center\"` => `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`"
-                }
-              }
-            ]
-          },
           "CssPath": {
             "doc": "Represents a full CSS path (i.e. the \"div#id.class\" selector belonging to a CSS \"content group\" (the following key-value block)). ```no_run,ignore \"#div > .my_class:focus\" == [ CssPathSelector::Type(NodeTypeTag::Div), CssPathSelector::PseudoSelector(CssPathPseudoSelector::LimitChildren), CssPathSelector::Class(\"my_class\"), CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus), ]",
             "external": "azul_css::css::CssPath",
@@ -9115,60 +8526,6 @@
               {
                 "selectors": {
                   "type": "CssPathSelectorVec"
-                }
-              }
-            ]
-          },
-          "CssPathSelector": {
-            "external": "azul_css::css::CssPathSelector",
-            "enum_fields": [
-              {
-                "Global": {
-                  "doc": "Represents the `*` selector"
-                }
-              },
-              {
-                "Type": {
-                  "type": "NodeTypeTag",
-                  "doc": "`div`, `p`, etc."
-                }
-              },
-              {
-                "Class": {
-                  "type": "String",
-                  "doc": "`.something`"
-                }
-              },
-              {
-                "Id": {
-                  "type": "String",
-                  "doc": "`#something`"
-                }
-              },
-              {
-                "PseudoSelector": {
-                  "type": "CssPathPseudoSelector",
-                  "doc": "`:something`"
-                }
-              },
-              {
-                "DirectChildren": {
-                  "doc": "Represents the `>` selector (direct child)"
-                }
-              },
-              {
-                "Children": {
-                  "doc": "Represents the ` ` selector (descendant)"
-                }
-              },
-              {
-                "AdjacentSibling": {
-                  "doc": "Represents the `+` selector (adjacent sibling)"
-                }
-              },
-              {
-                "GeneralSibling": {
-                  "doc": "Represents the `~` selector (general sibling)"
                 }
               }
             ]
@@ -9993,98 +9350,6 @@
               }
             }
           },
-          "CssPathPseudoSelector": {
-            "external": "azul_css::css::CssPathPseudoSelector",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "First": {
-                  "doc": "`:first`"
-                }
-              },
-              {
-                "Last": {
-                  "doc": "`:last`"
-                }
-              },
-              {
-                "NthChild": {
-                  "type": "CssNthChildSelector",
-                  "doc": "`:nth-child`"
-                }
-              },
-              {
-                "Hover": {
-                  "doc": "`:hover` - mouse is over element"
-                }
-              },
-              {
-                "Active": {
-                  "doc": "`:active` - mouse is pressed and over element"
-                }
-              },
-              {
-                "Focus": {
-                  "doc": "`:focus` - element has received focus"
-                }
-              }
-            ]
-          },
-          "CssNthChildSelector": {
-            "external": "azul_css::css::CssNthChildSelector",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Number": {
-                  "type": "u32"
-                }
-              },
-              {
-                "Even": {}
-              },
-              {
-                "Odd": {}
-              },
-              {
-                "Pattern": {
-                  "type": "CssNthChildPattern"
-                }
-              }
-            ]
-          },
-          "CssNthChildPattern": {
-            "external": "azul_css::css::CssNthChildPattern",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "repeat": {
-                  "type": "u32"
-                }
-              },
-              {
-                "offset": {
-                  "type": "u32"
-                }
-              }
-            ]
-          },
-          "Stylesheet": {
-            "external": "azul_css::css::Stylesheet",
-            "struct_fields": [
-              {
-                "rules": {
-                  "type": "CssRuleBlockVec",
-                  "doc": "The style rules making up the document - for example, de-duplicated CSS rules"
-                }
-              }
-            ]
-          },
           "Css": {
             "doc": "Css stylesheet - contains a parsed CSS stylesheet in \"rule blocks\", i.e. blocks of key-value pairs associated with a selector path.",
             "external": "azul_css::css::Css",
@@ -10112,42 +9377,6 @@
                 "fn_body": "AzCss::from_string(s)"
               }
             }
-          },
-          "CssDeclaration": {
-            "doc": "Contains one parsed `key: value` pair, static or dynamic",
-            "external": "azul_css::css::CssDeclaration",
-            "enum_fields": [
-              {
-                "Static": {
-                  "type": "CssProperty",
-                  "doc": "Static key-value pair, such as `width: 500px`"
-                }
-              },
-              {
-                "Dynamic": {
-                  "type": "DynamicCssProperty",
-                  "doc": "Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`"
-                }
-              }
-            ]
-          },
-          "DynamicCssProperty": {
-            "doc": "A `DynamicCssProperty` is a type of css property that can be changed on possibly every frame by the Rust code - for example to implement an `On::Hover` behaviour. The syntax for such a property looks like this: ```no_run,ignore #my_div { padding: var(--my_dynamic_property_id, 400px); } ``` Azul will register a dynamic property with the key \"my_dynamic_property_id\" and the default value of 400px. If the property gets overridden during one frame, the overridden property takes precedence. At runtime the style is immutable (which is a performance optimization - if we can assume that the property never changes at runtime), we can do some optimizations on it. Dynamic style properties can also be used for animations and conditional styles (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these special cases now use one single API.",
-            "external": "azul_css::css::DynamicCssProperty",
-            "struct_fields": [
-              {
-                "dynamic_id": {
-                  "type": "String",
-                  "doc": "The stringified ID of this property, i.e. the `\"my_id\"` in `width: var(--my_id, 500px)`."
-                }
-              },
-              {
-                "default_value": {
-                  "type": "CssProperty",
-                  "doc": "Default values for this properties - one single value can control multiple properties!"
-                }
-              }
-            ]
           },
           "CssPropertyType": {
             "doc": "Represents a CSS key (for example `\"border-radius\"` => `BorderRadius`). You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.",
@@ -10637,369 +9866,6 @@
               }
             ]
           },
-          "NodeTypeTag": {
-            "doc": "Signifies the type of a DOM node without carrying any associated data",
-            "external": "azul_css::css::NodeTypeTag",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Html": {}
-              },
-              {
-                "Head": {}
-              },
-              {
-                "Body": {}
-              },
-              {
-                "Div": {}
-              },
-              {
-                "P": {}
-              },
-              {
-                "Article": {}
-              },
-              {
-                "Section": {}
-              },
-              {
-                "Nav": {}
-              },
-              {
-                "Aside": {}
-              },
-              {
-                "Header": {}
-              },
-              {
-                "Footer": {}
-              },
-              {
-                "Main": {}
-              },
-              {
-                "Figure": {}
-              },
-              {
-                "FigCaption": {}
-              },
-              {
-                "H1": {}
-              },
-              {
-                "H2": {}
-              },
-              {
-                "H3": {}
-              },
-              {
-                "H4": {}
-              },
-              {
-                "H5": {}
-              },
-              {
-                "H6": {}
-              },
-              {
-                "Br": {}
-              },
-              {
-                "Hr": {}
-              },
-              {
-                "Pre": {}
-              },
-              {
-                "BlockQuote": {}
-              },
-              {
-                "Address": {}
-              },
-              {
-                "Details": {}
-              },
-              {
-                "Summary": {}
-              },
-              {
-                "Dialog": {}
-              },
-              {
-                "Ul": {}
-              },
-              {
-                "Ol": {}
-              },
-              {
-                "Li": {}
-              },
-              {
-                "Dl": {}
-              },
-              {
-                "Dt": {}
-              },
-              {
-                "Dd": {}
-              },
-              {
-                "Menu": {}
-              },
-              {
-                "MenuItem": {}
-              },
-              {
-                "Dir": {}
-              },
-              {
-                "Table": {}
-              },
-              {
-                "Caption": {}
-              },
-              {
-                "THead": {}
-              },
-              {
-                "TBody": {}
-              },
-              {
-                "TFoot": {}
-              },
-              {
-                "Tr": {}
-              },
-              {
-                "Th": {}
-              },
-              {
-                "Td": {}
-              },
-              {
-                "ColGroup": {}
-              },
-              {
-                "Col": {}
-              },
-              {
-                "Form": {}
-              },
-              {
-                "FieldSet": {}
-              },
-              {
-                "Legend": {}
-              },
-              {
-                "Label": {}
-              },
-              {
-                "Input": {}
-              },
-              {
-                "Button": {}
-              },
-              {
-                "Select": {}
-              },
-              {
-                "OptGroup": {}
-              },
-              {
-                "SelectOption": {}
-              },
-              {
-                "TextArea": {}
-              },
-              {
-                "Output": {}
-              },
-              {
-                "Progress": {}
-              },
-              {
-                "Meter": {}
-              },
-              {
-                "DataList": {}
-              },
-              {
-                "Span": {}
-              },
-              {
-                "A": {}
-              },
-              {
-                "Em": {}
-              },
-              {
-                "Strong": {}
-              },
-              {
-                "B": {}
-              },
-              {
-                "I": {}
-              },
-              {
-                "U": {}
-              },
-              {
-                "S": {}
-              },
-              {
-                "Mark": {}
-              },
-              {
-                "Del": {}
-              },
-              {
-                "Ins": {}
-              },
-              {
-                "Code": {}
-              },
-              {
-                "Samp": {}
-              },
-              {
-                "Kbd": {}
-              },
-              {
-                "Var": {}
-              },
-              {
-                "Cite": {}
-              },
-              {
-                "Dfn": {}
-              },
-              {
-                "Abbr": {}
-              },
-              {
-                "Acronym": {}
-              },
-              {
-                "Q": {}
-              },
-              {
-                "Time": {}
-              },
-              {
-                "Sub": {}
-              },
-              {
-                "Sup": {}
-              },
-              {
-                "Small": {}
-              },
-              {
-                "Big": {}
-              },
-              {
-                "Bdo": {}
-              },
-              {
-                "Bdi": {}
-              },
-              {
-                "Wbr": {}
-              },
-              {
-                "Ruby": {}
-              },
-              {
-                "Rt": {}
-              },
-              {
-                "Rtc": {}
-              },
-              {
-                "Rp": {}
-              },
-              {
-                "Data": {}
-              },
-              {
-                "Canvas": {}
-              },
-              {
-                "Object": {}
-              },
-              {
-                "Param": {}
-              },
-              {
-                "Embed": {}
-              },
-              {
-                "Audio": {}
-              },
-              {
-                "Video": {}
-              },
-              {
-                "Source": {}
-              },
-              {
-                "Track": {}
-              },
-              {
-                "Map": {}
-              },
-              {
-                "Area": {}
-              },
-              {
-                "Svg": {}
-              },
-              {
-                "Title": {}
-              },
-              {
-                "Meta": {}
-              },
-              {
-                "Link": {}
-              },
-              {
-                "Script": {}
-              },
-              {
-                "Style": {}
-              },
-              {
-                "Base": {}
-              },
-              {
-                "Text": {}
-              },
-              {
-                "Img": {}
-              },
-              {
-                "IFrame": {}
-              },
-              {
-                "Before": {}
-              },
-              {
-                "After": {}
-              },
-              {
-                "Marker": {}
-              },
-              {
-                "Placeholder": {}
-              }
-            ]
-          },
           "ColorU": {
             "doc": "u8-based color, range 0 to 255 (similar to webrenders ColorU)",
             "external": "azul_css::props::basic::color::ColorU",
@@ -11262,137 +10128,6 @@
               },
               {
                 "Luminosity": {}
-              }
-            ]
-          },
-          "StyleFilter": {
-            "external": "azul_css::props::style::filter::StyleFilter",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Blend": {
-                  "type": "StyleMixBlendMode"
-                }
-              },
-              {
-                "Flood": {
-                  "type": "ColorU"
-                }
-              },
-              {
-                "Blur": {
-                  "type": "StyleBlur"
-                }
-              },
-              {
-                "Opacity": {
-                  "type": "PercentageValue"
-                }
-              },
-              {
-                "ColorMatrix": {
-                  "type": "StyleColorMatrix"
-                }
-              },
-              {
-                "DropShadow": {
-                  "type": "StyleBoxShadow"
-                }
-              },
-              {
-                "ComponentTransfer": {}
-              },
-              {
-                "Offset": {
-                  "type": "StyleFilterOffset"
-                }
-              },
-              {
-                "Composite": {
-                  "type": "StyleCompositeFilter"
-                }
-              }
-            ]
-          },
-          "StyleBlur": {
-            "external": "azul_css::props::style::filter::StyleBlur",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "width": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "height": {
-                  "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "StyleColorMatrix": {
-            "external": "azul_css::props::style::filter::StyleColorMatrix",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "matrix": {
-                  "type": "[FloatValue;20]"
-                }
-              }
-            ]
-          },
-          "StyleFilterOffset": {
-            "external": "azul_css::props::style::filter::StyleFilterOffset",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "StyleCompositeFilter": {
-            "external": "azul_css::props::style::filter::StyleCompositeFilter",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Over": {}
-              },
-              {
-                "In": {}
-              },
-              {
-                "Atop": {}
-              },
-              {
-                "Out": {}
-              },
-              {
-                "Xor": {}
-              },
-              {
-                "Lighter": {}
-              },
-              {
-                "Arithmetic": {
-                  "type": "[FloatValue;4]"
-                }
               }
             ]
           },
@@ -12078,46 +10813,6 @@
               }
             }
           },
-          "NormalizedLinearColorStop": {
-            "external": "azul_css::props::style::background::NormalizedLinearColorStop",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "offset": {
-                  "type": "PercentageValue"
-                }
-              },
-              {
-                "color": {
-                  "type": "ColorU"
-                }
-              }
-            ]
-          },
-          "NormalizedRadialColorStop": {
-            "external": "azul_css::props::style::background::NormalizedRadialColorStop",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "angle": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "color": {
-                  "type": "ColorU"
-                }
-              }
-            ]
-          },
           "DirectionCorner": {
             "external": "azul_css::props::basic::direction::DirectionCorner",
             "derive": [
@@ -12413,49 +11108,6 @@
                 "vertical": {
                   "type": "BackgroundPositionVertical"
                 }
-              }
-            ]
-          },
-          "StyleBackgroundRepeat": {
-            "external": "azul_css::props::style::background::StyleBackgroundRepeat",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "enum_fields": [
-              {
-                "NoRepeat": {}
-              },
-              {
-                "Repeat": {}
-              },
-              {
-                "RepeatX": {}
-              },
-              {
-                "RepeatY": {}
-              }
-            ]
-          },
-          "StyleBackgroundSize": {
-            "external": "azul_css::props::style::background::StyleBackgroundSize",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "enum_fields": [
-              {
-                "ExactSize": {
-                  "type": "[PixelValue;2]"
-                }
-              },
-              {
-                "Contain": {}
-              },
-              {
-                "Cover": {}
               }
             ]
           },
@@ -12885,27 +11537,6 @@
               }
             ]
           },
-          "StyleFontFamily": {
-            "doc": "Represents a `font-family` attribute",
-            "external": "azul_css::props::basic::font::StyleFontFamily",
-            "enum_fields": [
-              {
-                "System": {
-                  "type": "String"
-                }
-              },
-              {
-                "File": {
-                  "type": "String"
-                }
-              },
-              {
-                "Ref": {
-                  "type": "FontRef"
-                }
-              }
-            ]
-          },
           "StyleFontSize": {
             "doc": "Represents a `font-size` attribute",
             "external": "azul_css::props::basic::font::StyleFontSize",
@@ -13040,374 +11671,6 @@
               },
               {
                 "Hidden": {}
-              }
-            ]
-          },
-          "StyleTransform": {
-            "doc": "Represents one component of a `transform` attribute",
-            "external": "azul_css::props::style::transform::StyleTransform",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Matrix": {
-                  "type": "StyleTransformMatrix2D"
-                }
-              },
-              {
-                "Matrix3D": {
-                  "type": "StyleTransformMatrix3D"
-                }
-              },
-              {
-                "Translate": {
-                  "type": "StyleTransformTranslate2D"
-                }
-              },
-              {
-                "Translate3D": {
-                  "type": "StyleTransformTranslate3D"
-                }
-              },
-              {
-                "TranslateX": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "TranslateY": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "TranslateZ": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "Rotate": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "Rotate3D": {
-                  "type": "StyleTransformRotate3D"
-                }
-              },
-              {
-                "RotateX": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "RotateY": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "RotateZ": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "Scale": {
-                  "type": "StyleTransformScale2D"
-                }
-              },
-              {
-                "Scale3D": {
-                  "type": "StyleTransformScale3D"
-                }
-              },
-              {
-                "ScaleX": {
-                  "type": "PercentageValue"
-                }
-              },
-              {
-                "ScaleY": {
-                  "type": "PercentageValue"
-                }
-              },
-              {
-                "ScaleZ": {
-                  "type": "PercentageValue"
-                }
-              },
-              {
-                "Skew": {
-                  "type": "StyleTransformSkew2D"
-                }
-              },
-              {
-                "SkewX": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "SkewY": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "Perspective": {
-                  "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformMatrix2D": {
-            "external": "azul_css::props::style::transform::StyleTransformMatrix2D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "a": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "b": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "c": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "d": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "tx": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "ty": {
-                  "type": "FloatValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformMatrix3D": {
-            "external": "azul_css::props::style::transform::StyleTransformMatrix3D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "m11": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m12": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m13": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m14": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m21": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m22": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m23": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m24": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m31": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m32": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m33": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m34": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m41": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m42": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m43": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "m44": {
-                  "type": "FloatValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformTranslate2D": {
-            "external": "azul_css::props::style::transform::StyleTransformTranslate2D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformTranslate3D": {
-            "external": "azul_css::props::style::transform::StyleTransformTranslate3D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "PixelValue"
-                }
-              },
-              {
-                "z": {
-                  "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformRotate3D": {
-            "external": "azul_css::props::style::transform::StyleTransformRotate3D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "z": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "angle": {
-                  "type": "AngleValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformScale2D": {
-            "external": "azul_css::props::style::transform::StyleTransformScale2D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "FloatValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformScale3D": {
-            "external": "azul_css::props::style::transform::StyleTransformScale3D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "FloatValue"
-                }
-              },
-              {
-                "z": {
-                  "type": "FloatValue"
-                }
-              }
-            ]
-          },
-          "StyleTransformSkew2D": {
-            "external": "azul_css::props::style::transform::StyleTransformSkew2D",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "AngleValue"
-                }
-              },
-              {
-                "y": {
-                  "type": "AngleValue"
-                }
               }
             ]
           },
@@ -16412,10 +14675,6 @@
               }
             ]
           },
-          "OptionLayoutPoint": {
-            "external": "azul_css::props::basic::geometry::OptionLayoutPoint",
-            "derive": []
-          },
           "StyleTextIndent": {
             "doc": "Represents a `text-indent` attribute (indentation of first line in a block).",
             "external": "azul_css::props::style::text::StyleTextIndent",
@@ -16426,10 +14685,6 @@
                 }
               }
             ]
-          },
-          "OptionLayoutRect": {
-            "external": "azul_css::props::basic::geometry::OptionLayoutRect",
-            "derive": []
           },
           "LayoutBorderSpacing": {
             "doc": "Sets the distance between the borders of adjacent cells. The `border-spacing` property is only applicable when `border-collapse` is set to `separate`. It can have one or two values: - One value: Sets both horizontal and vertical spacing - Two values: First is horizontal, second is vertical This struct represents a single spacing value (either horizontal or vertical).",
@@ -16683,7 +14938,7 @@
             }
           },
           "OptionPixelValue": {
-            "external": "azul_css::props::basic::pixel::OptionPixelValue",
+            "external": "azul_dll::widgets::list_view::OptionPixelValue",
             "enum_fields": [
               {
                 "None": {}
@@ -16949,9 +15204,6 @@
               "Copy"
             ]
           },
-          "OptionPercentageValue": {
-            "external": "azul_css::props::basic::length::OptionPercentageValue"
-          },
           "OptionU32": {
             "external": "azul_css::corety::OptionU32",
             "derive": []
@@ -17099,9 +15351,6 @@
               "Copy"
             ]
           },
-          "OptionAngleValue": {
-            "external": "azul_css::props::basic::angle::OptionAngleValue"
-          },
           "StyleHangingPunctuationValue": {
             "doc": "Type alias for CssPropertyValue < StyleHangingPunctuation >",
             "external": "azul_css::props::property::StyleHangingPunctuationValue",
@@ -17128,9 +15377,6 @@
               ]
             }
           },
-          "OptionAzString": {
-            "external": "azul_css::corety::OptionAzString"
-          },
           "String": {
             "external": "azul_css::corety::AzString",
             "struct_fields": [
@@ -17141,7 +15387,7 @@
               }
             ]
           },
-          "String": {
+          "AzString": {
             "external": "azul_css::corety::AzString",
             "struct_fields": [
               {
@@ -17150,9 +15396,6 @@
                 }
               }
             ]
-          },
-          "U32": {
-            "external": "azul_css::props::basic::font::U32"
           }
         }
       },
@@ -19328,59 +17571,6 @@
               }
             }
           },
-          "NodeTypeIdInfoMap": {
-            "external": "azul_dll::widgets::node_graph::NodeTypeIdInfoMap",
-            "derive": [
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "node_type_id": {
-                  "type": "NodeTypeId"
-                }
-              },
-              {
-                "node_type_info": {
-                  "type": "NodeTypeInfo"
-                }
-              }
-            ]
-          },
-          "InputOutputTypeIdInfoMap": {
-            "external": "azul_dll::widgets::node_graph::InputOutputTypeIdInfoMap",
-            "derive": [
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "io_type_id": {
-                  "type": "InputOutputTypeId"
-                }
-              },
-              {
-                "io_info": {
-                  "type": "InputOutputInfo"
-                }
-              }
-            ]
-          },
-          "NodeIdNodeMap": {
-            "external": "azul_dll::widgets::node_graph::NodeIdNodeMap",
-            "struct_fields": [
-              {
-                "node_id": {
-                  "type": "NodeGraphNodeId"
-                }
-              },
-              {
-                "node": {
-                  "type": "Node"
-                }
-              }
-            ]
-          },
           "NodeGraphStyle": {
             "external": "azul_dll::widgets::node_graph::NodeGraphStyle",
             "derive": [
@@ -19885,28 +18075,6 @@
               }
             ]
           },
-          "InputOutputTypeId": {
-            "external": "azul_dll::widgets::node_graph::InputOutputTypeId",
-            "derive": [
-              "Copy",
-              "Clone",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq",
-              "Hash",
-              "Serialize",
-              "Deserialize"
-            ],
-            "serde": "transparent",
-            "struct_fields": [
-              {
-                "inner": {
-                  "type": "u64"
-                }
-              }
-            ]
-          },
           "NodeTypeId": {
             "external": "azul_dll::widgets::node_graph::NodeTypeId",
             "derive": [
@@ -19951,51 +18119,6 @@
               }
             ]
           },
-          "Node": {
-            "doc": "Hierarchical information about a node (stores the indicies of the parent / child nodes).",
-            "external": "azul_core::id::Node",
-            "struct_fields": [
-              {
-                "parent": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "previous_sibling": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "next_sibling": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "last_child": {
-                  "type": "OptionNodeId"
-                }
-              }
-            ]
-          },
-          "NodeTypeField": {
-            "external": "azul_dll::widgets::node_graph::NodeTypeField",
-            "derive": [
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "key": {
-                  "type": "String"
-                }
-              },
-              {
-                "value": {
-                  "type": "NodeTypeFieldValue"
-                }
-              }
-            ]
-          },
           "NodeTypeFieldValue": {
             "external": "azul_dll::widgets::node_graph::NodeTypeFieldValue",
             "derive": [
@@ -20026,120 +18149,6 @@
               {
                 "FileInput": {
                   "type": "OptionString"
-                }
-              }
-            ]
-          },
-          "InputConnection": {
-            "external": "azul_dll::widgets::node_graph::InputConnection",
-            "struct_fields": [
-              {
-                "input_index": {
-                  "type": "usize"
-                }
-              },
-              {
-                "connects_to": {
-                  "type": "OutputNodeAndIndexVec"
-                }
-              }
-            ]
-          },
-          "OutputNodeAndIndex": {
-            "external": "azul_dll::widgets::node_graph::OutputNodeAndIndex",
-            "struct_fields": [
-              {
-                "node_id": {
-                  "type": "NodeGraphNodeId"
-                }
-              },
-              {
-                "output_index": {
-                  "type": "usize"
-                }
-              }
-            ]
-          },
-          "OutputConnection": {
-            "external": "azul_dll::widgets::node_graph::OutputConnection",
-            "struct_fields": [
-              {
-                "output_index": {
-                  "type": "usize"
-                }
-              },
-              {
-                "connects_to": {
-                  "type": "InputNodeAndIndexVec"
-                }
-              }
-            ]
-          },
-          "InputNodeAndIndex": {
-            "external": "azul_dll::widgets::node_graph::InputNodeAndIndex",
-            "struct_fields": [
-              {
-                "node_id": {
-                  "type": "NodeGraphNodeId"
-                }
-              },
-              {
-                "input_index": {
-                  "type": "usize"
-                }
-              }
-            ]
-          },
-          "NodeTypeInfo": {
-            "external": "azul_dll::widgets::node_graph::NodeTypeInfo",
-            "derive": [
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "is_root": {
-                  "type": "bool",
-                  "doc": "Whether this node type is a \"root\" type"
-                }
-              },
-              {
-                "name": {
-                  "type": "String",
-                  "doc": "Name of the node type"
-                }
-              },
-              {
-                "inputs": {
-                  "type": "InputOutputTypeIdVec",
-                  "doc": "List of inputs for this node"
-                }
-              },
-              {
-                "outputs": {
-                  "type": "InputOutputTypeIdVec",
-                  "doc": "List of outputs for this node"
-                }
-              }
-            ]
-          },
-          "InputOutputInfo": {
-            "external": "azul_dll::widgets::node_graph::InputOutputInfo",
-            "derive": [
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "data_type": {
-                  "type": "String",
-                  "doc": "Data type of this input / output"
-                }
-              },
-              {
-                "color": {
-                  "type": "ColorU",
-                  "doc": "Which color to use for the input / output"
                 }
               }
             ]
@@ -20303,24 +18312,6 @@
                 "fn_body": "listview.swap_with_default().dom()"
               }
             }
-          },
-          "ListViewRow": {
-            "doc": "Row of the ListView",
-            "external": "azul_dll::widgets::list_view::ListViewRow",
-            "struct_fields": [
-              {
-                "cells": {
-                  "type": "DomVec",
-                  "doc": "Each cell is an opaque Dom object"
-                }
-              },
-              {
-                "height": {
-                  "type": "OptionPixelValueNoPercent",
-                  "doc": "Height of the row, if known beforehand"
-                }
-              }
-            ]
           },
           "ListViewState": {
             "doc": "State of the ListView, but without row data",
@@ -20659,111 +18650,6 @@
       "style": {
         "doc": "DOM to CSS cascading and styling module",
         "classes": {
-          "NodeHierarchyItem": {
-            "external": "azul_core::styled_dom::NodeHierarchyItem",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "parent": {
-                  "type": "usize"
-                }
-              },
-              {
-                "previous_sibling": {
-                  "type": "usize"
-                }
-              },
-              {
-                "next_sibling": {
-                  "type": "usize"
-                }
-              },
-              {
-                "last_child": {
-                  "type": "usize"
-                }
-              }
-            ]
-          },
-          "CascadeInfo": {
-            "doc": "Has all the necessary information about the style CSS path",
-            "external": "azul_core::style::CascadeInfo",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "index_in_parent": {
-                  "type": "u32"
-                }
-              },
-              {
-                "is_last_child": {
-                  "type": "bool"
-                }
-              }
-            ]
-          },
-          "CssPropertySource": {
-            "external": "azul_core::styled_dom::CssPropertySource",
-            "enum_fields": [
-              {
-                "Css": {
-                  "type": "CssPath"
-                }
-              },
-              {
-                "Inline": {}
-              }
-            ]
-          },
-          "StyledNodeState": {
-            "external": "azul_core::styled_dom::StyledNodeState",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "normal": {
-                  "type": "bool"
-                }
-              },
-              {
-                "hover": {
-                  "type": "bool"
-                }
-              },
-              {
-                "active": {
-                  "type": "bool"
-                }
-              },
-              {
-                "focused": {
-                  "type": "bool"
-                }
-              }
-            ]
-          },
-          "StyledNode": {
-            "external": "azul_core::styled_dom::StyledNode",
-            "struct_fields": [
-              {
-                "state": {
-                  "type": "StyledNodeState",
-                  "doc": "Current state of this styled node (used later for caching the style / layout)"
-                }
-              },
-              {
-                "tag_id": {
-                  "type": "OptionTagId",
-                  "doc": "Optional tag ID NOTE: The tag ID has to be adjusted after the layout is done (due to scroll tags)"
-                }
-              }
-            ]
-          },
           "StyledDom": {
             "external": "azul_core::styled_dom::StyledDom",
             "struct_fields": [
@@ -20997,65 +18883,6 @@
                 "fn_body": "let mut styleddom = styleddom.swap_with_default(); styleddom.set_context_menu(menu); styleddom"
               }
             }
-          },
-          "TagIdToNodeIdMapping": {
-            "external": "azul_core::styled_dom::TagIdToNodeIdMapping",
-            "struct_fields": [
-              {
-                "tag_id": {
-                  "type": "AzTagId"
-                }
-              },
-              {
-                "node_id": {
-                  "type": "NodeHierarchyItemId",
-                  "doc": "Node ID of the node that has a tag"
-                }
-              },
-              {
-                "tab_index": {
-                  "type": "OptionTabIndex",
-                  "doc": "Whether this node has a tab-index field"
-                }
-              },
-              {
-                "parent_node_ids": {
-                  "type": "NodeIdVec",
-                  "doc": "Parents of this NodeID, sorted in depth order, necessary for efficient hit-testing"
-                }
-              }
-            ]
-          },
-          "ParentWithNodeDepth": {
-            "external": "azul_core::styled_dom::ParentWithNodeDepth",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "depth": {
-                  "type": "usize"
-                }
-              },
-              {
-                "node_id": {
-                  "type": "NodeHierarchyItemId"
-                }
-              }
-            ]
-          },
-          "AzTagId": {
-            "external": "azul_core::styled_dom::AzTagId",
-            "derive": [
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "inner": {
-                  "type": "u64"
-                }
-              }
-            ]
           },
           "CssPropertyCachePtr": {
             "external": "azul_core::prop_cache::CssPropertyCachePtr",
@@ -21344,68 +19171,6 @@
               {
                 "_2": {
                   "type": "GLint"
-                }
-              }
-            ]
-          },
-          "VertexAttributeType": {
-            "external": "azul_core::gl::VertexAttributeType",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Float": {
-                  "doc": "Vertex attribute has type `f32`"
-                }
-              },
-              {
-                "Double": {
-                  "doc": "Vertex attribute has type `f64`"
-                }
-              },
-              {
-                "UnsignedByte": {
-                  "doc": "Vertex attribute has type `u8`"
-                }
-              },
-              {
-                "UnsignedShort": {
-                  "doc": "Vertex attribute has type `u16`"
-                }
-              },
-              {
-                "UnsignedInt": {
-                  "doc": "Vertex attribute has type `u32`"
-                }
-              }
-            ]
-          },
-          "VertexAttribute": {
-            "external": "azul_core::gl::VertexAttribute",
-            "struct_fields": [
-              {
-                "name": {
-                  "type": "String",
-                  "doc": "Attribute name of the vertex attribute in the vertex shader, i.e. `\"vAttrXY\"`"
-                }
-              },
-              {
-                "layout_location": {
-                  "type": "OptionUsize",
-                  "doc": "If the vertex shader has a specific location, (like `layout(location = 2) vAttrXY`), use this instead of the name to look up the uniform location."
-                }
-              },
-              {
-                "attribute_type": {
-                  "type": "VertexAttributeType",
-                  "doc": "Type of items of this attribute (i.e. for a `FloatVec2`, would be `VertexAttributeType::Float`)"
-                }
-              },
-              {
-                "item_count": {
-                  "type": "usize",
-                  "doc": "Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive f32 values))"
                 }
               }
             ]
@@ -34354,57 +32119,11 @@
               }
             ]
           },
-          "AzDebugMessage": {
-            "external": "azul_core::gl::AzDebugMessage",
-            "struct_fields": [
-              {
-                "message": {
-                  "type": "String"
-                }
-              },
-              {
-                "source": {
-                  "type": "GLenum"
-                }
-              },
-              {
-                "ty": {
-                  "type": "GLenum"
-                }
-              },
-              {
-                "id": {
-                  "type": "GLenum"
-                }
-              },
-              {
-                "severity": {
-                  "type": "GLenum"
-                }
-              }
-            ]
-          },
           "GLuint": {
             "doc": "Type alias for u32",
             "external": "azul_dll::python::GLuint",
             "type_alias": {
               "target": "u32",
-              "generic_args": []
-            }
-          },
-          "GLenum": {
-            "doc": "Type alias for u32",
-            "external": "azul_dll::python::GLenum",
-            "type_alias": {
-              "target": "u32",
-              "generic_args": []
-            }
-          },
-          "GLvoid": {
-            "doc": "Type alias for c_void",
-            "external": "azul_dll::python::GLvoid",
-            "type_alias": {
-              "target": "c_void",
               "generic_args": []
             }
           },
@@ -34415,25 +32134,6 @@
               "target": "i32",
               "generic_args": []
             }
-          },
-          "GLsizei": {
-            "doc": "Type alias for i32",
-            "external": "azul_dll::python::GLsizei",
-            "type_alias": {
-              "target": "i32",
-              "generic_args": []
-            }
-          },
-          "GLboolean": {
-            "doc": "Type alias for u8",
-            "external": "azul_dll::python::GLboolean",
-            "type_alias": {
-              "target": "u8",
-              "generic_args": []
-            }
-          },
-          "U32": {
-            "external": "azul_core::gl::U32"
           }
         }
       },
@@ -35649,9 +33349,6 @@
                 }
               }
             ]
-          },
-          "FontCache": {
-            "external": "azul_layout::font::FontCache"
           }
         }
       },
@@ -37169,51 +34866,6 @@
               }
             }
           },
-          "SvgColoredVertex": {
-            "external": "azul_core::svg::SvgColoredVertex",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "f32"
-                }
-              },
-              {
-                "y": {
-                  "type": "f32"
-                }
-              },
-              {
-                "z": {
-                  "type": "f32"
-                }
-              },
-              {
-                "r": {
-                  "type": "f32"
-                }
-              },
-              {
-                "g": {
-                  "type": "f32"
-                }
-              },
-              {
-                "b": {
-                  "type": "f32"
-                }
-              },
-              {
-                "a": {
-                  "type": "f32"
-                }
-              }
-            ]
-          },
           "TessellatedColoredSvgNode": {
             "external": "azul_core::svg::TessellatedColoredSvgNode",
             "struct_fields": [
@@ -37286,26 +34938,6 @@
                 "fn_body": "AzTessellatedColoredGPUSvgNode::new(unsafe { &*tessellated_node }, gl)"
               }
             }
-          },
-          "SvgVertex": {
-            "external": "azul_core::svg::SvgVertex",
-            "derive": [
-              "Copy",
-              "Serialize",
-              "Deserialize"
-            ],
-            "struct_fields": [
-              {
-                "x": {
-                  "type": "f32"
-                }
-              },
-              {
-                "y": {
-                  "type": "f32"
-                }
-              }
-            ]
           },
           "TessellatedSvgNode": {
             "external": "azul_core::svg::TessellatedSvgNode",
@@ -37963,9 +35595,6 @@
           },
           "ResultSvgXmlNodeSvgParseError": {
             "external": "azul_core::svg::ResultSvgXmlNodeSvgParseError"
-          },
-          "U32": {
-            "external": "azul_core::svg::U32"
           }
         }
       },
@@ -37994,54 +35623,6 @@
                 },
                 "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
               }
-            }
-          },
-          "XmlNode": {
-            "doc": "Represents one XML node tag",
-            "external": "azul_core::xml::XmlNode",
-            "struct_fields": [
-              {
-                "node_type": {
-                  "type": "XmlTagName",
-                  "doc": "Type of the node"
-                }
-              },
-              {
-                "attributes": {
-                  "type": "XmlAttributeMap",
-                  "doc": "Attributes of an XML node (note: not yet filtered and / or broken into function arguments!)"
-                }
-              },
-              {
-                "children": {
-                  "type": "XmlNodeChildVec",
-                  "doc": "Direct children of this node (can be text or element nodes)"
-                }
-              }
-            ]
-          },
-          "XmlTagName": {
-            "doc": "Tag of an XML node, such as the \"button\" in `<button>Hello</button>`.",
-            "external": "azul_core::xml::XmlTagName",
-            "type_alias": {
-              "target": "String",
-              "generic_args": []
-            }
-          },
-          "XmlAttributeMap": {
-            "doc": "Attributes of an XML node, such as `[\"color\" => \"blue\"]` in `<button color=\"blue\" />`.",
-            "external": "azul_core::xml::XmlAttributeMap",
-            "type_alias": {
-              "target": "StringPairVec",
-              "generic_args": []
-            }
-          },
-          "XmlTextContent": {
-            "doc": "(Unparsed) text content of an XML node, such as the \"Hello\" in `<button>Hello</button>`.",
-            "external": "azul_core::xml::XmlTextContent",
-            "type_alias": {
-              "target": "OptionString",
-              "generic_args": []
             }
           },
           "ResultXmlXmlError": {
@@ -38313,31 +35894,6 @@
               },
               {
                 "UnexpectedEndOfStream": {}
-              }
-            ]
-          }
-        }
-      },
-      "fs": {
-        "doc": "Filesystem / file input and output module",
-        "classes": {
-          "File": {
-            "external": "azul_dll::desktop::file::File",
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "*const c_void"
-                }
-              },
-              {
-                "path": {
-                  "type": "String"
-                }
-              },
-              {
-                "run_destructor": {
-                  "type": "bool"
-                }
               }
             ]
           }
@@ -38627,7 +36183,7 @@
               },
               {
                 "document_descriptor": {
-                  "type": "String"
+                  "type": "AzString"
                 }
               }
             ]
@@ -39177,17 +36733,6 @@
               }
             }
           },
-          "ThreadReceiverDestructorCallback": {
-            "doc": "Destructor of the `ThreadReceiver`",
-            "external": "azul_core::task::ThreadReceiverDestructorCallback",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "ThreadReceiverDestructorCallbackType"
-                }
-              }
-            ]
-          },
           "GetSystemTimeFnType": {
             "callback_typedef": {
               "fn_args": [],
@@ -39330,17 +36875,6 @@
                 "type": "bool"
               }
             }
-          },
-          "ThreadRecvCallback": {
-            "doc": "Function that the running `Thread` can call to receive messages from the main UI thread",
-            "external": "azul_core::task::ThreadRecvCallback",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "ThreadRecvCallbackType"
-                }
-              }
-            ]
           },
           "ThreadDestructorFnType": {
             "callback_typedef": {
@@ -39516,9 +37050,6 @@
               }
             }
           },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          },
           "Instant": {
             "external": "azul_core::task::Instant",
             "enum_fields": [
@@ -39548,110 +37079,12 @@
                 }
               }
             ]
-          },
-          "T": {
-            "external": "azul_dll::widgets::text_input::T"
           }
         }
       },
       "str": {
         "doc": "Definition of azuls internal `String` wrappers",
         "classes": {
-          "FmtValue": {
-            "external": "azul_dll::str::FmtValue",
-            "enum_fields": [
-              {
-                "Bool": {
-                  "type": "bool"
-                }
-              },
-              {
-                "Uchar": {
-                  "type": "u8"
-                }
-              },
-              {
-                "Schar": {
-                  "type": "i8"
-                }
-              },
-              {
-                "Ushort": {
-                  "type": "u16"
-                }
-              },
-              {
-                "Sshort": {
-                  "type": "i16"
-                }
-              },
-              {
-                "Uint": {
-                  "type": "u32"
-                }
-              },
-              {
-                "Sint": {
-                  "type": "i32"
-                }
-              },
-              {
-                "Ulong": {
-                  "type": "u64"
-                }
-              },
-              {
-                "Slong": {
-                  "type": "i64"
-                }
-              },
-              {
-                "Isize": {
-                  "type": "isize"
-                }
-              },
-              {
-                "Usize": {
-                  "type": "usize"
-                }
-              },
-              {
-                "Float": {
-                  "type": "f32"
-                }
-              },
-              {
-                "Double": {
-                  "type": "f64"
-                }
-              },
-              {
-                "Str": {
-                  "type": "String"
-                }
-              },
-              {
-                "StrVec": {
-                  "type": "StringVec"
-                }
-              }
-            ]
-          },
-          "FmtArg": {
-            "external": "azul_dll::str::FmtArg",
-            "struct_fields": [
-              {
-                "key": {
-                  "type": "String"
-                }
-              },
-              {
-                "value": {
-                  "type": "FmtValue"
-                }
-              }
-            ]
-          },
           "String": {
             "external": "azul_css::corety::AzString",
             "struct_fields": [
@@ -40621,7 +38054,7 @@
           },
           "CssPropertyVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<CssProperty>",
-            "external": "azul_dll::widgets::text_input::CssPropertyVec",
+            "external": "azul_dll::widgets::color_input::CssPropertyVec",
             "custom_destructor": true,
             "derive": [],
             "struct_fields": [
@@ -41212,7 +38645,7 @@
           },
           "CallbackDataVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<CallbackData>",
-            "external": "azul_dll::widgets::tabs::CallbackDataVec",
+            "external": "azul_core::callbacks::CallbackDataVec",
             "custom_destructor": true,
             "derive": [],
             "struct_fields": [
@@ -44517,21 +41950,6 @@
               }
             ]
           },
-          "OptionMenuCallback": {
-            "doc": "Optional MenuCallback",
-            "external": "azul_layout::callbacks::OptionMenuCallback",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "MenuCallback"
-                }
-              }
-            ]
-          },
           "OptionVirtualKeyCodeCombo": {
             "external": "azul_core::window::OptionVirtualKeyCodeCombo",
             "derive": [],
@@ -44766,34 +42184,6 @@
               }
             ]
           },
-          "OptionFile": {
-            "external": "azul_dll::desktop::file::OptionFile",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "File"
-                }
-              }
-            ]
-          },
-          "OptionClipboard": {
-            "external": "azul_dll::OptionClipboard",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "Clipboard"
-                }
-              }
-            ]
-          },
           "OptionThreadReceiveMsg": {
             "external": "azul_layout::thread::OptionThreadReceiveMsg",
             "derive": [],
@@ -44804,34 +42194,6 @@
               {
                 "Some": {
                   "type": "ThreadReceiveMsg"
-                }
-              }
-            ]
-          },
-          "OptionPercentageValue": {
-            "external": "azul_css::props::basic::length::OptionPercentageValue",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "PercentageValue"
-                }
-              }
-            ]
-          },
-          "OptionAngleValue": {
-            "external": "azul_css::props::basic::angle::OptionAngleValue",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "AngleValue"
                 }
               }
             ]
@@ -44884,22 +42246,6 @@
               }
             ]
           },
-          "OptionLayoutRect": {
-            "external": "azul_css::props::basic::geometry::OptionLayoutRect",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "LayoutRect"
-                }
-              }
-            ]
-          },
           "OptionRefAny": {
             "external": "azul_core::refany::OptionRefAny",
             "derive": [],
@@ -44924,22 +42270,6 @@
               {
                 "Some": {
                   "type": "InlineText"
-                }
-              }
-            ]
-          },
-          "OptionLayoutPoint": {
-            "external": "azul_css::props::basic::geometry::OptionLayoutPoint",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "LayoutPoint"
                 }
               }
             ]
@@ -44970,22 +42300,6 @@
               {
                 "Some": {
                   "type": "WindowTheme"
-                }
-              }
-            ]
-          },
-          "OptionNodeId": {
-            "external": "azul_core::styled_dom::OptionNodeId",
-            "derive": [
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "NodeId"
                 }
               }
             ]
@@ -45038,7 +42352,7 @@
           },
           "OptionSvgDashPattern": {
             "external": "azul_core::svg::OptionSvgDashPattern",
-            "derive": ["Copy"],
+            "derive": [],
             "enum_fields": [
               {
                 "None": {}
@@ -45104,20 +42418,6 @@
               {
                 "Some": {
                   "type": "LogicalPosition"
-                }
-              }
-            ]
-          },
-          "OptionPhysicalPositionI32": {
-            "external": "azul_core::geom::OptionPhysicalPositionI32",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "PhysicalPositionI32"
                 }
               }
             ]
@@ -45257,48 +42557,6 @@
               }
             ]
           },
-          "OptionDom": {
-            "external": "azul_core::dom::OptionDom",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "Dom"
-                }
-              }
-            ]
-          },
-          "OptionTexture": {
-            "external": "azul_core::gl::OptionTexture",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "Texture"
-                }
-              }
-            ]
-          },
-          "OptionImageMask": {
-            "external": "azul_core::resources::OptionImageMask",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "ImageMask"
-                }
-              }
-            ]
-          },
           "OptionTabIndex": {
             "external": "azul_core::dom::OptionTabIndex",
             "derive": [],
@@ -45309,20 +42567,6 @@
               {
                 "Some": {
                   "type": "TabIndex"
-                }
-              }
-            ]
-          },
-          "OptionTagId": {
-            "external": "azul_core::styled_dom::OptionTagId",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "TagId"
                 }
               }
             ]
@@ -45442,7 +42686,7 @@
             ]
           },
           "OptionPixelValue": {
-            "external": "azul_css::props::basic::pixel::OptionPixelValue",
+            "external": "azul_dll::widgets::list_view::OptionPixelValue",
             "derive": [],
             "enum_fields": [
               {
@@ -45451,20 +42695,6 @@
               {
                 "Some": {
                   "type": "PixelValue"
-                }
-              }
-            ]
-          },
-          "OptionAzString": {
-            "external": "azul_css::corety::OptionAzString",
-            "derive": [],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "String"
                 }
               }
             ]
@@ -46087,28 +43317,6 @@
       "resources": {
         "doc": "Resource management",
         "classes": {
-          "ImageCache": {
-            "doc": "Stores the resources for the application, souch as fonts, images and cached texts, also clipboard strings Images and fonts can be references across window contexts (not yet tested, but should work).",
-            "external": "azul_core::resources::ImageCache",
-            "struct_fields": [
-              {
-                "image_id_map": {
-                  "type": "FastHashMap < String , ImageRef >",
-                  "doc": "The String is the string used in the CSS, i.e. url(\"my_image\") = \"my_image\" -> ImageId(4) NOTE: This is the only map that is modifiable by the user and that has to be manually managed all other maps are library-internal only and automatically delete their resources once they aren't needed anymore"
-                }
-              }
-            ]
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache",
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "*const c_void"
-                }
-              }
-            ]
-          },
           "RawImageFormat": {
             "external": "azul_core::resources::RawImageFormat",
             "enum_fields": [
@@ -46359,9 +43567,6 @@
                 }
               }
             ]
-          },
-          "U32": {
-            "external": "azul_dll::widgets::text_input::U32"
           }
         }
       },
@@ -46714,9 +43919,6 @@
                 }
               }
             ]
-          },
-          "T": {
-            "external": "azul_dll::widgets::text_input::T"
           }
         }
       },
@@ -46800,12 +44002,6 @@
                 }
               }
             ]
-          },
-          "NodeId": {
-            "external": "azul_dll::widgets::node_graph::NodeId"
-          },
-          "U32": {
-            "external": "azul_dll::widgets::node_graph::U32"
           }
         }
       },
@@ -47169,12 +44365,6 @@
                 "No": {}
               }
             ]
-          },
-          "U32": {
-            "external": "azul_dll::widgets::text_input::U32"
-          },
-          "T": {
-            "external": "azul_dll::widgets::text_input::T"
           }
         }
       },
@@ -47761,40 +44951,6 @@
                 }
               }
             ]
-          },
-          "Clipboard": {
-            "external": "azul_layout::managers::clipboard::Clipboard"
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          },
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          }
-        }
-      },
-      "file": {
-        "doc": null,
-        "classes": {
-          "File": {
-            "external": "azul_dll::desktop::file::File",
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "*const c_void"
-                }
-              },
-              {
-                "path": {
-                  "type": "String"
-                }
-              },
-              {
-                "run_destructor": {
-                  "type": "bool"
-                }
-              }
-            ]
           }
         }
       },
@@ -47902,14 +45058,6 @@
                 }
               }
             ]
-          }
-        }
-      },
-      "default": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
           }
         }
       },
@@ -48134,19 +45282,6 @@
                 "u32"
               ]
             }
-          },
-          "PhysicalSizeF32": {
-            "doc": "Physical size with f32 dimensions",
-            "external": "azul_core::geom::PhysicalSizeF32",
-            "type_alias": {
-              "target": "PhysicalSize",
-              "generic_args": [
-                "f32"
-              ]
-            }
-          },
-          "U32": {
-            "external": "azul_core::geom::U32"
           }
         }
       },
@@ -48348,9 +45483,6 @@
               }
             ]
           },
-          "CallbackData": {
-            "external": "azul_core::refany::CallbackData"
-          },
           "RefAny": {
             "doc": "Type-erased, reference-counted smart pointer with runtime borrow checking. `RefAny` is similar to `Arc<RefCell<dyn Any>>`, providing: - Type erasure (stores any `'static` type) - Reference counting (clones share the same data) - Runtime borrow checking (enforces Rust's borrowing rules at runtime) - FFI compatibility (`#[repr(C)]` and C-compatible API) # Thread Safety - `Send`: Can be moved between threads (heap-allocated data, atomic counters) - `Sync`: Can be shared between threads (`downcast_ref/mut` require `&mut self`) # Memory Safety Fixed critical UB bugs in alignment, copy count, and pointer provenance (see REFANY_UB_FIXES.md). All operations are verified with Miri to ensure absence of undefined behavior. # Usage ```rust # use azul_core::refany::RefAny; let data = RefAny::new(42i32); let mut data_clone = data.clone(); // shares the same heap allocation // Runtime-checked downcasting with type safety if let Some(value_ref) = data_clone.downcast_ref::<i32>() { assert_eq!(*value_ref, 42); }; // Runtime-checked mutable borrowing if let Some(mut value_mut) = data_clone.downcast_mut::<i32>() { *value_mut = 100; }; ```",
             "external": "azul_core::refany::RefAny",
@@ -48395,208 +45527,27 @@
           }
         }
       },
-      "id": {
-        "doc": null,
-        "classes": {
-          "Node": {
-            "doc": "Hierarchical information about a node (stores the indicies of the parent / child nodes).",
-            "external": "azul_core::id::Node",
-            "struct_fields": [
-              {
-                "parent": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "previous_sibling": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "next_sibling": {
-                  "type": "OptionNodeId"
-                }
-              },
-              {
-                "last_child": {
-                  "type": "OptionNodeId"
-                }
-              }
-            ]
-          },
-          "NodeId": {
-            "external": "azul_dll::widgets::node_graph::NodeId"
-          }
-        }
-      },
-      "shade": {
-        "doc": null,
-        "classes": {}
-      },
-      "selection": {
-        "doc": null,
-        "classes": {
-          "Clipboard": {
-            "external": "azul_layout::managers::clipboard::Clipboard"
-          }
-        }
-      },
-      "event_v2": {
-        "doc": null,
-        "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::common::event_v2::FontCache"
-          }
-        }
-      },
-      "styled_dom": {
-        "doc": null,
-        "classes": {
-          "CssPropertySource": {
-            "external": "azul_core::styled_dom::CssPropertySource",
-            "enum_fields": [
-              {
-                "Css": {
-                  "type": "CssPath"
-                }
-              },
-              {
-                "Inline": {}
-              }
-            ]
-          }
-        }
-      },
-      "cache": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "changeset": {
-        "doc": null,
-        "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          }
-        }
-      },
-      "picture": {
-        "doc": null,
-        "classes": {
-          "T": {
-            "external": "azul_dll::widgets::text_input::T"
-          }
-        }
-      },
       "windows": {
         "doc": null,
         "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          },
           "WindowState": {
-            "external": "azul_dll::desktop::shell2::windows::WindowState"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
       "layout_v2": {
         "doc": null,
         "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          },
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          },
           "WindowState": {
-            "external": "azul_dll::desktop::shell2::common::layout_v2::WindowState"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
       "wayland": {
         "doc": null,
         "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "run": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "x11": {
-        "doc": null,
-        "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::SystemCallbacks"
-          },
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "clipboard_error": {
-        "doc": null,
-        "classes": {
-          "Clipboard": {
-            "external": "azul_layout::managers::clipboard::Clipboard"
-          }
-        }
-      },
-      "clipboard": {
-        "doc": null,
-        "classes": {
-          "Clipboard": {
-            "external": "azul_layout::managers::clipboard::Clipboard"
-          }
-        }
-      },
-      "gpu_cache": {
-        "doc": null,
-        "classes": {
-          "U32": {
-            "external": "azul_dll::widgets::text_input::U32"
-          }
-        }
-      },
-      "getters": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "text3": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_dll::desktop::shell2::linux::wayland::FontCache"
-          }
-        }
-      },
-      "gl_texture_cache": {
-        "doc": null,
-        "classes": {
-          "U32": {
-            "external": "azul_dll::widgets::text_input::U32"
+          "WindowState": {
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
@@ -48620,9 +45571,6 @@
           },
           "ThreadDestructorFnType": {
             "external": "azul_dll::ThreadDestructorFnType"
-          },
-          "U32": {
-            "external": "azul_dll::U32"
           },
           "NodeGraphOnNodeAddedCallbackType": {
             "external": "azul_dll::NodeGraphOnNodeAddedCallbackType"
@@ -48654,17 +45602,11 @@
           "ThreadRecvFnType": {
             "external": "azul_dll::ThreadRecvFnType"
           },
-          "SystemCallbacks": {
-            "external": "azul_dll::SystemCallbacks"
-          },
           "InlineText": {
             "external": "azul_dll::InlineText"
           },
           "PositionInfoInner": {
             "external": "azul_dll::PositionInfoInner"
-          },
-          "FontCache": {
-            "external": "azul_dll::FontCache"
           },
           "EncodeImageError": {
             "external": "azul_dll::EncodeImageError"
@@ -48685,13 +45627,16 @@
             "external": "azul_dll::NodeGraphOnNodeDraggedCallbackType"
           },
           "refmut": {
-            "external": "azul_dll::refmut"
+            "external": "azul_core::refany::refmut"
           },
           "InstantPtrDestructorFnType": {
             "external": "azul_dll::InstantPtrDestructorFnType"
           },
           "LibrarySendThreadMsgFnType": {
             "external": "azul_dll::LibrarySendThreadMsgFnType"
+          },
+          "AzDuration": {
+            "external": "azul_dll::AzDuration"
           }
         }
       },
@@ -48699,16 +45644,13 @@
         "doc": null,
         "classes": {
           "WindowState": {
-            "external": "azul_dll::desktop::shell2::common::callback_processing::WindowState"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
       "python": {
         "doc": null,
         "classes": {
-          "[FloatValue;20]": {
-            "external": "azul_dll::python::[FloatValue;20]"
-          },
           "ResolvedTextLayoutOptions": {
             "external": "azul_dll::python::ResolvedTextLayoutOptions"
           },
@@ -48720,9 +45662,6 @@
           },
           "[u8;10]": {
             "external": "azul_dll::python::[u8;10]"
-          },
-          "InlineTextContents": {
-            "external": "azul_dll::python::InlineTextContents"
           }
         }
       },
@@ -48730,18 +45669,7 @@
         "doc": null,
         "classes": {
           "WindowState": {
-            "external": "azul_layout::tests::margin_collapsing_bug::WindowState"
-          },
-          "SystemCallbacks": {
-            "external": "azul_layout::tests::margin_collapsing_bug::SystemCallbacks"
-          }
-        }
-      },
-      "compositor": {
-        "doc": null,
-        "classes": {
-          "U32": {
-            "external": "azul_dll::desktop::shell2::common::compositor::U32"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
@@ -48749,15 +45677,7 @@
         "doc": null,
         "classes": {
           "WindowState": {
-            "external": "azul_layout::event_determination::WindowState"
-          }
-        }
-      },
-      "gesture": {
-        "doc": null,
-        "classes": {
-          "SystemCallbacks": {
-            "external": "azul_layout::managers::gesture::SystemCallbacks"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
@@ -48765,39 +45685,15 @@
         "doc": null,
         "classes": {
           "WindowState": {
-            "external": "azul_dll::desktop::WindowState"
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       },
-      "lru_cache": {
+      "margin_escape_regression": {
         "doc": null,
         "classes": {
-          "U32": {
-            "external": "azul_core::lru_cache::U32"
-          }
-        }
-      },
-      "ui_solver": {
-        "doc": null,
-        "classes": {
-          "FontCache": {
-            "external": "azul_core::ui_solver::FontCache"
-          }
-        }
-      },
-      "macos": {
-        "doc": null,
-        "classes": {
-          "SystemCallbacks": {
-            "external": "azul_dll::desktop::shell2::macos::SystemCallbacks"
-          }
-        }
-      },
-      "scene_building": {
-        "doc": null,
-        "classes": {
-          "NodeId": {
-            "external": "azul_core::scene_building::NodeId"
+          "WindowState": {
+            "external": "azul_dll::desktop::shell2::linux::wayland::WindowState"
           }
         }
       }

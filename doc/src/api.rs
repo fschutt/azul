@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
 };
 
@@ -709,6 +709,532 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
     }
 
     types
+}
+
+/// Find types in api.json that are never used by any function or other type
+/// 
+/// This performs a reachability analysis starting from:
+/// 1. All functions (constructors, functions) - their parameters and return types
+/// 2. All callback_typedef types (they are entry points for callbacks)
+/// 
+/// Then recursively follows struct fields and enum variants to find all reachable types.
+/// Returns the set of type names that are defined but never reachable.
+pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
+    let mut reachable_types: HashSet<String> = HashSet::new();
+    let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new(); // type_name -> (module, version)
+    
+    // Collect all defined types and build a lookup for their definitions
+    // Important: Keep only the "most complete" definition (one with struct_fields or enum_fields)
+    let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
+    
+    for (version_name, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Only track as "defined type" if it has a real definition
+                let has_body = class_data.struct_fields.is_some() 
+                    || class_data.enum_fields.is_some()
+                    || class_data.callback_typedef.is_some()
+                    || class_data.type_alias.is_some()
+                    || class_data.functions.is_some()
+                    || class_data.constructors.is_some();
+                
+                // Track all occurrences for "unused" detection
+                all_defined_types.insert(
+                    class_name.clone(), 
+                    (module_name.clone(), version_name.clone())
+                );
+                
+                // For type_definitions, prefer the version with struct/enum fields
+                let existing = type_definitions.get(class_name);
+                let should_replace = match existing {
+                    None => true,
+                    Some(existing_data) => {
+                        // Replace if existing has no body but new one has body
+                        let existing_has_body = existing_data.struct_fields.is_some() 
+                            || existing_data.enum_fields.is_some()
+                            || existing_data.callback_typedef.is_some()
+                            || existing_data.type_alias.is_some();
+                        !existing_has_body && has_body
+                    }
+                };
+                
+                if should_replace {
+                    type_definitions.insert(class_name.clone(), class_data);
+                }
+            }
+        }
+    }
+    
+    // Phase 1: Collect all "entry point" types from functions and constructors
+    let mut types_to_process: Vec<String> = Vec::new();
+    
+    for (_version_name, version_data) in &api_data.0 {
+        for (_module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Add the class itself if it has functions or constructors
+                // (it's part of the public API)
+                let has_functions = class_data.functions.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
+                let has_constructors = class_data.constructors.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+                let is_callback_typedef = class_data.callback_typedef.is_some();
+                
+                if has_functions || has_constructors || is_callback_typedef {
+                    if !reachable_types.contains(class_name) {
+                        reachable_types.insert(class_name.clone());
+                        types_to_process.push(class_name.clone());
+                    }
+                }
+                
+                // Extract types from functions
+                if let Some(functions) = &class_data.functions {
+                    for (_fn_name, fn_data) in functions {
+                        for type_name in extract_types_from_function_data(fn_data) {
+                            if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                                reachable_types.insert(type_name.clone());
+                                types_to_process.push(type_name);
+                            }
+                        }
+                    }
+                }
+                
+                // Extract types from constructors
+                if let Some(constructors) = &class_data.constructors {
+                    for (_ctor_name, ctor_data) in constructors {
+                        for type_name in extract_types_from_function_data(ctor_data) {
+                            if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                                reachable_types.insert(type_name.clone());
+                                types_to_process.push(type_name);
+                            }
+                        }
+                    }
+                }
+                
+                // Extract types from callback_typedef
+                if let Some(callback_def) = &class_data.callback_typedef {
+                    for type_name in extract_types_from_callback_definition(callback_def) {
+                        if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                            reachable_types.insert(type_name.clone());
+                            types_to_process.push(type_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 2: Recursively follow struct fields and enum variants
+    let mut iteration = 0;
+    let max_iterations = 100; // Safety limit
+    
+    while !types_to_process.is_empty() && iteration < max_iterations {
+        iteration += 1;
+        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        
+        for type_name in current_batch {
+            if let Some(class_data) = type_definitions.get(&type_name) {
+                // Extract types from struct fields
+                if let Some(struct_fields) = &class_data.struct_fields {
+                    for field_map in struct_fields {
+                        for (_field_name, field_data) in field_map {
+                            for referenced_type in extract_types_from_field_data(field_data) {
+                                if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
+                                    reachable_types.insert(referenced_type.clone());
+                                    types_to_process.push(referenced_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Extract types from enum variants
+                if let Some(enum_fields) = &class_data.enum_fields {
+                    for variant_map in enum_fields {
+                        for (_variant_name, variant_data) in variant_map {
+                            for referenced_type in extract_types_from_enum_variant(variant_data) {
+                                if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
+                                    reachable_types.insert(referenced_type.clone());
+                                    types_to_process.push(referenced_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Extract types from type_alias
+                if let Some(type_alias) = &class_data.type_alias {
+                    if let Some(base_type) = extract_base_type_if_not_opaque(&type_alias.target) {
+                        if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
+                            reachable_types.insert(base_type.clone());
+                            types_to_process.push(base_type);
+                        }
+                    }
+                    for generic_arg in &type_alias.generic_args {
+                        if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                            if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
+                                reachable_types.insert(base_type.clone());
+                                types_to_process.push(base_type);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 3: Find all types that are defined but not reachable
+    let mut unused: Vec<UnusedTypeInfo> = Vec::new();
+    
+    for (type_name, (module_name, version_name)) in &all_defined_types {
+        if !reachable_types.contains(type_name) {
+            unused.push(UnusedTypeInfo {
+                type_name: type_name.clone(),
+                module_name: module_name.clone(),
+                version_name: version_name.clone(),
+            });
+        }
+    }
+    
+    // Sort by module, then by type name for consistent output
+    unused.sort_by(|a, b| {
+        match a.module_name.cmp(&b.module_name) {
+            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+            other => other,
+        }
+    });
+    
+    unused
+}
+
+/// Find ALL unused types recursively by simulating removal
+/// 
+/// This works by iteratively:
+/// 1. Finding unused types in the current API
+/// 2. Removing them from consideration completely (as if they don't exist)
+/// 3. Running the analysis again to find newly-unused types
+/// 4. Repeating until no new unused types are found
+/// 
+/// This catches types that become unused only after other unused types are removed.
+pub fn find_all_unused_types_recursive(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
+    let mut all_unused: Vec<UnusedTypeInfo> = Vec::new();
+    let mut removed_types: HashSet<String> = HashSet::new();
+    let mut iteration = 0;
+    let max_iterations = 50; // Safety limit
+    
+    loop {
+        iteration += 1;
+        if iteration > max_iterations {
+            eprintln!("[WARN] Max iterations ({}) reached in find_all_unused_types_recursive", max_iterations);
+            break;
+        }
+        
+        // Find unused types, treating already-removed types as non-existent
+        let unused = find_unused_types_simulating_removal(api_data, &removed_types);
+        
+        if unused.is_empty() {
+            // No more unused types found
+            break;
+        }
+        
+        // Mark these types as "removed" for the next iteration
+        for ut in &unused {
+            removed_types.insert(ut.type_name.clone());
+        }
+        
+        all_unused.extend(unused);
+    }
+    
+    // Sort by module, then by type name for consistent output
+    all_unused.sort_by(|a, b| {
+        match a.module_name.cmp(&b.module_name) {
+            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+            other => other,
+        }
+    });
+    
+    // Deduplicate (same type might be in multiple modules with same name)
+    all_unused.dedup_by(|a, b| a.type_name == b.type_name && a.module_name == b.module_name);
+    
+    all_unused
+}
+
+/// Find unused types, simulating that some types have already been removed
+/// 
+/// This is a helper for find_all_unused_types_recursive.
+/// Types in `removed` are treated as if they were already removed from the API:
+/// - They are not included in all_defined_types
+/// - They are not considered as entry points
+/// - References TO them are ignored (as if they don't exist)
+fn find_unused_types_simulating_removal(
+    api_data: &crate::api::ApiData, 
+    removed: &HashSet<String>
+) -> Vec<UnusedTypeInfo> {
+    let mut reachable_types: HashSet<String> = HashSet::new();
+    let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new();
+    let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
+    
+    // First pass: collect all type definitions, EXCLUDING removed types
+    for (version_name, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Skip types that have been "removed"
+                if removed.contains(class_name) {
+                    continue;
+                }
+                
+                let has_body = class_data.struct_fields.is_some() 
+                    || class_data.enum_fields.is_some()
+                    || class_data.callback_typedef.is_some()
+                    || class_data.type_alias.is_some()
+                    || class_data.functions.is_some()
+                    || class_data.constructors.is_some();
+                
+                all_defined_types.insert(
+                    class_name.clone(), 
+                    (module_name.clone(), version_name.clone())
+                );
+                
+                let existing = type_definitions.get(class_name);
+                let should_replace = match existing {
+                    None => true,
+                    Some(existing_data) => {
+                        let existing_has_body = existing_data.struct_fields.is_some() 
+                            || existing_data.enum_fields.is_some()
+                            || existing_data.callback_typedef.is_some()
+                            || existing_data.type_alias.is_some();
+                        !existing_has_body && has_body
+                    }
+                };
+                
+                if should_replace {
+                    type_definitions.insert(class_name.clone(), class_data);
+                }
+            }
+        }
+    }
+    
+    // Helper closure to check if a type is valid (exists and not removed)
+    let is_valid_type = |type_name: &String| -> bool {
+        !removed.contains(type_name) && all_defined_types.contains_key(type_name)
+    };
+    
+    // Phase 1: Collect entry points (functions, constructors, callbacks)
+    let mut types_to_process: Vec<String> = Vec::new();
+    
+    for (_version_name, version_data) in &api_data.0 {
+        for (_module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Skip removed types
+                if removed.contains(class_name) {
+                    continue;
+                }
+                
+                let has_functions = class_data.functions.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
+                let has_constructors = class_data.constructors.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+                let is_callback_typedef = class_data.callback_typedef.is_some();
+                
+                // If this type has functions/constructors/callbacks, it's an entry point
+                if has_functions || has_constructors || is_callback_typedef {
+                    if !reachable_types.contains(class_name) {
+                        reachable_types.insert(class_name.clone());
+                        types_to_process.push(class_name.clone());
+                    }
+                }
+                
+                // Also mark types referenced by functions/constructors as reachable
+                if let Some(functions) = &class_data.functions {
+                    for (_fn_name, fn_data) in functions {
+                        for type_name in extract_types_from_function_data(fn_data) {
+                            if !reachable_types.contains(&type_name) && is_valid_type(&type_name) {
+                                reachable_types.insert(type_name.clone());
+                                types_to_process.push(type_name);
+                            }
+                        }
+                    }
+                }
+                
+                if let Some(constructors) = &class_data.constructors {
+                    for (_ctor_name, ctor_data) in constructors {
+                        for type_name in extract_types_from_function_data(ctor_data) {
+                            if !reachable_types.contains(&type_name) && is_valid_type(&type_name) {
+                                reachable_types.insert(type_name.clone());
+                                types_to_process.push(type_name);
+                            }
+                        }
+                    }
+                }
+                
+                if let Some(callback_def) = &class_data.callback_typedef {
+                    for type_name in extract_types_from_callback_definition(callback_def) {
+                        if !reachable_types.contains(&type_name) && is_valid_type(&type_name) {
+                            reachable_types.insert(type_name.clone());
+                            types_to_process.push(type_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 2: Recursively follow struct fields and enum variants
+    let mut iteration = 0;
+    let max_iterations = 100;
+    
+    while !types_to_process.is_empty() && iteration < max_iterations {
+        iteration += 1;
+        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        
+        for type_name in current_batch {
+            if let Some(class_data) = type_definitions.get(&type_name) {
+                // Process struct fields
+                if let Some(struct_fields) = &class_data.struct_fields {
+                    for field_map in struct_fields {
+                        for (_field_name, field_data) in field_map {
+                            for referenced_type in extract_types_from_field_data(field_data) {
+                                if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
+                                    reachable_types.insert(referenced_type.clone());
+                                    types_to_process.push(referenced_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Process enum variants
+                if let Some(enum_fields) = &class_data.enum_fields {
+                    for variant_map in enum_fields {
+                        for (_variant_name, variant_data) in variant_map {
+                            for referenced_type in extract_types_from_enum_variant(variant_data) {
+                                if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
+                                    reachable_types.insert(referenced_type.clone());
+                                    types_to_process.push(referenced_type);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Process type aliases
+                if let Some(type_alias) = &class_data.type_alias {
+                    if let Some(base_type) = extract_base_type_if_not_opaque(&type_alias.target) {
+                        if !reachable_types.contains(&base_type) && is_valid_type(&base_type) {
+                            reachable_types.insert(base_type.clone());
+                            types_to_process.push(base_type);
+                        }
+                    }
+                    for generic_arg in &type_alias.generic_args {
+                        if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                            if !reachable_types.contains(&base_type) && is_valid_type(&base_type) {
+                                reachable_types.insert(base_type.clone());
+                                types_to_process.push(base_type);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 3: Find unreachable types (types that are defined but not reachable)
+    let mut unused: Vec<UnusedTypeInfo> = Vec::new();
+    
+    for (type_name, (module_name, version_name)) in &all_defined_types {
+        if !reachable_types.contains(type_name) {
+            unused.push(UnusedTypeInfo {
+                type_name: type_name.clone(),
+                module_name: module_name.clone(),
+                version_name: version_name.clone(),
+            });
+        }
+    }
+    
+    unused.sort_by(|a, b| {
+        match a.module_name.cmp(&b.module_name) {
+            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+            other => other,
+        }
+    });
+    
+    unused
+}
+
+/// Generate removal patches for unused types
+/// 
+/// Creates patch files that will remove unused types from the API when applied.
+/// One patch file is created per module, containing all removal operations for that module.
+pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::patch::ApiPatch> {
+    use std::collections::BTreeMap;
+    use crate::patch::{ApiPatch, VersionPatch, ModulePatch, ClassPatch};
+    
+    // Group unused types by version and module
+    let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    
+    for unused in unused_types {
+        grouped
+            .entry(unused.version_name.clone())
+            .or_default()
+            .entry(unused.module_name.clone())
+            .or_default()
+            .push(unused.type_name.clone());
+    }
+    
+    // Create one patch per module
+    let mut patches = Vec::new();
+    
+    for (version_name, modules) in grouped {
+        for (module_name, type_names) in modules {
+            let mut module_patch = ModulePatch::default();
+            
+            for type_name in type_names {
+                module_patch.classes.insert(
+                    type_name,
+                    ClassPatch {
+                        remove: Some(true),
+                        ..Default::default()
+                    },
+                );
+            }
+            
+            let mut version_patch = VersionPatch::default();
+            version_patch.modules.insert(module_name.clone(), module_patch);
+            
+            let mut api_patch = ApiPatch::default();
+            api_patch.versions.insert(version_name.clone(), version_patch);
+            
+            patches.push(api_patch);
+        }
+    }
+    
+    patches
+}
+
+/// Remove empty modules from the API data
+/// 
+/// Returns the number of modules removed
+pub fn remove_empty_modules(api_data: &mut ApiData) -> usize {
+    let mut total_removed = 0;
+    
+    for (_version_name, version_data) in &mut api_data.0 {
+        let empty_modules: Vec<String> = version_data.api
+            .iter()
+            .filter(|(_, module_data)| module_data.classes.is_empty())
+            .map(|(module_name, _)| module_name.clone())
+            .collect();
+        
+        for module_name in &empty_modules {
+            version_data.api.shift_remove(module_name);
+            println!("  [REMOVE] Removed empty module: {}", module_name);
+            total_removed += 1;
+        }
+    }
+    
+    total_removed
+}
+
+/// Information about an unused type in the API
+#[derive(Debug, Clone)]
+pub struct UnusedTypeInfo {
+    pub type_name: String,
+    pub module_name: String,
+    pub version_name: String,
 }
 
 #[cfg(test)]

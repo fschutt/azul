@@ -40,6 +40,9 @@ pub struct ModulePatch {
 /// Patch for a single class - all fields optional, allowing complete item modification
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassPatch {
+    /// If true, remove this class entirely from the API
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove: Option<bool>,
     /// Update external import path
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
@@ -104,6 +107,7 @@ impl ClassPatch {
     /// These are the safest patches to apply automatically
     pub fn is_path_only(&self) -> bool {
         self.external.is_some()
+            && self.remove.is_none()
             && self.doc.is_none()
             && self.derive.is_none()
             && self.is_boxed_object.is_none()
@@ -123,9 +127,15 @@ impl ClassPatch {
             && self.functions.is_none()
     }
 
+    /// Check if this patch is a removal patch
+    pub fn is_removal(&self) -> bool {
+        self.remove == Some(true)
+    }
+
     /// Check if this patch is completely empty (no fields set)
     pub fn is_empty(&self) -> bool {
-        self.external.is_none()
+        self.remove.is_none()
+            && self.external.is_none()
             && self.doc.is_none()
             && self.derive.is_none()
             && self.is_boxed_object.is_none()
@@ -642,6 +652,23 @@ fn apply_module_patch(
     let mut patches_applied = 0;
 
     for (class_name, class_patch) in &patch.classes {
+        // Handle removal patches first
+        if class_patch.is_removal() {
+            if module_data.classes.shift_remove(class_name).is_some() {
+                println!(
+                    "  [REMOVE] Removed class {}.{} from API",
+                    module_name, class_name
+                );
+                patches_applied += 1;
+            } else {
+                eprintln!(
+                    "Warning: Cannot remove class '{}' from module '{}' - not found",
+                    class_name, module_name
+                );
+            }
+            continue;
+        }
+        
         if let Some(class_data) = module_data.classes.get_mut(class_name) {
             // Update existing class
             patches_applied += apply_class_patch(class_data, class_patch, module_name, class_name)?;
