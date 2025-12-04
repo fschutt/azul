@@ -884,18 +884,27 @@ fn generate_enum_definition(
     // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
     // All derive information is now explicit in api.json - no auto-computation
     // BUT: Serialize/Deserialize need special handling - they go in cfg_attr
+    // AND: Default needs special handling for enums - we add #[default] to first variant
     let mut derives: Vec<&str> = Vec::new();
     let mut has_serialize = false;
     let mut has_deserialize = false;
+    let mut has_default = false;
     
     if !config.no_derive {
-        // Add derives from api.json, but filter out Serialize/Deserialize
+        // Add derives from api.json, but filter out Serialize/Deserialize/Default
         for d in &struct_meta.derive {
             match d.as_str() {
                 "Serialize" => has_serialize = true,
                 "Deserialize" => has_deserialize = true,
+                "Default" => has_default = true,
                 other => derives.push(other),
             }
+        }
+        
+        // For enums, we can use Default derive if we add #[default] to first variant
+        // So re-add it to the derives list
+        if has_default {
+            derives.push("Default");
         }
     }
 
@@ -964,6 +973,9 @@ fn generate_enum_definition(
     ));
 
     // Generate variants
+    // Track if we've added #[default] to the first unit variant
+    let mut default_added = false;
+    
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
             if let Some(variant_type) = &variant_data.r#type {
@@ -1055,7 +1067,11 @@ fn generate_enum_definition(
                     }
                 }
             } else {
-                // Unit variant
+                // Unit variant - add #[default] to first unit variant if needed
+                if has_default && !default_added {
+                    code.push_str(&format!("{}    #[default]\n", indent_str));
+                    default_added = true;
+                }
                 code.push_str(&format!("{}    {},\n", indent_str, variant_name));
             }
         }

@@ -440,10 +440,8 @@ pub fn generate_patches(
 ) -> Result<usize> {
     use std::collections::BTreeMap;
 
-    if types_to_add.is_empty() && patch_summary.external_path_changes.is_empty() {
-        // No message needed - will be reflected in final statistics
-        return Ok(0);
-    }
+    // NOTE: Don't return early here - we need to iterate over ALL API types
+    // to check for missing struct_fields/enum_fields even if no new types to add
 
     // Get the first version from API (usually "1.0.0")
     let version_name = api_data
@@ -687,12 +685,12 @@ pub fn generate_patches(
         }
     }
 
-    // 5. Extract derives from workspace for ALL existing API types that are missing derives
+    // 5. Extract derives, struct_fields, and enum_fields from workspace for ALL existing API types
     // This ensures that types like CssDeclaration get their derives from the source code
-    // Also updates existing derives to match the actual source code
+    // Also updates existing derives and struct/enum fields to match the actual source code
     for (module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {            
-            // Skip callback_typedef types (they don't have derives)
+            // Skip callback_typedef types (they don't have derives or fields)
             if class_data.callback_typedef.is_some() {
                 continue;
             }
@@ -700,6 +698,9 @@ pub fn generate_patches(
             // Try to find this type in the workspace by its external path
             if let Some(external_path) = &class_data.external {
                 if let Some(type_info) = workspace_index.find_type_by_path(external_path) {
+                    // Convert type info to a full class patch to get struct/enum fields
+                    let full_patch = convert_type_info_to_class_patch(type_info);
+                    
                     // Extract derives and implemented_traits from the workspace type
                     let (derives, implemented_traits) = match &type_info.kind {
                         crate::patch::index::TypeKind::Struct { derives, implemented_traits, .. } => 
@@ -716,8 +717,12 @@ pub fn generate_patches(
                     let derives_changed = derives != api_derives;
                     let custom_impls_changed = implemented_traits != api_custom_impls;
                     
-                    // Create a patch if derives or implemented_traits differ from api.json
-                    if derives_changed || custom_impls_changed {
+                    // Check if struct_fields or enum_fields are missing or need update
+                    let struct_fields_missing = class_data.struct_fields.is_none() && full_patch.struct_fields.is_some();
+                    let enum_fields_missing = class_data.enum_fields.is_none() && full_patch.enum_fields.is_some();
+                    
+                    // Create a patch if anything differs from api.json
+                    if derives_changed || custom_impls_changed || struct_fields_missing || enum_fields_missing {
                         let key = (module_name.clone(), class_name.clone());
                         all_patches
                             .entry(key)
@@ -730,6 +735,14 @@ pub fn generate_patches(
                                 if custom_impls_changed {
                                     p.custom_impls = Some(implemented_traits.clone());
                                 }
+                                // Add struct_fields if missing in API but present in workspace
+                                if struct_fields_missing {
+                                    p.struct_fields = full_patch.struct_fields.clone();
+                                }
+                                // Add enum_fields if missing in API but present in workspace
+                                if enum_fields_missing {
+                                    p.enum_fields = full_patch.enum_fields.clone();
+                                }
                             })
                             .or_insert_with(|| {
                                 let mut patch = ClassPatch::default();
@@ -738,6 +751,12 @@ pub fn generate_patches(
                                 }
                                 if custom_impls_changed {
                                     patch.custom_impls = Some(implemented_traits.clone());
+                                }
+                                if struct_fields_missing {
+                                    patch.struct_fields = full_patch.struct_fields.clone();
+                                }
+                                if enum_fields_missing {
+                                    patch.enum_fields = full_patch.enum_fields.clone();
                                 }
                                 patch.external = Some(external_path.clone());
                                 patch

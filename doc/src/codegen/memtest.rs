@@ -333,7 +333,7 @@ fn generate_size_and_align_test(test: &TestCase) -> Result<String> {
     );
 
     // Add "Az" prefix for generated types
-    let generated_type = format!("crate::generated::Az{}", test.class);
+    let generated_type = format!("crate::generated::dll::Az{}", test.class);
     let external_type = &test.external_path;
 
     output.push_str(&format!("/// Test size and alignment of {}\n", test.class));
@@ -392,7 +392,7 @@ fn generate_discriminant_test(
     );
 
     // Add prefix for generated types (e.g., "Az1" for first version)
-    let generated_type = format!("crate::generated::Az{}", test.class); // TODO: Use version-based prefix
+    let generated_type = format!("crate::generated::dll::Az{}", test.class);
     let external_type = &test.external_path;
 
     output.push_str(&format!("/// Test discriminant order of {}\n", test.class));
