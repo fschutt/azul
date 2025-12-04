@@ -48,14 +48,22 @@ allsorts = { version = "0.16.1", default-features = false, features = ["flate2_r
 lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.9.1", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 base64 = "0.22.1"
+strfmt = { version = "0.2", optional = true }
+tfd = { version = "0.1", optional = true }
 
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra"]
 
 # Standard library support
 std = ["azul-core/std"]
+
+# Widget support (button, text_input, checkbox, etc.)
+widgets = ["text_layout", "dep:strfmt"]
+
+# Extra APIs (native dialogs, file operations)
+extra = ["dep:tfd"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Does NOT include hyphenation (saves ~25 dependencies)

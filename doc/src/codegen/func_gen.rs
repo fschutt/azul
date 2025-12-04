@@ -60,7 +60,6 @@ pub fn generate_rust_dll_bindings(
     let types_config = GenerateConfig {
         prefix: config.prefix.clone(),
         indent: 8,
-        autoderive: true,
         private_pointers: config.private_pointers,
         no_derive: false,
         wrapper_postfix: config.wrapper_postfix.clone(),

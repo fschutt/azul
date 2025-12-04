@@ -156,7 +156,7 @@ edition = "2021"
 [dependencies]
 # Reference the actual azul crates to compare against
 azul-core = { path = "../../core" }
-azul-layout = { path = "../../layout" }
+azul-layout = { path = "../../layout", features = ["widgets", "extra"] }
 azul-css = { path = "../../css" }
 
 # Serde support (not enabled by default, but types need to be available for conditional compilation)
@@ -180,7 +180,8 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("// This file validates that api.json definitions match actual source\n\n");
     output.push_str("#![allow(unused_imports)]\n");
     output.push_str("#![allow(dead_code)]\n");
-    output.push_str("#![allow(unused_variables)]\n\n");
+    output.push_str("#![allow(unused_variables)]\n");
+    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
 
     output.push_str("use std::mem;\n\n");
     output.push_str("pub mod generated;\n\n");
@@ -189,6 +190,7 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     let mut test_cases = Vec::new();
 
     // Valid external crate prefixes that we can test against
+    // Note: azul_dll is NOT included - memtest runs before C API generation
     let valid_crate_prefixes = ["azul_core::", "azul_css::", "azul_layout::"];
 
     for (version_name, version_data) in &api_data.0 {
@@ -409,8 +411,9 @@ fn generate_generated_rs(
     output.push_str("// Auto-generated API definitions from api.json for memtest\n");
     output.push_str(
         "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
-         clippy::all)]\n\n",
+         clippy::all)]\n",
     );
+    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data
@@ -585,13 +588,9 @@ fn generate_dll_module(
     let struct_config = GenerateConfig {
         prefix: prefix.to_string(),
         indent: 4,
-        autoderive: true,
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
-        // For memtest, ignore derive: [] because we need the derives
-        // (Vec/Option types won't have impl_vec!/impl_option! macros)
-        ignore_empty_derive: true,
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
@@ -639,6 +638,22 @@ fn generate_dll_module(
             dll_code.push_str(&format!(
                 r#"    impl PartialOrd for {name} {{
         fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{
+            Some(self.cmp(other))
+        }}
+    }}
+
+"#, name = prefixed_name));
+
+            // Eq implementation (since PartialEq is implemented)
+            dll_code.push_str(&format!(
+                r#"    impl Eq for {name} {{ }}
+
+"#, name = prefixed_name));
+
+            // Ord implementation
+            dll_code.push_str(&format!(
+                r#"    impl Ord for {name} {{
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {{
             let self_ord = match self {{
                 {name}::DefaultRust => 0usize,
                 {name}::NoDestructor => 1usize,
@@ -649,13 +664,122 @@ fn generate_dll_module(
                 {name}::NoDestructor => 1usize,
                 {name}::External(f) => 2usize + (*f as usize),
             }};
-            self_ord.partial_cmp(&other_ord)
+            self_ord.cmp(&other_ord)
+        }}
+    }}
+
+"#, name = prefixed_name));
+
+            // Hash implementation
+            dll_code.push_str(&format!(
+                r#"    impl core::hash::Hash for {name} {{
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{
+            match self {{
+                {name}::DefaultRust => 0usize.hash(state),
+                {name}::NoDestructor => 1usize.hash(state),
+                {name}::External(f) => (2usize + (*f as usize)).hash(state),
+            }}
         }}
     }}
 
 "#, name = prefixed_name));
         }
     }
+
+    // Generate Debug/PartialEq/PartialOrd implementations for FontRef
+    // This struct contains a function pointer which can't derive these traits
+    println!("      [IMPL] Generating FontRef trait implementations...");
+    dll_code.push_str("\n    // ===== FontRef Trait Implementations =====\n");
+    dll_code.push_str("    // FontRef contains a function pointer, so we need manual implementations\n\n");
+    
+    let font_ref_name = format!("{}FontRef", prefix);
+    dll_code.push_str(&format!(
+        r#"    impl core::fmt::Debug for {name} {{
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{
+            f.debug_struct("{name}")
+                .field("parsed", &self.parsed)
+                .field("copies", &self.copies)
+                .field("run_destructor", &self.run_destructor)
+                .field("parsed_destructor", &(self.parsed_destructor as usize))
+                .finish()
+        }}
+    }}
+
+"#, name = font_ref_name));
+
+    dll_code.push_str(&format!(
+        r#"    impl PartialEq for {name} {{
+        fn eq(&self, other: &Self) -> bool {{
+            self.parsed == other.parsed
+                && self.copies == other.copies
+                && self.run_destructor == other.run_destructor
+                && (self.parsed_destructor as usize) == (other.parsed_destructor as usize)
+        }}
+    }}
+
+"#, name = font_ref_name));
+
+    dll_code.push_str(&format!(
+        r#"    impl PartialOrd for {name} {{
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{
+            match self.parsed.partial_cmp(&other.parsed) {{
+                Some(core::cmp::Ordering::Equal) => {{}}
+                ord => return ord,
+            }}
+            match self.copies.partial_cmp(&other.copies) {{
+                Some(core::cmp::Ordering::Equal) => {{}}
+                ord => return ord,
+            }}
+            match self.run_destructor.partial_cmp(&other.run_destructor) {{
+                Some(core::cmp::Ordering::Equal) => {{}}
+                ord => return ord,
+            }}
+            Some((self.parsed_destructor as usize).cmp(&(other.parsed_destructor as usize)))
+        }}
+    }}
+
+"#, name = font_ref_name));
+
+    // Eq implementation for FontRef
+    dll_code.push_str(&format!(
+        r#"    impl Eq for {name} {{ }}
+
+"#, name = font_ref_name));
+
+    // Ord implementation for FontRef
+    dll_code.push_str(&format!(
+        r#"    impl Ord for {name} {{
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {{
+            match self.parsed.cmp(&other.parsed) {{
+                core::cmp::Ordering::Equal => {{}}
+                ord => return ord,
+            }}
+            match self.copies.cmp(&other.copies) {{
+                core::cmp::Ordering::Equal => {{}}
+                ord => return ord,
+            }}
+            match self.run_destructor.cmp(&other.run_destructor) {{
+                core::cmp::Ordering::Equal => {{}}
+                ord => return ord,
+            }}
+            (self.parsed_destructor as usize).cmp(&(other.parsed_destructor as usize))
+        }}
+    }}
+
+"#, name = font_ref_name));
+
+    // Hash implementation for FontRef
+    dll_code.push_str(&format!(
+        r#"    impl core::hash::Hash for {name} {{
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{
+            self.parsed.hash(state);
+            self.copies.hash(state);
+            self.run_destructor.hash(state);
+            (self.parsed_destructor as usize).hash(state);
+        }}
+    }}
+
+"#, name = font_ref_name));
 
     // Generate VecRef as_slice/as_mut_slice methods and From implementations
     // Based on vec_ref_element_type field in api.json
@@ -890,9 +1014,20 @@ fn generate_dll_module(
     // NOTE: Callback trait implementations are now auto-generated by generate_structs
     // when a struct has exactly one field whose type is a callback_typedef
 
+    // Build a map from prefixed type name to external path for custom_impl types
+    let mut type_to_external: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for module_data in version_data.api.values() {
+        for (class_name, class_data) in &module_data.classes {
+            if let Some(external) = &class_data.external {
+                let prefixed_name = format!("{}{}", prefix, class_name);
+                type_to_external.insert(prefixed_name, external.clone());
+            }
+        }
+    }
+
     println!("      [TARGET] Generating function stubs...");
     // Generate unimplemented!() stubs for all exported C functions
-    // EXCEPT for _deepCopy and _delete which get real implementations
+    // EXCEPT for _deepCopy and _delete which get real implementations that cast to external types
     let functions_map = build_functions_map(version_data, prefix).map_err(|e| e.to_string())?;
     println!("      [LINK] Found {} functions", functions_map.len());
     dll_code.push_str("\n    // --- C-ABI Function Stubs ---\n");
@@ -904,12 +1039,35 @@ fn generate_dll_module(
         };
 
         // Generate real implementations for _deepCopy and _delete functions
+        // These need to cast to the external type, call the trait method, and cast back
         let fn_body = if fn_name.ends_with("_deepCopy") {
-            // _deepCopy calls Clone::clone() on the object
-            "object.clone()".to_string()
+            // Extract type name from function name: AzTypeName_deepCopy -> AzTypeName
+            let type_name = fn_name.strip_suffix("_deepCopy").unwrap_or(fn_name);
+            if let Some(external_path) = type_to_external.get(type_name) {
+                // Cast to external type, clone, cast back
+                format!(
+                    "core::mem::transmute::<{ext}, {local}>((*(object as *const {local} as *const {ext})).clone())",
+                    ext = external_path,
+                    local = type_name
+                )
+            } else {
+                // Fallback: just call clone directly (may fail if Clone not derived)
+                "object.clone()".to_string()
+            }
         } else if fn_name.ends_with("_delete") {
-            // _delete calls Drop::drop() - but we use std::ptr::drop_in_place for &mut
-            "std::ptr::drop_in_place(object)".to_string()
+            // Extract type name from function name: AzTypeName_delete -> AzTypeName
+            let type_name = fn_name.strip_suffix("_delete").unwrap_or(fn_name);
+            if let Some(external_path) = type_to_external.get(type_name) {
+                // Cast to external type and drop
+                format!(
+                    "core::ptr::drop_in_place(object as *mut {local} as *mut {ext})",
+                    ext = external_path,
+                    local = type_name
+                )
+            } else {
+                // Fallback: just drop directly
+                "core::ptr::drop_in_place(object)".to_string()
+            }
         } else {
             // All other functions get unimplemented!() stubs
             format!("unimplemented!(\"{}\")", fn_name)

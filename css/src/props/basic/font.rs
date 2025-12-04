@@ -177,6 +177,9 @@ impl PrintAsCssValue for StyleFontSize {
 
 // --- Font Resource Management ---
 
+/// Callback type for FontRef destructor - must be extern "C" for FFI safety
+pub type FontRefDestructorCallbackType = extern "C" fn(*mut c_void);
+
 /// FontRef is a reference-counted pointer to a parsed font.
 /// It holds a *const c_void that points to the actual parsed font data
 /// (typically a ParsedFont from the layout crate).
@@ -192,7 +195,7 @@ pub struct FontRef {
     /// Whether to run the destructor on drop
     pub run_destructor: bool,
     /// Destructor function for the parsed data
-    pub parsed_destructor: fn(*mut c_void),
+    pub parsed_destructor: FontRefDestructorCallbackType,
 }
 
 impl fmt::Debug for FontRef {
@@ -213,7 +216,7 @@ impl FontRef {
     /// # Arguments
     /// * `parsed` - Pointer to parsed font data (e.g., Arc::into_raw(Arc::new(ParsedFont)))
     /// * `destructor` - Function to clean up the parsed data
-    pub fn new(parsed: *const c_void, destructor: fn(*mut c_void)) -> Self {
+    pub fn new(parsed: *const c_void, destructor: FontRefDestructorCallbackType) -> Self {
         Self {
             parsed,
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),

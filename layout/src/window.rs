@@ -1232,15 +1232,16 @@ impl LayoutWindow {
                     result.threads_removed.insert(thread_id);
                 }
                 CallbackChange::ChangeNodeText {
-                    dom_id,
                     node_id,
                     text,
                 } => {
+                    let dom_id = node_id.dom;
+                    let internal_node_id = NodeId::new(node_id.node.inner);
                     result
                         .words_changed
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
-                        .insert(node_id, text);
+                        .insert(internal_node_id, text);
                 }
                 CallbackChange::ChangeNodeImage {
                     dom_id,

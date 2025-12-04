@@ -46,6 +46,7 @@ use azul_core::{
         Monitor, OptionMouseCursorType, RawWindowHandle, RendererType, WindowFrame, WindowsHandle,
     },
 };
+use azul_css::corety::OptionU32;
 use azul_layout::{
     hit_test::FullHitTest,
     managers::hover::InputPointId,
@@ -340,7 +341,7 @@ impl Win32Window {
             background_color: initial_window_state.background_color,
             layout_callback: initial_window_state.layout_callback,
             close_callback: initial_window_state.close_callback.clone(),
-            monitor_id: None, // Monitor ID will be detected from platform
+            monitor_id: OptionU32::None, // Monitor ID will be detected from platform
             window_focused: true,
         };
 

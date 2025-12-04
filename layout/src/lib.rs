@@ -17,6 +17,18 @@ pub mod image;
 pub mod managers;
 pub mod solver3;
 
+// Widget modules (behind feature flags)
+#[cfg(feature = "widgets")]
+pub mod widgets;
+#[cfg(feature = "widgets")]
+pub mod str;
+
+// Extra APIs (dialogs, file operations)
+#[cfg(feature = "extra")]
+pub mod extra;
+#[cfg(feature = "extra")]
+pub mod desktop;
+
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
 #[cfg(feature = "cpurender")]
@@ -107,7 +119,7 @@ pub fn parsed_font_to_font_ref(
 ) -> azul_css::props::basic::FontRef {
     use core::ffi::c_void;
 
-    fn parsed_font_destructor(ptr: *mut c_void) {
+    extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
         unsafe {
             let _ = Box::from_raw(ptr as *mut crate::font::parsed::ParsedFont);
         }

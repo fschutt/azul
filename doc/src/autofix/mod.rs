@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     fs,
     path::Path,
     time::Instant,
@@ -151,7 +151,40 @@ pub fn autofix_api_recursive(
         .map(|(class_name, _, _)| class_name.clone())
         .collect();
     
+    // Get all types referenced by fields, variants, etc. in the API
     let referenced_types = collect_all_referenced_types_from_api(api_data);
+
+    // CRITICAL: Also check for missing types referenced by EXISTING API types
+    // This handles the case where a type like XmlNode exists in api.json,
+    // but its field type XmlNodeChildVec doesn't exist as a class definition
+    let mut missing_from_existing: HashSet<String> = HashSet::new();
+    for ref_type in &referenced_types {
+        // Skip callback signatures (they start with "extern")
+        if ref_type.starts_with("extern ") {
+            continue;
+        }
+        // Skip array types
+        if ref_type.starts_with("[") {
+            continue;
+        }
+        // Skip documentation strings that were accidentally parsed as types
+        if ref_type.contains(' ') && !ref_type.contains("::") {
+            continue;
+        }
+        if !api_type_names.contains(ref_type) {
+            missing_from_existing.insert(ref_type.clone());
+        }
+    }
+    if !missing_from_existing.is_empty() {
+        println!("  [DISCOVER] Found {} types referenced in API but not defined as classes", 
+            missing_from_existing.len());
+        for t in missing_from_existing.iter().take(20) {
+            println!("    - {}", t);
+        }
+        if missing_from_existing.len() > 20 {
+            println!("    ... and {} more", missing_from_existing.len() - 20);
+        }
+    }
 
     // Collect all callback_typedefs from API - these don't need discovery
     let mut api_callback_typedefs = BTreeSet::new();

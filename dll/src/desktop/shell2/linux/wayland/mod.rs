@@ -36,6 +36,7 @@ use azul_core::{
         RawWindowHandle, RendererType, WaylandHandle, WindowDecorations,
     },
 };
+use azul_css::corety::OptionU32;
 use azul_layout::{
     managers::hover::InputPointId,
     window::LayoutWindow,
@@ -946,7 +947,7 @@ impl WaylandWindow {
                 background_color: options.state.background_color,
                 layout_callback: options.state.layout_callback.clone(),
                 close_callback: options.state.close_callback.clone(),
-                monitor_id: None, // Monitor ID will be detected from platform
+                monitor_id: OptionU32::None, // Monitor ID will be detected from platform
                 window_focused: false,
             },
             previous_window_state: None,

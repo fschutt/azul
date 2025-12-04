@@ -107,8 +107,7 @@ pub enum CallbackChange {
     // Content Modifications
     /// Change the text content of a node
     ChangeNodeText {
-        dom_id: DomId,
-        node_id: NodeId,
+        node_id: DomNodeId,
         text: AzString,
     },
     /// Change the image of a node
@@ -522,12 +521,19 @@ impl CallbackInfo {
     }
 
     /// Change the text content of a node (applied after callback returns)
-    pub fn change_node_text(&mut self, dom_id: DomId, node_id: NodeId, text: AzString) {
-        self.push_change(CallbackChange::ChangeNodeText {
-            dom_id,
-            node_id,
-            text,
-        });
+    ///
+    /// This method was previously called `set_string_contents` in older API versions.
+    ///
+    /// # Arguments
+    /// * `node_id` - The text node to modify (DomNodeId containing both DOM and node IDs)
+    /// * `text` - The new text content
+    ///
+    /// # Example
+    /// ```ignore
+    /// info.change_node_text(label_node_id, "Hello World".into());
+    /// ```
+    pub fn change_node_text(&mut self, node_id: DomNodeId, text: AzString) {
+        self.push_change(CallbackChange::ChangeNodeText { node_id, text });
     }
 
     /// Change the image of a node (applied after callback returns)
@@ -690,6 +696,28 @@ impl CallbackInfo {
             node_id,
             properties,
         });
+    }
+
+    /// Set a single CSS property on a node (convenience method for widgets)
+    ///
+    /// This is a helper method that wraps `change_node_css_properties` for the common case
+    /// of setting a single property. It uses the hit node's DOM ID automatically.
+    ///
+    /// # Arguments
+    /// * `node_id` - The node to set the property on (uses hit node's DOM ID)
+    /// * `property` - The CSS property to set
+    ///
+    /// # Example
+    /// ```ignore
+    /// info.set_css_property(
+    ///     placeholder_node_id,
+    ///     CssProperty::const_opacity(StyleOpacity::const_new(0)),
+    /// );
+    /// ```
+    pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
+        let dom_id = node_id.dom;
+        let internal_node_id = NodeId::new(node_id.node.inner);
+        self.change_node_css_properties(dom_id, internal_node_id, vec![property]);
     }
 
     /// Scroll a node to a specific position (applied after callback returns)

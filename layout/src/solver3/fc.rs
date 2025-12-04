@@ -2442,9 +2442,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .and_then(|s| s.get_property())
         .map(|il| {
             use std::num::NonZeroUsize;
+            let sink = match il.sink {
+                azul_css::corety::OptionU32::Some(s) => s,
+                azul_css::corety::OptionU32::None => il.size,
+            };
             text3::cache::InitialLetter {
                 size: il.size as f32,
-                sink: il.sink.unwrap_or(il.size) as u32,
+                sink: sink,
                 count: NonZeroUsize::new(1).unwrap(),
             }
         });

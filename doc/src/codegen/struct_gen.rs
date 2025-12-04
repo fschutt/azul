@@ -20,18 +20,12 @@ pub struct GenerateConfig {
     pub prefix: String,
     /// Indentation level (number of spaces)
     pub indent: usize,
-    /// Whether to auto-derive Debug, Clone, etc.
-    pub autoderive: bool,
     /// Whether to make pointer fields pub instead of pub
     pub private_pointers: bool,
     /// Whether to skip all derives (for Python bindings)
     pub no_derive: bool,
     /// Suffix to add to enum wrapper types
     pub wrapper_postfix: String,
-    /// Whether to ignore `derive: []` and still generate auto-derives
-    /// Used for memtest where we need derives even for types that
-    /// normally get their traits from impl_option!/impl_vec! macros
-    pub ignore_empty_derive: bool,
 }
 
 impl Default for GenerateConfig {
@@ -39,11 +33,9 @@ impl Default for GenerateConfig {
         Self {
             prefix: "Az".to_string(),
             indent: 4,
-            autoderive: true,
             private_pointers: true,
             no_derive: false,
             wrapper_postfix: String::new(),
-            ignore_empty_derive: false,
         }
     }
 }
@@ -526,200 +518,60 @@ fn generate_struct_definition(
 ) -> Result<String> {
     let mut code = String::new();
 
-    // If derive was explicitly set to empty [], don't generate any auto-derives
-    // This is used for Vec/Option types that get their traits from impl_vec!/impl_option! macros
-    // UNLESS ignore_empty_derive is set (for memtest, where we need derives)
-    let skip_auto_derives = struct_meta.has_explicit_derive 
-        && struct_meta.derive.is_empty() 
-        && !config.ignore_empty_derive;
-
-    // Determine derives
-    let mut opt_derive_debug = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Debug)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_clone = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Clone)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_copy = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Copy)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_other = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(PartialEq, PartialOrd)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_eq = String::new();
-    let mut opt_derive_ord = String::new();
-    let mut opt_derive_hash = String::new();
-
-    // If this is a callback wrapper struct (has exactly one field that is a callback_typedef),
-    // don't derive any traits because we'll generate custom implementations later
-    let is_callback_wrapper = get_callback_wrapper_field(struct_fields, callback_typedef_types).is_some();
-    if is_callback_wrapper {
-        opt_derive_copy.clear();
-        opt_derive_debug.clear();
-        opt_derive_clone.clear();
-        opt_derive_other.clear();
-        opt_derive_eq.clear();
-        opt_derive_ord.clear();
-        opt_derive_hash.clear();
-    }
-
-    // If this is a VecRef type (has vec_ref_element_type), don't derive traits
-    // because we generate custom implementations in memtest that use as_slice()
-    if struct_meta.vec_ref_element_type.is_some() {
-        opt_derive_copy.clear();
-        opt_derive_debug.clear();
-        opt_derive_clone.clear();
-        opt_derive_other.clear();
-        opt_derive_eq.clear();
-        opt_derive_ord.clear();
-        opt_derive_hash.clear();
-    }
-
-    // Check if struct has any c_void fields - these can't derive most traits
-    // c_void is an opaque type that doesn't implement Clone, PartialEq, PartialOrd, etc.
-    let has_c_void_field = struct_fields.iter().any(|field_map| {
-        field_map.values().any(|field_data| field_data.r#type == "c_void")
-    });
-    if has_c_void_field {
-        opt_derive_clone.clear();
-        opt_derive_copy.clear();
-        opt_derive_other.clear(); // PartialEq, PartialOrd
-        opt_derive_eq.clear();
-        opt_derive_ord.clear();
-        opt_derive_hash.clear();
-    }
-
-    // Check if struct has any HashMap/FastHashMap fields - these don't support PartialOrd/Ord
-    let has_hashmap_field = struct_fields.iter().any(|field_map| {
-        field_map.values().any(|field_data| {
-            field_data.r#type.contains("HashMap") || field_data.r#type.contains("FastHashMap")
-        })
-    });
-    if has_hashmap_field {
-        // HashMap doesn't implement PartialOrd, Ord, or Hash
-        // Keep PartialEq though, as HashMap does implement PartialEq
-        opt_derive_other = if !config.no_derive && !skip_auto_derives {
-            format!("{}#[derive(PartialEq)]\n", indent_str)
-        } else {
-            String::new()
-        };
-        opt_derive_ord.clear();
-        opt_derive_hash.clear();
-    }
-
-    // Apply derive rules
-    if !struct_meta.can_be_copied {
-        opt_derive_copy.clear();
-    }
-
-    // For pointer types (treat_external_as_ptr), normally we don't derive Clone
-    // because Clone needs special handling (ref-counting, etc.)
-    // BUT: if ignore_empty_derive is set (memtest), we DO want derive Clone
-    // because there are no manual impl_vec!/impl_option! macros
-    if !struct_meta.can_be_cloned
-        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned && !config.ignore_empty_derive)
-    {
-        opt_derive_clone.clear();
-    }
-
-    // AzString (generated from "String" in api.json) should not derive most traits
-    // because it has custom implementations in memtest.rs for traits that need as_str()
-    // BUT: Clone can still use derive since it's just copying the inner U8Vec
-    if struct_name.ends_with("String") && struct_name.starts_with(&config.prefix) {
-        opt_derive_debug.clear();
-        // Keep opt_derive_clone - derive(Clone) works fine for String
-        opt_derive_other.clear();
-        opt_derive_eq.clear();
-        opt_derive_ord.clear();
-        opt_derive_hash.clear();
-    }
-
-    // For types with custom destructor: they can't be Copy, but can still have Debug/PartialEq/etc
-    // Only clear Clone if has_custom_destructor (since we generate impl Clone)
-    // BUT: if ignore_empty_derive is set (memtest), we need derive Clone
-    if struct_meta.has_custom_destructor && !config.ignore_empty_derive {
-        opt_derive_copy.clear();
-        opt_derive_clone.clear(); // Will be manually implemented
-    } else if struct_meta.has_custom_destructor {
-        opt_derive_copy.clear(); // Copy is never allowed with custom destructor
-    }
+    // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
+    // All derive information is now explicit in api.json - no auto-computation
+    // BUT: Serialize/Deserialize need special handling - they go in cfg_attr
+    let mut derives: Vec<&str> = Vec::new();
+    let mut has_serialize = false;
+    let mut has_deserialize = false;
     
-    // Completely disable all derives for U8VecRef and when autoderive is off
-    if !config.autoderive || struct_name == "AzU8VecRef" {
-        opt_derive_copy.clear();
-        opt_derive_debug.clear();
-        opt_derive_clone.clear();
-        opt_derive_other.clear();
-    }
-
-    if !opt_derive_other.is_empty() {
-        if struct_meta.implements_eq {
-            opt_derive_eq = format!("{}#[derive(Eq)]\n", indent_str);
-        }
-        if struct_meta.implements_ord {
-            opt_derive_ord = format!("{}#[derive(Ord)]\n", indent_str);
-        }
-        if struct_meta.implements_hash {
-            opt_derive_hash = format!("{}#[derive(Hash)]\n", indent_str);
-        }
-    }
-
-    // Check if any field contains a callback (removes Debug)
-    for field_map in struct_fields {
-        for (_field_name, field_data) in field_map {
-            let field_type = &field_data.r#type;
-            let (_, base_type, _) = analyze_type(field_type);
-
-            if !is_primitive_arg(&base_type) {
-                if let Some((module_name, class_name)) =
-                    search_for_class_by_class_name(version_data, &base_type)
-                {
-                    if let Some(found_class) = get_class(version_data, module_name, class_name) {
-                        let found_is_callback = found_class.callback_typedef.is_some()
-                            && !found_class
-                                .callback_typedef
-                                .as_ref()
-                                .unwrap()
-                                .fn_args
-                                .is_empty();
-                        if found_is_callback {
-                            opt_derive_debug.clear();
-                            opt_derive_other.clear();
-                        }
-                    }
-                }
+    if !config.no_derive {
+        // Add derives from api.json, but filter out Serialize/Deserialize
+        for d in &struct_meta.derive {
+            match d.as_str() {
+                "Serialize" => has_serialize = true,
+                "Deserialize" => has_deserialize = true,
+                other => derives.push(other),
             }
         }
     }
+    
+    // For callback wrapper structs, don't derive any traits because we generate custom implementations
+    let is_callback_wrapper = get_callback_wrapper_field(struct_fields, callback_typedef_types).is_some();
+    if is_callback_wrapper {
+        derives.clear();
+        has_serialize = false;
+        has_deserialize = false;
+    }
+    
+    // For VecRef types, don't derive traits because we generate custom implementations using as_slice()
+    if struct_meta.vec_ref_element_type.is_some() {
+        derives.clear();
+        has_serialize = false;
+        has_deserialize = false;
+    }
 
-    // Serde derives
-    let opt_derive_default = if struct_meta.implements_default && !config.no_derive {
-        format!("{}#[derive(Default)]\n", indent_str)
-    } else {
+    // Generate derive attributes
+    let derive_str = if derives.is_empty() {
         String::new()
+    } else {
+        format!("{}#[derive({})]\n", indent_str, derives.join(", "))
     };
 
+    // Serde derives - use Serialize/Deserialize from api.json derives array
     let opt_derive_serde = if config.no_derive {
         String::new()
-    } else if struct_meta.can_be_serde_serialized && struct_meta.can_be_serde_deserialized {
+    } else if has_serialize && has_deserialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Serialize, Deserialize))]\n",
             indent_str
         )
-    } else if struct_meta.can_be_serde_serialized {
+    } else if has_serialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Serialize))]\n",
             indent_str
         )
-    } else if struct_meta.can_be_serde_deserialized {
+    } else if has_deserialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Deserialize))]\n",
             indent_str
@@ -750,14 +602,7 @@ fn generate_struct_definition(
 
     // Write all attributes
     code.push_str(&repr);
-    code.push_str(&opt_derive_debug);
-    code.push_str(&opt_derive_clone);
-    code.push_str(&opt_derive_other);
-    code.push_str(&opt_derive_copy);
-    code.push_str(&opt_derive_eq);
-    code.push_str(&opt_derive_ord);
-    code.push_str(&opt_derive_hash);
-    code.push_str(&opt_derive_default);
+    code.push_str(&derive_str);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
 
@@ -870,6 +715,10 @@ fn generate_struct_definition(
 
     code.push_str(&format!("{}}}\n\n", indent_str));
 
+    // Generate trait implementations for custom_impls
+    // These cast to the external type, call the trait method, and cast back if needed
+    let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
+
     // Generate impl Clone if custom_impls contains "Clone"
     if struct_meta.custom_impls.contains(&"Clone".to_string()) {
         code.push_str(&format!(
@@ -906,6 +755,104 @@ fn generate_struct_definition(
         code.push_str(&format!("{}}}\n\n", indent_str));
     }
 
+    // Generate impl Debug if custom_impls contains "Debug"
+    if struct_meta.custom_impls.contains(&"Debug".to_string()) {
+        code.push_str(&format!(
+            "{}impl core::fmt::Debug for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).fmt(f) }}\n",
+            indent_str, struct_name, external_path
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // Generate impl PartialEq if custom_impls contains "PartialEq"
+    if struct_meta.custom_impls.contains(&"PartialEq".to_string()) {
+        code.push_str(&format!(
+            "{}impl PartialEq for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn eq(&self, other: &Self) -> bool {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} as *const {})) }}\n",
+            indent_str, struct_name, external_path, struct_name, external_path
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // Generate impl PartialOrd if custom_impls contains "PartialOrd"
+    if struct_meta.custom_impls.contains(&"PartialOrd".to_string()) {
+        code.push_str(&format!(
+            "{}impl PartialOrd for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as *const {} as *const {})) }}\n",
+            indent_str, struct_name, external_path, struct_name, external_path
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // Generate impl Eq if custom_impls contains "Eq"
+    if struct_meta.custom_impls.contains(&"Eq".to_string()) {
+        code.push_str(&format!(
+            "{}impl Eq for {} {{}}\n\n",
+            indent_str, struct_name
+        ));
+    }
+
+    // Generate impl Ord if custom_impls contains "Ord"
+    if struct_meta.custom_impls.contains(&"Ord".to_string()) {
+        code.push_str(&format!(
+            "{}impl Ord for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const {} as *const {})) }}\n",
+            indent_str, struct_name, external_path, struct_name, external_path
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // Generate impl Hash if custom_impls contains "Hash"
+    if struct_meta.custom_impls.contains(&"Hash".to_string()) {
+        code.push_str(&format!(
+            "{}impl core::hash::Hash for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).hash(state) }}\n",
+            indent_str, struct_name, external_path
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
     Ok(code)
 }
 
@@ -934,121 +881,45 @@ fn generate_enum_definition(
         repr = format!("{}#[repr({})]\n", indent_str, custom_repr);
     }
 
-    // If derive was explicitly set to empty [], don't generate any auto-derives
-    // This is used for Vec/Option types that get their traits from impl_vec!/impl_option! macros
-    // UNLESS ignore_empty_derive is set (for memtest, where we need derives)
-    let skip_auto_derives = struct_meta.has_explicit_derive 
-        && struct_meta.derive.is_empty() 
-        && !config.ignore_empty_derive;
-
-    // Determine derives (same logic as structs)
-    let mut opt_derive_debug = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Debug)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_clone = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Clone)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_copy = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(Copy)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_other = if !config.no_derive && !skip_auto_derives {
-        format!("{}#[derive(PartialEq, PartialOrd)]\n", indent_str)
-    } else {
-        String::new()
-    };
-    let mut opt_derive_eq = String::new();
-    let mut opt_derive_ord = String::new();
-    let mut opt_derive_hash = String::new();
-
-    if !struct_meta.can_be_copied {
-        opt_derive_copy.clear();
-    }
-
-    // For pointer types, normally we don't derive Clone, but for memtest we do
-    if !struct_meta.can_be_cloned
-        || (struct_meta.treat_external_as_ptr && struct_meta.can_be_cloned && !config.ignore_empty_derive)
-    {
-        opt_derive_clone.clear();
-    }
-
-    // For types with explicit empty derive, skip the has_custom_destructor clearing
-    // since they already have skip_auto_derives set
-    // For memtest (ignore_empty_derive), we still need derives
-    if !skip_auto_derives && !config.ignore_empty_derive && (struct_meta.has_custom_destructor || !config.autoderive) {
-        opt_derive_copy.clear();
-        opt_derive_debug.clear();
-        opt_derive_clone.clear();
-        opt_derive_other.clear();
-    }
-
-    if !opt_derive_other.is_empty() {
-        if struct_meta.implements_eq {
-            opt_derive_eq = format!("{}#[derive(Eq)]\n", indent_str);
-        }
-        if struct_meta.implements_ord {
-            opt_derive_ord = format!("{}#[derive(Ord)]\n", indent_str);
-        }
-        if struct_meta.implements_hash {
-            opt_derive_hash = format!("{}#[derive(Hash)]\n", indent_str);
-        }
-    }
-
-    // Check if any variant contains a callback
-    for variant_map in enum_fields {
-        for (_variant_name, variant_data) in variant_map {
-            if let Some(variant_type) = &variant_data.r#type {
-                let (_, base_type, _) = analyze_type(variant_type);
-
-                if !is_primitive_arg(&base_type) {
-                    if let Some((module_name, class_name)) =
-                        search_for_class_by_class_name(version_data, &base_type)
-                    {
-                        if let Some(found_class) = get_class(version_data, module_name, class_name)
-                        {
-                            let found_is_callback = found_class.callback_typedef.is_some()
-                                && !found_class
-                                    .callback_typedef
-                                    .as_ref()
-                                    .unwrap()
-                                    .fn_args
-                                    .is_empty();
-                            if found_is_callback {
-                                opt_derive_debug.clear();
-                                opt_derive_other.clear();
-                            }
-                        }
-                    }
-                }
+    // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
+    // All derive information is now explicit in api.json - no auto-computation
+    // BUT: Serialize/Deserialize need special handling - they go in cfg_attr
+    let mut derives: Vec<&str> = Vec::new();
+    let mut has_serialize = false;
+    let mut has_deserialize = false;
+    
+    if !config.no_derive {
+        // Add derives from api.json, but filter out Serialize/Deserialize
+        for d in &struct_meta.derive {
+            match d.as_str() {
+                "Serialize" => has_serialize = true,
+                "Deserialize" => has_deserialize = true,
+                other => derives.push(other),
             }
         }
     }
 
-    // Serde derives
-    let opt_derive_default = if struct_meta.implements_default && !config.no_derive {
-        format!("{}#[derive(Default)]\n", indent_str)
-    } else {
+    // Generate derive attributes
+    let derive_str = if derives.is_empty() {
         String::new()
+    } else {
+        format!("{}#[derive({})]\n", indent_str, derives.join(", "))
     };
 
+    // Serde derives - use Serialize/Deserialize from api.json derives array
     let opt_derive_serde = if config.no_derive {
         String::new()
-    } else if struct_meta.can_be_serde_serialized && struct_meta.can_be_serde_deserialized {
+    } else if has_serialize && has_deserialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Serialize, Deserialize))]\n",
             indent_str
         )
-    } else if struct_meta.can_be_serde_serialized {
+    } else if has_serialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Serialize))]\n",
             indent_str
         )
-    } else if struct_meta.can_be_serde_deserialized {
+    } else if has_deserialize {
         format!(
             "{}#[cfg_attr(feature = \"serde-support\", derive(Deserialize))]\n",
             indent_str
@@ -1072,14 +943,7 @@ fn generate_enum_definition(
 
     // Write all attributes
     code.push_str(&repr);
-    code.push_str(&opt_derive_debug);
-    code.push_str(&opt_derive_clone);
-    code.push_str(&opt_derive_other);
-    code.push_str(&opt_derive_copy);
-    code.push_str(&opt_derive_ord);
-    code.push_str(&opt_derive_eq);
-    code.push_str(&opt_derive_hash);
-    code.push_str(&opt_derive_default);
+    code.push_str(&derive_str);
     code.push_str(&opt_derive_serde);
     code.push_str(&opt_derive_serde_extra);
 

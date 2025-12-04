@@ -307,6 +307,10 @@ pub struct ClassData {
     /// Whether this is a mutable VecRef (VecRefMut) - affects generated method signatures
     #[serde(default, skip_serializing_if = "is_false")]
     pub vec_ref_is_mut: bool,
+    /// For Vec types: the element type (e.g., "StringPair" for StringPairVec)
+    /// This is used to generate proper trait implementations in memtest
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vec_element_type: Option<String>,
 }
 
 impl ClassData {
@@ -511,6 +515,19 @@ pub fn extract_types_from_field_data(field_data: &FieldData) -> HashSet<String> 
     types
 }
 
+/// Extract types from FieldData INCLUDING pointer types
+/// Used for unused type analysis where we need ALL references
+pub fn extract_types_from_field_data_all(field_data: &FieldData) -> HashSet<String> {
+    let mut types = HashSet::new();
+
+    // Include types behind pointers for reachability analysis
+    if let Some(base_type) = extract_base_type_including_pointers(&field_data.r#type) {
+        types.insert(base_type);
+    }
+
+    types
+}
+
 /// Extract types from EnumVariantData
 /// Skips types behind pointers
 pub fn extract_types_from_enum_variant(variant_data: &EnumVariantData) -> HashSet<String> {
@@ -518,6 +535,20 @@ pub fn extract_types_from_enum_variant(variant_data: &EnumVariantData) -> HashSe
 
     if let Some(variant_type) = &variant_data.r#type {
         if let Some(base_type) = extract_base_type_if_not_opaque(variant_type) {
+            types.insert(base_type);
+        }
+    }
+
+    types
+}
+
+/// Extract types from EnumVariantData INCLUDING pointer types
+/// Used for unused type analysis
+pub fn extract_types_from_enum_variant_all(variant_data: &EnumVariantData) -> HashSet<String> {
+    let mut types = HashSet::new();
+
+    if let Some(variant_type) = &variant_data.r#type {
+        if let Some(base_type) = extract_base_type_including_pointers(variant_type) {
             types.insert(base_type);
         }
     }
@@ -671,6 +702,24 @@ fn is_generic_type_param(type_name: &str) -> bool {
     type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
 }
 
+/// Extract base type INCLUDING types behind pointers
+/// Used for unused type analysis where we need to track all references
+pub fn extract_base_type_including_pointers(type_str: &str) -> Option<String> {
+    let base_type = extract_base_type(type_str);
+    
+    // Don't return primitive types - they're built-in and shouldn't be in API
+    if PRIMITIVE_TYPES.contains(&base_type.as_str()) {
+        return None;
+    }
+    
+    // Don't return single-letter generic type parameters (T, U, V, etc.)
+    if is_generic_type_param(&base_type) {
+        return None;
+    }
+    
+    Some(base_type)
+}
+
 /// Extract base type from a type string (removes Vec, Option, Box, etc.)
 /// BUT: If the type is behind a pointer/smart pointer, return None
 /// Also returns None for primitive types (they shouldn't be added to API)
@@ -822,6 +871,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
     }
     
     // Phase 2: Recursively follow struct fields and enum variants
+    // Use _all variants to include types behind pointers (important for Vec element types)
     let mut iteration = 0;
     let max_iterations = 100; // Safety limit
     
@@ -831,11 +881,11 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
         
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
-                // Extract types from struct fields
+                // Extract types from struct fields (including pointer types)
                 if let Some(struct_fields) = &class_data.struct_fields {
                     for field_map in struct_fields {
                         for (_field_name, field_data) in field_map {
-                            for referenced_type in extract_types_from_field_data(field_data) {
+                            for referenced_type in extract_types_from_field_data_all(field_data) {
                                 if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
@@ -845,11 +895,11 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                     }
                 }
                 
-                // Extract types from enum variants
+                // Extract types from enum variants (including pointer types)
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
                         for (_variant_name, variant_data) in variant_map {
-                            for referenced_type in extract_types_from_enum_variant(variant_data) {
+                            for referenced_type in extract_types_from_enum_variant_all(variant_data) {
                                 if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
@@ -859,16 +909,16 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                     }
                 }
                 
-                // Extract types from type_alias
+                // Extract types from type_alias (including pointer types)
                 if let Some(type_alias) = &class_data.type_alias {
-                    if let Some(base_type) = extract_base_type_if_not_opaque(&type_alias.target) {
+                    if let Some(base_type) = extract_base_type_including_pointers(&type_alias.target) {
                         if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
                             reachable_types.insert(base_type.clone());
                             types_to_process.push(base_type);
                         }
                     }
                     for generic_arg in &type_alias.generic_args {
-                        if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                        if let Some(base_type) = extract_base_type_including_pointers(generic_arg) {
                             if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
                                 reachable_types.insert(base_type.clone());
                                 types_to_process.push(base_type);
@@ -1075,6 +1125,7 @@ fn find_unused_types_simulating_removal(
     }
     
     // Phase 2: Recursively follow struct fields and enum variants
+    // Use _all variants to include types behind pointers (important for Vec element types)
     let mut iteration = 0;
     let max_iterations = 100;
     
@@ -1084,11 +1135,11 @@ fn find_unused_types_simulating_removal(
         
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
-                // Process struct fields
+                // Process struct fields (including pointer types)
                 if let Some(struct_fields) = &class_data.struct_fields {
                     for field_map in struct_fields {
                         for (_field_name, field_data) in field_map {
-                            for referenced_type in extract_types_from_field_data(field_data) {
+                            for referenced_type in extract_types_from_field_data_all(field_data) {
                                 if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
@@ -1098,11 +1149,11 @@ fn find_unused_types_simulating_removal(
                     }
                 }
                 
-                // Process enum variants
+                // Process enum variants (including pointer types)
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
                         for (_variant_name, variant_data) in variant_map {
-                            for referenced_type in extract_types_from_enum_variant(variant_data) {
+                            for referenced_type in extract_types_from_enum_variant_all(variant_data) {
                                 if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
@@ -1112,16 +1163,16 @@ fn find_unused_types_simulating_removal(
                     }
                 }
                 
-                // Process type aliases
+                // Process type aliases (including pointer types)
                 if let Some(type_alias) = &class_data.type_alias {
-                    if let Some(base_type) = extract_base_type_if_not_opaque(&type_alias.target) {
+                    if let Some(base_type) = extract_base_type_including_pointers(&type_alias.target) {
                         if !reachable_types.contains(&base_type) && is_valid_type(&base_type) {
                             reachable_types.insert(base_type.clone());
                             types_to_process.push(base_type);
                         }
                     }
                     for generic_arg in &type_alias.generic_args {
-                        if let Some(base_type) = extract_base_type_if_not_opaque(generic_arg) {
+                        if let Some(base_type) = extract_base_type_including_pointers(generic_arg) {
                             if !reachable_types.contains(&base_type) && is_valid_type(&base_type) {
                                 reachable_types.insert(base_type.clone());
                                 types_to_process.push(base_type);

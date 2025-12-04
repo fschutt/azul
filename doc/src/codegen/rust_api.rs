@@ -73,7 +73,6 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     let dll_config = GenerateConfig {
         prefix: prefix.clone(),
         indent: 8,
-        autoderive: true,
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),

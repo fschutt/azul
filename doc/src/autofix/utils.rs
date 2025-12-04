@@ -225,7 +225,40 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
         }
     }
 
+    // Don't normalize Az prefix here - it should only be done for types from azul_dll
+    // and that's handled separately in workspace.rs with path context
     (type_str.to_string(), None)
+}
+
+/// Remove the "Az" prefix from a type name if present.
+/// This is needed because some types in the source code already have the "Az" prefix
+/// (e.g., `AzDuration` in azul_dll), but when stored in api.json they should not have it
+/// since the code generator will add the prefix when generating FFI code.
+/// 
+/// IMPORTANT: This should ONLY be called for types from azul_dll module, not for types
+/// like AzDebugMessage from azul_core which intentionally have "Az" in their name.
+pub fn normalize_az_prefix(type_name: &str) -> String {
+    // Only strip "Az" prefix if the remaining part starts with uppercase
+    // This prevents stripping from types like "Azure" where "Az" is part of the name
+    if type_name.starts_with("Az") && type_name.len() > 2 {
+        let rest = &type_name[2..];
+        if rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            return rest.to_string();
+        }
+    }
+    type_name.to_string()
+}
+
+/// Check if a type name has an "Az" prefix that should be normalized.
+/// Returns true if the type name starts with "Az" followed by an uppercase letter.
+/// This should ALWAYS be normalized regardless of the source crate, because
+/// the code generator adds the "Az" prefix when generating FFI code.
+pub fn should_normalize_az_prefix(type_name: &str) -> bool {
+    if type_name.starts_with("Az") && type_name.len() > 2 {
+        let rest = &type_name[2..];
+        return rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+    }
+    false
 }
 
 /// Normalize raw pointer types to c_void

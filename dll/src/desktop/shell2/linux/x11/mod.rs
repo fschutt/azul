@@ -31,6 +31,7 @@ use azul_core::{
         RendererType, WindowDecorations, XlibHandle,
     },
 };
+use azul_css::corety::OptionU32;
 use azul_layout::{
     managers::hover::InputPointId,
     window::LayoutWindow,
@@ -558,7 +559,7 @@ impl X11Window {
                 background_color: options.state.background_color,
                 layout_callback: options.state.layout_callback,
                 close_callback: options.state.close_callback.clone(),
-                monitor_id: None, // Monitor ID will be detected from platform
+                monitor_id: OptionU32::None, // Monitor ID will be detected from platform
                 window_focused: true,
             },
             previous_window_state: None,

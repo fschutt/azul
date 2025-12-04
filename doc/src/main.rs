@@ -233,8 +233,16 @@ fn main() -> anyhow::Result<()> {
                             eprintln!("[WARN]  Warning: Failed to normalize class names: {}", e);
                         }
                     }
+                }
+                
+                // Always normalize Az prefixes (even if no patches applied)
+                let az_renamed = patch::normalize_az_prefixes(&mut api_data);
+                if az_renamed > 0 {
+                    println!("[FIX] Renamed {} types to remove Az prefix", az_renamed);
+                }
 
-                    // Save updated api.json
+                // Save updated api.json if any changes
+                if stats.successful > 0 || stats.total_changes > 0 || az_renamed > 0 {
                     let api_json = serde_json::to_string_pretty(&api_data)?;
                     fs::write(&api_path, api_json)?;
                     println!("\n[SAVE] Saved updated api.json");

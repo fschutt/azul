@@ -97,6 +97,9 @@ pub struct ClassPatch {
     /// Patch or replace functions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<IndexMap<String, FunctionData>>,
+    /// For Vec types: the element type (e.g., "StringPair" for StringPairVec)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vec_element_type: Option<String>,
     /// Add note about patch application
     #[serde(skip)]
     pub _patched: bool,
@@ -605,7 +608,166 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
         }
     }
 
+    // Post-process: Rename all Az* types to remove the Az prefix
+    // This ensures no types in api.json have the Az prefix which would cause AzAz* in generated code
+    let renamed = normalize_az_prefixes(api_data);
+    if renamed > 0 {
+        println!("\n[FIX] Renamed {} types to remove Az prefix", renamed);
+    }
+
     Ok(stats)
+}
+
+/// Helper to normalize a type name by removing Az prefix if present
+fn normalize_type_name(name: &str) -> Option<String> {
+    if name.starts_with("Az") && name.len() > 2 {
+        let rest = &name[2..];
+        if rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+/// Rename all types with "Az" prefix to remove the prefix.
+/// This prevents the code generator from creating "AzAz*" types.
+/// Also normalizes type references in struct_fields, enum_fields, and vec_element_type.
+pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
+    let mut renamed_count = 0;
+    
+    for (_version_name, version_data) in api_data.0.iter_mut() {
+        for (_module_name, module_data) in version_data.api.iter_mut() {
+            // Collect types to rename (can't modify while iterating)
+            let types_to_rename: Vec<(String, String)> = module_data.classes
+                .keys()
+                .filter_map(|name| normalize_type_name(name).map(|new| (name.clone(), new)))
+                .collect();
+            
+            // Rename the types
+            for (old_name, new_name) in types_to_rename {
+                if !module_data.classes.contains_key(&new_name) {
+                    if let Some(class_data) = module_data.classes.swap_remove(&old_name) {
+                        println!("  [RENAME] {} -> {}", old_name, new_name);
+                        module_data.classes.insert(new_name, class_data);
+                        renamed_count += 1;
+                    }
+                } else {
+                    // Target name already exists - just remove the Az* version
+                    println!("  [REMOVE] Duplicate {} (keeping {})", old_name, new_name);
+                    module_data.classes.swap_remove(&old_name);
+                    renamed_count += 1;
+                }
+            }
+            
+            // Normalize type references in struct_fields, enum_fields, and vec_element_type
+            for (_class_name, class_data) in module_data.classes.iter_mut() {
+                // Normalize struct_fields type references
+                if let Some(ref mut fields) = class_data.struct_fields {
+                    for field_map in fields.iter_mut() {
+                        for (_field_name, field_data) in field_map.iter_mut() {
+                            if let Some(normalized) = normalize_type_name(&field_data.r#type) {
+                                field_data.r#type = normalized;
+                                renamed_count += 1;
+                            }
+                        }
+                    }
+                }
+                
+                // Normalize enum_fields type references
+                if let Some(ref mut variants) = class_data.enum_fields {
+                    for variant_map in variants.iter_mut() {
+                        for (_variant_name, variant_data) in variant_map.iter_mut() {
+                            if let Some(ref mut ty) = variant_data.r#type {
+                                if let Some(normalized) = normalize_type_name(ty) {
+                                    *ty = normalized;
+                                    renamed_count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Normalize vec_element_type
+                if let Some(ref mut vec_elem) = class_data.vec_element_type {
+                    if let Some(normalized) = normalize_type_name(vec_elem) {
+                        *vec_elem = normalized;
+                        renamed_count += 1;
+                    }
+                }
+                
+                // Normalize callback_typedef argument and return types
+                if let Some(ref mut callback) = class_data.callback_typedef {
+                    for arg in &mut callback.fn_args {
+                        if let Some(normalized) = normalize_type_name(&arg.r#type) {
+                            arg.r#type = normalized;
+                            renamed_count += 1;
+                        }
+                    }
+                    if let Some(ref mut ret) = callback.returns {
+                        if let Some(normalized) = normalize_type_name(&ret.r#type) {
+                            ret.r#type = normalized;
+                            renamed_count += 1;
+                        }
+                    }
+                }
+                
+                // Normalize function argument and return types
+                if let Some(ref mut functions) = class_data.functions {
+                    for (_fn_name, fn_data) in functions.iter_mut() {
+                        for arg_map in &mut fn_data.fn_args {
+                            for (arg_name, arg_type) in arg_map.iter_mut() {
+                                // Skip "self" which is not a type name
+                                if arg_name != "self" {
+                                    if let Some(normalized) = normalize_type_name(arg_type) {
+                                        *arg_type = normalized;
+                                        renamed_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(ref mut ret) = fn_data.returns {
+                            if let Some(normalized) = normalize_type_name(&ret.r#type) {
+                                ret.r#type = normalized;
+                                renamed_count += 1;
+                            }
+                        }
+                    }
+                }
+                
+                // Normalize constructor argument and return types
+                if let Some(ref mut constructors) = class_data.constructors {
+                    for (_ctor_name, ctor_data) in constructors.iter_mut() {
+                        for arg_map in &mut ctor_data.fn_args {
+                            for (arg_name, arg_type) in arg_map.iter_mut() {
+                                if arg_name != "self" {
+                                    if let Some(normalized) = normalize_type_name(arg_type) {
+                                        *arg_type = normalized;
+                                        renamed_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(ref mut ret) = ctor_data.returns {
+                            if let Some(normalized) = normalize_type_name(&ret.r#type) {
+                                ret.r#type = normalized;
+                                renamed_count += 1;
+                            }
+                        }
+                    }
+                }
+                
+                // Normalize vec_ref_element_type
+                if let Some(ref mut vec_ref_elem) = class_data.vec_ref_element_type {
+                    if let Some(normalized) = normalize_type_name(vec_ref_elem) {
+                        *vec_ref_elem = normalized;
+                        renamed_count += 1;
+                    }
+                }
+            }
+        }
+    }
+    
+    renamed_count
 }
 
 /// Result of applying a patch, containing both success count and any errors
@@ -880,6 +1042,7 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
         type_alias: patch.type_alias.clone(),
         vec_ref_element_type: None,
         vec_ref_is_mut: false,
+        vec_element_type: patch.vec_element_type.clone(),
     }
 }
 

@@ -650,8 +650,8 @@ pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleText
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleInitialLetter {
-    pub size: usize,
-    pub sink: Option<usize>,
+    pub size: u32,
+    pub sink: crate::corety::OptionU32,
 }
 
 impl FormatAsRustCode for StyleInitialLetter {
@@ -662,7 +662,7 @@ impl FormatAsRustCode for StyleInitialLetter {
 
 impl PrintAsCssValue for StyleInitialLetter {
     fn print_as_css_value(&self) -> String {
-        if let Some(sink) = self.sink {
+        if let crate::corety::OptionU32::Some(sink) = self.sink {
             format!("{} {}", self.size, sink)
         } else {
             format!("{}", self.size)
@@ -755,7 +755,7 @@ pub fn parse_style_initial_letter<'a>(
 
     // Parse size (required)
     let size = parts[0]
-        .parse::<usize>()
+        .parse::<u32>()
         .map_err(|_| StyleInitialLetterParseError::InvalidSize(parts[0]))?;
 
     if size == 0 {
@@ -764,13 +764,13 @@ pub fn parse_style_initial_letter<'a>(
 
     // Parse sink (optional)
     let sink = if parts.len() > 1 {
-        Some(
+        crate::corety::OptionU32::Some(
             parts[1]
-                .parse::<usize>()
+                .parse::<u32>()
                 .map_err(|_| StyleInitialLetterParseError::InvalidSink(parts[1]))?,
         )
     } else {
-        None
+        crate::corety::OptionU32::None
     };
 
     Ok(StyleInitialLetter { size, sink })

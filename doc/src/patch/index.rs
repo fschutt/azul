@@ -64,6 +64,8 @@ pub enum TypeKind {
         generic_params: Vec<String>,
         /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
         implemented_traits: Vec<String>,
+        /// Traits from #[derive(...)] attribute
+        derives: Vec<String>,
     },
     Enum {
         variants: IndexMap<String, VariantInfo>,
@@ -73,6 +75,8 @@ pub enum TypeKind {
         generic_params: Vec<String>,
         /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
         implemented_traits: Vec<String>,
+        /// Traits from #[derive(...)] attribute
+        derives: Vec<String>,
     },
     TypeAlias {
         target: String,
@@ -113,6 +117,285 @@ pub struct VariantInfo {
     pub name: String,
     pub ty: Option<String>,
     pub doc: Option<String>,
+}
+
+/// Extract derive traits from #[derive(...)] attributes
+fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
+    let mut derives = Vec::new();
+    
+    for attr in attrs {
+        if !attr.path().is_ident("derive") {
+            continue;
+        }
+        
+        // Parse the derive attribute content
+        let attr_str = attr.meta.to_token_stream().to_string();
+        // Format: derive(Trait1, Trait2, ...)
+        if let Some(start) = attr_str.find('(') {
+            if let Some(end) = attr_str.rfind(')') {
+                let content = &attr_str[start + 1..end];
+                // Split by comma and clean up each trait name
+                for trait_name in content.split(',') {
+                    let trait_name = trait_name.trim();
+                    // Remove any path prefix (e.g., "core::fmt::Debug" -> "Debug")
+                    let simple_name = trait_name
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(trait_name)
+                        .trim();
+                    if !simple_name.is_empty() {
+                        derives.push(simple_name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    derives
+}
+
+/// Extract implemented traits from `impl Trait for Type` blocks in parsed syn items
+/// Returns a map from type name to list of traits implemented for that type
+fn extract_implemented_traits_from_items(items: &[syn::Item]) -> HashMap<String, Vec<String>> {
+    let mut traits_map: HashMap<String, Vec<String>> = HashMap::new();
+    
+    // Standard library traits we care about
+    let standard_traits = [
+        "Clone", "Copy", "Debug", "Default", "Display",
+        "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+        "Drop", "Send", "Sync", "Sized",
+        "From", "Into", "TryFrom", "TryInto",
+        "AsRef", "AsMut", "Deref", "DerefMut",
+    ];
+    
+    for item in items {
+        if let syn::Item::Impl(impl_block) = item {
+            // We only care about trait implementations, not inherent impls
+            if let Some((_, trait_path, _)) = &impl_block.trait_ {
+                // Get the trait name (last segment of the path)
+                let trait_name = trait_path.segments.last()
+                    .map(|s| s.ident.to_string())
+                    .unwrap_or_default();
+                
+                // Only track standard library traits
+                if !standard_traits.contains(&trait_name.as_str()) {
+                    continue;
+                }
+                
+                // Get the type name this is implemented for
+                if let syn::Type::Path(type_path) = &*impl_block.self_ty {
+                    let type_name = type_path.path.segments.last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                    
+                    if !type_name.is_empty() && !trait_name.is_empty() {
+                        traits_map
+                            .entry(type_name)
+                            .or_default()
+                            .push(trait_name);
+                    }
+                }
+            }
+        }
+    }
+    
+    traits_map
+}
+
+/// Extract derives from impl_option! macro calls
+/// Handles formats like:
+/// - impl_option!(Type, OptionType, [Debug, Clone, Copy])
+/// - impl_option!(Type, OptionType, copy = false, [Debug, Clone])
+/// - impl_option!(Type, OptionType, copy = false, clone = false, [Debug])
+fn extract_derives_from_impl_option_macro(tokens_str: &str) -> Vec<String> {
+    let mut derives = Vec::new();
+    
+    // Find the [...] part containing the derives
+    if let Some(bracket_start) = tokens_str.find('[') {
+        if let Some(bracket_end) = tokens_str.rfind(']') {
+            let derives_str = &tokens_str[bracket_start + 1..bracket_end];
+            // Split by comma and clean up each derive name
+            for derive_name in derives_str.split(',') {
+                let derive_name = derive_name.trim();
+                if !derive_name.is_empty() {
+                    derives.push(derive_name.to_string());
+                }
+            }
+        }
+    }
+    
+    // If no [...] found, return default derives for backwards compatibility
+    if derives.is_empty() {
+        derives = vec![
+            "Debug".to_string(),
+            "Clone".to_string(),
+            "PartialEq".to_string(),
+            "PartialOrd".to_string(),
+            "Copy".to_string(),
+        ];
+    }
+    
+    derives
+}
+
+/// Information about types generated by impl_vec! and impl_option! macros
+#[derive(Debug, Clone)]
+pub struct MacroGeneratedType {
+    pub type_name: String,
+    pub element_type: String,
+    pub destructor_name: Option<String>,
+    pub derives: Vec<String>,
+    pub is_vec: bool,  // true for impl_vec!, false for impl_option!
+}
+
+/// Extract types generated by impl_vec! and impl_option! macros from parsed syn items
+/// Also extracts trait information from impl_vec_*! macro calls
+fn extract_macro_generated_types_from_items(items: &[syn::Item]) -> Vec<MacroGeneratedType> {
+    let mut generated_types: HashMap<String, MacroGeneratedType> = HashMap::new();
+    
+    // Mapping from macro name to trait it implements
+    let macro_to_trait: &[(&str, &str)] = &[
+        ("impl_vec_debug", "Debug"),
+        ("impl_vec_clone", "Clone"),
+        ("impl_vec_partialeq", "PartialEq"),
+        ("impl_vec_partialord", "PartialOrd"),
+        ("impl_vec_eq", "Eq"),
+        ("impl_vec_ord", "Ord"),
+        ("impl_vec_hash", "Hash"),
+    ];
+    
+    for item in items {
+        if let syn::Item::Macro(m) = item {
+            let macro_name = m.mac.path.segments.last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            
+            // Parse macro tokens as comma-separated identifiers
+            let tokens_str = m.mac.tokens.to_string();
+            let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
+            
+            if macro_name == "impl_vec" && args.len() >= 2 {
+                // impl_vec!(ElementType, VecTypeName, DestructorName)
+                let element_type = args[0].to_string();
+                let vec_type_name = args[1].to_string();
+                let destructor_name = args.get(2).map(|s| s.to_string());
+                
+                generated_types.insert(vec_type_name.clone(), MacroGeneratedType {
+                    type_name: vec_type_name,
+                    element_type,
+                    destructor_name,
+                    derives: Vec::new(),
+                    is_vec: true,
+                });
+            } else if macro_name == "impl_option" && args.len() >= 2 {
+                // impl_option!(ElementType, OptionTypeName, [Derives]) or
+                // impl_option!(ElementType, OptionTypeName, copy = false, [Derives])
+                let element_type = args[0].to_string();
+                let option_type_name = args[1].to_string();
+                
+                // Extract derives from the [...] part in the macro call
+                let derives = extract_derives_from_impl_option_macro(&tokens_str);
+                
+                generated_types.insert(option_type_name.clone(), MacroGeneratedType {
+                    type_name: option_type_name,
+                    element_type,
+                    destructor_name: None,
+                    derives,
+                    is_vec: false,
+                });
+            } else {
+                // Check for impl_vec_*! trait macros
+                for (trait_macro, trait_name) in macro_to_trait {
+                    if macro_name == *trait_macro && args.len() >= 2 {
+                        // impl_vec_debug!(ElementType, VecTypeName) or
+                        // impl_vec_clone!(ElementType, VecTypeName, DestructorName)
+                        let vec_type_name = args[1].to_string();
+                        
+                        // Add trait to existing type or create placeholder
+                        generated_types
+                            .entry(vec_type_name.clone())
+                            .and_modify(|t| {
+                                if !t.derives.contains(&trait_name.to_string()) {
+                                    t.derives.push(trait_name.to_string());
+                                }
+                            })
+                            .or_insert_with(|| {
+                                // Create placeholder - will be merged with impl_vec! later
+                                MacroGeneratedType {
+                                    type_name: vec_type_name,
+                                    element_type: args[0].to_string(),
+                                    destructor_name: args.get(2).map(|s| s.to_string()),
+                                    derives: vec![trait_name.to_string()],
+                                    is_vec: true,
+                                }
+                            });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    generated_types.into_values().collect()
+}
+
+/// Extract trait implementations from impl_vec_*! macro calls in parsed syn items
+/// Returns a map from type name to list of traits implemented via macros
+fn extract_impl_vec_traits_from_items(items: &[syn::Item]) -> std::collections::HashMap<String, Vec<String>> {
+    let mut traits_map: HashMap<String, Vec<String>> = HashMap::new();
+    
+    let macro_to_trait: &[(&str, &str)] = &[
+        ("impl_vec_debug", "Debug"),
+        ("impl_vec_clone", "Clone"),
+        ("impl_vec_partialeq", "PartialEq"),
+        ("impl_vec_partialord", "PartialOrd"),
+        ("impl_vec_eq", "Eq"),
+        ("impl_vec_ord", "Ord"),
+        ("impl_vec_hash", "Hash"),
+    ];
+    
+    for item in items {
+        if let syn::Item::Macro(m) = item {
+            let macro_name = m.mac.path.segments.last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            
+            for (trait_macro, trait_name) in macro_to_trait {
+                if macro_name == *trait_macro {
+                    let tokens_str = m.mac.tokens.to_string();
+                    let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
+                    
+                    if args.len() >= 2 {
+                        let vec_type_name = args[1].to_string();
+                        traits_map
+                            .entry(vec_type_name)
+                            .or_default()
+                            .push(trait_name.to_string());
+                    }
+                    break;
+                }
+            }
+            
+            // Also handle impl_option! which provides several traits from the [...] part
+            if macro_name == "impl_option" {
+                let tokens_str = m.mac.tokens.to_string();
+                let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
+                
+                if args.len() >= 2 {
+                    let option_type_name = args[1].to_string();
+                    let derives = extract_derives_from_impl_option_macro(&tokens_str);
+                    let traits = traits_map.entry(option_type_name).or_default();
+                    for t in derives {
+                        if !traits.contains(&t) {
+                            traits.push(t);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    traits_map
 }
 
 /// A parsed Rust file with all its items
@@ -282,8 +565,15 @@ impl WorkspaceIndex {
     }
 
     /// Look up a type by name
+    /// Will also try with "Az" prefix if not found (api.json uses "String", workspace has "AzString")
     pub fn find_type(&self, type_name: &str) -> Option<&[ParsedTypeInfo]> {
-        self.types.get(type_name).map(|v| v.as_slice())
+        // First try exact match
+        if let Some(v) = self.types.get(type_name) {
+            return Some(v.as_slice());
+        }
+        // Try with "Az" prefix (api.json has "String", workspace has "AzString")
+        let az_prefixed = format!("Az{}", type_name);
+        self.types.get(&az_prefixed).map(|v| v.as_slice())
     }
 
     /// Look up a type by full path (e.g., "azul_core::id::NodeId")
@@ -291,7 +581,21 @@ impl WorkspaceIndex {
         let type_name = type_path.split("::").last()?;
         let candidates = self.find_type(type_name)?;
 
-        candidates.iter().find(|info| info.full_path == type_path)
+        // First try exact match
+        if let Some(found) = candidates.iter().find(|info| info.full_path == type_path) {
+            return Some(found);
+        }
+        
+        // Try with "Az" prefix in path (api.json has "String", workspace has "AzString")
+        let az_prefixed_path = {
+            let parts: Vec<&str> = type_path.rsplitn(2, "::").collect();
+            if parts.len() == 2 {
+                format!("{}::Az{}", parts[1], parts[0])
+            } else {
+                format!("Az{}", type_path)
+            }
+        };
+        candidates.iter().find(|info| info.full_path == az_prefixed_path)
     }
 
     /// Find a type by string-based search in source files
@@ -300,7 +604,18 @@ impl WorkspaceIndex {
     /// 1. First check macro invocations (between "!(" and ")")
     /// 2. Then check struct/enum/type declarations
     /// 3. Last resort: just presence in file (likely import)
+    /// Also tries with "Az" prefix if not found (api.json uses "String", workspace has "AzString")
     pub fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
+        // Try exact match first
+        if let Some(result) = self.find_type_by_string_search_inner(type_name) {
+            return Some(result);
+        }
+        // Try with "Az" prefix (api.json has "String", workspace has "AzString")
+        let az_prefixed = format!("Az{}", type_name);
+        self.find_type_by_string_search_inner(&az_prefixed)
+    }
+    
+    fn find_type_by_string_search_inner(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         let mut best_match: Option<(&PathBuf, i32, bool)> = None; // (path, score, is_from_macro)
 
         // Self crate name to exclude build tool files
@@ -364,6 +679,7 @@ impl WorkspaceIndex {
                             doc: None,
                             generic_params: Vec::new(),
                             implemented_traits: Vec::new(),
+                            derives: Vec::new(),
                         },
                         source_code: String::new(),
                     });
@@ -594,7 +910,7 @@ impl WorkspaceIndex {
     ) -> crate::autofix::discover::OracleTypeInfo {
         match &type_info.kind {
             TypeKind::Struct {
-                fields, has_repr_c, ..
+                fields, has_repr_c, derives, ..
             } => {
                 let mut api_fields = IndexMap::new();
                 for (name, field) in fields {
@@ -819,7 +1135,10 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
     // This is simplified - in reality you'd need more sophisticated module path detection
     let (crate_name, module_path) = infer_module_path(&parsed_file.path)?;
 
-    for item in syntax_tree.items {
+    // Extract implemented traits from impl blocks (impl Trait for Type)
+    let impl_traits = extract_implemented_traits_from_items(&syntax_tree.items);
+
+    for item in &syntax_tree.items {
         match item {
             Item::Struct(s) => {
                 let type_name = s.ident.to_string();
@@ -867,9 +1186,15 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         || repr_str.contains("isize")
                 });
 
+                // Extract derive traits from #[derive(...)] attributes
+                let derives = extract_derives(&s.attrs);
+                
+                // Get implemented traits for this type (from impl Trait for Type blocks)
+                let implemented_traits = impl_traits.get(&type_name).cloned().unwrap_or_default();
+
                 types.push(ParsedTypeInfo {
                     full_path,
-                    type_name,
+                    type_name: type_name.clone(),
                     file_path: parsed_file.path.clone(),
                     module_path: module_path.clone(),
                     kind: TypeKind::Struct {
@@ -877,7 +1202,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         has_repr_c,
                         doc: crate::autofix::utils::extract_doc_comments(&s.attrs),
                         generic_params,
-                        implemented_traits: Vec::new(),
+                        implemented_traits,
+                        derives,
                     },
                     source_code: s.to_token_stream().to_string(),
                 });
@@ -938,9 +1264,15 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         || repr_str.contains("isize")
                 });
 
+                // Extract derive traits from #[derive(...)] attributes
+                let derives = extract_derives(&e.attrs);
+                
+                // Get implemented traits for this type (from impl Trait for Type blocks)
+                let implemented_traits = impl_traits.get(&type_name).cloned().unwrap_or_default();
+
                 types.push(ParsedTypeInfo {
                     full_path,
-                    type_name,
+                    type_name: type_name.clone(),
                     file_path: parsed_file.path.clone(),
                     module_path: module_path.clone(),
                     kind: TypeKind::Enum {
@@ -948,7 +1280,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         has_repr_c,
                         doc: crate::autofix::utils::extract_doc_comments(&e.attrs),
                         generic_params,
-                        implemented_traits: Vec::new(),
+                        implemented_traits,
+                        derives,
                     },
                     source_code: e.to_token_stream().to_string(),
                 });
@@ -1013,6 +1346,158 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 }
             }
             _ => {}
+        }
+    }
+
+    // Post-process: Extract traits from impl_vec_*! macro calls and add to Vec types
+    // Re-parse the file to get the items for macro analysis
+    let syntax_tree_for_macros: syn::File = syn::parse_str(&parsed_file.syntax_tree)
+        .unwrap_or_else(|_| syn::File { shebang: None, attrs: vec![], items: vec![] });
+    
+    let impl_vec_traits = extract_impl_vec_traits_from_items(&syntax_tree_for_macros.items);
+    for type_info in &mut types {
+        if let Some(traits) = impl_vec_traits.get(&type_info.type_name) {
+            match &mut type_info.kind {
+                TypeKind::Struct { derives, .. } => {
+                    // Add traits from impl_vec_*! macros to derives
+                    for trait_name in traits {
+                        if !derives.contains(trait_name) {
+                            derives.push(trait_name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Also create synthetic types for impl_vec!/impl_option! generated types
+    // These types are not directly visible to syn because they're generated by macros
+    let macro_generated = extract_macro_generated_types_from_items(&syntax_tree_for_macros.items);
+    let existing_type_names: std::collections::HashSet<String> = types.iter()
+        .map(|t| t.type_name.clone())
+        .collect();
+    
+    for gen_type in macro_generated {
+        // Only add if not already found by syn parser
+        if !existing_type_names.contains(&gen_type.type_name) {
+            let full_path = build_full_path(&crate_name, &module_path, &gen_type.type_name);
+            
+            // Create synthetic struct for Vec/Option types
+            // Vec types have: ptr, len, cap, destructor
+            // Option types have: None, Some variants
+            if gen_type.is_vec {
+                let mut fields = IndexMap::new();
+                fields.insert("ptr".to_string(), FieldInfo {
+                    name: "ptr".to_string(),
+                    ty: format!("*const {}", gen_type.element_type),
+                    doc: None,
+                });
+                fields.insert("len".to_string(), FieldInfo {
+                    name: "len".to_string(),
+                    ty: "usize".to_string(),
+                    doc: None,
+                });
+                fields.insert("cap".to_string(), FieldInfo {
+                    name: "cap".to_string(),
+                    ty: "usize".to_string(),
+                    doc: None,
+                });
+                if let Some(destructor) = &gen_type.destructor_name {
+                    fields.insert("destructor".to_string(), FieldInfo {
+                        name: "destructor".to_string(),
+                        ty: destructor.clone(),
+                        doc: None,
+                    });
+                }
+                
+                types.push(ParsedTypeInfo {
+                    full_path,
+                    type_name: gen_type.type_name.clone(),
+                    file_path: parsed_file.path.clone(),
+                    module_path: module_path.clone(),
+                    kind: TypeKind::Struct {
+                        fields,
+                        has_repr_c: true,
+                        doc: Some(format!("Wrapper over a Rust-allocated `Vec<{}>", gen_type.element_type)),
+                        generic_params: Vec::new(),
+                        implemented_traits: Vec::new(),
+                        derives: gen_type.derives,
+                    },
+                    source_code: String::new(), // No source code for macro-generated types
+                });
+                
+                // Also create the Destructor enum if it has a destructor
+                if let Some(ref destructor_name) = gen_type.destructor_name {
+                    if !existing_type_names.contains(destructor_name) {
+                        let destructor_full_path = build_full_path(&crate_name, &module_path, destructor_name);
+                        
+                        // Create the destructor enum with variants: DefaultRust, NoDestructor, External
+                        let mut variants = IndexMap::new();
+                        variants.insert("DefaultRust".to_string(), VariantInfo {
+                            name: "DefaultRust".to_string(),
+                            ty: None,
+                            doc: None,
+                        });
+                        variants.insert("NoDestructor".to_string(), VariantInfo {
+                            name: "NoDestructor".to_string(),
+                            ty: None,
+                            doc: None,
+                        });
+                        // External variant takes a function pointer
+                        variants.insert("External".to_string(), VariantInfo {
+                            name: "External".to_string(),
+                            ty: Some(format!("extern \"C\" fn(*mut {})", gen_type.type_name)),
+                            doc: None,
+                        });
+                        
+                        types.push(ParsedTypeInfo {
+                            full_path: destructor_full_path,
+                            type_name: destructor_name.clone(),
+                            file_path: parsed_file.path.clone(),
+                            module_path: module_path.clone(),
+                            kind: TypeKind::Enum {
+                                variants,
+                                has_repr_c: true,
+                                doc: Some(format!("Destructor for `{}`", gen_type.type_name)),
+                                generic_params: Vec::new(),
+                                implemented_traits: Vec::new(),
+                                derives: vec!["Debug".to_string(), "Copy".to_string(), "Clone".to_string()],
+                            },
+                            source_code: String::new(),
+                        });
+                    }
+                }
+            } else {
+                // Option types - create synthetic enum with None/Some variants
+                let mut variants = IndexMap::new();
+                variants.insert("None".to_string(), VariantInfo {
+                    name: "None".to_string(),
+                    ty: None,
+                    doc: None,
+                });
+                variants.insert("Some".to_string(), VariantInfo {
+                    name: "Some".to_string(),
+                    ty: Some(gen_type.element_type.clone()),
+                    doc: None,
+                });
+                
+                types.push(ParsedTypeInfo {
+                    full_path,
+                    type_name: gen_type.type_name.clone(),
+                    file_path: parsed_file.path.clone(),
+                    module_path: module_path.clone(),
+                    kind: TypeKind::Enum {
+                        variants,
+                        has_repr_c: true,
+                        doc: Some(format!("Option<{}> but FFI-safe", gen_type.element_type)),
+                        generic_params: Vec::new(),
+                        implemented_traits: Vec::new(),
+                        derives: gen_type.derives,
+                    },
+                    source_code: String::new(),
+                });
+            }
         }
     }
 

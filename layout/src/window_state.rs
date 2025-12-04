@@ -14,7 +14,7 @@ use azul_core::{
         RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
     },
 };
-use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString};
+use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString, corety::OptionU32};
 
 use crate::callbacks::OptionCallback;
 
@@ -75,7 +75,7 @@ pub struct FullWindowState {
     pub layout_callback: LayoutCallback,
     pub close_callback: OptionCallback,
     /// Monitor ID (not the full Monitor struct - just the identifier)
-    pub monitor_id: Option<u32>,
+    pub monitor_id: OptionU32,
     pub window_focused: bool,
 }
 
@@ -97,7 +97,7 @@ impl Default for FullWindowState {
             layout_callback: LayoutCallback::default(),
             close_callback: OptionCallback::None,
             renderer_options: RendererOptions::default(),
-            monitor_id: None,
+            monitor_id: OptionU32::None,
             window_focused: true,
         }
     }
