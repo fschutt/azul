@@ -137,31 +137,29 @@ pub fn generate_dll_and_folders_deploy(config: &deploy::Config) -> Result<(), St
 
     let _ = std::fs::write(output_dir.join("CNAME"), "azul.rs");
 
-    println!("\n╔════════════════════════════════════════════════════════════════╗");
-    println!("║         Build and Deployment Completed Successfully!          ║");
-    println!("╚════════════════════════════════════════════════════════════════╝\n");
+    println!("\nBuild and Deployment Completed Successfully!\n");
 
-    println!("[DIR] Output Directory: {}", output_dir.display());
-    println!("\n📋 Generated Files:");
-    println!("   ├─ Documentation:");
-    println!("   │  ├─ index.html");
-    println!("   │  ├─ releases.html");
-    println!("   │  ├─ donate.html");
-    println!("   │");
-    println!("   └─ API Releases:");
+    println!("Output Directory: {}", output_dir.display());
+    println!("\nGenerated Files:");
+    println!("   Documentation:");
+    println!("     - index.html");
+    println!("     - releases.html");
+    println!("     - donate.html");
+    println!("");
+    println!("   API Releases:");
 
     for version in &versions {
         let version_dir = releases_dir.join(version);
-        println!("      ├─ {}/", version);
-        println!("      │  ├─ azul.h          (C API header)");
-        println!("      │  ├─ azul.hpp        (C++ API header)");
-        println!("      │  ├─ azul_python.rs   (Python/PyO3 bindings)");
-        println!("      │  ├─ azul_dll.rs     (Rust DLL code)");
-        println!("      │  ├─ api.json        (API definition)");
-        println!("      │  └─ azul-{}/      (Rust API crate)", version);
+        println!("     {}/", version);
+        println!("       - azul.h          (C API header)");
+        println!("       - azul.hpp        (C++ API header)");
+        println!("       - azul_python.rs   (Python/PyO3 bindings)");
+        println!("       - azul_dll.rs     (Rust DLL code)");
+        println!("       - api.json        (API definition)");
+        println!("       - azul-{}/      (Rust API crate)", version);
     }
 
-    println!("\n[OK] All API bindings generated successfully!");
+    println!("\nAll API bindings generated successfully!");
     println!("   C API:      {} versions", versions.len());
     println!("   C++ API:    {} versions", versions.len());
     println!("   Python API: {} versions", versions.len());

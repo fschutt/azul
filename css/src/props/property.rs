@@ -644,6 +644,15 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
 
+crate::impl_vec!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
+crate::impl_vec_clone!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
+crate::impl_vec_debug!(CssProperty, CssPropertyVec);
+crate::impl_vec_partialeq!(CssProperty, CssPropertyVec);
+crate::impl_vec_eq!(CssProperty, CssPropertyVec);
+crate::impl_vec_partialord!(CssProperty, CssPropertyVec);
+crate::impl_vec_ord!(CssProperty, CssPropertyVec);
+crate::impl_vec_hash!(CssProperty, CssPropertyVec);
+
 /// Categorizes a CSS property by its effect on the layout pipeline.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyCategory {

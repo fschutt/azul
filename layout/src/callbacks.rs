@@ -36,7 +36,7 @@ use azul_css::{
     css::CssPath,
     props::{
         basic::FontRef,
-        property::{CssProperty, CssPropertyType},
+        property::{CssProperty, CssPropertyType, CssPropertyVec},
     },
     system::SystemStyle,
     AzString,
@@ -133,7 +133,7 @@ pub enum CallbackChange {
     ChangeNodeCssProperties {
         dom_id: DomId,
         node_id: NodeId,
-        properties: Vec<CssProperty>,
+        properties: CssPropertyVec,
     },
 
     // Scroll Management
@@ -412,6 +412,9 @@ pub struct CallbackInfoRefData<'a> {
     pub current_window_handle: &'a RawWindowHandle,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
     pub system_callbacks: &'a ExternalSystemCallbacks,
+    /// Platform-specific system style (colors, spacing, etc.)
+    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
+    pub system_style: Arc<SystemStyle>,
 }
 
 #[derive(Debug)]
@@ -421,9 +424,6 @@ pub struct CallbackInfo {
     /// Single reference to all readonly reference data
     /// This consolidates 8 individual parameters into 1, improving API ergonomics
     ref_data: *const CallbackInfoRefData<'static>,
-    /// Platform-specific system style (colors, spacing, etc.)
-    /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
-    system_style: Arc<SystemStyle>,
 
     // Context Info (Immutable Event Data)
     /// The ID of the DOM + the node that was hit
@@ -442,7 +442,6 @@ pub struct CallbackInfo {
 impl CallbackInfo {
     pub fn new<'a>(
         ref_data: &'a CallbackInfoRefData<'a>,
-        system_style: Arc<SystemStyle>,
         changes: &'a mut Vec<CallbackChange>,
         hit_dom_node: DomNodeId,
         cursor_relative_to_item: OptionLogicalPosition,
@@ -453,7 +452,6 @@ impl CallbackInfo {
             // SAFETY: We cast away the lifetime 'a to 'static because CallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
             ref_data: unsafe { core::mem::transmute(ref_data) },
-            system_style,
 
             // Context info (immutable event data)
             hit_dom_node,
@@ -689,7 +687,7 @@ impl CallbackInfo {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        properties: Vec<CssProperty>,
+        properties: CssPropertyVec,
     ) {
         self.push_change(CallbackChange::ChangeNodeCssProperties {
             dom_id,
@@ -717,7 +715,7 @@ impl CallbackInfo {
     pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
         let internal_node_id = NodeId::new(node_id.node.inner);
-        self.change_node_css_properties(dom_id, internal_node_id, vec![property]);
+        self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
 
     /// Scroll a node to a specific position (applied after callback returns)
@@ -1503,7 +1501,7 @@ impl CallbackInfo {
     /// Get the system style (for menu rendering, CSD, etc.)
     /// This is useful for creating custom menus or other system-styled UI.
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
-        self.system_style.clone()
+        unsafe { (*self.ref_data).system_style.clone() }
     }
 
     /// Get the current cursor position in logical coordinates relative to the window
@@ -2669,7 +2667,7 @@ pub struct CallCallbacksResult {
     /// Image callback changes (for OpenGL texture updates)
     pub image_callbacks_changed: Option<BTreeMap<DomId, FastBTreeSet<NodeId>>>,
     /// CSS property changes from callbacks
-    pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
+    pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, CssPropertyVec>>>,
     /// Scroll position changes from callbacks
     pub nodes_scrolled_in_callbacks:
         Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,

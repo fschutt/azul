@@ -213,9 +213,11 @@ impl AutofixMessages {
         patches_dir: &std::path::Path,
         patch_count: usize,
     ) {
-        println!("\n╔══════════════════════════════════════════════════════════════╗");
-        println!("║                     AUTOFIX REPORT                            ║");
-        println!("╚══════════════════════════════════════════════════════════════╝\n");
+        println!();
+        println!("════════════════════════════════════════════════════════════════");
+        println!("                        AUTOFIX SUMMARY                          ");
+        println!("════════════════════════════════════════════════════════════════");
+        println!();
 
         // Statistics
         let (info_count, warning_count, error_count) = self.count_by_level();
@@ -228,94 +230,71 @@ impl AutofixMessages {
             })
             .collect();
 
-        println!("[STATS] STATISTICS");
-        println!("   • Duration: {:.1}s", duration_secs);
-        println!("   • Types discovered: {}", discoveries.len());
-        println!(
-            "   • Path corrections: {}",
-            patch_summary.external_path_changes.len()
-        );
-        println!("   • Patches generated: {}", patch_count);
-        println!(
-            "   • Messages: {} info, {} warnings, {} errors",
-            info_count, warning_count, error_count
-        );
+        println!("Completed in {:.1}s", duration_secs);
+        println!("{} patches generated", patch_count);
+        if warning_count > 0 || error_count > 0 {
+            println!("{} warnings, {} errors", warning_count, error_count);
+        }
         println!();
 
-        // Discovered types
+        // Discovered types (new types found that need to be added to api.json)
         if !discoveries.is_empty() {
-            println!("[SEARCH] DISCOVERED TYPES ({})", discoveries.len());
-            println!();
-            for msg in discoveries {
+            println!("NEW TYPES ({}):", discoveries.len());
+            for msg in &discoveries {
                 if let AutofixMessage::TypeDiscovered {
                     type_name,
                     path,
                     reason,
                 } = msg
                 {
-                    println!("  ┌─ {}", type_name);
-                    println!("  │  Path: {}", path);
-                    println!("  │  Reason: {}", reason);
-                    println!("  │");
+                    let location = if path.is_empty() { "?" } else { path.as_str() };
+                    println!("   {} -> {} ({})", type_name, location, reason);
                 }
             }
             println!();
         }
 
-        // Path corrections
+        // Path corrections (existing types with wrong paths in api.json)
         if !patch_summary.external_path_changes.is_empty() {
-            println!(
-                "[FIX] PATH CORRECTIONS ({})",
-                patch_summary.external_path_changes.len()
-            );
-            println!();
-            for change in &patch_summary.external_path_changes {
-                println!("  ┌─ {}", change.class_name);
-                println!("  │  Old: {}", change.old_path);
-                println!("  │  New: {}", change.new_path);
-                println!("  │");
+            // Deduplicate changes (same class may appear multiple times)
+            let mut seen = std::collections::HashSet::new();
+            let unique_changes: Vec<_> = patch_summary.external_path_changes
+                .iter()
+                .filter(|c| seen.insert((&c.class_name, &c.old_path, &c.new_path)))
+                .collect();
+            
+            println!("PATH CORRECTIONS ({}):", unique_changes.len());
+            
+            // Only show first 15 unique changes
+            for change in unique_changes.iter().take(15) {
+                println!("   {} : {} -> {}", change.class_name, change.old_path, change.new_path);
+            }
+            if unique_changes.len() > 15 {
+                println!("   ... and {} more", unique_changes.len() - 15);
             }
             println!();
         }
 
-        // Warnings
-        let warnings = self.messages_by_level(MessageLevel::Warning);
-        if !warnings.is_empty() {
-            println!("[WARN]  WARNINGS ({})", warnings.len());
-            println!();
-            for msg in warnings {
-                println!("  • {}", msg);
-                println!();
-            }
-        }
-
-        // Errors
+        // Errors (always show)
         let errors = self.messages_by_level(MessageLevel::Error);
         if !errors.is_empty() {
-            println!("ERRORS ({})", errors.len());
-            println!();
+            println!("ERRORS ({}):", errors.len());
             for msg in errors {
-                println!("  • {}", msg);
-                println!();
+                println!("   {}", msg);
             }
+            println!();
         }
 
         // Next steps
         if patch_count > 0 {
-            println!("[TIP] NEXT STEPS");
-            println!("   1. Review patches: ls {}", patches_dir.display());
-            println!(
-                "   2. Apply patches: azul-doc patch {}",
-                patches_dir.display()
-            );
-            println!("   3. Verify changes: git diff api.json");
-            println!();
+            println!("NEXT STEPS:");
+            println!("   1. Review:  ls {}", patches_dir.display());
+            println!("   2. Apply:   cargo run -- patch {}", patches_dir.display());
+            println!("   3. Verify:  git diff api.json");
         } else {
-            println!("✨ No patches needed - API is up to date!");
-            println!();
+            println!("No patches needed - API is up to date!");
         }
-
-        println!("[DIR] Output: {}", patches_dir.display());
+        println!();
     }
 }
 
@@ -365,18 +344,16 @@ pub struct ClassAdded {
 
 impl PatchSummary {
     pub fn print(&self) {
-        println!("\n╔════════════════════════════════════════════════════════════════╗");
-        println!("║                    Patch Summary                               ║");
-        println!("╚════════════════════════════════════════════════════════════════╝\n");
+        println!("\nPatch Summary\n");
 
         if !self.external_path_changes.is_empty() {
             println!(
-                "📍 External Path Changes ({}):",
+                "External Path Changes ({}):",
                 self.external_path_changes.len()
             );
             for change in &self.external_path_changes {
-                println!("  • {}", change.class_name);
-                println!("    {} → {}", change.old_path, change.new_path);
+                println!("  - {}", change.class_name);
+                println!("    {} -> {}", change.old_path, change.new_path);
             }
             println!();
         }
@@ -384,7 +361,7 @@ impl PatchSummary {
         if !self.classes_added.is_empty() {
             println!("[ADD] Classes Added ({}):", self.classes_added.len());
             for added in &self.classes_added {
-                println!("  • {}.{}", added.module, added.class_name);
+                println!("  - {}.{}", added.module, added.class_name);
                 println!("    ({})", added.external_path);
             }
             println!();
@@ -403,7 +380,7 @@ impl PatchSummary {
             }
 
             for (class_name, changes) in by_class {
-                println!("  • {}", class_name);
+                println!("  - {}", class_name);
                 for change in changes {
                     match &change.change_type {
                         FieldChangeType::Added => {
@@ -413,7 +390,7 @@ impl PatchSummary {
                             println!("    - {}", change.field_name);
                         }
                         FieldChangeType::TypeChanged { old_type, new_type } => {
-                            println!("    ~ {} : {} → {}", change.field_name, old_type, new_type);
+                            println!("    ~ {} : {} -> {}", change.field_name, old_type, new_type);
                         }
                     }
                 }
@@ -427,7 +404,7 @@ impl PatchSummary {
                 self.documentation_changes.len()
             );
             for change in &self.documentation_changes {
-                println!("  • {}", change.class_name);
+                println!("  - {}", change.class_name);
             }
             println!();
         }

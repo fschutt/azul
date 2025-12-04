@@ -38240,7 +38240,7 @@
               },
               {
                 "MalformedHierarchy": {
-                  "type": "String, String",
+                  "type": "MalformedHierarchyError",
                   "doc": "Invalid hierarchy close tags, i.e `<app></p></app>`"
                 }
               },
@@ -45670,7 +45670,7 @@
               },
               {
                 "MalformedHierarchy": {
-                  "type": "String, String",
+                  "type": "MalformedHierarchyError",
                   "doc": "Invalid hierarchy close tags, i.e `<app></p></app>`"
                 }
               },

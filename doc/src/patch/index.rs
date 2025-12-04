@@ -11,31 +11,82 @@ use std::{
 
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
-use once_cell::sync::Lazy;
 use quote::ToTokens;
-use regex::Regex;
-use syn::{File, Item};
+use syn::{File, Item, UseTree};
 
 use crate::api::{EnumVariantData, FieldData};
 
-// Pre-compiled regexes for type searching (initialized once at startup)
-static MACRO_INVOCATION_REGEX: Lazy<Regex> = Lazy::new(|| {
-    // Matches type names inside macro invocations like: impl_vec!(Type, TypeVec, TypeDestructor)
-    // Captures everything between "!(" and the closing ")"
-    // Uses (?s) flag for DOTALL mode to match across newlines
-    Regex::new(r"(?s)!\s*\(((?:[^()]|\([^()]*\))*)\)").unwrap()
-});
+// ============================================================================
+// OracleTypeInfo - type information discovered from source
+// ============================================================================
 
-/// Regex to match `use` statements (single line or multi-line blocks)
-/// This helps identify "exclusion zones" where types are imported, not defined
-/// Note: This regex only matches `use` at the start of a line (with optional whitespace)
-/// to avoid matching "use" in comments or strings
-static USE_BLOCK_REGEX: Lazy<Regex> = Lazy::new(|| {
-    // Matches: use foo::bar; or use foo::{bar, baz}; or use foo::*;
-    // Only matches `use` at the start of a line (with optional leading whitespace)
-    // This avoids matching "use" in comments like "// use u32 instead"
-    Regex::new(r"(?m)^\s*use\s+(?:[^;{]+(?:\{[^}]*\})?[^;]*);").unwrap()
-});
+/// Information discovered about a type from source code parsing
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OracleTypeInfo {
+    pub correct_path: Option<String>,
+    pub fields: IndexMap<String, FieldData>,
+    pub variants: IndexMap<String, EnumVariantData>,
+    pub has_repr_c: bool,
+    pub is_enum: bool,
+}
+
+// ============================================================================
+// Syn-based helper functions (replacing regex)
+// ============================================================================
+
+/// Check if a type name is imported via a `use` statement in the given source.
+/// If so, this file is NOT the definition site for that type.
+fn is_type_imported_in_use_statement(source: &str, type_name: &str) -> bool {
+    let Ok(syntax_tree) = syn::parse_file(source) else {
+        return false;
+    };
+    
+    for item in &syntax_tree.items {
+        if let Item::Use(use_item) = item {
+            if use_tree_contains_ident(&use_item.tree, type_name) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Recursively check if a UseTree contains the given identifier
+fn use_tree_contains_ident(tree: &UseTree, ident: &str) -> bool {
+    match tree {
+        UseTree::Path(path) => use_tree_contains_ident(&path.tree, ident),
+        UseTree::Name(name) => name.ident == ident,
+        UseTree::Rename(rename) => rename.ident == ident || rename.rename == ident,
+        UseTree::Glob(_) => false, // Can't determine from glob
+        UseTree::Group(group) => group.items.iter().any(|t| use_tree_contains_ident(t, ident)),
+    }
+}
+
+/// Find all macro invocations in source code and return (macro_name, args_content)
+fn find_macro_invocations(source: &str) -> Vec<(String, String)> {
+    let Ok(syntax_tree) = syn::parse_file(source) else {
+        return Vec::new();
+    };
+    
+    let mut results = Vec::new();
+    
+    for item in &syntax_tree.items {
+        if let Item::Macro(macro_item) = item {
+            // Get macro name (last segment of path)
+            let macro_name = macro_item.mac.path.segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            
+            // Get the tokens inside the macro
+            let args = macro_item.mac.tokens.to_string();
+            
+            results.push((macro_name, args));
+        }
+    }
+    
+    results
+}
 
 /// Represents a parsed type definition in the workspace
 #[derive(Debug, Clone)]
@@ -101,8 +152,8 @@ pub enum TypeKind {
 pub struct CallbackArgInfo {
     /// The type of the argument (e.g., "c_void", "RefAny")
     pub ty: String,
-    /// How the argument is passed: "ref" (*const), "refmut" (*mut), "value"
-    pub ref_kind: String,
+    /// How the argument is passed: ref (&T), refmut (&mut T), or value (T)
+    pub ref_kind: crate::api::BorrowMode,
 }
 
 #[derive(Debug, Clone)]
@@ -423,25 +474,12 @@ pub struct WorkspaceIndex {
 
     /// Raw source content by file path (for string-based search)
     pub file_sources: HashMap<PathBuf, String>,
-
-    /// Pre-compiled regexes for efficient parsing
-    pub regexes: Option<crate::autofix::regexes::CompiledRegexes>,
 }
 
 impl WorkspaceIndex {
     /// Build a complete index of the workspace
     pub fn build(project_root: &Path) -> Result<Self> {
         Self::build_with_verbosity(project_root, true)
-    }
-
-    /// Build a complete index of the workspace with pre-compiled regexes
-    pub fn build_with_regexes(
-        project_root: &Path,
-        regexes: crate::autofix::regexes::CompiledRegexes,
-    ) -> Result<Self> {
-        let mut index = Self::build_with_verbosity(project_root, false)?;
-        index.regexes = Some(regexes);
-        Ok(index)
     }
 
     /// Build a complete index of the workspace with optional quiet mode
@@ -455,7 +493,6 @@ impl WorkspaceIndex {
             crate_names: HashMap::new(),
             files: HashMap::new(),
             file_sources: HashMap::new(),
-            regexes: None,
         };
 
         // Step 1: Find all crates and their names
@@ -476,52 +513,49 @@ impl WorkspaceIndex {
             println!("    Found {} .rs files", rust_files.len());
         }
 
-        // Step 3: Read all file sources first (for string-based search)
+        // Step 3+4: Read and parse all files in parallel
         if verbose {
-            println!("  📄 Reading file sources...");
-        }
-        for file_path in &rust_files {
-            if let Ok(content) = fs::read_to_string(file_path) {
-                index.file_sources.insert(file_path.clone(), content);
-            }
-        }
-        if verbose {
-            println!("    Read {} files into memory", index.file_sources.len());
-        }
-
-        // Step 4: Parse all files in parallel
-        if verbose {
-            println!("  📖 Parsing all files...");
+            println!("  📖 Reading and parsing all files in parallel...");
         }
         use rayon::prelude::*;
 
         let self_crate_name = env!("CARGO_PKG_NAME").replace('-', "_");
+        let crate_names_ref = &index.crate_names;
 
-        let parsed_files: Vec<_> = rust_files
+        // Read all files in parallel first
+        let file_contents: Vec<_> = rust_files
             .par_iter()
             .filter_map(|file_path| {
                 // Skip files from the self crate (build tools, not part of API)
-                // Find the crate directory for this file
-                let crate_name = index
-                    .crate_names
+                let crate_name = crate_names_ref
                     .iter()
                     .find(|(crate_dir, _)| file_path.starts_with(crate_dir))
                     .map(|(_, name)| name.as_str());
 
                 if let Some(name) = crate_name {
                     if name == self_crate_name {
-                        if verbose {
-                            eprintln!("    ⏭️  Skipping self crate file: {}", file_path.display());
-                        }
                         return None;
                     }
                 }
 
-                match parse_rust_file(file_path, project_root, &index.crate_names) {
-                    Ok(parsed) => Some(parsed),
+                // Read file content
+                let content = fs::read_to_string(file_path).ok()?;
+                Some((file_path.clone(), content))
+            })
+            .collect();
+
+        if verbose {
+            println!("    Read {} files into memory", file_contents.len());
+        }
+
+        // Now parse all files in parallel (using the already-read content)
+        let parsed_files: Vec<_> = file_contents
+            .par_iter()
+            .filter_map(|(file_path, content)| {
+                match parse_rust_file_from_content(file_path, content, project_root, crate_names_ref) {
+                    Ok(parsed) => Some((file_path.clone(), content.clone(), parsed)),
                     Err(e) => {
-                        // Silently skip unparseable files (likely syntax errors or non-module
-                        // files)
+                        // Silently skip unparseable files (likely syntax errors or non-module files)
                         if verbose && !file_path.to_string_lossy().contains("/target/") {
                             eprintln!("    [WARN]  Failed to parse {}: {}", file_path.display(), e);
                         }
@@ -535,11 +569,14 @@ impl WorkspaceIndex {
             println!("    Successfully parsed {} files", parsed_files.len());
         }
 
-        // Step 5: Build index from parsed files
+        // Step 5: Build index from parsed files and store file sources
         if verbose {
             println!("  🗂️  Building type index...");
         }
-        for parsed_file in parsed_files {
+        for (file_path, content, parsed_file) in parsed_files {
+            // Store file source for string-based search
+            index.file_sources.insert(file_path.clone(), content);
+            
             // Extract all type definitions from this file
             for type_info in extract_types_from_file(&parsed_file)? {
                 index
@@ -700,71 +737,36 @@ impl WorkspaceIndex {
         let mut score = 0;
         let mut is_from_macro = false;
 
-        // First, identify all "use exclusion zones" - ranges where imports are defined
-        // Types found in these zones are IMPORTS, not definitions
-        let use_exclusion_zones: Vec<(usize, usize)> = USE_BLOCK_REGEX
-            .find_iter(source)
-            .map(|m| (m.start(), m.end()))
-            .collect();
-
-        // Helper: check if a position is inside a use exclusion zone
-        let is_in_use_zone = |pos: usize| -> bool {
-            use_exclusion_zones.iter().any(|(start, end)| pos >= *start && pos < *end)
-        };
-
         // Check if this type is IMPORTED via a use statement
         // If so, this file is NOT the definition site
-        let type_pattern = format!(r"\b{}\b", regex::escape(type_name));
-        let type_is_imported = if let Ok(type_regex) = Regex::new(&type_pattern) {
-            type_regex.find_iter(source).any(|m| is_in_use_zone(m.start()))
-        } else {
-            false
-        };
-
-        // If type is imported via `use`, this file is NOT the definition
-        // Return score 0 to skip this file entirely
-        if type_is_imported {
+        if is_type_imported_in_use_statement(source, type_name) {
             return (0, false);
         }
 
         // Macros that are known to generate #[repr(C)] types
         const REPR_C_MACROS: &[&str] = &[
-            "impl_vec!",
-            "impl_vec_clone!",
-            "impl_option!",
-            "define_spacing_property!",
+            "impl_vec",
+            "impl_vec_clone",
+            "impl_option",
+            "define_spacing_property",
         ];
 
         // HIGHEST PRIORITY: Type appears in macro invocation
         // Example: impl_vec!(Type, TypeVec, TypeDestructor)
-        for cap in MACRO_INVOCATION_REGEX.captures_iter(source) {
-            if let Some(macro_content) = cap.get(1) {
-                let content = macro_content.as_str();
-                // Check if type_name appears as a separate identifier in macro args
-                // Split by common separators: comma, semicolon, whitespace
-                let tokens: Vec<&str> = content
-                    .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .collect();
+        for (macro_name, macro_args) in find_macro_invocations(source) {
+            // Check if type_name appears as a separate identifier in macro args
+            let tokens: Vec<&str> = macro_args
+                .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
 
-                if tokens.contains(&type_name) {
-                    score += 1000; // Very high priority
-                    
-                    // Check if this macro is known to generate #[repr(C)] types
-                    // We need to look for the macro name before the captured content
-                    if let Some(full_match) = cap.get(0) {
-                        let match_start = full_match.start();
-                        // Look backwards for the macro name
-                        let before_match = &source[..match_start];
-                        for macro_name in REPR_C_MACROS {
-                            let macro_prefix = &macro_name[..macro_name.len()-1]; // Remove the '!'
-                            if before_match.trim_end().ends_with(macro_prefix) {
-                                is_from_macro = true;
-                                break;
-                            }
-                        }
-                    }
+            if tokens.contains(&type_name) {
+                score += 1000; // Very high priority
+                
+                // Check if this macro is known to generate #[repr(C)] types
+                if REPR_C_MACROS.contains(&macro_name.as_str()) {
+                    is_from_macro = true;
                 }
             }
         }
@@ -792,7 +794,6 @@ impl WorkspaceIndex {
         }
 
         // LOW PRIORITY: Just mentioned (likely import)
-        // Already checked by contains() in caller
         if score == 0 {
             score = 1; // Minimal score for just being present
         }
@@ -805,15 +806,6 @@ impl WorkspaceIndex {
     fn calculate_match_score(&self, source: &str, type_name: &str) -> i32 {
         let (score, _is_from_macro) = self.calculate_match_score_with_macro_info(source, type_name);
         score
-    }
-
-    /// Identify all "use exclusion zones" - byte ranges where imports are defined
-    /// Types found ONLY in these zones should not be considered definitions
-    pub fn get_use_exclusion_zones(source: &str) -> Vec<(usize, usize)> {
-        USE_BLOCK_REGEX
-            .find_iter(source)
-            .map(|m| (m.start(), m.end()))
-            .collect()
     }
 
     /// Deduce the full type path from file path and type name
@@ -907,7 +899,7 @@ impl WorkspaceIndex {
     pub fn to_oracle_info(
         &self,
         type_info: &ParsedTypeInfo,
-    ) -> crate::autofix::discover::OracleTypeInfo {
+    ) -> OracleTypeInfo {
         match &type_info.kind {
             TypeKind::Struct {
                 fields, has_repr_c, derives, ..
@@ -923,7 +915,7 @@ impl WorkspaceIndex {
                         },
                     );
                 }
-                crate::autofix::discover::OracleTypeInfo {
+                OracleTypeInfo {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: api_fields,
                     variants: IndexMap::new(),
@@ -946,7 +938,7 @@ impl WorkspaceIndex {
                         },
                     );
                 }
-                crate::autofix::discover::OracleTypeInfo {
+                OracleTypeInfo {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: IndexMap::new(),
                     variants: api_variants,
@@ -954,14 +946,14 @@ impl WorkspaceIndex {
                     is_enum: true,
                 }
             }
-            TypeKind::TypeAlias { .. } => crate::autofix::discover::OracleTypeInfo {
+            TypeKind::TypeAlias { .. } => OracleTypeInfo {
                 correct_path: Some(type_info.full_path.clone()),
                 fields: IndexMap::new(),
                 variants: IndexMap::new(),
                 has_repr_c: false,
                 is_enum: false,
             },
-            TypeKind::CallbackTypedef { .. } => crate::autofix::discover::OracleTypeInfo {
+            TypeKind::CallbackTypedef { .. } => OracleTypeInfo {
                 correct_path: Some(type_info.full_path.clone()),
                 fields: IndexMap::new(),
                 variants: IndexMap::new(),
@@ -978,29 +970,46 @@ fn build_crate_name_map(project_root: &Path) -> Result<HashMap<PathBuf, String>>
 
     let cargo_tomls = find_files_with_name(project_root, "Cargo.toml")?;
 
-    // Regex to extract package name from Cargo.toml
-    // Matches: name = "crate-name" or name = 'crate-name'
-    let name_regex = Regex::new(r#"(?m)^\s*name\s*=\s*["']([^"']+)["']"#).unwrap();
-
     for toml_path in &cargo_tomls {
         if let Ok(content) = fs::read_to_string(toml_path) {
             // Check if this is a [package] section (not just [workspace])
             if content.contains("[package]") {
-                // Use regex to extract the package name
-                if let Some(caps) = name_regex.captures(&content) {
-                    if let Some(name_match) = caps.get(1) {
-                        let name_str = name_match.as_str();
-                        let crate_dir = toml_path.parent().unwrap().to_path_buf();
-                        // Normalize: azul-core -> azul_core
-                        let normalized = name_str.replace('-', "_");
-                        map.insert(crate_dir, normalized);
-                    }
+                // Extract the package name using string parsing
+                if let Some(name) = extract_cargo_package_name(&content) {
+                    let crate_dir = toml_path.parent().unwrap().to_path_buf();
+                    // Normalize: azul-core -> azul_core
+                    let normalized = name.replace('-', "_");
+                    map.insert(crate_dir, normalized);
                 }
             }
         }
     }
 
     Ok(map)
+}
+
+/// Extract package name from Cargo.toml content
+/// Looks for: name = "crate-name" or name = 'crate-name'
+fn extract_cargo_package_name(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name") {
+            // Find the '=' sign
+            if let Some(eq_pos) = trimmed.find('=') {
+                let value_part = trimmed[eq_pos + 1..].trim();
+                // Remove quotes (single or double)
+                let name = value_part
+                    .trim_start_matches('"')
+                    .trim_start_matches('\'')
+                    .trim_end_matches('"')
+                    .trim_end_matches('\'');
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Find all Rust files in the workspace
@@ -1072,17 +1081,27 @@ fn parse_rust_file(
 ) -> Result<ParsedFile> {
     let source = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read {}", file_path.display()))?;
+    
+    parse_rust_file_from_content(file_path, &source, project_root, crate_names)
+}
 
+/// Parse a Rust file from already-read content (more efficient for parallel processing)
+fn parse_rust_file_from_content(
+    file_path: &Path,
+    source: &str,
+    _project_root: &Path,
+    _crate_names: &HashMap<PathBuf, String>,
+) -> Result<ParsedFile> {
     // Parse to verify it's valid Rust (this will catch syntax errors)
-    let _syntax_tree: File = syn::parse_str(&source)
+    let _syntax_tree: File = syn::parse_str(source)
         .with_context(|| format!("Failed to parse {}", file_path.display()))?;
 
     // Quick scan for type names (we'll parse properly later)
-    let type_names = extract_type_names_quick(&source);
+    let type_names = extract_type_names_quick(source);
 
     Ok(ParsedFile {
         path: file_path.to_path_buf(),
-        syntax_tree: source,
+        syntax_tree: source.to_string(),
         types: type_names,
     })
 }
@@ -1508,6 +1527,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 /// e.g., "CssPropertyValue<LayoutZIndex>" -> ("CssPropertyValue", ["LayoutZIndex"])
 /// Parse a callback function argument to extract type and ref_kind
 fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
+    use crate::api::BorrowMode;
+    
     match ty {
         syn::Type::Ptr(ptr) => {
             // Handle *const T or *mut T
@@ -1515,9 +1536,9 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 &ptr.elem.to_token_stream().to_string()
             );
             let ref_kind = if ptr.mutability.is_some() {
-                "refmut".to_string()
+                BorrowMode::RefMut
             } else {
-                "ref".to_string()
+                BorrowMode::Ref
             };
             CallbackArgInfo {
                 ty: inner_type,
@@ -1530,9 +1551,9 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 &reference.elem.to_token_stream().to_string()
             );
             let ref_kind = if reference.mutability.is_some() {
-                "refmut".to_string()
+                BorrowMode::RefMut
             } else {
-                "ref".to_string()
+                BorrowMode::Ref
             };
             CallbackArgInfo {
                 ty: inner_type,
@@ -1546,7 +1567,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
             );
             CallbackArgInfo {
                 ty: type_str,
-                ref_kind: "value".to_string(),
+                ref_kind: BorrowMode::Value,
             }
         }
     }

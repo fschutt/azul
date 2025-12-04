@@ -320,10 +320,10 @@ pub fn print_class_summary(class_name: &str, class_data: &ClassData) {
         format!("({})", parts.join(", "))
     };
 
-    println!("  • {} {}", class_name, type_str);
+    println!("  - {} {}", class_name, type_str);
 
     if let Some(external) = &class_data.external {
-        println!("    → {}", external);
+        println!("    -> {}", external);
     }
 }
 
@@ -344,7 +344,7 @@ pub fn print_class_detail(class_data: &ClassData) {
         println!("  Struct fields: {}", struct_fields.len());
         for field_map in struct_fields {
             for (name, field_data) in field_map {
-                println!("    • {}: {}", name, field_data.r#type);
+                println!("    - {}: {}", name, field_data.r#type);
             }
         }
     }
@@ -354,9 +354,9 @@ pub fn print_class_detail(class_data: &ClassData) {
         for variant_map in enum_fields {
             for (name, variant_data) in variant_map {
                 if let Some(ref ty) = variant_data.r#type {
-                    println!("    • {}: {}", name, ty);
+                    println!("    - {}: {}", name, ty);
                 } else {
-                    println!("    • {}", name);
+                    println!("    - {}", name);
                 }
             }
         }
@@ -365,14 +365,14 @@ pub fn print_class_detail(class_data: &ClassData) {
     if let Some(constructors) = &class_data.constructors {
         println!("  Constructors: {}", constructors.len());
         for (name, _) in constructors {
-            println!("    • {}", name);
+            println!("    - {}", name);
         }
     }
 
     if let Some(functions) = &class_data.functions {
         println!("  Functions: {}", functions.len());
         for (name, _) in functions {
-            println!("    • {}", name);
+            println!("    - {}", name);
         }
     }
 }

@@ -8,6 +8,8 @@ use alloc::{
 use crate::{
     format_rust_code::FormatAsRustCode,
     props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
+    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash,
+    impl_vec_ord, impl_vec_partialeq, impl_vec_partialord, impl_vec_mut,
 };
 
 // --- grid-template-columns / grid-template-rows ---
@@ -66,11 +68,22 @@ impl PrintAsCssValue for GridTrackSizing {
     }
 }
 
+// C-compatible Vec for GridTrackSizing
+impl_vec!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor);
+impl_vec_clone!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor);
+impl_vec_debug!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_partialeq!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_eq!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_partialord!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_ord!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_hash!(GridTrackSizing, GridTrackSizingVec);
+impl_vec_mut!(GridTrackSizing, GridTrackSizingVec);
+
 /// Represents `grid-template-columns` or `grid-template-rows`
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GridTemplate {
-    pub tracks: Vec<GridTrackSizing>,
+    pub tracks: GridTrackSizingVec,
 }
 
 impl core::fmt::Debug for GridTemplate {
@@ -81,16 +94,17 @@ impl core::fmt::Debug for GridTemplate {
 
 impl Default for GridTemplate {
     fn default() -> Self {
-        GridTemplate { tracks: Vec::new() }
+        GridTemplate { tracks: GridTrackSizingVec::from_vec(Vec::new()) }
     }
 }
 
 impl PrintAsCssValue for GridTemplate {
     fn print_as_css_value(&self) -> String {
-        if self.tracks.is_empty() {
+        let tracks_slice = self.tracks.as_ref();
+        if tracks_slice.is_empty() {
             "none".to_string()
         } else {
-            self.tracks
+            tracks_slice
                 .iter()
                 .map(|t| t.print_as_css_value())
                 .collect::<Vec<_>>()
@@ -262,7 +276,7 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
         );
     }
 
-    Ok(GridTemplate { tracks })
+    Ok(GridTemplate { tracks: GridTrackSizingVec::from_vec(tracks) })
 }
 
 #[cfg(feature = "parser")]

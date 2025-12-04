@@ -338,6 +338,16 @@ pub struct DuplicatedAttributeError {
     pub pos: XmlTextPos,
 }
 
+/// Error for mismatched open/close tags in XML hierarchy
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct MalformedHierarchyError {
+    /// The tag that was expected (from the opening tag)
+    pub expected: AzString,
+    /// The tag that was actually found (the closing tag)
+    pub got: AzString,
+}
+
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C, u8)]
 pub enum XmlError {
@@ -359,7 +369,7 @@ pub enum XmlError {
     SizeLimit,
     DtdDetected,
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
-    MalformedHierarchy(AzString, AzString),
+    MalformedHierarchy(MalformedHierarchyError),
     ParserError(XmlParseError),
     UnclosedRootNode,
     UnexpectedDeclaration(XmlTextPos),
@@ -454,11 +464,11 @@ impl fmt::Display for XmlError {
             NoRootNode => write!(f, "No root node found"),
             SizeLimit => write!(f, "XML file too large (size limit reached)"),
             DtdDetected => write!(f, "Document type descriptor detected"),
-            MalformedHierarchy(expected, got) => write!(
+            MalformedHierarchy(e) => write!(
                 f,
                 "Malformed hierarchy: expected <{}/> closing tag, got <{}/>",
-                expected.as_str(),
-                got.as_str()
+                e.expected.as_str(),
+                e.got.as_str()
             ),
             ParserError(p) => write!(f, "{}", p),
             UnclosedRootNode => write!(f, "unclosed root node"),
@@ -869,7 +879,7 @@ pub enum DomXmlParseError {
     /// hot-reloading and compiling, it doesn't matter that much.
     Xml(XmlError),
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
-    MalformedHierarchy(AzString, AzString),
+    MalformedHierarchy(MalformedHierarchyError),
     /// A component raised an error while rendering the DOM - holds the component name + error
     /// string
     RenderDom(RenderDomError),
@@ -1021,11 +1031,11 @@ impl<'a> fmt::Display for DomXmlParseError {
                 "Multiple <body> nodes present, only one <body> node is allowed"
             ),
             Xml(e) => write!(f, "Error parsing XML: {}", e),
-            MalformedHierarchy(got, expected) => write!(
+            MalformedHierarchy(e) => write!(
                 f,
                 "Invalid </{}> tag: expected </{}>",
-                got.as_str(),
-                expected.as_str()
+                e.got.as_str(),
+                e.expected.as_str()
             ),
             RenderDom(e) => write!(f, "Error rendering DOM: {}", e),
             Component(c) => write!(f, "Error parsing component in <head> node:\r\n{}", c),

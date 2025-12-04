@@ -102,7 +102,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     if xml.starts_with("<?") {
         let pos = xml
             .find("?>")
-            .ok_or(XmlError::MalformedHierarchy("<?xml".into(), "?>".into()))?;
+            .ok_or(XmlError::MalformedHierarchy(azul_core::xml::MalformedHierarchyError {
+                expected: "<?xml".into(),
+                got: "?>".into(),
+            }))?;
         xml = &xml[(pos + 2)..];
     }
 
@@ -111,7 +114,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     if xml.len() > 9 && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
         let pos = xml
             .find(">")
-            .ok_or(XmlError::MalformedHierarchy("<!DOCTYPE".into(), ">".into()))?;
+            .ok_or(XmlError::MalformedHierarchy(azul_core::xml::MalformedHierarchyError {
+                expected: "<!DOCTYPE".into(),
+                got: ">".into(),
+            }))?;
         xml = &xml[(pos + 1)..];
     } else if xml.starts_with("<!--") {
         // Skip HTML comments at the start

@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
+use colored::Colorize;
 
 use self::{
     message::{AutofixMessage, AutofixMessages, ExternalPathChange, PatchSummary, SkipReason},
@@ -16,15 +17,27 @@ use self::{
     },
 };
 use crate::{
-    api::{collect_all_referenced_types_from_api, find_all_unused_types_recursive, generate_removal_patches, ApiData},
+    api::{collect_all_referenced_types_from_api_with_chains, find_all_unused_types_recursive, generate_removal_patches, ApiData},
     patch::index::{TypeKind, WorkspaceIndex},
 };
 
-pub mod discover;
+// Legacy modules (to be refactored)
 pub mod message;
-pub mod regexes;
 pub mod utils;
 pub mod workspace;
+
+// New modular architecture
+pub mod types;
+pub mod discovery;
+pub mod analysis;
+pub mod patches;
+pub mod output;
+
+// V2 architecture modules
+pub mod type_index;
+pub mod type_resolver;
+pub mod diff;
+pub mod debug;
 
 /// Check if a type should be ignored in "Could not find type" warnings
 pub fn should_suppress_type_not_found(type_name: &str) -> bool {
@@ -119,29 +132,33 @@ pub fn autofix_api_recursive(
     project_root: &Path,
     output_dir: &Path,
 ) -> Result<()> {
+    use std::sync::Arc;
+    use rayon::prelude::*;
+    
     // Phase 0: Initialization
     println!("[SEARCH] Initializing autofix...");
-    println!("   • Loading api.json");
-
-    println!("   • Compiling regexes");
-    let regexes = regexes::CompiledRegexes::new()
-        .map_err(|e| anyhow::anyhow!("Failed to compile regexes: {}", e))?;
-
-    println!("   • Building workspace index");
+    println!("   - Loading api.json");
 
     let start_time = Instant::now();
+    let phase_start = Instant::now();
     let mut messages = AutofixMessages::new();
 
-    let workspace_index = WorkspaceIndex::build_with_regexes(project_root, regexes.clone())?;
+    // Build workspace index
+    println!("   - Building workspace index...");
+    
+    let workspace_index = WorkspaceIndex::build(project_root)?;
+    
     println!(
-        "     [OK] Indexed {} types from {} files",
+        "     [OK] Indexed {} types from {} files in {:.1}s",
         workspace_index.types.len(),
-        workspace_index.files.len()
+        workspace_index.files.len(),
+        start_time.elapsed().as_secs_f64()
     );
 
-    println!("\n[REFRESH] Running analysis (this may take a moment)...\n");
+    println!("\n[REFRESH] Running analysis...\n");
 
     // Step 1: Collect all types referenced in API
+    let step1_start = Instant::now();
     // Now returns Vec<(class_name, module_name, type_path)> to handle all occurrences
     let api_types_list = collect_all_api_types(api_data);
     
@@ -151,12 +168,15 @@ pub fn autofix_api_recursive(
         .map(|(class_name, _, _)| class_name.clone())
         .collect();
     
-    // Get all types referenced by fields, variants, etc. in the API
-    let referenced_types = collect_all_referenced_types_from_api(api_data);
+    // Get all types referenced by fields, variants, etc. in the API - now with reference chains
+    let (referenced_types, reference_chains) = collect_all_referenced_types_from_api_with_chains(api_data);
+    println!("  [STEP 1] Collected {} API types, {} referenced types ({:.2}s)", 
+        api_types_list.len(), referenced_types.len(), step1_start.elapsed().as_secs_f64());
 
     // CRITICAL: Also check for missing types referenced by EXISTING API types
     // This handles the case where a type like XmlNode exists in api.json,
     // but its field type XmlNodeChildVec doesn't exist as a class definition
+    let step2_start = Instant::now();
     let mut missing_from_existing: HashSet<String> = HashSet::new();
     for ref_type in &referenced_types {
         // Skip callback signatures (they start with "extern")
@@ -176,17 +196,23 @@ pub fn autofix_api_recursive(
         }
     }
     if !missing_from_existing.is_empty() {
-        println!("  [DISCOVER] Found {} types referenced in API but not defined as classes", 
-            missing_from_existing.len());
-        for t in missing_from_existing.iter().take(20) {
-            println!("    - {}", t);
+        println!("  [STEP 2] Found {} types referenced in API but not defined ({:.2}s)", 
+            missing_from_existing.len(), step2_start.elapsed().as_secs_f64());
+        for t in missing_from_existing.iter().take(10) {
+            // Print with reference chain if available
+            if let Some(chain) = reference_chains.get(t) {
+                println!("    - {} (via: {})", t, chain);
+            } else {
+                println!("    - {}", t);
+            }
         }
-        if missing_from_existing.len() > 20 {
-            println!("    ... and {} more", missing_from_existing.len() - 20);
+        if missing_from_existing.len() > 10 {
+            println!("    ... and {} more", missing_from_existing.len() - 10);
         }
     }
 
     // Collect all callback_typedefs from API - these don't need discovery
+    let step3_start = Instant::now();
     let mut api_callback_typedefs = BTreeSet::new();
     for version_data in api_data.0.values() {
         for module_data in version_data.api.values() {
@@ -197,8 +223,11 @@ pub fn autofix_api_recursive(
             }
         }
     }
+    println!("  [STEP 3] Collected {} callback typedefs ({:.2}s)", 
+        api_callback_typedefs.len(), step3_start.elapsed().as_secs_f64());
 
-    // Step 2: Recursive type discovery with cycle detection
+    // Step 4: Recursive type discovery with cycle detection
+    let step4_start = Instant::now();
     let mut discovered_types = HashMap::new();
     let mut types_to_add = Vec::new();
     let mut visited_types = BTreeSet::new(); // Track visited types to detect cycles
@@ -382,10 +411,12 @@ pub fn autofix_api_recursive(
         }
     }
 
-    // Discovery statistics will be shown in final report
+    println!("  [STEP 4] Type discovery complete: {} types in {} iterations ({:.2}s)", 
+        discovered_types.len(), iteration - 1, step4_start.elapsed().as_secs_f64());
 
     // Step 5: Virtual Patch Application - Apply patches in-memory and re-discover
     // This enables truly recursive discovery by finding dependencies of newly added types
+    let step5_start = Instant::now();
     // Build a HashMap for virtual_patch_application (it needs type_name -> path mapping)
     let api_types_map: HashMap<String, String> = api_types_list
         .iter()
@@ -406,13 +437,22 @@ pub fn autofix_api_recursive(
         // No virtual patching needed - will be shown in report
         (types_to_add, PatchSummary::default())
     };
+    println!("  [STEP 5] Virtual patch application ({:.2}s)", step5_start.elapsed().as_secs_f64());
 
     // Step 6: Analyze existing types for changes
+    let step6_start = Instant::now();
     let mut patch_summary = final_patch_summary;
 
     // Step 6: Check for field changes in existing types
     // Now iterates over ALL occurrences, not just unique class names
+    let total_api_types = api_types_list.len();
+    let mut processed = 0;
     for (class_name, module_name, api_type_path) in &api_types_list {
+        processed += 1;
+        if processed % 100 == 0 {
+            print!("\r  [STEP 6] Checking field changes... {}/{}", processed, total_api_types);
+            std::io::Write::flush(&mut std::io::stdout()).ok();
+        }
         if let Some(workspace_type) =
             find_type_in_workspace(&workspace_index, class_name, api_type_path, &mut messages)
         {
@@ -459,8 +499,11 @@ pub fn autofix_api_recursive(
             }
         }
     }
+    println!("\r  [STEP 6] Checked {} types for field changes ({:.2}s)     ", 
+        total_api_types, step6_start.elapsed().as_secs_f64());
 
-    // Generate patches
+    // Step 7: Generate patches
+    let step7_start = Instant::now();
     let work_dir = project_root.join("target").join("autofix");
     let patches_dir = work_dir.join("patches");
     fs::create_dir_all(&patches_dir)?;
@@ -473,14 +516,17 @@ pub fn autofix_api_recursive(
         &patches_dir,
         &mut messages,
     )?;
+    println!("  [STEP 7] Generated {} patches ({:.2}s)", patch_count, step7_start.elapsed().as_secs_f64());
 
-    // Step 7: Generate patches to remove unused types (recursively finds all)
+    // Step 8: Generate patches to remove unused types (recursively finds all)
+    let step8_start = Instant::now();
     // These are written to the same patches directory so a single "patch" command applies everything
     let unused_types = find_all_unused_types_recursive(api_data);
     let mut total_unused_removed = 0;
     
     if !unused_types.is_empty() {
-        println!("\n[CLEANUP] Found {} unused types to remove (recursive analysis)", unused_types.len());
+        println!("  [STEP 8] Found {} unused types to remove ({:.2}s)", 
+            unused_types.len(), step8_start.elapsed().as_secs_f64());
         
         // Generate removal patches and write to the main patches directory
         let removal_patches = generate_removal_patches(&unused_types);
@@ -503,7 +549,7 @@ pub fn autofix_api_recursive(
         }
         
         for (module, types) in &by_module {
-            println!("   • {}: {}", module, types.join(", "));
+            println!("   - {}: {}", module, types.join(", "));
         }
     }
 
@@ -523,4 +569,378 @@ pub fn autofix_api_recursive(
     }
 
     Ok(())
+}
+
+// ============================================================================
+// MAIN ENTRY POINT
+// ============================================================================
+
+/// Main autofix implementation
+/// 
+/// This version:
+/// 1. Builds a clean type index from workspace (skipping `use` re-exports)
+/// 2. Extracts entry points from api.json functions
+/// 3. Resolves all types recursively using the workspace index
+/// 4. Generates a deduplicated diff (path fixes, additions, removals, modifications)
+/// 5. Generates patch files for review
+pub fn autofix_api(
+    api_data: &ApiData,
+    project_root: &Path,
+    output_dir: &Path,
+    verbose: bool,
+) -> Result<()> {
+    use self::diff::{analyze_api_diff, ApiTypeInfo};
+    use self::type_index::TypeIndex;
+    
+    let start_time = Instant::now();
+    
+    println!("\n{}\n", "Autofix: Starting analysis...".cyan().bold());
+
+    // Run the full diff analysis
+    let diff = analyze_api_diff(project_root, api_data, verbose)?;
+
+    // Report results
+    println!("\n{}", "Analysis Results:".white().bold());
+    println!("  {} Path fixes needed: {}", "-".dimmed(), diff.path_fixes.len().to_string().yellow());
+    println!("  {} Types to add: {}", "-".dimmed(), diff.additions.len().to_string().green());
+    println!("  {} Types to remove: {}", "-".dimmed(), diff.removals.len().to_string().red());
+    println!("  {} Type modifications: {}", "-".dimmed(), diff.modifications.len().to_string().blue());
+
+    // Print path fixes
+    if !diff.path_fixes.is_empty() {
+        println!("\n{}", "Path Fixes:".yellow().bold());
+        for fix in &diff.path_fixes {
+            println!("  {} : {} {} {}", 
+                fix.type_name.white(), 
+                fix.old_path.red().strikethrough(),
+                "->".dimmed(),
+                fix.new_path.green()
+            );
+        }
+    }
+
+    // Print additions
+    if !diff.additions.is_empty() {
+        println!("\n{} (first 30 of {}):", "Additions".green().bold(), diff.additions.len());
+        for addition in diff.additions.iter().take(30) {
+            println!("  {} {} ({}) @ {}", 
+                "+".green(), 
+                addition.type_name.white(), 
+                addition.kind.dimmed(), 
+                addition.full_path.cyan()
+            );
+        }
+        if diff.additions.len() > 30 {
+            println!("  {} and {} more", "...".dimmed(), (diff.additions.len() - 30).to_string().yellow());
+        }
+    }
+
+    // Print removals (first 30)
+    if !diff.removals.is_empty() {
+        println!("\n{} (first 30 of {}):", "Removals".red().bold(), diff.removals.len());
+        for removal in diff.removals.iter().take(30) {
+            println!("  {} {}", "-".red(), removal.red());
+        }
+        if diff.removals.len() > 30 {
+            println!("  {} and {} more", "...".dimmed(), (diff.removals.len() - 30).to_string().yellow());
+        }
+    }
+
+    // Print modifications (derive/impl changes)
+    if !diff.modifications.is_empty() {
+        println!("\n{} (first 30 of {}):", "Modifications".blue().bold(), diff.modifications.len());
+        for modification in diff.modifications.iter().take(30) {
+            match &modification.kind {
+                diff::ModificationKind::DeriveAdded { derive_name } => {
+                    println!("  {}: {} derive({})", modification.type_name.white(), "+".green(), derive_name.green());
+                }
+                diff::ModificationKind::DeriveRemoved { derive_name } => {
+                    println!("  {}: {} derive({})", modification.type_name.white(), "-".red(), derive_name.red());
+                }
+                diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
+                    println!("  {}: repr(C) {} {} {}", 
+                        modification.type_name.white(), 
+                        old_repr_c.to_string().red(),
+                        "->".dimmed(),
+                        new_repr_c.to_string().green()
+                    );
+                }
+                diff::ModificationKind::FieldAdded { field_name, field_type } => {
+                    println!("  {}: {} field {} : {}", 
+                        modification.type_name.white(), 
+                        "+".green(), 
+                        field_name.green(), 
+                        field_type.cyan()
+                    );
+                }
+                diff::ModificationKind::FieldRemoved { field_name } => {
+                    println!("  {}: {} field {}", 
+                        modification.type_name.white(), 
+                        "-".red(), 
+                        field_name.red()
+                    );
+                }
+                diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type } => {
+                    println!("  {}: field {} : {} {} {}", 
+                        modification.type_name.white(), 
+                        field_name.white(),
+                        old_type.red(),
+                        "->".dimmed(),
+                        new_type.green()
+                    );
+                }
+                diff::ModificationKind::VariantAdded { variant_name } => {
+                    println!("  {}: {} variant {}", 
+                        modification.type_name.white(), 
+                        "+".green(), 
+                        variant_name.green()
+                    );
+                }
+                diff::ModificationKind::VariantRemoved { variant_name } => {
+                    println!("  {}: {} variant {}", 
+                        modification.type_name.white(), 
+                        "-".red(), 
+                        variant_name.red()
+                    );
+                }
+                diff::ModificationKind::VariantTypeChanged { variant_name, old_type, new_type } => {
+                    println!("  {}: variant {} : {:?} {} {:?}", 
+                        modification.type_name.white(), 
+                        variant_name.white(),
+                        old_type,
+                        "->".dimmed(),
+                        new_type
+                    );
+                }
+            }
+        }
+        if diff.modifications.len() > 30 {
+            println!("  {} and {} more", "...".dimmed(), (diff.modifications.len() - 30).to_string().yellow());
+        }
+    }
+
+    // Generate patch files - group by type for compact output
+    let patches_dir = output_dir.join("patches");
+    fs::create_dir_all(&patches_dir)?;
+    
+    let mut patch_count = 0;
+
+    // Group modifications by type name
+    let mut mods_by_type: std::collections::HashMap<String, Vec<&diff::TypeModification>> = 
+        std::collections::HashMap::new();
+    for modification in &diff.modifications {
+        mods_by_type.entry(modification.type_name.clone())
+            .or_default()
+            .push(modification);
+    }
+    
+    // Find path fixes for types that also have modifications
+    let mut path_fixes_by_type: std::collections::HashMap<String, &diff::PathFix> = 
+        std::collections::HashMap::new();
+    for fix in &diff.path_fixes {
+        path_fixes_by_type.insert(fix.type_name.clone(), fix);
+    }
+
+    // Generate combined patches for types with both path fixes and modifications
+    let mut handled_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    
+    for (type_name, mods) in &mods_by_type {
+        let path_fix = path_fixes_by_type.get(type_name);
+        let patch_content = generate_combined_patch(type_name, path_fix, mods);
+        let patch_path = patches_dir.join(format!("{:04}_modify_{}.patch", patch_count, type_name));
+        fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+        handled_types.insert(type_name.clone());
+    }
+    
+    // Generate standalone path fix patches for types without modifications
+    for fix in &diff.path_fixes {
+        if !handled_types.contains(&fix.type_name) {
+            let patch_content = generate_path_fix_patch(fix);
+            let patch_path = patches_dir.join(format!("{:04}_path_fix_{}.patch", patch_count, fix.type_name));
+            fs::write(&patch_path, &patch_content)?;
+            patch_count += 1;
+        }
+    }
+    
+    // Generate addition patches  
+    for addition in &diff.additions {
+        let patch_content = generate_addition_patch(addition);
+        let patch_path = patches_dir.join(format!("{:04}_add_{}.patch", patch_count, addition.type_name));
+        fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+    }
+    
+    // Generate removal patches
+    for removal in &diff.removals {
+        let type_name = removal.split(':').next().unwrap_or(removal);
+        let patch_content = generate_removal_patch(removal);
+        let patch_path = patches_dir.join(format!("{:04}_remove_{}.patch", patch_count, type_name));
+        fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+    }
+
+    println!("\n{} {} patches in {}", 
+        "Generated".green().bold(), 
+        patch_count.to_string().white().bold(), 
+        patches_dir.display().to_string().cyan()
+    );
+    
+    let duration = start_time.elapsed();
+    println!("{} ({:.2}s)\n", "Complete".green().bold(), duration.as_secs_f64());
+
+    Ok(())
+}
+
+/// Generate a combined patch for a type with path fix and/or modifications
+fn generate_combined_patch(
+    type_name: &str, 
+    path_fix: Option<&&diff::PathFix>,
+    modifications: &[&diff::TypeModification]
+) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("# Patch for {}", type_name));
+    lines.push(String::new());
+    lines.push(format!("[api.json]"));
+    lines.push(format!("class: \"{}\"", type_name));
+    
+    // Path change
+    if let Some(fix) = path_fix {
+        lines.push(format!("  - external: \"{}\"", fix.old_path));
+        lines.push(format!("  + external: \"{}\"", fix.new_path));
+    }
+    
+    // Group modifications by kind for compact output
+    let mut derives_added: Vec<&str> = Vec::new();
+    let mut derives_removed: Vec<&str> = Vec::new();
+    let mut repr_c_change: Option<(bool, bool)> = None;
+    let mut fields_added: Vec<(&str, &str)> = Vec::new();
+    let mut fields_removed: Vec<&str> = Vec::new();
+    let mut fields_changed: Vec<(&str, &str, &str)> = Vec::new();
+    let mut variants_added: Vec<&str> = Vec::new();
+    let mut variants_removed: Vec<&str> = Vec::new();
+    let mut variants_changed: Vec<(&str, &Option<String>, &Option<String>)> = Vec::new();
+    
+    for m in modifications {
+        match &m.kind {
+            diff::ModificationKind::DeriveAdded { derive_name } => {
+                derives_added.push(derive_name);
+            }
+            diff::ModificationKind::DeriveRemoved { derive_name } => {
+                derives_removed.push(derive_name);
+            }
+            diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
+                repr_c_change = Some((*old_repr_c, *new_repr_c));
+            }
+            diff::ModificationKind::FieldAdded { field_name, field_type } => {
+                fields_added.push((field_name, field_type));
+            }
+            diff::ModificationKind::FieldRemoved { field_name } => {
+                fields_removed.push(field_name);
+            }
+            diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type } => {
+                fields_changed.push((field_name, old_type, new_type));
+            }
+            diff::ModificationKind::VariantAdded { variant_name } => {
+                variants_added.push(variant_name);
+            }
+            diff::ModificationKind::VariantRemoved { variant_name } => {
+                variants_removed.push(variant_name);
+            }
+            diff::ModificationKind::VariantTypeChanged { variant_name, old_type, new_type } => {
+                variants_changed.push((variant_name, old_type, new_type));
+            }
+        }
+    }
+    
+    // Repr(C) change
+    if let Some((old, new)) = repr_c_change {
+        lines.push(format!("  repr(C): {} -> {}", old, new));
+    }
+    
+    // Derives (compact format)
+    if !derives_added.is_empty() {
+        lines.push(format!("  + derive: {}", derives_added.join(", ")));
+    }
+    if !derives_removed.is_empty() {
+        lines.push(format!("  - derive: {}", derives_removed.join(", ")));
+    }
+    
+    // Fields
+    for (name, ty) in &fields_added {
+        lines.push(format!("  + field {}: {}", name, ty));
+    }
+    for name in &fields_removed {
+        lines.push(format!("  - field {}", name));
+    }
+    for (name, old, new) in &fields_changed {
+        lines.push(format!("  ~ field {}: {} -> {}", name, old, new));
+    }
+    
+    // Variants
+    for name in &variants_added {
+        lines.push(format!("  + variant {}", name));
+    }
+    for name in &variants_removed {
+        lines.push(format!("  - variant {}", name));
+    }
+    for (name, old, new) in &variants_changed {
+        lines.push(format!("  ~ variant {}: {:?} -> {:?}", name, old, new));
+    }
+    
+    lines.join("\n")
+}
+
+/// Generate a patch for a path fix
+fn generate_path_fix_patch(fix: &diff::PathFix) -> String {
+    format!(
+        r#"# Path fix for {}
+
+[api.json]
+class: "{}"
+  - external: "{}"
+  + external: "{}"
+"#,
+        fix.type_name,
+        fix.type_name,
+        fix.old_path,
+        fix.new_path
+    )
+}
+
+/// Generate a patch for adding a new type
+fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
+    format!(
+        r#"# Add type {} ({})
+
+[api.json]
++ class: "{}"
+  external: "{}"
+  kind: {}
+"#,
+        addition.type_name,
+        addition.kind,
+        addition.type_name,
+        addition.full_path,
+        addition.kind
+    )
+}
+
+/// Generate a patch for removing a type
+fn generate_removal_patch(removal: &str) -> String {
+    let parts: Vec<&str> = removal.splitn(2, ':').collect();
+    let type_name = parts.get(0).unwrap_or(&removal);
+    let path = parts.get(1).unwrap_or(&"");
+    
+    format!(
+        r#"# Remove type {}
+# Path: {}
+
+[api.json]
+- class: "{}"
+"#,
+        type_name,
+        path,
+        type_name
+    )
 }

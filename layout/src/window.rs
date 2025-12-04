@@ -45,7 +45,7 @@ use azul_core::{
 };
 use azul_css::{
     parser2::CssApiWrapper,
-    props::{basic::FontRef, property::CssProperty},
+    props::{basic::FontRef, property::{CssProperty, CssPropertyVec}},
     AzString, LayoutDebugMessage,
 };
 use rust_fontconfig::FcFontCache;
@@ -222,7 +222,7 @@ pub struct CallbackChangeResult {
     /// Clip mask changes (for vector animations)
     pub image_masks_changed: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// CSS property changes from callbacks
-    pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, CssPropertyVec>>,
     /// Scroll position changes from callbacks
     pub nodes_scrolled: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// Modified window state
@@ -2645,11 +2645,11 @@ impl LayoutWindow {
                 current_scroll_manager: &current_scroll_states_nested,
                 current_window_handle,
                 system_callbacks,
+                system_style,
             };
 
             let callback_info = CallbackInfo::new(
                 &ref_data,
-                system_style,
                 &mut callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
@@ -2861,11 +2861,11 @@ impl LayoutWindow {
                 current_scroll_manager: &current_scroll_states,
                 current_window_handle,
                 system_callbacks,
+                system_style: system_style.clone(),
             };
 
             let mut callback_info = CallbackInfo::new(
                 &ref_data,
-                system_style.clone(),
                 &mut callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
@@ -3070,11 +3070,11 @@ impl LayoutWindow {
             current_scroll_manager: &current_scroll_states,
             current_window_handle,
             system_callbacks,
+            system_style,
         };
 
         let mut callback_info = CallbackInfo::new(
             &ref_data,
-            system_style,
             &mut callback_changes,
             hit_dom_node,
             cursor_relative_to_item,
@@ -3234,11 +3234,11 @@ impl LayoutWindow {
             current_scroll_manager: &current_scroll_states,
             current_window_handle,
             system_callbacks,
+            system_style,
         };
 
         let mut callback_info = CallbackInfo::new(
             &ref_data,
-            system_style,
             &mut callback_changes,
             hit_dom_node,
             cursor_relative_to_item,

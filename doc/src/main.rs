@@ -41,10 +41,34 @@ fn main() -> anyhow::Result<()> {
             println!("[SAVE] Saved normalized api.json\n");
             return Ok(());
         }
-        ["autofix"] => {
+        ["autofix"] | ["autofix", "run"] => {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
-            autofix::autofix_api_recursive(&api_data, &project_root, &output_dir)?;
+            autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
+            return Ok(());
+        }
+        ["autofix", "debug", "type", type_name] => {
+            // Debug a specific type in the workspace index
+            let index = autofix::type_index::TypeIndex::build(&project_root, true)?;
+            autofix::debug::debug_type_in_index(&index, type_name);
+            return Ok(());
+        }
+        ["autofix", "debug", "chain", type_name] => {
+            // Debug type resolution chain
+            let index = autofix::type_index::TypeIndex::build(&project_root, true)?;
+            autofix::debug::debug_resolve_type_chain(&index, type_name);
+            return Ok(());
+        }
+        ["autofix", "debug", "api", type_name] => {
+            // Debug a specific type from api.json against workspace
+            let api_data = load_api_json(&api_path)?;
+            let index = autofix::type_index::TypeIndex::build(&project_root, true)?;
+            autofix::debug::debug_api_type(&index, &api_data, type_name);
+            return Ok(());
+        }
+        ["autofix", "debug", "file", file_path] => {
+            // Debug parsing a specific file
+            autofix::debug::debug_parse_file(std::path::Path::new(file_path))?;
             return Ok(());
         }
         ["autofix", "explain"] => {
@@ -352,7 +376,7 @@ fn main() -> anyhow::Result<()> {
                         if !errors.is_empty() {
                             println!("\nPatch errors:");
                             for error in &errors {
-                                println!("  • {}", error);
+                                println!("  - {}", error);
                             }
                             std::process::exit(1);
                         }
@@ -462,7 +486,7 @@ fn main() -> anyhow::Result<()> {
             fs::write(&rust_api_path, rust_api_code)?;
             println!("[OK] Generated: {}", rust_api_path.display());
 
-            println!("\n✨ Rust code generation complete!");
+            println!("\nRust code generation complete.");
             return Ok(());
         }
         ["codegen", "c"] => {
@@ -477,7 +501,7 @@ fn main() -> anyhow::Result<()> {
             fs::write(&c_api_path, c_api_code)?;
             println!("[OK] Generated: {}", c_api_path.display());
 
-            println!("\n✨ C header generation complete!");
+            println!("\nC header generation complete.");
             return Ok(());
         }
         ["codegen", "cpp"] => {
@@ -492,7 +516,7 @@ fn main() -> anyhow::Result<()> {
             fs::write(&cpp_api_path, cpp_api_code)?;
             println!("[OK] Generated: {}", cpp_api_path.display());
 
-            println!("\n✨ C++ header generation complete!");
+            println!("\nC++ header generation complete.");
             return Ok(());
         }
         ["codegen", "python"] => {
@@ -506,7 +530,7 @@ fn main() -> anyhow::Result<()> {
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
-            println!("\n✨ Python bindings generation complete!");
+            println!("\nPython bindings generation complete.");
             return Ok(());
         }
         ["codegen", "all"] => {
@@ -546,7 +570,7 @@ fn main() -> anyhow::Result<()> {
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
-            println!("\n✨ All language bindings generated successfully!");
+            println!("\nAll language bindings generated successfully.");
             return Ok(());
         }
         ["deploy"] | ["deploy", ..] => {
@@ -613,7 +637,7 @@ fn main() -> anyhow::Result<()> {
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;
 
-            println!("\n✨ Website generated successfully in: {}", output_dir.display());
+            println!("\nWebsite generated successfully in: {}", output_dir.display());
             return Ok(());
         }
         ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
@@ -706,7 +730,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            println!("\n✨ Website with reftests generated successfully in: {}", output_dir.display());
+            println!("\nWebsite with reftests generated successfully in: {}", output_dir.display());
             return Ok(());
         }
         _ => {
@@ -729,17 +753,43 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
 
 fn print_cli_help() -> anyhow::Result<()> {
     println!("Azul Documentation and Deployment Tool");
+    println!();
     println!("Usage:");
-    println!("  azul-doc print [options]        - Print API information");
-    println!("  azul-doc normalize              - Normalize api.json");
-    println!("  azul-doc autofix                - Apply automatic fixes to API definitions");
-    println!("  azul-doc autofix explain        - Explain what generated patches will do");
-    println!("  azul-doc patch safe <dir>       - Apply and delete safe (path-only) patches");
-    println!("  azul-doc patch <patch_file>     - Apply patches to api.json");
-    println!("  azul-doc memtest [run]          - Generate and optionally run memory layout tests");
-    println!("  azul-doc reftest [open]         - Run reftests and optionally open report");
-    println!("  azul-doc codegen [rust|c|cpp|python|all] - Generate language bindings");
-    println!("  azul-doc deploy                 - Build and deploy the Azul library");
-    println!("  azul-doc fast-deploy-with-reftests - Deploy with reftest generation");
+    println!("  azul-doc <command> [options]");
+    println!();
+    println!("Commands:");
+    println!();
+    println!("  AUTOFIX (synchronize workspace types with api.json):");
+    println!("    autofix                       - Analyze and generate patches for api.json");
+    println!("    autofix run                   - Same as 'autofix'");
+    println!("    autofix explain               - Explain what generated patches will do");
+    println!();
+    println!("  AUTOFIX DEBUG (inspect type resolution):");
+    println!("    autofix debug type <name>     - Show type definition in workspace index");
+    println!("    autofix debug chain <name>    - Show recursive type resolution chain");
+    println!("    autofix debug api <name>      - Compare workspace vs api.json for a type");
+    println!("    autofix debug file <path>     - Debug parsing of a specific file");
+    println!();
+    println!("  PATCHING:");
+    println!("    patch <file>                  - Apply a patch file to api.json");
+    println!("    patch safe <dir>              - Apply and delete safe (path-only) patches");
+    println!();
+    println!("  API MANAGEMENT:");
+    println!("    normalize                     - Normalize/reformat api.json");
+    println!("    print [options]               - Print API information");
+    println!("    unused                        - Find unused types in api.json");
+    println!("    unused patch                  - Generate patches to remove unused types");
+    println!();
+    println!("  CODE GENERATION:");
+    println!("    codegen [rust|c|cpp|python|all] - Generate language bindings");
+    println!("    memtest [run]                 - Generate and optionally run memory layout tests");
+    println!();
+    println!("  TESTING:");
+    println!("    reftest [open]                - Run reftests and optionally open report");
+    println!();
+    println!("  DEPLOYMENT:");
+    println!("    deploy                        - Build and deploy the Azul library");
+    println!("    fast-deploy-with-reftests     - Deploy with reftest generation");
+    println!();
     Ok(())
 }

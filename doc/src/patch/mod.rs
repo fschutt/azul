@@ -262,32 +262,30 @@ impl PatchStats {
     }
 
     pub fn print_summary(&self) {
-        println!("\n╔════════════════════════════════════════════════════════════════╗");
-        println!("║                    Patch Summary                               ║");
-        println!("╚════════════════════════════════════════════════════════════════╝\n");
+        println!("\nPatch Summary\n");
 
-        println!("[STATS] Statistics:");
+        println!("Statistics:");
         println!("  Total patch files: {}", self.total_patches);
         println!("  Successfully applied: {}", self.successful);
         println!("  Failed: {}", self.failed);
         println!("  Total changes made: {}", self.total_changes);
 
         if !self.failed_patches.is_empty() {
-            println!("\nERROR: Failed patches:");
+            println!("\nFailed patches:");
             for (filename, error) in &self.failed_patches {
-                println!("  • {}: {}", filename, error);
+                println!("  - {}: {}", filename, error);
             }
         }
 
         if !self.patch_errors.is_empty() {
-            println!("\nERROR: Patch errors ({} total):", self.patch_errors.len());
+            println!("\nPatch errors ({} total):", self.patch_errors.len());
             for (filename, error) in &self.patch_errors {
-                println!("  • {}: {}", filename, error);
+                println!("  - {}: {}", filename, error);
             }
         }
 
         if !self.has_errors() {
-            println!("\n[OK] All patches applied successfully!");
+            println!("\nAll patches applied successfully.");
         } else {
             println!("\nERROR: Some patches had errors");
         }
@@ -349,13 +347,11 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
     let patches = ApiPatch::from_directory(dir_path)?;
 
     if patches.is_empty() {
-        println!("[INFO]  No patch files found in {}", dir_path.display());
+        println!("No patch files found in {}", dir_path.display());
         return Ok(());
     }
 
-    println!("╔══════════════════════════════════════════════════════════════════╗");
-    println!("║                    PATCH EXPLANATION                              ║");
-    println!("╚══════════════════════════════════════════════════════════════════╝\n");
+    println!("Patch Explanation\n");
 
     // Categorize patches
     let mut path_only_patches = Vec::new();
@@ -369,7 +365,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
         }
     }
 
-    println!("[STATS] Summary:");
+    println!("Summary:");
     println!(
         "  Total patches: {}",
         path_only_patches.len() + structural_patches.len()
@@ -593,7 +589,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     if !other_patches.is_empty() {
         println!("\n[DIR] Remaining patches with structural changes:");
         for filename in &other_patches {
-            println!("  • {}", filename);
+            println!("  - {}", filename);
         }
         println!(
             "\n[TIP] Apply these manually with:  patch {}",
@@ -604,7 +600,7 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     if stats.failed > 0 {
         println!("\nERROR: Failed patches:");
         for (filename, error) in &stats.failed_patches {
-            println!("  • {}: {}", filename, error);
+            println!("  - {}: {}", filename, error);
         }
     }
 
@@ -1048,7 +1044,7 @@ fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
 
 /// Print all external import paths for debugging/tracking
 pub fn print_import_paths(api_data: &ApiData) {
-    println!("\n[PKG] API Import Paths:\n");
+    println!("\nAPI Import Paths:\n");
 
     for (version_name, version_data) in &api_data.0 {
         println!("Version: {}", version_name);
@@ -1056,9 +1052,9 @@ pub fn print_import_paths(api_data: &ApiData) {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 if let Some(external) = &class_data.external {
-                    println!("  {} → {}", class_name, external);
+                    println!("  {} -> {}", class_name, external);
                 } else {
-                    println!("  {} → (no external path)", class_name);
+                    println!("  {} -> (no external path)", class_name);
                 }
             }
         }
@@ -1120,6 +1116,7 @@ mod tests {
                                 doc: Some("Original documentation".to_string()),
                                 external: Some("original::path::TestClass".to_string()),
                                 is_boxed_object: false,
+                                custom_impls: None,
                                 clone: Some(true),
                                 custom_destructor: None,
                                 derive: Some(vec!["Debug".to_string()]),
@@ -1140,6 +1137,11 @@ mod tests {
                                 functions: None,
                                 use_patches: None,
                                 repr: None,
+                                generic_params: None,
+                                type_alias: None,
+                                vec_ref_element_type: None,
+                                vec_ref_is_mut: false,
+                                vec_element_type: None,
                             },
                         )]),
                     },

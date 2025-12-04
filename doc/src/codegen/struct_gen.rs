@@ -1101,21 +1101,45 @@ fn prefix_types_in_extern_fn_string(
             continue;
         }
         
-        // Replace whole words only using word boundaries (\b)
-        // Always add prefix, even if type already has it (consistency)
-        let pattern = format!(r"\b{}\b", regex::escape(type_name));
-        match regex::Regex::new(&pattern) {
-            Ok(re) => {
-                let replacement = format!("{}{}", prefix, type_name);
-                result = re.replace_all(&result, replacement.as_str()).to_string();
-            }
-            Err(e) => {
-                eprintln!("Warning: Failed to compile regex for {}: {:?}", type_name, e);
-            }
-        }
+        // Replace whole words only using word boundary matching (no regex)
+        let replacement = format!("{}{}", prefix, type_name);
+        result = replace_word_boundary(&result, type_name, &replacement);
     }
     
     result
+}
+
+/// Replace a word with word-boundary matching (no regex)
+fn replace_word_boundary(input: &str, word: &str, replacement: &str) -> String {
+    if word.is_empty() || !input.contains(word) {
+        return input.to_string();
+    }
+    
+    let mut result = String::with_capacity(input.len() + 64);
+    let mut remaining = input;
+    
+    while let Some(pos) = remaining.find(word) {
+        // Check if it's a word boundary
+        let before_ok = pos == 0 || !is_word_char(remaining.as_bytes()[pos - 1]);
+        let after_pos = pos + word.len();
+        let after_ok = after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
+        
+        if before_ok && after_ok {
+            result.push_str(&remaining[..pos]);
+            result.push_str(replacement);
+            remaining = &remaining[after_pos..];
+        } else {
+            result.push_str(&remaining[..pos + word.len()]);
+            remaining = &remaining[pos + word.len()..];
+        }
+    }
+    result.push_str(remaining);
+    result
+}
+
+/// Check if a byte is a word character (alphanumeric or underscore)
+fn is_word_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Generate a Rust callback function type definition
@@ -1125,6 +1149,8 @@ fn generate_rust_callback_fn_type(
     callback_typedef: &crate::api::CallbackDefinition,
     prefix: &str,
 ) -> Result<String> {
+    use crate::api::BorrowMode;
+    
     let mut fn_string = String::from("extern \"C\" fn(");
 
     // Generate function arguments
@@ -1134,7 +1160,7 @@ fn generate_rust_callback_fn_type(
 
         for fn_arg in fn_args {
             let fn_arg_type = &fn_arg.r#type;
-            let fn_arg_ref = &fn_arg.ref_kind;
+            let fn_arg_ref = fn_arg.ref_kind;
 
             let (_, base_type, _) = analyze_type(fn_arg_type);
 
@@ -1145,11 +1171,10 @@ fn generate_rust_callback_fn_type(
                 if let Some((_, class_name)) =
                     search_for_class_by_class_name(version_data, &base_type)
                 {
-                    match fn_arg_ref.as_str() {
-                        "ref" => arg_string = format!("&{}{}", prefix, class_name),
-                        "refmut" => arg_string = format!("&mut {}{}", prefix, class_name),
-                        "value" => arg_string = format!("{}{}", prefix, class_name),
-                        _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                    match fn_arg_ref {
+                        BorrowMode::Ref => arg_string = format!("&{}{}", prefix, class_name),
+                        BorrowMode::RefMut => arg_string = format!("&mut {}{}", prefix, class_name),
+                        BorrowMode::Value => arg_string = format!("{}{}", prefix, class_name),
                     }
                 } else {
                     // Type not found - use as-is with prefix
@@ -1157,20 +1182,18 @@ fn generate_rust_callback_fn_type(
                         "Warning: Type {} not found in callback fn_arg, using as-is",
                         base_type
                     );
-                    match fn_arg_ref.as_str() {
-                        "ref" => arg_string = format!("&{}{}", prefix, base_type),
-                        "refmut" => arg_string = format!("&mut {}{}", prefix, base_type),
-                        "value" => arg_string = format!("{}{}", prefix, base_type),
-                        _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                    match fn_arg_ref {
+                        BorrowMode::Ref => arg_string = format!("&{}{}", prefix, base_type),
+                        BorrowMode::RefMut => arg_string = format!("&mut {}{}", prefix, base_type),
+                        BorrowMode::Value => arg_string = format!("{}{}", prefix, base_type),
                     }
                 }
             } else {
                 // Primitive type
-                match fn_arg_ref.as_str() {
-                    "ref" => arg_string = format!("&{}", fn_arg_type),
-                    "refmut" => arg_string = format!("&mut {}", fn_arg_type),
-                    "value" => arg_string = fn_arg_type.clone(),
-                    _ => anyhow::bail!("Invalid fn_arg_ref: {}", fn_arg_ref),
+                match fn_arg_ref {
+                    BorrowMode::Ref => arg_string = format!("&{}", fn_arg_type),
+                    BorrowMode::RefMut => arg_string = format!("&mut {}", fn_arg_type),
+                    BorrowMode::Value => arg_string = fn_arg_type.clone(),
                 }
             }
 
@@ -1284,9 +1307,8 @@ mod tests {
 
         assert!(result.contains("/// A 2D point"));
         assert!(result.contains("#[repr(C)]"));
-        assert!(result.contains("#[derive(Debug)]"));
-        assert!(result.contains("#[derive(Clone)]"));
-        assert!(result.contains("#[derive(Copy)]"));
+        // Derives are combined into one line
+        assert!(result.contains("Copy") && result.contains("Clone") && result.contains("Debug"));
         assert!(result.contains("pub struct AzPoint {"));
         assert!(result.contains("pub x: f32,"));
         assert!(result.contains("pub y: f32,"));
@@ -1373,7 +1395,8 @@ mod tests {
 
         assert!(result.contains("/// RGB color"));
         assert!(result.contains("#[repr(C)]"));
-        assert!(result.contains("#[derive(Debug)]"));
+        // Derives are combined into one line
+        assert!(result.contains("Copy") && result.contains("Clone") && result.contains("Debug"));
         assert!(result.contains("pub enum AzColor {"));
         assert!(result.contains("Red,"));
         assert!(result.contains("Green,"));

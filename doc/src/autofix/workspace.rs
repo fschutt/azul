@@ -934,13 +934,13 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
 
 /// Generate standard VecDestructorType callback typedef
 fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
-    use crate::api::{CallbackArgData, CallbackDefinition};
+    use crate::api::{CallbackArgData, CallbackDefinition, BorrowMode};
 
     ClassPatch {
         callback_typedef: Some(CallbackDefinition {
             fn_args: vec![CallbackArgData {
                 r#type: vec_type_name.to_string(),
-                ref_kind: "refmut".to_string(),
+                ref_kind: BorrowMode::RefMut,
                 doc: None,
             }],
             returns: None,
@@ -1417,7 +1417,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             let callback_args: Vec<CallbackArgData> = fn_args.iter().map(|arg| {
                 CallbackArgData {
                     r#type: arg.ty.clone(),
-                    ref_kind: arg.ref_kind.clone(),
+                    ref_kind: arg.ref_kind,  // BorrowMode is Copy
                     doc: None,
                 }
             }).collect();

@@ -1,10 +1,9 @@
 // Code generation for memory layout tests
 // This module generates a complete test crate that validates memory layouts
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, collections::HashSet, fs, path::Path};
 
 use indexmap::IndexMap;
-use regex::Regex;
 
 use super::{
     func_gen::build_functions_map,
@@ -14,57 +13,123 @@ use crate::api::*;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-/// Pre-compiled regexes used throughout memtest generation
+/// Type replacement data used throughout memtest generation
 #[derive(Debug)]
-pub struct CompiledRegexes {
-    /// Matches "Az" followed by a capital letter (type names and functions)
-    pub type_pattern: Regex,
-    /// Map of type name -> pre-compiled regex for word boundary matching
-    pub type_regexes: HashMap<String, Regex>,
+pub struct TypeReplacements {
+    /// Set of all type names that need prefixing
+    pub type_names: HashSet<String>,
 }
 
-impl CompiledRegexes {
+impl TypeReplacements {
     pub fn new(version_data: &VersionData) -> Result<Self> {
-        println!("      [BUILD] Compiling type replacement regexes...");
+        println!("      [BUILD] Collecting type names for replacement...");
 
         // Collect all type names from api.json
-        let mut all_types = std::collections::HashSet::new();
+        let mut type_names = HashSet::new();
         for module_data in version_data.api.values() {
             for class_name in module_data.classes.keys() {
-                all_types.insert(class_name.clone());
+                // Skip special cases and primitive types
+                if class_name == "String" || class_name == "Vec" {
+                    continue;
+                }
+                // Skip primitive types that should never get a prefix
+                if PRIMITIVE_TYPES.contains(&class_name.as_str()) {
+                    continue;
+                }
+                // Skip single-letter generic type parameters (e.g., T, U, V)
+                if is_generic_type_param(class_name) {
+                    continue;
+                }
+                type_names.insert(class_name.clone());
             }
         }
 
-        // Pre-compile a regex for each type (for whole-word matching)
-        let mut type_regexes = HashMap::new();
-        for type_name in &all_types {
-            // Skip special cases and primitive types
-            if type_name == "String" || type_name == "Vec" {
-                continue;
-            }
-            // Skip primitive types that should never get a prefix
-            if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
-                continue;
-            }
-            // Skip single-letter generic type parameters (e.g., T, U, V)
-            if is_generic_type_param(type_name) {
-                continue;
-            }
+        println!("      [OK] Collected {} type names", type_names.len());
 
-            let pattern = format!(r"\b{}\b", regex::escape(type_name));
-            if let Ok(re) = Regex::new(&pattern) {
-                type_regexes.insert(type_name.clone(), re);
-            }
-        }
-
-        println!("      [OK] Compiled {} type regexes", type_regexes.len());
-
-        Ok(Self {
-            type_pattern: Regex::new(r"\bAz([A-Z][a-zA-Z0-9_]*)")
-                .map_err(|e| format!("Failed to compile type_pattern regex: {}", e))?,
-            type_regexes,
-        })
+        Ok(Self { type_names })
     }
+
+    /// Replace all occurrences of a type name with word boundary matching
+    pub fn replace_type_in_line(&self, line: &str, type_name: &str, replacement: &str) -> String {
+        replace_word_boundary(line, type_name, replacement)
+    }
+
+    /// Replace all Az-prefixed types with versioned prefix
+    pub fn replace_az_types(&self, line: &str, prefix: &str) -> String {
+        replace_az_prefix(line, prefix)
+    }
+}
+
+/// Replace a word with word-boundary matching (no regex)
+fn replace_word_boundary(input: &str, word: &str, replacement: &str) -> String {
+    if word.is_empty() || !input.contains(word) {
+        return input.to_string();
+    }
+    
+    let mut result = String::with_capacity(input.len() + 64);
+    let mut remaining = input;
+    
+    while let Some(pos) = remaining.find(word) {
+        // Check if it's a word boundary
+        let before_ok = pos == 0 || !is_word_char(remaining.as_bytes()[pos - 1]);
+        let after_pos = pos + word.len();
+        let after_ok = after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
+        
+        if before_ok && after_ok {
+            result.push_str(&remaining[..pos]);
+            result.push_str(replacement);
+            remaining = &remaining[after_pos..];
+        } else {
+            result.push_str(&remaining[..pos + word.len()]);
+            remaining = &remaining[pos + word.len()..];
+        }
+    }
+    result.push_str(remaining);
+    result
+}
+
+/// Check if a byte is a word character (alphanumeric or underscore)
+fn is_word_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Replace Az-prefixed types with versioned prefix (e.g., AzFoo -> Az1Foo)
+fn replace_az_prefix(input: &str, prefix: &str) -> String {
+    let mut result = String::with_capacity(input.len() + 64);
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    
+    while i < bytes.len() {
+        // Look for "Az" followed by uppercase letter
+        if i + 2 < bytes.len() 
+            && bytes[i] == b'A' 
+            && bytes[i + 1] == b'z' 
+            && bytes[i + 2].is_ascii_uppercase()
+        {
+            // Check word boundary before "Az"
+            let before_ok = i == 0 || !is_word_char(bytes[i - 1]);
+            
+            if before_ok {
+                // Find the end of the identifier
+                let start = i + 2;
+                let mut end = start;
+                while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                    end += 1;
+                }
+                
+                // Replace Az with the prefix
+                result.push_str(prefix);
+                result.push_str(&input[start..end]);
+                i = end;
+                continue;
+            }
+        }
+        
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    
+    result
 }
 
 /// Configuration for memtest generation
@@ -102,9 +167,9 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
         .get_version(version_name)
         .ok_or_else(|| "No API version found".to_string())?;
 
-    // Compile all regexes once at the start
-    println!("  [BUILD] Compiling regex patterns...");
-    let regexes = CompiledRegexes::new(version_data)?;
+    // Collect type names for replacement
+    println!("  [BUILD] Collecting type replacement data...");
+    let replacements = TypeReplacements::new(version_data)?;
 
     // Create directory structure
     fs::create_dir_all(&memtest_dir).map_err(|e| format!("Failed to create memtest dir: {}", e))?;
@@ -119,7 +184,7 @@ pub fn generate_memtest_crate(api_data: &ApiData, project_root: &Path) -> Result
 
     println!("  [FIX] Generating generated.rs (this may take a while)...");
     // Generate generated.rs with all API types
-    let generated_rs = generate_generated_rs(api_data, &config, &regexes)?;
+    let generated_rs = generate_generated_rs(api_data, &config, &replacements)?;
     println!(
         "  [SAVE] Writing generated.rs ({} bytes)...",
         generated_rs.len()
@@ -403,7 +468,7 @@ fn sanitize_name(name: &str) -> String {
 fn generate_generated_rs(
     api_data: &ApiData,
     config: &MemtestConfig,
-    regexes: &CompiledRegexes,
+    replacements: &TypeReplacements,
 ) -> Result<String> {
     println!("    [WAIT] Starting generated.rs creation...");
     let mut output = String::new();
@@ -434,7 +499,7 @@ fn generate_generated_rs(
         version_data,
         &prefix,
         config,
-        regexes,
+        replacements,
     )?);
 
     println!("    [PKG] Generating public API modules...");
@@ -443,7 +508,7 @@ fn generate_generated_rs(
         version_data,
         &prefix,
         config,
-        regexes,
+        replacements,
     )?);
 
     println!("    [OK] Generated.rs creation complete");
@@ -454,7 +519,7 @@ fn generate_dll_module(
     version_data: &VersionData,
     prefix: &str,
     config: &MemtestConfig,
-    regexes: &CompiledRegexes,
+    replacements: &TypeReplacements,
 ) -> Result<String> {
     println!("      [BUILD]  Building dll module...");
     let mut dll_code = String::new();
@@ -1092,7 +1157,7 @@ fn generate_public_api_modules(
     version_data: &VersionData,
     prefix: &str,
     config: &MemtestConfig,
-    regexes: &CompiledRegexes,
+    replacements: &TypeReplacements,
 ) -> Result<String> {
     let patch_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/codegen/api-patch");
 
@@ -1134,7 +1199,7 @@ fn generate_public_api_modules(
                 prefix,
                 version_data,
                 config,
-                regexes,
+                replacements,
             )?);
         }
 
@@ -1196,7 +1261,7 @@ fn process_patch_content(
     prefix: &str,
     version_data: &VersionData,
     config: &MemtestConfig,
-    regexes: &CompiledRegexes,
+    replacements: &TypeReplacements,
 ) -> Result<String> {
     println!(
         "      [SEARCH] Processing patch content ({} bytes)...",
@@ -1269,20 +1334,14 @@ fn process_patch_content(
         // FIRST: Fix unprefixed type names that exist in api.json
         // For example: StyleFilterVec -> Az1StyleFilterVec, DomVec -> Az1DomVec
         // Do this BEFORE the Az-> Az1 conversion to avoid double-prefixing
-        // Use pre-compiled regexes for massive speedup
-        for (type_name, re) in &regexes.type_regexes {
+        for type_name in &replacements.type_names {
             let prefixed = format!("{}{}", prefix, type_name);
-            adjusted_line = re
-                .replace_all(&adjusted_line, prefixed.as_str())
-                .to_string();
+            adjusted_line = replacements.replace_type_in_line(&adjusted_line, type_name, &prefixed);
         }
 
-        // SECOND: Use regex to replace all remaining Az-prefixed types with the versioned prefix
+        // SECOND: Replace all remaining Az-prefixed types with the versioned prefix
         // This prevents double-prefixing: Az -> Az1 (not Az -> Az1 -> Az11)
-        adjusted_line = regexes
-            .type_pattern
-            .replace_all(&adjusted_line, format!("{}$1", prefix))
-            .to_string();
+        adjusted_line = replacements.replace_az_types(&adjusted_line, prefix);
 
         // Transform paths from crate:: (final azul crate) to super:: (memtest module context)
         // In generated.rs we have: mod dll { }, pub mod vec { }, etc.

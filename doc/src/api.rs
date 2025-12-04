@@ -7,6 +7,9 @@ use anyhow::Context;
 use indexmap::IndexMap; // Use IndexMap for ordered fields where necessary
 use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (versions)
 
+// Re-export BorrowMode for use in API structures
+pub use crate::autofix::types::borrow::BorrowMode;
+
 // Helper function to check if a bool is false (for skip_serializing_if)
 fn is_false(b: &bool) -> bool {
     !b
@@ -439,8 +442,10 @@ pub struct CallbackDefinition {
 pub struct CallbackArgData {
     #[serde(rename = "type")]
     pub r#type: String,
+    /// Borrow mode: ref (&T), refmut (&mut T), or value (T)
+    /// Strongly typed - fails at JSON parse time on invalid values
     #[serde(rename = "ref")]
-    pub ref_kind: String, // "ref", "refmut", "value"
+    pub ref_kind: BorrowMode,
     pub doc: Option<String>,
 }
 
@@ -568,8 +573,14 @@ pub fn extract_types_from_function_data(fn_data: &FunctionData) -> HashSet<Strin
 
     // Extract parameter types
     // fn_args is Vec<IndexMap<String, String>> where key=name, value=type
+    // CRITICAL: When key is "self", value is a borrow mode ("ref", "refmut", "value"),
+    // NOT a type! We must skip these.
     for arg_map in &fn_data.fn_args {
-        for (_param_name, param_type) in arg_map {
+        for (param_name, param_type) in arg_map {
+            // Skip "self" - its value is a borrow mode, not a type
+            if param_name == "self" {
+                continue;
+            }
             if let Some(base_type) = extract_base_type_if_not_opaque(param_type) {
                 types.insert(base_type);
             }
@@ -627,8 +638,17 @@ pub fn extract_base_type(type_str: &str) -> String {
     if let Some(start) = trimmed.find('<') {
         if let Some(end) = trimmed.rfind('>') {
             let inner = &trimmed[start + 1..end];
+            
+            // If inner contains a comma (e.g., HashMap<K, V>), take only the first type
+            // This avoids creating invalid types like "String, String"
+            let first_type = if let Some(comma_pos) = find_top_level_comma(inner) {
+                inner[..comma_pos].trim()
+            } else {
+                inner.trim()
+            };
+            
             // Recursively extract from inner type
-            return extract_base_type(inner);
+            return extract_base_type(first_type);
         }
     }
 
@@ -651,13 +671,27 @@ pub fn extract_base_type(type_str: &str) -> String {
     // Handle tuple types - extract first element
     if trimmed.starts_with('(') && trimmed.ends_with(')') {
         let inner = &trimmed[1..trimmed.len() - 1];
-        if let Some(comma_pos) = inner.find(',') {
+        if let Some(comma_pos) = find_top_level_comma(inner) {
             return extract_base_type(&inner[..comma_pos]);
         }
         return extract_base_type(inner);
     }
 
     trimmed.to_string()
+}
+
+/// Find the position of the first comma that is not inside angle brackets
+fn find_top_level_comma(s: &str) -> Option<usize> {
+    let mut depth: i32 = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Check if a type is behind a pointer or smart pointer wrapper
@@ -758,6 +792,138 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
     }
 
     types
+}
+
+/// Collect all type references from the entire API, along with reference chains
+/// Returns (types, reference_chains) where reference_chains maps type_name -> first_chain_description
+pub fn collect_all_referenced_types_from_api_with_chains(
+    api_data: &crate::api::ApiData
+) -> (HashSet<String>, HashMap<String, String>) {
+    let mut types = HashSet::new();
+    let mut chains: HashMap<String, String> = HashMap::new();
+
+    for (_version_name, version_data) in &api_data.0 {
+        for (_module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Track types from functions with their chain
+                if let Some(functions) = &class_data.functions {
+                    for (fn_name, fn_data) in functions {
+                        // Parameters - fn_args is Vec<IndexMap<String, String>>
+                        // Each item is a map like {"arg_name": "type"}
+                        for param_map in &fn_data.fn_args {
+                            for (param_name, param_type_str) in param_map {
+                                if let Some(param_type) = extract_base_type_if_not_opaque(param_type_str) {
+                                    if !types.contains(&param_type) {
+                                        types.insert(param_type.clone());
+                                        chains.insert(
+                                            param_type,
+                                            format!("{}::{}() param '{}'", class_name, fn_name, param_name)
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        // Return type
+                        if let Some(ret_type) = &fn_data.returns {
+                            if let Some(base_type) = extract_base_type_if_not_opaque(&ret_type.r#type) {
+                                if !types.contains(&base_type) {
+                                    types.insert(base_type.clone());
+                                    chains.insert(
+                                        base_type,
+                                        format!("{}::{}() returns", class_name, fn_name)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Track types from constructors
+                if let Some(constructors) = &class_data.constructors {
+                    for (ctor_name, ctor_data) in constructors {
+                        // Same structure as functions
+                        for param_map in &ctor_data.fn_args {
+                            for (param_name, param_type_str) in param_map {
+                                if let Some(param_type) = extract_base_type_if_not_opaque(param_type_str) {
+                                    if !types.contains(&param_type) {
+                                        types.insert(param_type.clone());
+                                        chains.insert(
+                                            param_type,
+                                            format!("{}::{}() param '{}'", class_name, ctor_name, param_name)
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Track types from struct fields - struct_fields is Vec<IndexMap<String, FieldData>>
+                if let Some(fields_vec) = &class_data.struct_fields {
+                    for field_map in fields_vec {
+                        for (field_name, field_data) in field_map {
+                            if let Some(field_type) = extract_base_type_if_not_opaque(&field_data.r#type) {
+                                if !types.contains(&field_type) {
+                                    types.insert(field_type.clone());
+                                    chains.insert(
+                                        field_type,
+                                        format!("{}.{}", class_name, field_name)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Track types from enum variants - enum_fields is Vec<IndexMap<String, EnumVariantData>>
+                if let Some(variants_vec) = &class_data.enum_fields {
+                    for variant_map in variants_vec {
+                        for (variant_name, variant_data) in variant_map {
+                            if let Some(variant_type) = &variant_data.r#type {
+                                if let Some(base_type) = extract_base_type_if_not_opaque(variant_type) {
+                                    if !types.contains(&base_type) {
+                                        types.insert(base_type.clone());
+                                        chains.insert(
+                                            base_type,
+                                            format!("{}::{}", class_name, variant_name)
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Track callback typedef types - fn_args is Vec<CallbackArgData>
+                if let Some(callback_def) = &class_data.callback_typedef {
+                    for (idx, param_data) in callback_def.fn_args.iter().enumerate() {
+                        if let Some(param_type) = extract_base_type_if_not_opaque(&param_data.r#type) {
+                            if !types.contains(&param_type) {
+                                types.insert(param_type.clone());
+                                chains.insert(
+                                    param_type,
+                                    format!("callback {} arg#{}", class_name, idx)
+                                );
+                            }
+                        }
+                    }
+                    if let Some(ret) = &callback_def.returns {
+                        if let Some(base_type) = extract_base_type_if_not_opaque(&ret.r#type) {
+                            if !types.contains(&base_type) {
+                                types.insert(base_type.clone());
+                                chains.insert(
+                                    base_type,
+                                    format!("callback {} returns", class_name)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (types, chains)
 }
 
 /// Find types in api.json that are never used by any function or other type
