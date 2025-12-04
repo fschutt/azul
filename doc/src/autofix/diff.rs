@@ -10,6 +10,7 @@ use anyhow::Result;
 
 use super::type_index::{TypeIndex, TypeDefinition, TypeDefKind};
 use super::type_resolver::{ResolvedTypeSet, ResolvedType, TypeResolver, ResolutionContext};
+use super::module_map::get_correct_module;
 use crate::api::ApiData;
 
 // ============================================================================
@@ -27,6 +28,8 @@ pub struct ApiDiff {
     pub removals: Vec<String>,
     /// Field/variant changes within types
     pub modifications: Vec<TypeModification>,
+    /// Types to move to a different module
+    pub module_moves: Vec<ModuleMove>,
 }
 
 /// A path correction for a type
@@ -46,6 +49,17 @@ pub struct TypeAddition {
     pub type_name: String,
     pub full_path: String,
     pub kind: String, // "struct", "enum", "callback", etc.
+}
+
+/// A type that should be moved to a different module
+#[derive(Debug, Clone)]
+pub struct ModuleMove {
+    /// The type name
+    pub type_name: String,
+    /// The current (wrong) module
+    pub from_module: String,
+    /// The target (correct) module
+    pub to_module: String,
 }
 
 /// A modification to an existing type
@@ -543,7 +557,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
     let mut types = HashMap::new();
     
     for (_version_name, version_data) in &api_data.0 {
-        for (_module_name, module_data) in &version_data.api {
+        for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 let path = class_data.external.clone().unwrap_or_default();
                 let derives = class_data.derive.clone().unwrap_or_default();
@@ -552,6 +566,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 
                 types.insert(class_name.clone(), ApiTypeInfo {
                     path,
+                    module: module_name.clone(),
                     derives,
                     custom_impls,
                     has_repr_c,
@@ -567,6 +582,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
 #[derive(Debug, Clone, Default)]
 pub struct ApiTypeInfo {
     pub path: String,
+    pub module: String,
     pub derives: Vec<String>,
     pub custom_impls: Vec<String>,
     pub has_repr_c: bool,
@@ -616,6 +632,15 @@ fn generate_diff_v2(
                         compare_derives_and_impls(matched_api_name, typedef, api_info)
                     );
                 }
+                
+                // Check if type is in the wrong module
+                if let Some(correct_module) = get_correct_module(matched_api_name, &api_info.module) {
+                    diff.module_moves.push(ModuleMove {
+                        type_name: matched_api_name.to_string(),
+                        from_module: api_info.module.clone(),
+                        to_module: correct_module,
+                    });
+                }
             }
         } else {
             // Type is in workspace but not in api.json - should be added
@@ -632,6 +657,7 @@ fn generate_diff_v2(
     }
 
     // 2. Types in api.json but not matched from workspace → removals
+    // Also check for module moves on ALL api.json types (not just matched ones)
     for (api_name, api_info) in current_api_types {
         if !matched_api_types.contains(api_name) {
             // Type is in api.json but couldn't be resolved from workspace
@@ -640,6 +666,22 @@ fn generate_diff_v2(
             // b) Type was renamed (different name now)  
             // c) Type is no longer reachable from any function
             diff.removals.push(format!("{}:{}", api_name, api_info.path));
+        }
+        
+        // Check if ANY type (matched or not) is in the wrong module
+        // This ensures we move legacy module types even if they weren't resolved from workspace
+        if let Some(correct_module) = get_correct_module(api_name, &api_info.module) {
+            // Avoid duplicate moves (already added in matched types loop)
+            let already_has_move = diff.module_moves.iter()
+                .any(|m| m.type_name == *api_name);
+            
+            if !already_has_move {
+                diff.module_moves.push(ModuleMove {
+                    type_name: api_name.to_string(),
+                    from_module: api_info.module.clone(),
+                    to_module: correct_module,
+                });
+            }
         }
     }
 

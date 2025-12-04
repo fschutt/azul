@@ -43,15 +43,24 @@ pub struct ClassPatch {
     /// If true, remove this class entirely from the API
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove: Option<bool>,
+    /// Move this class to a different module (creates target module if needed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub move_to_module: Option<String>,
     /// Update external import path
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
     /// Update documentation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
-    /// Update derive attributes
+    /// Update derive attributes (replaces existing if add_derive is false/None)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>,
+    /// If true, merge derive attributes instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_derive: Option<bool>,
+    /// Derives to remove from existing list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_derive: Option<Vec<String>>,
     /// Update is_boxed_object flag
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_boxed_object: Option<bool>,
@@ -128,16 +137,23 @@ impl ClassPatch {
             && self.callback_typedef.is_none()
             && self.constructors.is_none()
             && self.functions.is_none()
+            && self.move_to_module.is_none()
     }
 
     /// Check if this patch is a removal patch
     pub fn is_removal(&self) -> bool {
         self.remove == Some(true)
     }
+    
+    /// Check if this patch is a module move patch
+    pub fn is_move(&self) -> bool {
+        self.move_to_module.is_some()
+    }
 
     /// Check if this patch is completely empty (no fields set)
     pub fn is_empty(&self) -> bool {
         self.remove.is_none()
+            && self.move_to_module.is_none()
             && self.external.is_none()
             && self.doc.is_none()
             && self.derive.is_none()
@@ -160,11 +176,17 @@ impl ClassPatch {
 }
 
 impl ApiPatch {
-    /// Load patch from file
+    /// Load patch from file - supports both AutofixPatch and legacy ApiPatch formats
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read patch file: {}", path.display()))?;
 
+        // Try parsing as AutofixPatch first (new format)
+        if let Ok(autofix_patch) = serde_json::from_str::<crate::autofix::patch_format::AutofixPatch>(&content) {
+            return Ok(autofix_patch.to_api_patch());
+        }
+
+        // Fall back to legacy ApiPatch format
         serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse patch file: {}", path.display()))
     }
@@ -483,6 +505,54 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Remove duplicate types from api.json, keeping only the one in the "correct" module
+/// Uses determine_module to figure out where each type should be
+/// Returns the number of duplicates removed
+pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
+    use crate::autofix::module_map::determine_module;
+    use std::collections::HashMap;
+    
+    let mut removed = 0;
+    
+    for (_version_name, version_data) in &mut api_data.0 {
+        // First pass: collect all locations for each type name
+        let mut type_locations: HashMap<String, Vec<String>> = HashMap::new();
+        
+        for (module_name, module_data) in &version_data.api {
+            for class_name in module_data.classes.keys() {
+                type_locations.entry(class_name.clone())
+                    .or_default()
+                    .push(module_name.clone());
+            }
+        }
+        
+        // Second pass: for types that exist in multiple modules, remove from wrong modules
+        for (class_name, modules) in type_locations {
+            if modules.len() <= 1 {
+                continue; // No duplicate
+            }
+            
+            // Determine the correct module for this type
+            let (correct_module, _) = determine_module(&class_name);
+            
+            // Remove from all modules except the correct one
+            for module_name in &modules {
+                if *module_name != correct_module {
+                    if let Some(module_data) = version_data.api.get_mut(module_name) {
+                        if module_data.classes.shift_remove(&class_name).is_some() {
+                            println!("  [DEDUP] Removed duplicate {} from '{}' (correct: '{}')", 
+                                class_name, module_name, correct_module);
+                            removed += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    removed
+}
+
 /// Apply only path-only patches from a directory and delete them
 /// This is a safe operation that only updates external paths
 /// Returns statistics about applied patches
@@ -775,10 +845,71 @@ pub struct PatchResult {
 
 fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> PatchResult {
     let mut result = PatchResult::default();
+    
+    // First pass: collect all move operations
+    let mut moves: Vec<(String, String, String, ClassPatch)> = Vec::new(); // (from_module, class_name, to_module, patch)
+    
+    for (module_name, module_patch) in &patch.modules {
+        for (class_name, class_patch) in &module_patch.classes {
+            if let Some(to_module) = &class_patch.move_to_module {
+                moves.push((module_name.clone(), class_name.clone(), to_module.clone(), class_patch.clone()));
+            }
+        }
+    }
+    
+    // Execute moves
+    for (from_module, class_name, to_module, mut patch) in moves {
+        // Remove move_to_module from patch so we don't process it again
+        patch.move_to_module = None;
+        
+        // Try to find the class in the source module
+        let class_data = if let Some(source_module) = version_data.api.get_mut(&from_module) {
+            source_module.classes.shift_remove(&class_name)
+        } else {
+            None
+        };
+        
+        if let Some(mut class_data) = class_data {
+            // Apply any additional patches to the class
+            if !patch.is_empty() {
+                let _ = apply_class_patch(&mut class_data, &patch, &to_module, &class_name);
+            }
+            
+            // Insert into target module (create if needed)
+            let target_module = version_data.api.entry(to_module.clone()).or_insert_with(|| {
+                println!("  [ADD] Creating new module '{}' for move", to_module);
+                crate::api::ModuleData {
+                    doc: None,
+                    classes: indexmap::IndexMap::new(),
+                }
+            });
+            
+            target_module.classes.insert(class_name.clone(), class_data);
+            println!("  [MOVE] Moved class {} from '{}' to '{}'", class_name, from_module, to_module);
+            result.patches_applied += 1;
+        } else {
+            result.errors.push(format!(
+                "Cannot move class '{}' from module '{}' - not found",
+                class_name, from_module
+            ));
+        }
+    }
 
     for (module_name, module_patch) in &patch.modules {
+        // Skip patches that only contain moves (already processed)
+        let non_move_patches: ModulePatch = ModulePatch {
+            classes: module_patch.classes.iter()
+                .filter(|(_, cp)| cp.move_to_module.is_none())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        };
+        
+        if non_move_patches.classes.is_empty() {
+            continue;
+        }
+        
         if let Some(module_data) = version_data.api.get_mut(module_name) {
-            match apply_module_patch(module_data, module_patch, module_name) {
+            match apply_module_patch(module_data, &non_move_patches, module_name) {
                 Ok(count) => result.patches_applied += count,
                 Err(e) => result.errors.push(e.to_string()),
             }
@@ -789,7 +920,7 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
                 doc: None,
                 classes: indexmap::IndexMap::new(),
             };
-            match apply_module_patch(&mut new_module, module_patch, module_name) {
+            match apply_module_patch(&mut new_module, &non_move_patches, module_name) {
                 Ok(count) => {
                     version_data.api.insert(module_name.clone(), new_module);
                     result.patches_applied += count;
@@ -883,14 +1014,55 @@ fn apply_class_patch(
     }
 
     if let Some(new_derive) = &patch.derive {
-        println!(
-            "  [NOTE] Patching {}.{}: derive attributes",
-            module_name, class_name
-        );
-        println!("     Old: {:?}", class_data.derive);
-        println!("     New: {:?}", new_derive);
-        class_data.derive = Some(new_derive.clone());
+        // Check if this is an "add" operation (has add_derive flag or detected as addition)
+        // If so, merge with existing derives instead of replacing
+        if patch.add_derive.unwrap_or(false) {
+            // Merge mode: add new derives to existing
+            let mut existing_derives: Vec<String> = class_data.derive.clone().unwrap_or_default();
+            for derive in new_derive {
+                if !existing_derives.contains(derive) {
+                    existing_derives.push(derive.clone());
+                }
+            }
+            println!(
+                "  [NOTE] Patching {}.{}: derive attributes (merge)",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.derive);
+            println!("     Adding: {:?}", new_derive);
+            println!("     Result: {:?}", existing_derives);
+            class_data.derive = Some(existing_derives);
+        } else {
+            // Replace mode: replace all derives
+            println!(
+                "  [NOTE] Patching {}.{}: derive attributes",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.derive);
+            println!("     New: {:?}", new_derive);
+            class_data.derive = Some(new_derive.clone());
+        }
         patches_applied += 1;
+    }
+
+    // Handle remove_derive separately (can be combined with add_derive)
+    if let Some(derives_to_remove) = &patch.remove_derive {
+        if let Some(existing_derives) = &class_data.derive {
+            let new_derives: Vec<String> = existing_derives
+                .iter()
+                .filter(|d| !derives_to_remove.contains(d))
+                .cloned()
+                .collect();
+            println!(
+                "  [NOTE] Patching {}.{}: derive attributes (remove)",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.derive);
+            println!("     Removing: {:?}", derives_to_remove);
+            println!("     Result: {:?}", new_derives);
+            class_data.derive = if new_derives.is_empty() { None } else { Some(new_derives) };
+            patches_applied += 1;
+        }
     }
 
     if let Some(new_is_boxed) = patch.is_boxed_object {

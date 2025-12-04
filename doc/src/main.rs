@@ -41,6 +41,20 @@ fn main() -> anyhow::Result<()> {
             println!("[SAVE] Saved normalized api.json\n");
             return Ok(());
         }
+        ["dedup"] => {
+            println!("[DEDUP] Removing duplicate types from api.json...\n");
+            let mut api_data = load_api_json(&api_path)?;
+            let removed = patch::remove_duplicate_types(&mut api_data);
+            if removed > 0 {
+                let api_json = serde_json::to_string_pretty(&api_data)?;
+                fs::write(&api_path, api_json)?;
+                println!("\n[OK] Removed {} duplicate types", removed);
+                println!("[SAVE] Saved updated api.json\n");
+            } else {
+                println!("[OK] No duplicates found\n");
+            }
+            return Ok(());
+        }
         ["autofix"] | ["autofix", "run"] => {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
@@ -272,60 +286,13 @@ fn main() -> anyhow::Result<()> {
                     println!("\n[SAVE] Saved updated api.json");
                 }
                 
-                // After applying patches, recursively remove all unused types
-                // This handles the cascading effect where removing one type makes others unused
-                let mut total_removed = 0;
-                let mut pass = 0;
-                let max_passes = 50;
+                // NOTE: We do NOT remove unused types after autofix patches.
+                // autofix adds types that are transitively reachable from functions
+                // in the workspace index, but find_unused_types may not see them as 
+                // reachable because the api.json type definitions may be incomplete.
+                // Use "azul-doc unused" to manually check/remove unused types.
                 
-                loop {
-                    pass += 1;
-                    if pass > max_passes {
-                        eprintln!("[WARN] Max passes ({}) reached for unused type removal", max_passes);
-                        break;
-                    }
-                    
-                    // Re-load api.json to get fresh state
-                    let api_json_str = fs::read_to_string(&api_path)?;
-                    let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
-                    
-                    // Find unused types (single pass - not recursive simulation)
-                    let unused = api::find_unused_types(&fresh_api_data);
-                    
-                    if unused.is_empty() {
-                        break;
-                    }
-                    
-                    if pass == 1 {
-                        println!("\n[CLEANUP] Removing unused types...");
-                    }
-                    
-                    // Generate and apply removal patches directly
-                    let removal_patches = api::generate_removal_patches(&unused);
-                    let mut changes_this_pass = 0;
-                    
-                    for patch in &removal_patches {
-                        if let Ok((count, _)) = patch.apply(&mut fresh_api_data) {
-                            changes_this_pass += count;
-                        }
-                    }
-                    
-                    if changes_this_pass == 0 {
-                        break;
-                    }
-                    
-                    total_removed += unused.len();
-                    
-                    // Save the updated api.json
-                    let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
-                    fs::write(&api_path, api_json)?;
-                }
-                
-                if total_removed > 0 {
-                    println!("[OK] Removed {} unused types in {} passes", total_removed, pass - 1);
-                }
-                
-                // Remove empty modules after removing unused types
+                // Remove empty modules after patching
                 let api_json_str = fs::read_to_string(&api_path)?;
                 let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
                 let empty_modules_removed = api::remove_empty_modules(&mut fresh_api_data);
@@ -334,9 +301,6 @@ fn main() -> anyhow::Result<()> {
                     println!("[OK] Removed {} empty modules", empty_modules_removed);
                     let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
                     fs::write(&api_path, api_json)?;
-                }
-                
-                if total_removed > 0 || empty_modules_removed > 0 {
                     println!("\n[SAVE] Saved updated api.json");
                 }
 

@@ -38,6 +38,8 @@ pub mod type_index;
 pub mod type_resolver;
 pub mod diff;
 pub mod debug;
+pub mod patch_format;
+pub mod module_map;
 
 /// Check if a type should be ignored in "Could not find type" warnings
 pub fn should_suppress_type_not_found(type_name: &str) -> bool {
@@ -645,6 +647,22 @@ pub fn autofix_api(
             println!("  {} and {} more", "...".dimmed(), (diff.removals.len() - 30).to_string().yellow());
         }
     }
+    
+    // Print module moves
+    if !diff.module_moves.is_empty() {
+        println!("\n{} (first 30 of {}):", "Module Moves".magenta().bold(), diff.module_moves.len());
+        for module_move in diff.module_moves.iter().take(30) {
+            println!("  {} : {} {} {}", 
+                module_move.type_name.white(),
+                module_move.from_module.red(),
+                "->".dimmed(),
+                module_move.to_module.green()
+            );
+        }
+        if diff.module_moves.len() > 30 {
+            println!("  {} and {} more", "...".dimmed(), (diff.module_moves.len() - 30).to_string().yellow());
+        }
+    }
 
     // Print modifications (derive/impl changes)
     if !diff.modifications.is_empty() {
@@ -747,7 +765,7 @@ pub fn autofix_api(
     for (type_name, mods) in &mods_by_type {
         let path_fix = path_fixes_by_type.get(type_name);
         let patch_content = generate_combined_patch(type_name, path_fix, mods);
-        let patch_path = patches_dir.join(format!("{:04}_modify_{}.patch", patch_count, type_name));
+        let patch_path = patches_dir.join(format!("{:04}_modify_{}.patch.json", patch_count, type_name));
         fs::write(&patch_path, &patch_content)?;
         patch_count += 1;
         handled_types.insert(type_name.clone());
@@ -757,7 +775,7 @@ pub fn autofix_api(
     for fix in &diff.path_fixes {
         if !handled_types.contains(&fix.type_name) {
             let patch_content = generate_path_fix_patch(fix);
-            let patch_path = patches_dir.join(format!("{:04}_path_fix_{}.patch", patch_count, fix.type_name));
+            let patch_path = patches_dir.join(format!("{:04}_path_fix_{}.patch.json", patch_count, fix.type_name));
             fs::write(&patch_path, &patch_content)?;
             patch_count += 1;
         }
@@ -766,7 +784,7 @@ pub fn autofix_api(
     // Generate addition patches  
     for addition in &diff.additions {
         let patch_content = generate_addition_patch(addition);
-        let patch_path = patches_dir.join(format!("{:04}_add_{}.patch", patch_count, addition.type_name));
+        let patch_path = patches_dir.join(format!("{:04}_add_{}.patch.json", patch_count, addition.type_name));
         fs::write(&patch_path, &patch_content)?;
         patch_count += 1;
     }
@@ -775,7 +793,15 @@ pub fn autofix_api(
     for removal in &diff.removals {
         let type_name = removal.split(':').next().unwrap_or(removal);
         let patch_content = generate_removal_patch(removal);
-        let patch_path = patches_dir.join(format!("{:04}_remove_{}.patch", patch_count, type_name));
+        let patch_path = patches_dir.join(format!("{:04}_remove_{}.patch.json", patch_count, type_name));
+        fs::write(&patch_path, &patch_content)?;
+        patch_count += 1;
+    }
+    
+    // Generate module move patches
+    for module_move in &diff.module_moves {
+        let patch_content = generate_module_move_patch(module_move);
+        let patch_path = patches_dir.join(format!("{:04}_move_{}.patch.json", patch_count, module_move.type_name));
         fs::write(&patch_path, &patch_content)?;
         patch_count += 1;
     }
@@ -798,149 +824,168 @@ fn generate_combined_patch(
     path_fix: Option<&&diff::PathFix>,
     modifications: &[&diff::TypeModification]
 ) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("# Patch for {}", type_name));
-    lines.push(String::new());
-    lines.push(format!("[api.json]"));
-    lines.push(format!("class: \"{}\"", type_name));
+    use patch_format::*;
+
+    let mut patch = AutofixPatch::new(format!("Modify type {}", type_name));
+    
+    let mut changes = Vec::new();
     
     // Path change
     if let Some(fix) = path_fix {
-        lines.push(format!("  - external: \"{}\"", fix.old_path));
-        lines.push(format!("  + external: \"{}\"", fix.new_path));
+        changes.push(ModifyChange::SetExternal {
+            old: fix.old_path.clone(),
+            new: fix.new_path.clone(),
+        });
     }
     
-    // Group modifications by kind for compact output
-    let mut derives_added: Vec<&str> = Vec::new();
-    let mut derives_removed: Vec<&str> = Vec::new();
-    let mut repr_c_change: Option<(bool, bool)> = None;
-    let mut fields_added: Vec<(&str, &str)> = Vec::new();
-    let mut fields_removed: Vec<&str> = Vec::new();
-    let mut fields_changed: Vec<(&str, &str, &str)> = Vec::new();
-    let mut variants_added: Vec<&str> = Vec::new();
-    let mut variants_removed: Vec<&str> = Vec::new();
-    let mut variants_changed: Vec<(&str, &Option<String>, &Option<String>)> = Vec::new();
+    // Group modifications by kind
+    let mut derives_added: Vec<String> = Vec::new();
+    let mut derives_removed: Vec<String> = Vec::new();
     
     for m in modifications {
         match &m.kind {
             diff::ModificationKind::DeriveAdded { derive_name } => {
-                derives_added.push(derive_name);
+                derives_added.push(derive_name.clone());
             }
             diff::ModificationKind::DeriveRemoved { derive_name } => {
-                derives_removed.push(derive_name);
+                derives_removed.push(derive_name.clone());
             }
             diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
-                repr_c_change = Some((*old_repr_c, *new_repr_c));
+                changes.push(ModifyChange::SetReprC {
+                    old: *old_repr_c,
+                    new: *new_repr_c,
+                });
             }
             diff::ModificationKind::FieldAdded { field_name, field_type } => {
-                fields_added.push((field_name, field_type));
+                changes.push(ModifyChange::AddField {
+                    name: field_name.clone(),
+                    field_type: field_type.clone(),
+                    doc: None,
+                });
             }
             diff::ModificationKind::FieldRemoved { field_name } => {
-                fields_removed.push(field_name);
+                changes.push(ModifyChange::RemoveField {
+                    name: field_name.clone(),
+                });
             }
             diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type } => {
-                fields_changed.push((field_name, old_type, new_type));
+                changes.push(ModifyChange::ChangeFieldType {
+                    name: field_name.clone(),
+                    old_type: old_type.clone(),
+                    new_type: new_type.clone(),
+                });
             }
             diff::ModificationKind::VariantAdded { variant_name } => {
-                variants_added.push(variant_name);
+                changes.push(ModifyChange::AddVariant {
+                    name: variant_name.clone(),
+                    variant_type: None,
+                });
             }
             diff::ModificationKind::VariantRemoved { variant_name } => {
-                variants_removed.push(variant_name);
+                changes.push(ModifyChange::RemoveVariant {
+                    name: variant_name.clone(),
+                });
             }
             diff::ModificationKind::VariantTypeChanged { variant_name, old_type, new_type } => {
-                variants_changed.push((variant_name, old_type, new_type));
+                changes.push(ModifyChange::ChangeVariantType {
+                    name: variant_name.clone(),
+                    old_type: old_type.clone(),
+                    new_type: new_type.clone(),
+                });
             }
         }
     }
     
-    // Repr(C) change
-    if let Some((old, new)) = repr_c_change {
-        lines.push(format!("  repr(C): {} -> {}", old, new));
-    }
-    
-    // Derives (compact format)
+    // Add grouped derives
     if !derives_added.is_empty() {
-        lines.push(format!("  + derive: {}", derives_added.join(", ")));
+        changes.push(ModifyChange::AddDerives { derives: derives_added });
     }
     if !derives_removed.is_empty() {
-        lines.push(format!("  - derive: {}", derives_removed.join(", ")));
+        changes.push(ModifyChange::RemoveDerives { derives: derives_removed });
     }
     
-    // Fields
-    for (name, ty) in &fields_added {
-        lines.push(format!("  + field {}: {}", name, ty));
-    }
-    for name in &fields_removed {
-        lines.push(format!("  - field {}", name));
-    }
-    for (name, old, new) in &fields_changed {
-        lines.push(format!("  ~ field {}: {} -> {}", name, old, new));
-    }
+    patch.add_operation(PatchOperation::Modify(ModifyOperation {
+        type_name: type_name.to_string(),
+        module: None,
+        changes,
+    }));
     
-    // Variants
-    for name in &variants_added {
-        lines.push(format!("  + variant {}", name));
-    }
-    for name in &variants_removed {
-        lines.push(format!("  - variant {}", name));
-    }
-    for (name, old, new) in &variants_changed {
-        lines.push(format!("  ~ variant {}: {:?} -> {:?}", name, old, new));
-    }
-    
-    lines.join("\n")
+    patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
 }
 
 /// Generate a patch for a path fix
 fn generate_path_fix_patch(fix: &diff::PathFix) -> String {
-    format!(
-        r#"# Path fix for {}
+    use patch_format::*;
 
-[api.json]
-class: "{}"
-  - external: "{}"
-  + external: "{}"
-"#,
-        fix.type_name,
-        fix.type_name,
-        fix.old_path,
-        fix.new_path
-    )
+    let mut patch = AutofixPatch::new(format!("Fix external path for {}", fix.type_name));
+    patch.add_operation(PatchOperation::PathFix(PathFixOperation {
+        type_name: fix.type_name.clone(),
+        old_path: fix.old_path.clone(),
+        new_path: fix.new_path.clone(),
+    }));
+    
+    patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
 }
 
 /// Generate a patch for adding a new type
 fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
-    format!(
-        r#"# Add type {} ({})
+    use patch_format::*;
 
-[api.json]
-+ class: "{}"
-  external: "{}"
-  kind: {}
-"#,
-        addition.type_name,
-        addition.kind,
-        addition.type_name,
-        addition.full_path,
-        addition.kind
-    )
+    let kind = match addition.kind.as_str() {
+        "struct" => TypeKind::Struct,
+        "enum" => TypeKind::Enum,
+        "type_alias" => TypeKind::TypeAlias,
+        "callback" => TypeKind::Callback,
+        "callback_value" => TypeKind::CallbackValue,
+        _ => TypeKind::Struct,
+    };
+
+    let mut patch = AutofixPatch::new(format!("Add new type {}", addition.type_name));
+    patch.add_operation(PatchOperation::Add(AddOperation {
+        type_name: addition.type_name.clone(),
+        external: addition.full_path.clone(),
+        kind,
+        module: None,
+        derives: None,
+        repr_c: None,
+        struct_fields: None,
+        enum_variants: None,
+    }));
+    
+    patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
 }
 
 /// Generate a patch for removing a type
 fn generate_removal_patch(removal: &str) -> String {
+    use patch_format::*;
+
     let parts: Vec<&str> = removal.splitn(2, ':').collect();
     let type_name = parts.get(0).unwrap_or(&removal);
-    let path = parts.get(1).unwrap_or(&"");
+    let path = parts.get(1);
     
-    format!(
-        r#"# Remove type {}
-# Path: {}
+    let mut patch = AutofixPatch::new(format!("Remove unused type {}", type_name));
+    patch.add_operation(PatchOperation::Remove(RemoveOperation {
+        type_name: type_name.to_string(),
+        path: path.map(|p| p.trim().to_string()),
+        reason: Some("Not reachable from public API".to_string()),
+    }));
+    
+    patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
+}
 
-[api.json]
-- class: "{}"
-"#,
-        type_name,
-        path,
-        type_name
-    )
+/// Generate a patch for moving a type to a different module
+fn generate_module_move_patch(module_move: &diff::ModuleMove) -> String {
+    use patch_format::*;
+
+    let mut patch = AutofixPatch::new(format!(
+        "Move {} from '{}' to '{}' module",
+        module_move.type_name, module_move.from_module, module_move.to_module
+    ));
+    patch.add_operation(PatchOperation::MoveModule(MoveModuleOperation {
+        type_name: module_move.type_name.clone(),
+        from_module: module_move.from_module.clone(),
+        to_module: module_move.to_module.clone(),
+    }));
+    
+    patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
 }

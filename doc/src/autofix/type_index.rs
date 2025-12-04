@@ -349,6 +349,11 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
 
     for entry in entries.flatten() {
         let path = entry.path();
+        
+        // Skip excluded paths (tests, examples, build.rs, etc.)
+        if crate::autofix::module_map::should_exclude_path(&path) {
+            continue;
+        }
 
         if path.is_dir() {
             collect_rust_files(files, crate_name, &path);

@@ -16,6 +16,7 @@ use anyhow::Result;
 use crate::{
     api::ApiData,
     autofix::message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
+    autofix::module_map::{get_correct_module, MODULES},
     patch::{
         index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
@@ -743,6 +744,21 @@ pub fn generate_patches(
                             });
                     }
                 }
+            }
+        }
+    }
+
+    // 5.5. Generate MoveModule patches for types in wrong modules
+    // Check each type in api.json and generate move patches if needed
+    for (module_name, module_data) in &version_data.api {
+        for (class_name, _class_data) in &module_data.classes {
+            // Determine where this type should actually be
+            if let Some(correct_module) = get_correct_module(class_name, module_name) {
+                // Type is in wrong module, generate move patch
+                let key = (module_name.clone(), class_name.clone());
+                all_patches.entry(key).or_insert_with(|| {
+                    ClassPatch::default()
+                }).move_to_module = Some(correct_module);
             }
         }
     }
