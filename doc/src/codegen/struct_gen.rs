@@ -547,32 +547,31 @@ fn generate_struct_definition(
     let mut has_serialize = false;
     let mut has_deserialize = false;
     
+    // For memtest: track which traits we need to generate manually
+    // because we can't rely on field types implementing the derives
+    let mut memtest_manual_impls: Vec<&str> = Vec::new();
+    
     if !config.no_derive {
         // Add derives from api.json, but filter out Serialize/Deserialize
         for d in &struct_meta.derive {
             match d.as_str() {
                 "Serialize" => has_serialize = true,
                 "Deserialize" => has_deserialize = true,
-                other => derives.push(other),
-            }
-        }
-        
-        // For memtest: add custom_impls as derives (since we skip generating the trait impls)
-        // This way types that have manual `impl Clone for X` in real code get `#[derive(Clone)]` in memtest
-        if config.is_memtest {
-            for impl_trait in &struct_meta.custom_impls {
-                // Skip traits that can't be derived
-                match impl_trait.as_str() {
-                    "Clone" | "Copy" | "Debug" | "Default" | "PartialEq" | "Eq" | 
-                    "PartialOrd" | "Ord" | "Hash" => {
-                        if !derives.contains(&impl_trait.as_str()) {
-                            derives.push(impl_trait.as_str());
-                        }
+                other => {
+                    if config.is_memtest {
+                        // For memtest, collect derivable traits for manual impl generation
+                        // We can't use #[derive] because field types may not implement them
+                        memtest_manual_impls.push(other);
+                    } else {
+                        derives.push(other);
                     }
-                    _ => {} // Skip non-derivable traits like Drop, Display, AsRef, From, etc.
                 }
             }
         }
+        
+        // For memtest: DON'T add custom_impls as derives because the field types
+        // (like Vec types with custom destructors) may not implement those traits.
+        // Instead, we'll generate manual impls after the struct definition.
     }
     
     // For callback wrapper structs, don't derive any traits because we generate custom implementations
@@ -902,6 +901,150 @@ fn generate_struct_definition(
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
+    } else {
+        // For memtest: generate manual trait implementations that don't rely on field types
+        // This is necessary because Vec types and other custom destructor types don't derive traits
+        
+        // Combine custom_impls AND memtest_manual_impls (traits from derive that need manual impl)
+        // This is the key fix: previously we only checked custom_impls, missing all derive traits!
+        let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
+            .map(|s| s.as_str())
+            .chain(memtest_manual_impls.iter().copied())
+            .collect();
+        
+        // Generate impl Clone for memtest
+        if all_manual_traits.contains("Clone") {
+            code.push_str(&format!(
+                "{}impl Clone for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn clone(&self) -> Self {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::ptr::read(self) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Debug for memtest
+        if all_manual_traits.contains("Debug") {
+            code.push_str(&format!(
+                "{}impl core::fmt::Debug for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        f.debug_struct(\"{}\").finish()\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Default for memtest
+        if all_manual_traits.contains("Default") {
+            code.push_str(&format!(
+                "{}impl Default for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn default() -> Self {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::zeroed() }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl PartialEq for memtest
+        if all_manual_traits.contains("PartialEq") {
+            code.push_str(&format!(
+                "{}impl PartialEq for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn eq(&self, other: &Self) -> bool {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Eq for memtest
+        if all_manual_traits.contains("Eq") {
+            code.push_str(&format!(
+                "{}impl Eq for {} {{ }}\n\n",
+                indent_str, struct_name
+            ));
+        }
+        
+        // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
+        if all_manual_traits.contains("PartialOrd") {
+            code.push_str(&format!(
+                "{}impl PartialOrd for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }})\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Ord for memtest
+        if all_manual_traits.contains("Ord") {
+            code.push_str(&format!(
+                "{}impl Ord for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Hash for memtest
+        if all_manual_traits.contains("Hash") {
+            code.push_str(&format!(
+                "{}impl core::hash::Hash for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
     }
 
     Ok(code)
@@ -941,6 +1084,9 @@ fn generate_enum_definition(
     let mut has_deserialize = false;
     let mut has_default = false;
     
+    // For memtest: track which traits we need to generate manually
+    let mut memtest_manual_impls: Vec<&str> = Vec::new();
+    
     if !config.no_derive {
         // Add derives from api.json, but filter out Serialize/Deserialize/Default
         for d in &struct_meta.derive {
@@ -948,33 +1094,31 @@ fn generate_enum_definition(
                 "Serialize" => has_serialize = true,
                 "Deserialize" => has_deserialize = true,
                 "Default" => has_default = true,
-                other => derives.push(other),
+                "Copy" if config.is_memtest => {
+                    // Skip Copy for memtest - if Clone is implemented, it works
+                    // Copy requires all fields to be Copy which may not be true
+                }
+                other => {
+                    if config.is_memtest {
+                        // For memtest, collect derivable traits for manual impl generation
+                        memtest_manual_impls.push(other);
+                    } else {
+                        derives.push(other);
+                    }
+                }
             }
         }
         
         // For enums, we can use Default derive if we add #[default] to first variant
-        // So re-add it to the derives list
-        if has_default {
+        // So re-add it to the derives list (only if not memtest)
+        if has_default && !config.is_memtest {
             derives.push("Default");
+        } else if has_default && config.is_memtest {
+            memtest_manual_impls.push("Default");
         }
         
-        // For memtest: add custom_impls as derives (since we skip generating the trait impls)
-        // This way types that have manual `impl Clone for X` in real code get `#[derive(Clone)]` in memtest
-        if config.is_memtest {
-            for impl_trait in &struct_meta.custom_impls {
-                // Skip traits that can't be derived
-                match impl_trait.as_str() {
-                    "Clone" | "Copy" | "Debug" | "PartialEq" | "Eq" | 
-                    "PartialOrd" | "Ord" | "Hash" => {
-                        if !derives.contains(&impl_trait.as_str()) {
-                            derives.push(impl_trait.as_str());
-                        }
-                    }
-                    // Note: Default is handled separately above for enums
-                    _ => {} // Skip non-derivable traits like Drop, Display, AsRef, From, etc.
-                }
-            }
-        }
+        // For memtest: DON'T add custom_impls as derives
+        // We'll generate manual impls instead
     }
 
     // Generate derive attributes
@@ -1147,6 +1291,149 @@ fn generate_enum_definition(
     }
 
     code.push_str(&format!("{}}}\n\n", indent_str));
+
+    // For memtest: generate manual trait implementations for enums
+    if config.is_memtest && !memtest_manual_impls.is_empty() {
+        // Combine custom_impls AND memtest_manual_impls
+        let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
+            .map(|s| s.as_str())
+            .chain(memtest_manual_impls.iter().copied())
+            .collect();
+        
+        // Generate impl Clone for memtest
+        if all_manual_traits.contains("Clone") {
+            code.push_str(&format!(
+                "{}impl Clone for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn clone(&self) -> Self {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::ptr::read(self) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Debug for memtest
+        if all_manual_traits.contains("Debug") {
+            code.push_str(&format!(
+                "{}impl core::fmt::Debug for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        f.debug_struct(\"{}\").finish()\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Default for memtest
+        if all_manual_traits.contains("Default") {
+            code.push_str(&format!(
+                "{}impl Default for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn default() -> Self {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::zeroed() }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl PartialEq for memtest
+        if all_manual_traits.contains("PartialEq") {
+            code.push_str(&format!(
+                "{}impl PartialEq for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn eq(&self, other: &Self) -> bool {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Eq for memtest
+        if all_manual_traits.contains("Eq") {
+            code.push_str(&format!(
+                "{}impl Eq for {} {{ }}\n\n",
+                indent_str, struct_name
+            ));
+        }
+        
+        // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
+        if all_manual_traits.contains("PartialOrd") {
+            code.push_str(&format!(
+                "{}impl PartialOrd for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }})\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Ord for memtest
+        if all_manual_traits.contains("Ord") {
+            code.push_str(&format!(
+                "{}impl Ord for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+        
+        // Generate impl Hash for memtest
+        if all_manual_traits.contains("Hash") {
+            code.push_str(&format!(
+                "{}impl core::hash::Hash for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+    }
 
     Ok(code)
 }
