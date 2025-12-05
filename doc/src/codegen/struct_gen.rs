@@ -1078,7 +1078,7 @@ fn generate_enum_definition(
     // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
     // All derive information is now explicit in api.json - no auto-computation
     // BUT: Serialize/Deserialize need special handling - they go in cfg_attr
-    // AND: Default needs special handling for enums - we add #[default] to first variant
+    // AND: Default for enums ALWAYS needs manual impl (can't use #[derive(Default)] without #[default] attribute)
     let mut derives: Vec<&str> = Vec::new();
     let mut has_serialize = false;
     let mut has_deserialize = false;
@@ -1093,6 +1093,8 @@ fn generate_enum_definition(
             match d.as_str() {
                 "Serialize" => has_serialize = true,
                 "Deserialize" => has_deserialize = true,
+                // Default for enums ALWAYS needs manual impl - #[derive(Default)] requires
+                // unstable #[default] attribute on a variant
                 "Default" => has_default = true,
                 "Copy" if config.is_memtest => {
                     // Skip Copy for memtest - if Clone is implemented, it works
@@ -1109,11 +1111,9 @@ fn generate_enum_definition(
             }
         }
         
-        // For enums, we can use Default derive if we add #[default] to first variant
-        // So re-add it to the derives list (only if not memtest)
-        if has_default && !config.is_memtest {
-            derives.push("Default");
-        } else if has_default && config.is_memtest {
+        // For enums: Default ALWAYS needs manual impl (never use derive)
+        // The #[derive(Default)] for enums requires #[default] attribute which is unstable
+        if has_default {
             memtest_manual_impls.push("Default");
         }
         
@@ -1186,9 +1186,6 @@ fn generate_enum_definition(
     ));
 
     // Generate variants
-    // Track if we've added #[default] to the first unit variant
-    let mut default_added = false;
-    
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
             if let Some(variant_type) = &variant_data.r#type {
@@ -1280,11 +1277,7 @@ fn generate_enum_definition(
                     }
                 }
             } else {
-                // Unit variant - add #[default] to first unit variant if needed
-                if has_default && !default_added {
-                    code.push_str(&format!("{}    #[default]\n", indent_str));
-                    default_added = true;
-                }
+                // Unit variant
                 code.push_str(&format!("{}    {},\n", indent_str, variant_name));
             }
         }
@@ -1292,12 +1285,39 @@ fn generate_enum_definition(
 
     code.push_str(&format!("{}}}\n\n", indent_str));
 
-    // For memtest: generate manual trait implementations for enums
+    // Generate impl Default for enums - ALWAYS needed since #[derive(Default)] requires
+    // unstable #[default] attribute on a variant
+    if has_default && !config.no_derive {
+        // Find the first variant name for the default
+        let first_variant_name = enum_fields
+            .first()
+            .and_then(|m| m.keys().next())
+            .map(|s| s.as_str())
+            .unwrap_or("Unknown");
+        
+        code.push_str(&format!(
+            "{}impl Default for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn default() -> Self {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        {}::{}\n",
+            indent_str, struct_name, first_variant_name
+        ));
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // For memtest: generate manual trait implementations for enums (except Default which is handled above)
     if config.is_memtest && !memtest_manual_impls.is_empty() {
-        // Combine custom_impls AND memtest_manual_impls
+        // Combine custom_impls AND memtest_manual_impls, but exclude Default (already generated)
         let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
             .map(|s| s.as_str())
             .chain(memtest_manual_impls.iter().copied())
+            .filter(|&t| t != "Default") // Default already generated above
             .collect();
         
         // Generate impl Clone for memtest
@@ -1336,23 +1356,7 @@ fn generate_enum_definition(
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
         
-        // Generate impl Default for memtest
-        if all_manual_traits.contains("Default") {
-            code.push_str(&format!(
-                "{}impl Default for {} {{\n",
-                indent_str, struct_name
-            ));
-            code.push_str(&format!(
-                "{}    fn default() -> Self {{\n",
-                indent_str
-            ));
-            code.push_str(&format!(
-                "{}        unsafe {{ core::mem::zeroed() }}\n",
-                indent_str
-            ));
-            code.push_str(&format!("{}    }}\n", indent_str));
-            code.push_str(&format!("{}}}\n\n", indent_str));
-        }
+        // NOTE: Default impl is generated above (outside memtest block) since it's always needed for enums
         
         // Generate impl PartialEq for memtest
         if all_manual_traits.contains("PartialEq") {
