@@ -148,6 +148,12 @@ pub enum ModifyChange {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         new_generic_args: Vec<String>,
     },
+    /// Set generic params for a generic type (e.g., ["T"] for PhysicalSize<T>)
+    SetGenericParams {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        old_params: Vec<String>,
+        new_params: Vec<String>,
+    },
 }
 
 /// Callback argument definition for patches
@@ -432,6 +438,19 @@ fn explain_change(change: &ModifyChange) -> String {
                 format!("~ type_alias: {} → {}<{}>", old_target, new_target, new_generic_args.join(", "))
             }
         }
+        ModifyChange::SetGenericParams { old_params, new_params } => {
+            let old_display = if old_params.is_empty() {
+                "none".to_string()
+            } else {
+                format!("<{}>", old_params.join(", "))
+            };
+            let new_display = if new_params.is_empty() {
+                "none".to_string()
+            } else {
+                format!("<{}>", new_params.join(", "))
+            };
+            format!("~ generic_params: {} → {}", old_display, new_display)
+        }
     }
 }
 
@@ -675,6 +694,13 @@ impl AutofixPatch {
                         target: new_target.clone(),
                         generic_args: new_generic_args.clone(),
                     });
+                }
+                ModifyChange::SetGenericParams { new_params, .. } => {
+                    if new_params.is_empty() {
+                        patch.generic_params = None;
+                    } else {
+                        patch.generic_params = Some(new_params.clone());
+                    }
                 }
             }
         }

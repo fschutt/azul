@@ -914,12 +914,29 @@ fn generate_struct_definition(
             .map(|s| s.as_str())
             .chain(memtest_manual_impls.iter().copied())
             .collect();
+
+        // For generic types, we need impl<T> Clone for Foo<T> instead of impl Clone for Foo
+        let impl_generics = if let Some(params) = &struct_meta.generic_params {
+            if params.is_empty() {
+                String::new()
+            } else {
+                format!("<{}>", params.join(", "))
+            }
+        } else {
+            String::new()
+        };
+        let type_with_generics = format!("{}{}", struct_name, impl_generics);
+        
+        // For generic types, we cannot use transmute-based impls because size_of::<Self>()
+        // is not known at compile time. Generic types are tested via their concrete
+        // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
+        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
         
         // Generate impl Clone for memtest
         if all_manual_traits.contains("Clone") {
             code.push_str(&format!(
-                "{}impl Clone for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} Clone for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn clone(&self) -> Self {{\n",
@@ -936,8 +953,8 @@ fn generate_struct_definition(
         // Generate impl Debug for memtest
         if all_manual_traits.contains("Debug") {
             code.push_str(&format!(
-                "{}impl core::fmt::Debug for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} core::fmt::Debug for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
@@ -954,8 +971,8 @@ fn generate_struct_definition(
         // Generate impl Default for memtest
         if all_manual_traits.contains("Default") {
             code.push_str(&format!(
-                "{}impl Default for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} Default for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn default() -> Self {{\n",
@@ -970,10 +987,11 @@ fn generate_struct_definition(
         }
         
         // Generate impl PartialEq for memtest
-        if all_manual_traits.contains("PartialEq") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("PartialEq") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl PartialEq for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} PartialEq for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn eq(&self, other: &Self) -> bool {{\n",
@@ -988,18 +1006,20 @@ fn generate_struct_definition(
         }
         
         // Generate impl Eq for memtest
-        if all_manual_traits.contains("Eq") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Eq") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl Eq for {} {{ }}\n\n",
-                indent_str, struct_name
+                "{}impl{} Eq for {} {{ }}\n\n",
+                indent_str, impl_generics, type_with_generics
             ));
         }
         
         // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
-        if all_manual_traits.contains("PartialOrd") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("PartialOrd") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl PartialOrd for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} PartialOrd for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
@@ -1014,10 +1034,11 @@ fn generate_struct_definition(
         }
         
         // Generate impl Ord for memtest
-        if all_manual_traits.contains("Ord") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Ord") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl Ord for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} Ord for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
@@ -1032,10 +1053,11 @@ fn generate_struct_definition(
         }
         
         // Generate impl Hash for memtest
-        if all_manual_traits.contains("Hash") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Hash") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl core::hash::Hash for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} core::hash::Hash for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
@@ -1288,6 +1310,18 @@ fn generate_enum_definition(
 
     code.push_str(&format!("{}}}\n\n", indent_str));
 
+    // Build impl_generics and type_with_generics for trait impls
+    let impl_generics = if let Some(params) = &struct_meta.generic_params {
+        if params.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", params.join(", "))
+        }
+    } else {
+        String::new()
+    };
+    let type_with_generics = format!("{}{}", struct_name, impl_generics);
+
     // Generate impl Default for enums - ALWAYS needed since #[derive(Default)] requires
     // unstable #[default] attribute on a variant
     if has_default && !config.no_derive {
@@ -1299,8 +1333,8 @@ fn generate_enum_definition(
             .unwrap_or("Unknown");
         
         code.push_str(&format!(
-            "{}impl Default for {} {{\n",
-            indent_str, struct_name
+            "{}impl{} Default for {} {{\n",
+            indent_str, impl_generics, type_with_generics
         ));
         code.push_str(&format!(
             "{}    fn default() -> Self {{\n",
@@ -1308,7 +1342,7 @@ fn generate_enum_definition(
         ));
         code.push_str(&format!(
             "{}        {}::{}\n",
-            indent_str, struct_name, first_variant_name
+            indent_str, type_with_generics, first_variant_name
         ));
         code.push_str(&format!("{}    }}\n", indent_str));
         code.push_str(&format!("{}}}\n\n", indent_str));
@@ -1323,11 +1357,16 @@ fn generate_enum_definition(
             .filter(|&t| t != "Default") // Default already generated above
             .collect();
         
+        // For generic types, we cannot use transmute-based impls because size_of::<Self>()
+        // is not known at compile time. Generic types are tested via their concrete
+        // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
+        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        
         // Generate impl Clone for memtest
         if all_manual_traits.contains("Clone") {
             code.push_str(&format!(
-                "{}impl Clone for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} Clone for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn clone(&self) -> Self {{\n",
@@ -1344,8 +1383,8 @@ fn generate_enum_definition(
         // Generate impl Debug for memtest
         if all_manual_traits.contains("Debug") {
             code.push_str(&format!(
-                "{}impl core::fmt::Debug for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} core::fmt::Debug for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
@@ -1362,10 +1401,11 @@ fn generate_enum_definition(
         // NOTE: Default impl is generated above (outside memtest block) since it's always needed for enums
         
         // Generate impl PartialEq for memtest
-        if all_manual_traits.contains("PartialEq") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("PartialEq") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl PartialEq for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} PartialEq for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn eq(&self, other: &Self) -> bool {{\n",
@@ -1380,18 +1420,20 @@ fn generate_enum_definition(
         }
         
         // Generate impl Eq for memtest
-        if all_manual_traits.contains("Eq") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Eq") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl Eq for {} {{ }}\n\n",
-                indent_str, struct_name
+                "{}impl{} Eq for {} {{ }}\n\n",
+                indent_str, impl_generics, type_with_generics
             ));
         }
         
         // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
-        if all_manual_traits.contains("PartialOrd") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("PartialOrd") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl PartialOrd for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} PartialOrd for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
@@ -1406,10 +1448,11 @@ fn generate_enum_definition(
         }
         
         // Generate impl Ord for memtest
-        if all_manual_traits.contains("Ord") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Ord") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl Ord for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} Ord for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
@@ -1424,10 +1467,11 @@ fn generate_enum_definition(
         }
         
         // Generate impl Hash for memtest
-        if all_manual_traits.contains("Hash") {
+        // Skip for generic types - they are tested via their concrete instantiations (type aliases)
+        if all_manual_traits.contains("Hash") && !is_generic_type {
             code.push_str(&format!(
-                "{}impl core::hash::Hash for {} {{\n",
-                indent_str, struct_name
+                "{}impl{} core::hash::Hash for {} {{\n",
+                indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!(
                 "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",

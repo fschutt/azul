@@ -106,6 +106,8 @@ pub enum ModificationKind {
     TypeAliasAdded { target: String, generic_args: Vec<String> },
     /// Type alias target changed
     TypeAliasTargetChanged { old_target: String, new_target: String, new_generic_args: Vec<String> },
+    /// Generic params changed (e.g., PhysicalSize<T> missing generic_params: ["T"])
+    GenericParamsChanged { old_params: Vec<String>, new_params: Vec<String> },
 }
 
 // ============================================================================
@@ -698,7 +700,13 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 };
                 
                 // Extract type alias
-                let type_alias_target = class_data.type_alias.as_ref().map(|ta| ta.target.clone());
+                let (type_alias_target, type_alias_generic_args) = match &class_data.type_alias {
+                    Some(ta) => (Some(ta.target.clone()), ta.generic_args.clone()),
+                    None => (None, Vec::new()),
+                };
+                
+                // Extract generic params
+                let generic_params = class_data.generic_params.clone().unwrap_or_default();
                 
                 types.insert(class_name.clone(), ApiTypeInfo {
                     path,
@@ -711,6 +719,8 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                     callback_args,
                     callback_returns,
                     type_alias_target,
+                    type_alias_generic_args,
+                    generic_params,
                 });
             }
         }
@@ -738,6 +748,10 @@ pub struct ApiTypeInfo {
     pub callback_returns: Option<String>,
     /// Type alias target
     pub type_alias_target: Option<String>,
+    /// Type alias generic args (e.g., ["u32"] for PhysicalSizeU32 = PhysicalSize<u32>)
+    pub type_alias_generic_args: Vec<String>,
+    /// Generic type parameters (e.g., ["T"] for PhysicalSize<T>)
+    pub generic_params: Vec<String>,
 }
 
 /// Generate diff between expected (workspace-resolved) and current (api.json) types
@@ -802,6 +816,11 @@ fn generate_diff_v2(
                     // Check for type_alias differences
                     diff.modifications.extend(
                         compare_type_alias(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for generic_params differences
+                    diff.modifications.extend(
+                        compare_generic_params(matched_api_name, typedef, api_info)
                     );
                 }
                 
@@ -1307,6 +1326,35 @@ fn compare_type_alias(
                 });
             }
         }
+    }
+    
+    modifications
+}
+
+/// Compare generic_params between workspace type and api.json type
+fn compare_generic_params(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    let mut modifications = Vec::new();
+    
+    // Get workspace generic params
+    let workspace_generic_params: Vec<String> = match &workspace_type.kind {
+        TypeDefKind::Struct { generic_params, .. } => generic_params.clone(),
+        TypeDefKind::Enum { generic_params, .. } => generic_params.clone(),
+        _ => return modifications, // TypeAlias/Callback don't have their own generic_params
+    };
+    
+    // Compare with api.json generic_params
+    if workspace_generic_params != api_info.generic_params {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::GenericParamsChanged {
+                old_params: api_info.generic_params.clone(),
+                new_params: workspace_generic_params,
+            },
+        });
     }
     
     modifications

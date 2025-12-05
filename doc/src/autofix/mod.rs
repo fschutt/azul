@@ -319,6 +319,24 @@ pub fn autofix_api(
                         display_new.green()
                     );
                 }
+                diff::ModificationKind::GenericParamsChanged { old_params, new_params } => {
+                    let old_display = if old_params.is_empty() {
+                        "none".to_string()
+                    } else {
+                        format!("<{}>", old_params.join(", "))
+                    };
+                    let new_display = if new_params.is_empty() {
+                        "none".to_string()
+                    } else {
+                        format!("<{}>", new_params.join(", "))
+                    };
+                    println!("  {}: generic_params {} {} {}", 
+                        modification.type_name.white(), 
+                        old_display.red(),
+                        "->".dimmed(),
+                        new_display.green()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -548,6 +566,12 @@ fn generate_combined_patch(
                     old_target: old_target.clone(),
                     new_target: new_target.clone(),
                     new_generic_args: new_generic_args.clone(),
+                });
+            }
+            diff::ModificationKind::GenericParamsChanged { old_params, new_params } => {
+                changes.push(ModifyChange::SetGenericParams {
+                    old_params: old_params.clone(),
+                    new_params: new_params.clone(),
                 });
             }
         }

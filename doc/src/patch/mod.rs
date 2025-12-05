@@ -1229,6 +1229,14 @@ fn apply_class_patch(
         patches_applied += 1;
     }
 
+    if let Some(new_generic_params) = &patch.generic_params {
+        println!("  [NOTE] Patching {}.{}: generic_params", module_name, class_name);
+        println!("     Old: {:?}", class_data.generic_params);
+        println!("     New: {:?}", new_generic_params);
+        class_data.generic_params = Some(new_generic_params.clone());
+        patches_applied += 1;
+    }
+
     Ok(patches_applied)
 }
 
