@@ -264,16 +264,19 @@ fn generate_single_type(
         
         // Check if target is a pointer type (*const T or *mut T)
         let is_pointer_type = type_alias_info.target.starts_with("*const ") 
-            || type_alias_info.target.starts_with("*mut ");
+            || type_alias_info.target.starts_with("*mut ")
+            || type_alias_info.target.starts_with("* const ")
+            || type_alias_info.target.starts_with("* mut ");
+        
+        // Check if target contains generics (like "CssPropertyValue < BreakInside >")
+        let has_embedded_generics = type_alias_info.target.contains('<');
 
         let target_name = if is_primitive {
             type_alias_info.target.clone()
-        } else if is_function_ptr {
-            // For extern fn types, we need to prefix all types within the function signature
+        } else if is_function_ptr || has_embedded_generics || is_pointer_type {
+            // For extern fn types, types with embedded generics, or pointer types
+            // we need to prefix all types within the string
             prefix_types_in_extern_fn_string(version_data, &type_alias_info.target, &config.prefix)
-        } else if is_pointer_type {
-            // For pointer types like "*mut c_void", don't add prefix
-            type_alias_info.target.clone()
         } else {
             format!("{}{}", config.prefix, type_alias_info.target)
         };

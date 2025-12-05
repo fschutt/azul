@@ -57,7 +57,13 @@ pub enum TypeDefKind {
         derives: Vec<String>,
     },
     TypeAlias {
+        /// The base type (e.g., "CssPropertyValue" from "CssPropertyValue<BreakInside>")
         target: String,
+        /// The generic base type without args (e.g., "CssPropertyValue")
+        /// If None, this is a simple alias without generics
+        generic_base: Option<String>,
+        /// Generic arguments (e.g., ["BreakInside"])
+        generic_args: Vec<String>,
     },
     CallbackTypedef {
         args: Vec<CallbackArg>,
@@ -126,7 +132,11 @@ pub enum RefKind {
     Ref,
     /// `&mut T`
     RefMut,
-    /// `T` (by value, including raw pointers like `*const T` and `*mut T`)
+    /// `*const T`
+    ConstPtr,
+    /// `*mut T`
+    MutPtr,
+    /// `T` (by value)
     Value,
 }
 
@@ -136,6 +146,8 @@ impl RefKind {
         match self {
             RefKind::Ref => "ref",
             RefKind::RefMut => "refmut",
+            RefKind::ConstPtr => "constptr",
+            RefKind::MutPtr => "mutptr",
             RefKind::Value => "value",
         }
     }
@@ -145,6 +157,8 @@ impl RefKind {
         match s {
             "ref" => Some(RefKind::Ref),
             "refmut" => Some(RefKind::RefMut),
+            "constptr" => Some(RefKind::ConstPtr),
+            "mutptr" => Some(RefKind::MutPtr),
             "value" => Some(RefKind::Value),
             _ => None,
         }
@@ -165,7 +179,8 @@ impl TypeDefinition {
                     MacroGeneratedKind::Vec => {
                         // impl_vec!(BaseType, VecType, DestructorType)
                         // VecType has: ptr, len, cap, destructor
-                        let destructor_type = format!("{}Destructor", self.type_name.trim_end_matches("Vec"));
+                        // Destructor is named VecTypeDestructor (e.g. U8Vec -> U8VecDestructor)
+                        let destructor_type = format!("{}Destructor", self.type_name);
                         let mut fields = IndexMap::new();
                         fields.insert("ptr".to_string(), FieldDef {
                             name: "ptr".to_string(),
@@ -226,8 +241,8 @@ impl TypeDefinition {
                         TypeDefKind::CallbackTypedef {
                             args: vec![CallbackArg {
                                 name: Some("ptr".to_string()),
-                                ty: format!("*mut {}", base_type),
-                                ref_kind: RefKind::Value, // Raw pointer is passed by value
+                                ty: base_type.clone(),
+                                ref_kind: RefKind::MutPtr,
                             }],
                             returns: None,
                         }
@@ -400,23 +415,7 @@ impl TypeDefinition {
                     derives,
                 }
             }
-            TypeDefKind::TypeAlias { target } => {
-                // Check if target is a generic instantiation like "CssPropertyValue<T>"
-                let (generic_base, generic_args) = if let Some(lt_pos) = target.find('<') {
-                    if let Some(gt_pos) = target.rfind('>') {
-                        let base = target[..lt_pos].to_string();
-                        let args_str = &target[lt_pos + 1..gt_pos];
-                        let args: Vec<String> = args_str.split(',')
-                            .map(|s| s.trim().to_string())
-                            .collect();
-                        (Some(base), args)
-                    } else {
-                        (None, vec![])
-                    }
-                } else {
-                    (None, vec![])
-                };
-                
+            TypeDefKind::TypeAlias { target, generic_base, generic_args } => {
                 TypeKind::TypeAlias {
                     target,
                     generic_base,
@@ -428,12 +427,16 @@ impl TypeDefinition {
                 TypeKind::CallbackTypedef {
                     fn_args: args.into_iter().map(|arg| {
                         // Convert RefKind to BorrowMode
-                        let borrow_mode = match arg.ref_kind {
-                            RefKind::Ref => BorrowMode::Ref,
-                            RefKind::RefMut => BorrowMode::RefMut,
-                            RefKind::Value => BorrowMode::Value,
+                        // Pointers are value types where the pointer itself is passed by value
+                        // but we include the pointer prefix in the type name
+                        let (borrow_mode, ty) = match arg.ref_kind {
+                            RefKind::Ref => (BorrowMode::Ref, arg.ty),
+                            RefKind::RefMut => (BorrowMode::RefMut, arg.ty),
+                            RefKind::ConstPtr => (BorrowMode::Value, format!("*const {}", arg.ty)),
+                            RefKind::MutPtr => (BorrowMode::Value, format!("*mut {}", arg.ty)),
+                            RefKind::Value => (BorrowMode::Value, arg.ty),
                         };
-                        CallbackArgInfo { ty: arg.ty, ref_kind: borrow_mode }
+                        CallbackArgInfo { ty, ref_kind: borrow_mode }
                     }).collect(),
                     returns,
                     doc: None,
@@ -1084,13 +1087,13 @@ fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
             }
         }
         syn::Type::Ptr(ptr_type) => {
-            // *const T or *mut T - these are "by value" (the pointer itself is passed by value)
-            let inner_type = if ptr_type.mutability.is_some() {
-                format!("*mut {}", clean_type_string(&ptr_type.elem.to_token_stream().to_string()))
+            // *const T or *mut T - extract base type and use ConstPtr/MutPtr
+            let inner_type = clean_type_string(&ptr_type.elem.to_token_stream().to_string());
+            if ptr_type.mutability.is_some() {
+                (inner_type, RefKind::MutPtr)
             } else {
-                format!("*const {}", clean_type_string(&ptr_type.elem.to_token_stream().to_string()))
-            };
-            (inner_type, RefKind::Value)
+                (inner_type, RefKind::ConstPtr)
+            }
         }
         _ => {
             // Any other type is passed by value
@@ -1149,6 +1152,9 @@ fn extract_type_alias(
         });
     }
 
+    // Try to extract generic arguments from the type
+    let (generic_base, generic_args) = extract_generic_args_from_type(&t.ty);
+    
     Some(TypeDefinition {
         full_path,
         type_name,
@@ -1157,9 +1163,46 @@ fn extract_type_alias(
         crate_name: crate_name.to_string(),
         kind: TypeDefKind::TypeAlias {
             target: clean_type_string(&target),
+            generic_base,
+            generic_args,
         },
         source_code: t.to_token_stream().to_string(),
     })
+}
+
+/// Extract generic base type and arguments from a syn::Type
+/// Returns (Some(base_type), [args]) for generic types, (None, []) for non-generic types
+fn extract_generic_args_from_type(ty: &syn::Type) -> (Option<String>, Vec<String>) {
+    match ty {
+        syn::Type::Path(type_path) => {
+            // Get the last segment (the actual type name)
+            if let Some(segment) = type_path.path.segments.last() {
+                let base_type = segment.ident.to_string();
+                
+                // Check for generic arguments
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    let generic_args: Vec<String> = args.args.iter()
+                        .filter_map(|arg| {
+                            match arg {
+                                syn::GenericArgument::Type(ty) => {
+                                    // Recursively get the type name
+                                    Some(clean_type_string(&ty.to_token_stream().to_string()))
+                                }
+                                syn::GenericArgument::Lifetime(_) => None,
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    
+                    if !generic_args.is_empty() {
+                        return (Some(base_type), generic_args);
+                    }
+                }
+            }
+            (None, vec![])
+        }
+        _ => (None, vec![]),
+    }
 }
 
 /// Extract types generated by macros like impl_vec!, impl_option!
@@ -1883,14 +1926,14 @@ mod tests {
         assert_eq!(types.len(), 2);
         
         match &types[0].kind {
-            TypeDefKind::TypeAlias { target } => {
+            TypeDefKind::TypeAlias { target, .. } => {
                 assert_eq!(target, "u32");
             }
             _ => panic!("Expected TypeAlias for GLenum"),
         }
         
         match &types[1].kind {
-            TypeDefKind::TypeAlias { target } => {
+            TypeDefKind::TypeAlias { target, .. } => {
                 assert_eq!(target, "Vec < String >");
             }
             _ => panic!("Expected TypeAlias for MyVec"),

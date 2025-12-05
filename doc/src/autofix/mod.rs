@@ -223,6 +223,8 @@ pub fn autofix_api(
                             let ref_str = match arg.ref_kind {
                                 type_index::RefKind::Ref => "&",
                                 type_index::RefKind::RefMut => "&mut ",
+                                type_index::RefKind::ConstPtr => "*const ",
+                                type_index::RefKind::MutPtr => "*mut ",
                                 type_index::RefKind::Value => "",
                             };
                             format!("{}{}", ref_str, arg.ty)
@@ -239,11 +241,15 @@ pub fn autofix_api(
                     let old_ref_str = match old_ref_kind {
                         Some(type_index::RefKind::Ref) => "&",
                         Some(type_index::RefKind::RefMut) => "&mut ",
+                        Some(type_index::RefKind::ConstPtr) => "*const ",
+                        Some(type_index::RefKind::MutPtr) => "*mut ",
                         Some(type_index::RefKind::Value) | None => "",
                     };
                     let new_ref_str = match new_ref_kind {
                         type_index::RefKind::Ref => "&",
                         type_index::RefKind::RefMut => "&mut ",
+                        type_index::RefKind::ConstPtr => "*const ",
+                        type_index::RefKind::MutPtr => "*mut ",
                         type_index::RefKind::Value => "",
                     };
                     println!("  {}: callback arg[{}] : {}{} {} {}{}", 
@@ -264,19 +270,29 @@ pub fn autofix_api(
                         new_type
                     );
                 }
-                diff::ModificationKind::TypeAliasAdded { target } => {
+                diff::ModificationKind::TypeAliasAdded { target, generic_args } => {
+                    let display_target = if generic_args.is_empty() {
+                        target.clone()
+                    } else {
+                        format!("{}<{}>", target, generic_args.join(", "))
+                    };
                     println!("  {}: {} type_alias = {}", 
                         modification.type_name.white(), 
                         "+".green(),
-                        target.cyan()
+                        display_target.cyan()
                     );
                 }
-                diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target } => {
+                diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target, new_generic_args } => {
+                    let display_new = if new_generic_args.is_empty() {
+                        new_target.clone()
+                    } else {
+                        format!("{}<{}>", new_target, new_generic_args.join(", "))
+                    };
                     println!("  {}: type_alias = {} {} {}", 
                         modification.type_name.white(), 
                         old_target.red(),
                         "->".dimmed(),
-                        new_target.green()
+                        display_new.green()
                     );
                 }
             }
@@ -445,11 +461,7 @@ fn generate_combined_patch(
             diff::ModificationKind::CallbackTypedefAdded { args, returns } => {
                 changes.push(ModifyChange::SetCallbackTypedef {
                     args: args.iter().map(|arg| {
-                        let ref_str = match arg.ref_kind {
-                            type_index::RefKind::Ref => "ref",
-                            type_index::RefKind::RefMut => "refmut",
-                            type_index::RefKind::Value => "value",
-                        };
+                        let ref_str = arg.ref_kind.as_str();
                         patch_format::CallbackArgDef {
                             arg_type: arg.ty.clone(),
                             ref_kind: ref_str.to_string(),
@@ -460,16 +472,8 @@ fn generate_combined_patch(
                 });
             }
             diff::ModificationKind::CallbackArgChanged { arg_index, old_type, new_type, old_ref_kind, new_ref_kind } => {
-                let old_ref_str = old_ref_kind.map(|rk| match rk {
-                    type_index::RefKind::Ref => "ref",
-                    type_index::RefKind::RefMut => "refmut",
-                    type_index::RefKind::Value => "value",
-                }.to_string());
-                let new_ref_str = match new_ref_kind {
-                    type_index::RefKind::Ref => "ref",
-                    type_index::RefKind::RefMut => "refmut",
-                    type_index::RefKind::Value => "value",
-                };
+                let old_ref_str = old_ref_kind.map(|rk| rk.as_str().to_string());
+                let new_ref_str = new_ref_kind.as_str();
                 changes.push(ModifyChange::ChangeCallbackArg {
                     arg_index: *arg_index,
                     old_type: old_type.clone(),
@@ -484,15 +488,17 @@ fn generate_combined_patch(
                     new_type: new_type.clone(),
                 });
             }
-            diff::ModificationKind::TypeAliasAdded { target } => {
+            diff::ModificationKind::TypeAliasAdded { target, generic_args } => {
                 changes.push(ModifyChange::SetTypeAlias {
                     target: target.clone(),
+                    generic_args: generic_args.clone(),
                 });
             }
-            diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target } => {
+            diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target, new_generic_args } => {
                 changes.push(ModifyChange::ChangeTypeAlias {
                     old_target: old_target.clone(),
                     new_target: new_target.clone(),
+                    new_generic_args: new_generic_args.clone(),
                 });
             }
         }

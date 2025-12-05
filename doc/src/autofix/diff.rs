@@ -101,9 +101,9 @@ pub enum ModificationKind {
     /// Callback typedef return changed
     CallbackReturnChanged { old_type: Option<String>, new_type: Option<String> },
     /// Type alias needs to be added (type exists but has no type_alias)
-    TypeAliasAdded { target: String },
+    TypeAliasAdded { target: String, generic_args: Vec<String> },
     /// Type alias target changed
-    TypeAliasTargetChanged { old_target: String, new_target: String },
+    TypeAliasTargetChanged { old_target: String, new_target: String, new_generic_args: Vec<String> },
 }
 
 // ============================================================================
@@ -1222,9 +1222,13 @@ fn compare_type_alias(
 ) -> Vec<TypeModification> {
     let mut modifications = Vec::new();
     
-    // Get workspace type alias target
-    let workspace_target: String = match &workspace_type.kind {
-        TypeDefKind::TypeAlias { target } => target.clone(),
+    // Get workspace type alias info
+    let (workspace_target, workspace_generic_args): (String, Vec<String>) = match &workspace_type.kind {
+        TypeDefKind::TypeAlias { target, generic_base, generic_args } => {
+            // Use generic_base if available, otherwise use target
+            let base = generic_base.clone().unwrap_or_else(|| target.clone());
+            (base, generic_args.clone())
+        }
         _ => return modifications, // Not a type alias
     };
     
@@ -1236,17 +1240,19 @@ fn compare_type_alias(
                 type_name: type_name.to_string(),
                 kind: ModificationKind::TypeAliasAdded {
                     target: workspace_target,
+                    generic_args: workspace_generic_args,
                 },
             });
         }
         Some(api_target) => {
-            // Compare targets
+            // Compare targets (normalized)
             if normalize_type_name(&workspace_target) != normalize_type_name(api_target) {
                 modifications.push(TypeModification {
                     type_name: type_name.to_string(),
                     kind: ModificationKind::TypeAliasTargetChanged {
                         old_target: api_target.clone(),
                         new_target: workspace_target,
+                        new_generic_args: workspace_generic_args,
                     },
                 });
             }

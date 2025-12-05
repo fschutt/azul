@@ -124,11 +124,15 @@ pub enum ModifyChange {
     /// Set type_alias (add the entire type alias definition)
     SetTypeAlias {
         target: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        generic_args: Vec<String>,
     },
     /// Change type alias target
     ChangeTypeAlias {
         old_target: String,
         new_target: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        new_generic_args: Vec<String>,
     },
 }
 
@@ -383,11 +387,19 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::ChangeCallbackReturn { old_type, new_type } => {
             format!("~ callback return: {:?} → {:?}", old_type, new_type)
         }
-        ModifyChange::SetTypeAlias { target } => {
-            format!("+ type_alias = {}", target)
+        ModifyChange::SetTypeAlias { target, generic_args } => {
+            if generic_args.is_empty() {
+                format!("+ type_alias = {}", target)
+            } else {
+                format!("+ type_alias = {}<{}>", target, generic_args.join(", "))
+            }
         }
-        ModifyChange::ChangeTypeAlias { old_target, new_target } => {
-            format!("~ type_alias: {} → {}", old_target, new_target)
+        ModifyChange::ChangeTypeAlias { old_target, new_target, new_generic_args } => {
+            if new_generic_args.is_empty() {
+                format!("~ type_alias: {} → {}", old_target, new_target)
+            } else {
+                format!("~ type_alias: {} → {}<{}>", old_target, new_target, new_generic_args.join(", "))
+            }
         }
     }
 }
@@ -599,18 +611,18 @@ impl AutofixPatch {
                 ModifyChange::ChangeCallbackReturn { .. } => {
                     // For now, the entire callback_typedef would need to be re-set
                 }
-                ModifyChange::SetTypeAlias { target } => {
+                ModifyChange::SetTypeAlias { target, generic_args } => {
                     use crate::api::TypeAliasInfo;
                     patch.type_alias = Some(TypeAliasInfo {
                         target: target.clone(),
-                        generic_args: vec![],
+                        generic_args: generic_args.clone(),
                     });
                 }
-                ModifyChange::ChangeTypeAlias { new_target, .. } => {
+                ModifyChange::ChangeTypeAlias { new_target, new_generic_args, .. } => {
                     use crate::api::TypeAliasInfo;
                     patch.type_alias = Some(TypeAliasInfo {
                         target: new_target.clone(),
-                        generic_args: vec![],
+                        generic_args: new_generic_args.clone(),
                     });
                 }
             }

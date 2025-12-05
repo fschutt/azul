@@ -91,8 +91,12 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                             _ => {}
                         }
                     }
-                    TypeDefKind::TypeAlias { target } => {
+                    TypeDefKind::TypeAlias { target, generic_base, generic_args } => {
                         println!("      Target: {}", target);
+                        if let Some(base) = generic_base {
+                            println!("      Generic base: {}", base);
+                            println!("      Generic args: {:?}", generic_args);
+                        }
                     }
                     TypeDefKind::CallbackTypedef { args, returns } => {
                         println!("      Args: {:?}", args.iter().map(|a| &a.ty).collect::<Vec<_>>());

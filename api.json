@@ -232,8 +232,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleCursor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleCursor"
+              ]
             }
           },
           "HidpiAdjustedBounds": {
@@ -437,7 +439,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*const AzInstantPtr",
+                  "type": "InstantPtr",
                   "ref": "value",
                   "doc": null
                 }
@@ -523,7 +525,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut AzInstantPtr",
+                  "type": "InstantPtr",
                   "ref": "value",
                   "doc": null
                 }
@@ -696,7 +698,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "* mut c_void",
+                  "type": "c_void",
                   "ref": "value",
                   "doc": null
                 }
@@ -943,6 +945,9 @@
                 "InitialRender": {},
                 "DomRecreated": {},
                 "BoundsExpanded": {},
+                "EdgeScrolled": {
+                  "type": "EdgeType"
+                },
                 "ScrollBeyondContent": {}
               }
             ],
@@ -1726,8 +1731,32 @@
             ],
             "struct_fields": [
               {
-                "extra": {
-                  "type": "Option < Box < NodeDataExt > >",
+                "node_type": {
+                  "type": "NodeType",
+                  "doc": ""
+                },
+                "dataset": {
+                  "type": "OptionRefAny",
+                  "doc": ""
+                },
+                "ids_and_classes": {
+                  "type": "IdOrClassVec",
+                  "doc": ""
+                },
+                "attributes": {
+                  "type": "AttributeVec",
+                  "doc": ""
+                },
+                "callbacks": {
+                  "type": "CoreCallbackDataVec",
+                  "doc": ""
+                },
+                "inline_css_props": {
+                  "type": "NodeDataInlineCssPropertyVec",
+                  "doc": ""
+                },
+                "tab_index": {
+                  "type": "OptionTabIndex",
                   "doc": ""
                 }
               }
@@ -2735,32 +2764,16 @@
             ],
             "struct_fields": [
               {
-                "role": {
-                  "type": "AccessibilityRole",
+                "name": {
+                  "type": "OptionAzString",
                   "doc": ""
                 },
-                "states": {
-                  "type": "AccessibilityStateVec",
+                "value": {
+                  "type": "OptionAzString",
                   "doc": ""
                 },
-                "accelerator": {
-                  "type": "OptionVirtualKeyCodeCombo",
-                  "doc": ""
-                },
-                "supported_actions": {
-                  "type": "AccessibilityActionVec",
-                  "doc": ""
-                },
-                "is_live_region": {
-                  "type": "bool",
-                  "doc": ""
-                },
-                "labelled_by": {
-                  "type": "OptionDomNodeId",
-                  "doc": ""
-                },
-                "described_by": {
-                  "type": "OptionDomNodeId",
+                "default_action": {
+                  "type": "OptionAzString",
                   "doc": ""
                 }
               }
@@ -3366,13 +3379,43 @@
             ],
             "enum_fields": [
               {
-                "ReplaceSelectedText": {},
-                "ScrollToPoint": {},
-                "SetScrollOffset": {},
-                "SetTextSelection": {},
-                "SetValue": {},
-                "SetNumericValue": {},
-                "CustomAction": {}
+                "Default": {},
+                "Focus": {},
+                "Blur": {},
+                "Collapse": {},
+                "Expand": {},
+                "ScrollIntoView": {},
+                "Increment": {},
+                "Decrement": {},
+                "ShowContextMenu": {},
+                "HideTooltip": {},
+                "ShowTooltip": {},
+                "ScrollUp": {},
+                "ScrollDown": {},
+                "ScrollLeft": {},
+                "ScrollRight": {},
+                "ReplaceSelectedText": {
+                  "type": "String"
+                },
+                "ScrollToPoint": {
+                  "type": "LogicalPosition"
+                },
+                "SetScrollOffset": {
+                  "type": "LogicalPosition"
+                },
+                "SetTextSelection": {
+                  "type": "TextSelectionStartEnd"
+                },
+                "SetSequentialFocusNavigationStartingPoint": {},
+                "SetValue": {
+                  "type": "String"
+                },
+                "SetNumericValue": {
+                  "type": "FloatValue"
+                },
+                "CustomAction": {
+                  "type": "i32"
+                }
               }
             ],
             "repr": "C"
@@ -8705,8 +8748,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBoxShadow >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBoxShadow"
+              ]
             }
           },
           "LayoutAlignContentValue": {
@@ -8716,8 +8761,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutAlignContent >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignContent"
+              ]
             }
           },
           "LayoutAlignItemsValue": {
@@ -8727,8 +8774,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutAlignItems >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignItems"
+              ]
             }
           },
           "LayoutBottomValue": {
@@ -8738,8 +8787,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBottom >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBottom"
+              ]
             }
           },
           "LayoutBoxSizingValue": {
@@ -8749,8 +8800,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBoxSizing >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBoxSizing"
+              ]
             }
           },
           "LayoutFlexDirectionValue": {
@@ -8760,8 +8813,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFlexDirection >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexDirection"
+              ]
             }
           },
           "LayoutDisplayValue": {
@@ -8771,8 +8826,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutDisplay >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutDisplay"
+              ]
             }
           },
           "LayoutFlexGrowValue": {
@@ -8782,8 +8839,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFlexGrow >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexGrow"
+              ]
             }
           },
           "LayoutFlexShrinkValue": {
@@ -8793,8 +8852,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFlexShrink >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexShrink"
+              ]
             }
           },
           "LayoutFloatValue": {
@@ -8804,8 +8865,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFloat >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFloat"
+              ]
             }
           },
           "LayoutHeightValue": {
@@ -8815,8 +8878,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutHeight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutHeight"
+              ]
             }
           },
           "LayoutJustifyContentValue": {
@@ -8826,8 +8891,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutJustifyContent >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifyContent"
+              ]
             }
           },
           "LayoutLeftValue": {
@@ -8837,8 +8904,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutLeft >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutLeft"
+              ]
             }
           },
           "LayoutMarginBottomValue": {
@@ -8848,8 +8917,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMarginBottom >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginBottom"
+              ]
             }
           },
           "LayoutMarginLeftValue": {
@@ -8859,8 +8930,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMarginLeft >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginLeft"
+              ]
             }
           },
           "LayoutMarginRightValue": {
@@ -8870,8 +8943,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMarginRight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginRight"
+              ]
             }
           },
           "LayoutMarginTopValue": {
@@ -8881,8 +8956,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMarginTop >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMarginTop"
+              ]
             }
           },
           "LayoutMaxHeightValue": {
@@ -8892,8 +8969,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMaxHeight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMaxHeight"
+              ]
             }
           },
           "LayoutMaxWidthValue": {
@@ -8903,8 +8982,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMaxWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMaxWidth"
+              ]
             }
           },
           "LayoutMinHeightValue": {
@@ -8914,8 +8995,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMinHeight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMinHeight"
+              ]
             }
           },
           "LayoutMinWidthValue": {
@@ -8925,8 +9008,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutMinWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutMinWidth"
+              ]
             }
           },
           "LayoutPaddingBottomValue": {
@@ -8936,8 +9021,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingBottom >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingBottom"
+              ]
             }
           },
           "LayoutPaddingLeftValue": {
@@ -8947,8 +9034,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingLeft >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingLeft"
+              ]
             }
           },
           "LayoutPaddingRightValue": {
@@ -8958,8 +9047,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingRight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingRight"
+              ]
             }
           },
           "LayoutPaddingTopValue": {
@@ -8969,8 +9060,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingTop >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingTop"
+              ]
             }
           },
           "LayoutPositionValue": {
@@ -8980,8 +9073,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPosition >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPosition"
+              ]
             }
           },
           "LayoutRightValue": {
@@ -8991,8 +9086,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutRight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutRight"
+              ]
             }
           },
           "LayoutTopValue": {
@@ -9002,8 +9099,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutTop >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutTop"
+              ]
             }
           },
           "LayoutWidthValue": {
@@ -9013,8 +9112,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutWidth"
+              ]
             }
           },
           "LayoutFlexWrapValue": {
@@ -9024,8 +9125,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFlexWrap >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexWrap"
+              ]
             }
           },
           "LayoutOverflowValue": {
@@ -9035,48 +9138,60 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutOverflow >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutOverflow"
+              ]
             }
           },
           "ScrollbarStyleValue": {
             "doc": "Type alias for CssPropertyValue < ScrollbarStyle >",
             "external": "azul_css::props::property::ScrollbarStyleValue",
             "type_alias": {
-              "target": "CssPropertyValue < ScrollbarStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ScrollbarStyle"
+              ]
             }
           },
           "StyleBackgroundContentVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleBackgroundContentVec >",
             "external": "azul_css::props::property::StyleBackgroundContentVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleBackgroundContentVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundContentVec"
+              ]
             }
           },
           "StyleBackgroundPositionVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleBackgroundPositionVec >",
             "external": "azul_css::props::property::StyleBackgroundPositionVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleBackgroundPositionVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundPositionVec"
+              ]
             }
           },
           "StyleBackgroundRepeatVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleBackgroundRepeatVec >",
             "external": "azul_css::props::property::StyleBackgroundRepeatVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleBackgroundRepeatVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundRepeatVec"
+              ]
             }
           },
           "StyleBackgroundSizeVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleBackgroundSizeVec >",
             "external": "azul_css::props::property::StyleBackgroundSizeVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleBackgroundSizeVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackgroundSizeVec"
+              ]
             }
           },
           "StyleBorderBottomColorValue": {
@@ -9086,8 +9201,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderBottomColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomColor"
+              ]
             }
           },
           "StyleBorderBottomLeftRadiusValue": {
@@ -9097,8 +9214,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderBottomLeftRadius >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomLeftRadius"
+              ]
             }
           },
           "StyleBorderBottomRightRadiusValue": {
@@ -9108,8 +9227,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderBottomRightRadius >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomRightRadius"
+              ]
             }
           },
           "StyleBorderBottomStyleValue": {
@@ -9119,8 +9240,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderBottomStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderBottomStyle"
+              ]
             }
           },
           "LayoutBorderBottomWidthValue": {
@@ -9130,8 +9253,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBorderBottomWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderBottomWidth"
+              ]
             }
           },
           "StyleBorderLeftColorValue": {
@@ -9141,8 +9266,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderLeftColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderLeftColor"
+              ]
             }
           },
           "StyleBorderLeftStyleValue": {
@@ -9152,8 +9279,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderLeftStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderLeftStyle"
+              ]
             }
           },
           "LayoutBorderLeftWidthValue": {
@@ -9163,8 +9292,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBorderLeftWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderLeftWidth"
+              ]
             }
           },
           "StyleBorderRightColorValue": {
@@ -9174,8 +9305,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderRightColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderRightColor"
+              ]
             }
           },
           "StyleBorderRightStyleValue": {
@@ -9185,8 +9318,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderRightStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderRightStyle"
+              ]
             }
           },
           "LayoutBorderRightWidthValue": {
@@ -9196,8 +9331,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBorderRightWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderRightWidth"
+              ]
             }
           },
           "StyleBorderTopColorValue": {
@@ -9207,8 +9344,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderTopColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopColor"
+              ]
             }
           },
           "StyleBorderTopLeftRadiusValue": {
@@ -9218,8 +9357,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderTopLeftRadius >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopLeftRadius"
+              ]
             }
           },
           "StyleBorderTopRightRadiusValue": {
@@ -9229,8 +9370,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderTopRightRadius >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopRightRadius"
+              ]
             }
           },
           "StyleBorderTopStyleValue": {
@@ -9240,8 +9383,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderTopStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderTopStyle"
+              ]
             }
           },
           "LayoutBorderTopWidthValue": {
@@ -9251,16 +9396,20 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBorderTopWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderTopWidth"
+              ]
             }
           },
           "StyleFontFamilyVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleFontFamilyVec >",
             "external": "azul_css::props::property::StyleFontFamilyVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleFontFamilyVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontFamilyVec"
+              ]
             }
           },
           "StyleFontSizeValue": {
@@ -9270,8 +9419,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleFontSize >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontSize"
+              ]
             }
           },
           "StyleLetterSpacingValue": {
@@ -9281,8 +9432,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleLetterSpacing >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleLetterSpacing"
+              ]
             }
           },
           "StyleLineHeightValue": {
@@ -9292,8 +9445,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleLineHeight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleLineHeight"
+              ]
             }
           },
           "StyleTabWidthValue": {
@@ -9303,8 +9458,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleTabWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTabWidth"
+              ]
             }
           },
           "StyleTextAlignValue": {
@@ -9314,8 +9471,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleTextAlign >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextAlign"
+              ]
             }
           },
           "StyleTextColorValue": {
@@ -9325,8 +9484,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleTextColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextColor"
+              ]
             }
           },
           "StyleWordSpacingValue": {
@@ -9336,8 +9497,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleWordSpacing >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleWordSpacing"
+              ]
             }
           },
           "StyleOpacityValue": {
@@ -9347,16 +9510,20 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleOpacity >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleOpacity"
+              ]
             }
           },
           "StyleTransformVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleTransformVec >",
             "external": "azul_css::props::property::StyleTransformVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleTransformVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTransformVec"
+              ]
             }
           },
           "StyleTransformOriginValue": {
@@ -9366,8 +9533,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleTransformOrigin >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTransformOrigin"
+              ]
             }
           },
           "StylePerspectiveOriginValue": {
@@ -9377,8 +9546,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StylePerspectiveOrigin >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StylePerspectiveOrigin"
+              ]
             }
           },
           "StyleBackfaceVisibilityValue": {
@@ -9388,8 +9559,10 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleBackfaceVisibility >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBackfaceVisibility"
+              ]
             }
           },
           "StyleMixBlendModeValue": {
@@ -9399,408 +9572,510 @@
               "Copy"
             ],
             "type_alias": {
-              "target": "CssPropertyValue < StyleMixBlendMode >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleMixBlendMode"
+              ]
             }
           },
           "StyleFilterVecValue": {
             "doc": "Type alias for CssPropertyValue < StyleFilterVec >",
             "external": "azul_css::props::property::StyleFilterVecValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleFilterVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFilterVec"
+              ]
             }
           },
           "StyleVisibilityValue": {
             "doc": "Type alias for CssPropertyValue < StyleVisibility >",
             "external": "azul_css::props::property::StyleVisibilityValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleVisibility >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleVisibility"
+              ]
             }
           },
           "ColumnRuleStyleValue": {
             "doc": "Type alias for CssPropertyValue < ColumnRuleStyle >",
             "external": "azul_css::props::property::ColumnRuleStyleValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnRuleStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleStyle"
+              ]
             }
           },
           "LayoutGridAutoColumnsValue": {
             "doc": "Type alias for CssPropertyValue < GridAutoTracks >",
             "external": "azul_css::props::property::LayoutGridAutoColumnsValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridAutoTracks >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridAutoTracks"
+              ]
             }
           },
           "LayoutGapValue": {
             "doc": "Type alias for CssPropertyValue < LayoutGap >",
             "external": "azul_css::props::property::LayoutGapValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutGap >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutGap"
+              ]
             }
           },
           "ShapeOutsideValue": {
             "doc": "Type alias for CssPropertyValue < ShapeOutside >",
             "external": "azul_css::props::property::ShapeOutsideValue",
             "type_alias": {
-              "target": "CssPropertyValue < ShapeOutside >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeOutside"
+              ]
             }
           },
           "BoxDecorationBreakValue": {
             "doc": "Type alias for CssPropertyValue < BoxDecorationBreak >",
             "external": "azul_css::props::property::BoxDecorationBreakValue",
             "type_alias": {
-              "target": "CssPropertyValue < BoxDecorationBreak >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "BoxDecorationBreak"
+              ]
             }
           },
           "BreakInsideValue": {
             "doc": "Type alias for CssPropertyValue < BreakInside >",
             "external": "azul_css::props::property::BreakInsideValue",
             "type_alias": {
-              "target": "CssPropertyValue < BreakInside >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "BreakInside"
+              ]
             }
           },
           "StyleHyphensValue": {
             "doc": "Type alias for CssPropertyValue < StyleHyphens >",
             "external": "azul_css::props::property::StyleHyphensValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleHyphens >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleHyphens"
+              ]
             }
           },
           "LayoutZIndexValue": {
             "doc": "Type alias for CssPropertyValue < LayoutZIndex >",
             "external": "azul_css::props::property::LayoutZIndexValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutZIndex >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutZIndex"
+              ]
             }
           },
           "ColumnRuleColorValue": {
             "doc": "Type alias for CssPropertyValue < ColumnRuleColor >",
             "external": "azul_css::props::property::ColumnRuleColorValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnRuleColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleColor"
+              ]
             }
           },
           "CounterResetValue": {
             "doc": "Type alias for CssPropertyValue < CounterReset >",
             "external": "azul_css::props::property::CounterResetValue",
             "type_alias": {
-              "target": "CssPropertyValue < CounterReset >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CounterReset"
+              ]
             }
           },
           "LayoutScrollbarWidthValue": {
             "doc": "Type alias for CssPropertyValue < LayoutScrollbarWidth >",
             "external": "azul_css::props::property::LayoutScrollbarWidthValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutScrollbarWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutScrollbarWidth"
+              ]
             }
           },
           "PageBreakValue": {
             "doc": "Type alias for CssPropertyValue < PageBreak >",
             "external": "azul_css::props::property::PageBreakValue",
             "type_alias": {
-              "target": "CssPropertyValue < PageBreak >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "PageBreak"
+              ]
             }
           },
           "LayoutFlexBasisValue": {
             "doc": "Type alias for CssPropertyValue < LayoutFlexBasis >",
             "external": "azul_css::props::property::LayoutFlexBasisValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutFlexBasis >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutFlexBasis"
+              ]
             }
           },
           "CounterIncrementValue": {
             "doc": "Type alias for CssPropertyValue < CounterIncrement >",
             "external": "azul_css::props::property::CounterIncrementValue",
             "type_alias": {
-              "target": "CssPropertyValue < CounterIncrement >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CounterIncrement"
+              ]
             }
           },
           "ColumnFillValue": {
             "doc": "Type alias for CssPropertyValue < ColumnFill >",
             "external": "azul_css::props::property::ColumnFillValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnFill >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnFill"
+              ]
             }
           },
           "OrphansValue": {
             "doc": "Type alias for CssPropertyValue < Orphans >",
             "external": "azul_css::props::property::OrphansValue",
             "type_alias": {
-              "target": "CssPropertyValue < Orphans >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Orphans"
+              ]
             }
           },
           "ColumnWidthValue": {
             "doc": "Type alias for CssPropertyValue < ColumnWidth >",
             "external": "azul_css::props::property::ColumnWidthValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnWidth"
+              ]
             }
           },
           "LayoutJustifySelfValue": {
             "doc": "Type alias for CssPropertyValue < LayoutJustifySelf >",
             "external": "azul_css::props::property::LayoutJustifySelfValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutJustifySelf >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifySelf"
+              ]
             }
           },
           "ShapeMarginValue": {
             "doc": "Type alias for CssPropertyValue < ShapeMargin >",
             "external": "azul_css::props::property::ShapeMarginValue",
             "type_alias": {
-              "target": "CssPropertyValue < ShapeMargin >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeMargin"
+              ]
             }
           },
           "LayoutGridColumnValue": {
             "doc": "Type alias for CssPropertyValue < GridPlacement >",
             "external": "azul_css::props::property::LayoutGridColumnValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridPlacement >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridPlacement"
+              ]
             }
           },
           "ColumnSpanValue": {
             "doc": "Type alias for CssPropertyValue < ColumnSpan >",
             "external": "azul_css::props::property::ColumnSpanValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnSpan >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnSpan"
+              ]
             }
           },
           "LayoutAlignSelfValue": {
             "doc": "Type alias for CssPropertyValue < LayoutAlignSelf >",
             "external": "azul_css::props::property::LayoutAlignSelfValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutAlignSelf >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutAlignSelf"
+              ]
             }
           },
           "WidowsValue": {
             "doc": "Type alias for CssPropertyValue < Widows >",
             "external": "azul_css::props::property::WidowsValue",
             "type_alias": {
-              "target": "CssPropertyValue < Widows >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Widows"
+              ]
             }
           },
           "ColumnCountValue": {
             "doc": "Type alias for CssPropertyValue < ColumnCount >",
             "external": "azul_css::props::property::ColumnCountValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnCount >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnCount"
+              ]
             }
           },
           "StyleScrollbarColorValue": {
             "doc": "Type alias for CssPropertyValue < StyleScrollbarColor >",
             "external": "azul_css::props::property::StyleScrollbarColorValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleScrollbarColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleScrollbarColor"
+              ]
             }
           },
           "StyleFontValue": {
             "doc": "Type alias for CssPropertyValue < StyleFontFamilyVec >",
             "external": "azul_css::props::property::StyleFontValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleFontFamilyVec >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontFamilyVec"
+              ]
             }
           },
           "LayoutGridTemplateRowsValue": {
             "doc": "Type alias for CssPropertyValue < GridTemplate >",
             "external": "azul_css::props::property::LayoutGridTemplateRowsValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridTemplate >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridTemplate"
+              ]
             }
           },
           "LayoutJustifyItemsValue": {
             "doc": "Type alias for CssPropertyValue < LayoutJustifyItems >",
             "external": "azul_css::props::property::LayoutJustifyItemsValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutJustifyItems >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutJustifyItems"
+              ]
             }
           },
           "LayoutTextJustifyValue": {
             "doc": "Type alias for CssPropertyValue < LayoutTextJustify >",
             "external": "azul_css::props::property::LayoutTextJustifyValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutTextJustify >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutTextJustify"
+              ]
             }
           },
           "SelectionColorValue": {
             "doc": "Type alias for CssPropertyValue < SelectionColor >",
             "external": "azul_css::props::property::SelectionColorValue",
             "type_alias": {
-              "target": "CssPropertyValue < SelectionColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "SelectionColor"
+              ]
             }
           },
           "LayoutWritingModeValue": {
             "doc": "Type alias for CssPropertyValue < LayoutWritingMode >",
             "external": "azul_css::props::property::LayoutWritingModeValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutWritingMode >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutWritingMode"
+              ]
             }
           },
           "StyleDirectionValue": {
             "doc": "Type alias for CssPropertyValue < StyleDirection >",
             "external": "azul_css::props::property::StyleDirectionValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleDirection >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleDirection"
+              ]
             }
           },
           "LayoutColumnGapValue": {
             "doc": "Type alias for CssPropertyValue < LayoutColumnGap >",
             "external": "azul_css::props::property::LayoutColumnGapValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutColumnGap >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutColumnGap"
+              ]
             }
           },
           "LayoutGridTemplateColumnsValue": {
             "doc": "Type alias for CssPropertyValue < GridTemplate >",
             "external": "azul_css::props::property::LayoutGridTemplateColumnsValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridTemplate >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridTemplate"
+              ]
             }
           },
           "ShapeImageThresholdValue": {
             "doc": "Type alias for CssPropertyValue < ShapeImageThreshold >",
             "external": "azul_css::props::property::ShapeImageThresholdValue",
             "type_alias": {
-              "target": "CssPropertyValue < ShapeImageThreshold >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeImageThreshold"
+              ]
             }
           },
           "CaretAnimationDurationValue": {
             "doc": "Type alias for CssPropertyValue < CaretAnimationDuration >",
             "external": "azul_css::props::property::CaretAnimationDurationValue",
             "type_alias": {
-              "target": "CssPropertyValue < CaretAnimationDuration >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CaretAnimationDuration"
+              ]
             }
           },
           "LayoutClearValue": {
             "doc": "Type alias for CssPropertyValue < LayoutClear >",
             "external": "azul_css::props::property::LayoutClearValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutClear >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutClear"
+              ]
             }
           },
           "SelectionBackgroundColorValue": {
             "doc": "Type alias for CssPropertyValue < SelectionBackgroundColor >",
             "external": "azul_css::props::property::SelectionBackgroundColorValue",
             "type_alias": {
-              "target": "CssPropertyValue < SelectionBackgroundColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "SelectionBackgroundColor"
+              ]
             }
           },
           "LayoutGridAutoRowsValue": {
             "doc": "Type alias for CssPropertyValue < GridAutoTracks >",
             "external": "azul_css::props::property::LayoutGridAutoRowsValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridAutoTracks >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridAutoTracks"
+              ]
             }
           },
           "StyleWhiteSpaceValue": {
             "doc": "Type alias for CssPropertyValue < StyleWhiteSpace >",
             "external": "azul_css::props::property::StyleWhiteSpaceValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleWhiteSpace >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleWhiteSpace"
+              ]
             }
           },
           "CaretColorValue": {
             "doc": "Type alias for CssPropertyValue < CaretColor >",
             "external": "azul_css::props::property::CaretColorValue",
             "type_alias": {
-              "target": "CssPropertyValue < CaretColor >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CaretColor"
+              ]
             }
           },
           "LayoutGridAutoFlowValue": {
             "doc": "Type alias for CssPropertyValue < LayoutGridAutoFlow >",
             "external": "azul_css::props::property::LayoutGridAutoFlowValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutGridAutoFlow >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutGridAutoFlow"
+              ]
             }
           },
           "StyleTextDecorationValue": {
             "doc": "Type alias for CssPropertyValue < StyleTextDecoration >",
             "external": "azul_css::props::property::StyleTextDecorationValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleTextDecoration >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextDecoration"
+              ]
             }
           },
           "ContentValue": {
             "doc": "Type alias for CssPropertyValue < Content >",
             "external": "azul_css::props::property::ContentValue",
             "type_alias": {
-              "target": "CssPropertyValue < Content >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "Content"
+              ]
             }
           },
           "ColumnRuleWidthValue": {
             "doc": "Type alias for CssPropertyValue < ColumnRuleWidth >",
             "external": "azul_css::props::property::ColumnRuleWidthValue",
             "type_alias": {
-              "target": "CssPropertyValue < ColumnRuleWidth >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ColumnRuleWidth"
+              ]
             }
           },
           "StyleUserSelectValue": {
             "doc": "Type alias for CssPropertyValue < StyleUserSelect >",
             "external": "azul_css::props::property::StyleUserSelectValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleUserSelect >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleUserSelect"
+              ]
             }
           },
           "LayoutRowGapValue": {
             "doc": "Type alias for CssPropertyValue < LayoutRowGap >",
             "external": "azul_css::props::property::LayoutRowGapValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutRowGap >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutRowGap"
+              ]
             }
           },
           "LayoutGridRowValue": {
             "doc": "Type alias for CssPropertyValue < GridPlacement >",
             "external": "azul_css::props::property::LayoutGridRowValue",
             "type_alias": {
-              "target": "CssPropertyValue < GridPlacement >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridPlacement"
+              ]
             }
           },
           "CssPropertyValue": {
@@ -10499,7 +10774,10 @@
             ],
             "enum_fields": [
               {
-                "Exact": {}
+                "Auto": {},
+                "Exact": {
+                  "type": "crate :: props :: basic :: pixel :: PixelValue"
+                }
               }
             ],
             "repr": "C"
@@ -10995,8 +11273,10 @@
             "doc": "Type alias for CssPropertyValue < SelectionRadius >",
             "external": "azul_css::props::property::SelectionRadiusValue",
             "type_alias": {
-              "target": "CssPropertyValue < SelectionRadius >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "SelectionRadius"
+              ]
             }
           },
           "StyleLineClamp": {
@@ -11025,8 +11305,10 @@
             "doc": "Type alias for CssPropertyValue < StyleTextCombineUpright >",
             "external": "azul_css::props::property::StyleTextCombineUprightValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleTextCombineUpright >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextCombineUpright"
+              ]
             }
           },
           "ShapeInside": {
@@ -11167,8 +11449,10 @@
             "doc": "Type alias for CssPropertyValue < StyleTextIndent >",
             "external": "azul_css::props::property::StyleTextIndentValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleTextIndent >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTextIndent"
+              ]
             }
           },
           "StyleFontWeight": {
@@ -11225,8 +11509,10 @@
             "doc": "Type alias for CssPropertyValue < StyleFontWeight >",
             "external": "azul_css::props::property::StyleFontWeightValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleFontWeight >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontWeight"
+              ]
             }
           },
           "StyleExclusionMargin": {
@@ -11390,24 +11676,30 @@
             "doc": "Type alias for CssPropertyValue < ShapeInside >",
             "external": "azul_css::props::property::ShapeInsideValue",
             "type_alias": {
-              "target": "CssPropertyValue < ShapeInside >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ShapeInside"
+              ]
             }
           },
           "StyleVerticalAlignValue": {
             "doc": "Type alias for CssPropertyValue < StyleVerticalAlign >",
             "external": "azul_css::props::property::StyleVerticalAlignValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleVerticalAlign >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleVerticalAlign"
+              ]
             }
           },
           "LayoutPaddingInlineEndValue": {
             "doc": "Type alias for CssPropertyValue < LayoutPaddingInlineEnd >",
             "external": "azul_css::props::property::LayoutPaddingInlineEndValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingInlineEnd >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingInlineEnd"
+              ]
             }
           },
           "StyleHyphenationLanguage": {
@@ -11435,64 +11727,80 @@
             "doc": "Type alias for CssPropertyValue < StyleListStylePosition >",
             "external": "azul_css::props::property::StyleListStylePositionValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleListStylePosition >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleListStylePosition"
+              ]
             }
           },
           "LayoutTableLayoutValue": {
             "doc": "Type alias for CssPropertyValue < LayoutTableLayout >",
             "external": "azul_css::props::property::LayoutTableLayoutValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutTableLayout >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutTableLayout"
+              ]
             }
           },
           "LayoutPaddingInlineStartValue": {
             "doc": "Type alias for CssPropertyValue < LayoutPaddingInlineStart >",
             "external": "azul_css::props::property::LayoutPaddingInlineStartValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutPaddingInlineStart >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutPaddingInlineStart"
+              ]
             }
           },
           "StyleFontStyleValue": {
             "doc": "Type alias for CssPropertyValue < StyleFontStyle >",
             "external": "azul_css::props::property::StyleFontStyleValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleFontStyle >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleFontStyle"
+              ]
             }
           },
           "ClipPathValue": {
             "doc": "Type alias for CssPropertyValue < ClipPath >",
             "external": "azul_css::props::property::ClipPathValue",
             "type_alias": {
-              "target": "CssPropertyValue < ClipPath >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "ClipPath"
+              ]
             }
           },
           "StyleLineClampValue": {
             "doc": "Type alias for CssPropertyValue < StyleLineClamp >",
             "external": "azul_css::props::property::StyleLineClampValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleLineClamp >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleLineClamp"
+              ]
             }
           },
           "StyleEmptyCellsValue": {
             "doc": "Type alias for CssPropertyValue < StyleEmptyCells >",
             "external": "azul_css::props::property::StyleEmptyCellsValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleEmptyCells >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleEmptyCells"
+              ]
             }
           },
           "StyleCaptionSideValue": {
             "doc": "Type alias for CssPropertyValue < StyleCaptionSide >",
             "external": "azul_css::props::property::StyleCaptionSideValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleCaptionSide >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleCaptionSide"
+              ]
             }
           },
           "StyleListStylePosition": {
@@ -11575,24 +11883,30 @@
             "doc": "Type alias for CssPropertyValue < StyleBorderCollapse >",
             "external": "azul_css::props::property::StyleBorderCollapseValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleBorderCollapse >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleBorderCollapse"
+              ]
             }
           },
           "StyleExclusionMarginValue": {
             "doc": "Type alias for CssPropertyValue < StyleExclusionMargin >",
             "external": "azul_css::props::property::StyleExclusionMarginValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleExclusionMargin >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleExclusionMargin"
+              ]
             }
           },
           "StyleListStyleTypeValue": {
             "doc": "Type alias for CssPropertyValue < StyleListStyleType >",
             "external": "azul_css::props::property::StyleListStyleTypeValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleListStyleType >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleListStyleType"
+              ]
             }
           },
           "LayoutRowGap": {
@@ -11721,8 +12035,10 @@
             "doc": "Type alias for CssPropertyValue < StyleInitialLetter >",
             "external": "azul_css::props::property::StyleInitialLetterValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleInitialLetter >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleInitialLetter"
+              ]
             }
           },
           "StyleFontStyle": {
@@ -11755,8 +12071,10 @@
             "doc": "Type alias for CssPropertyValue < LayoutBorderSpacing >",
             "external": "azul_css::props::property::LayoutBorderSpacingValue",
             "type_alias": {
-              "target": "CssPropertyValue < LayoutBorderSpacing >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutBorderSpacing"
+              ]
             }
           },
           "StyleTextCombineUpright": {
@@ -11791,16 +12109,20 @@
             "doc": "Type alias for CssPropertyValue < StyleHangingPunctuation >",
             "external": "azul_css::props::property::StyleHangingPunctuationValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleHangingPunctuation >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleHangingPunctuation"
+              ]
             }
           },
           "StyleHyphenationLanguageValue": {
             "doc": "Type alias for CssPropertyValue < StyleHyphenationLanguage >",
             "external": "azul_css::props::property::StyleHyphenationLanguageValue",
             "type_alias": {
-              "target": "CssPropertyValue < StyleHyphenationLanguage >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleHyphenationLanguage"
+              ]
             }
           },
           "GridTrackSizing": {
@@ -11861,8 +12183,10 @@
             ],
             "repr": "C",
             "type_alias": {
-              "target": "PhysicalSize < u32 >",
-              "generic_args": []
+              "target": "PhysicalSize",
+              "generic_args": [
+                "u32"
+              ]
             }
           },
           "HoverEventFilter": {
@@ -12369,7 +12693,11 @@
             ],
             "enum_fields": [
               {
-                "Spaces": {}
+                "None": {},
+                "Spaces": {
+                  "type": "u8"
+                },
+                "Tabs": {}
               }
             ],
             "repr": "C"
@@ -12879,8 +13207,8 @@
             "external": "azul_layout::widgets::button::ButtonOnClick",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "ButtonOnClickCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -13022,8 +13350,16 @@
             ],
             "struct_fields": [
               {
-                "default_dir": {
-                  "type": "OptionAzString",
+                "inner": {
+                  "type": "FileInputState",
+                  "doc": ""
+                },
+                "on_path_change": {
+                  "type": "OptionFileInputOnPathChange",
+                  "doc": ""
+                },
+                "file_dialog_title": {
+                  "type": "String",
                   "doc": ""
                 }
               }
@@ -13050,8 +13386,8 @@
             "external": "azul_layout::widgets::file_input::FileInputOnPathChange",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "FileInputOnPathChangeCallback",
                   "doc": ""
                 }
               }
@@ -13332,8 +13668,8 @@
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChange",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "ColorInputOnValueChangeCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -13672,8 +14008,20 @@
             ],
             "struct_fields": [
               {
-                "placeholder": {
-                  "type": "OptionAzString",
+                "text": {
+                  "type": "U32Vec",
+                  "doc": ""
+                },
+                "max_len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "selection": {
+                  "type": "OptionTextInputSelection",
+                  "doc": ""
+                },
+                "cursor_pos": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -13741,8 +14089,8 @@
             "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "TextInputOnTextInputCallback",
                   "doc": ""
                 }
               }
@@ -13783,8 +14131,8 @@
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "TextInputOnFocusLostCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -14146,8 +14494,8 @@
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChange",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "NumberInputOnValueChangeCallback",
                   "doc": ""
                 }
               }
@@ -14440,8 +14788,8 @@
             "external": "azul_layout::widgets::tabs::TabOnClick",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "TabOnClickCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -14652,8 +15000,8 @@
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScroll",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "ListViewOnLazyLoadScrollCallback",
                   "doc": ""
                 }
               }
@@ -14663,8 +15011,8 @@
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClick",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "ListViewOnColumnClickCallback",
                   "doc": ""
                 }
               }
@@ -14674,8 +15022,8 @@
             "external": "azul_layout::widgets::list_view::ListViewOnRowClick",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "ListViewOnRowClickCallback",
                   "doc": ""
                 }
               }
@@ -14765,32 +15113,8 @@
             "is_boxed_object": true,
             "struct_fields": [
               {
-                "texture_id": {
-                  "type": "GLuint",
-                  "doc": ""
-                },
-                "flags": {
-                  "type": "TextureFlags",
-                  "doc": ""
-                },
-                "size": {
-                  "type": "PhysicalSizeU32",
-                  "doc": ""
-                },
-                "background_color": {
-                  "type": "ColorU",
-                  "doc": ""
-                },
-                "gl_context": {
-                  "type": "GlContextPtr",
-                  "doc": ""
-                },
-                "format": {
-                  "type": "RawImageFormat",
-                  "doc": ""
-                },
-                "run_destructor": {
-                  "type": "bool",
+                "refcount": {
+                  "type": "*const AtomicUsize",
                   "doc": ""
                 }
               }
@@ -23654,8 +23978,12 @@
             ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "Box < Rc < GlContextPtrInner > >",
+                "renderer_type": {
+                  "type": "RendererType",
+                  "doc": ""
+                },
+                "run_destructor": {
+                  "type": "bool",
                   "doc": ""
                 }
               }
@@ -27794,8 +28122,12 @@
             ],
             "struct_fields": [
               {
-                "run_destructor": {
-                  "type": "bool",
+                "data": {
+                  "type": "*const DecodedImage",
+                  "doc": ""
+                },
+                "copies": {
+                  "type": "*const AtomicUsize",
                   "doc": ""
                 }
               }
@@ -30723,6 +31055,9 @@
               {
                 "First": {},
                 "Last": {},
+                "NthChild": {
+                  "type": "CssNthChildSelector"
+                },
                 "Hover": {},
                 "Active": {},
                 "Focus": {}
@@ -30770,6 +31105,18 @@
             "enum_fields": [
               {
                 "Global": {},
+                "Type": {
+                  "type": "NodeTypeTag"
+                },
+                "Class": {
+                  "type": "String"
+                },
+                "Id": {
+                  "type": "String"
+                },
+                "PseudoSelector": {
+                  "type": "CssPathPseudoSelector"
+                },
                 "DirectChildren": {},
                 "Children": {},
                 "AdjacentSibling": {},
@@ -31156,8 +31503,10 @@
             "doc": "Type alias for CssPropertyValue < StringSet >",
             "external": "azul_css::props::property::StringSetValue",
             "type_alias": {
-              "target": "CssPropertyValue < StringSet >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StringSet"
+              ]
             }
           },
           "StringSet": {
@@ -31193,9 +31542,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "ListViewRowDestructor",
+                "ptr": {
+                  "type": "*const ListViewRow",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "ListViewRowVecDestructor"
                 }
               }
             ]
@@ -31207,9 +31567,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyleFilterDestructor",
+                "ptr": {
+                  "type": "*const StyleFilter",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleFilterVecDestructor"
                 }
               }
             ]
@@ -31221,9 +31592,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "AccessibilityStateDestructor",
+                "ptr": {
+                  "type": "*const AccessibilityState",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "AccessibilityStateVecDestructor"
                 }
               }
             ]
@@ -31235,9 +31617,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "MenuItemDestructor",
+                "ptr": {
+                  "type": "*const MenuItem",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "MenuItemVecDestructor"
                 }
               }
             ]
@@ -31271,9 +31664,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "DomDestructor",
+                "ptr": {
+                  "type": "*const Dom",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "DomVecDestructor"
                 }
               }
             ]
@@ -31285,16 +31689,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const IdOrClass",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "IdOrClassVecDestructor",
                   "doc": ""
                 }
               }
@@ -31329,9 +31725,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyleBackgroundContentDestructor",
+                "ptr": {
+                  "type": "*const StyleBackgroundContent",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleBackgroundContentVecDestructor"
                 }
               }
             ]
@@ -31343,9 +31750,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyleBackgroundPositionDestructor",
+                "ptr": {
+                  "type": "*const StyleBackgroundPosition",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleBackgroundPositionVecDestructor"
                 }
               }
             ]
@@ -31357,9 +31775,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyleBackgroundRepeatDestructor",
+                "ptr": {
+                  "type": "*const StyleBackgroundRepeat",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleBackgroundRepeatVecDestructor"
                 }
               }
             ]
@@ -31371,9 +31800,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyleBackgroundSizeDestructor",
+                "ptr": {
+                  "type": "*const StyleBackgroundSize",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleBackgroundSizeVecDestructor"
                 }
               }
             ]
@@ -31407,16 +31847,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const SvgMultiPolygon",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "SvgMultiPolygonVecDestructor",
                   "doc": ""
                 }
               }
@@ -31451,9 +31883,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "SvgPathDestructor",
+                "ptr": {
+                  "type": "*const SvgPath",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "SvgPathVecDestructor"
                 }
               }
             ]
@@ -31465,9 +31908,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "SvgPathElementDestructor",
+                "ptr": {
+                  "type": "*const SvgPathElement",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "SvgPathElementVecDestructor"
                 }
               }
             ]
@@ -31501,9 +31955,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "U32Destructor",
+                "ptr": {
+                  "type": "*const u32",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "U32VecDestructor"
                 }
               }
             ]
@@ -31515,16 +31980,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const VirtualKeyCode",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "VirtualKeyCodeVecDestructor",
                   "doc": ""
                 }
               }
@@ -31537,9 +31994,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "CascadeInfoDestructor",
+                "ptr": {
+                  "type": "*const CascadeInfo",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "CascadeInfoVecDestructor"
                 }
               }
             ]
@@ -31551,9 +32019,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "CssDeclarationDestructor",
+                "ptr": {
+                  "type": "*const CssDeclaration",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "CssDeclarationVecDestructor"
                 }
               }
             ]
@@ -31565,9 +32044,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "CssPathSelectorDestructor",
+                "ptr": {
+                  "type": "*const CssPathSelector",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "CssPathSelectorVecDestructor"
                 }
               }
             ]
@@ -31623,9 +32113,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "U16Destructor",
+                "ptr": {
+                  "type": "*const u16",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "U16VecDestructor"
                 }
               }
             ]
@@ -31637,9 +32138,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "F32Destructor",
+                "ptr": {
+                  "type": "*const f32",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "F32VecDestructor"
                 }
               }
             ]
@@ -31651,9 +32163,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "U8Destructor",
+                "ptr": {
+                  "type": "*const u8",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "U8VecDestructor"
                 }
               }
             ],
@@ -31696,16 +32219,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const GLuint",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "GLuintVecDestructor",
                   "doc": ""
                 }
               }
@@ -31718,9 +32233,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "GLintDestructor",
+                "ptr": {
+                  "type": "*const GLint",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "GLintVecDestructor"
                 }
               }
             ]
@@ -31734,10 +32260,6 @@
               {
                 "ptr": {
                   "type": "*const AzString",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "StringDestructor",
                   "doc": ""
                 }
               }
@@ -31768,16 +32290,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const NormalizedLinearColorStop",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "NormalizedLinearColorStopVecDestructor",
                   "doc": ""
                 }
               }
@@ -31790,16 +32304,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const NormalizedRadialColorStop",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "NormalizedRadialColorStopVecDestructor",
                   "doc": ""
                 }
               }
@@ -31812,12 +32318,12 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
+                "ptr": {
+                  "type": "*const NodeHierarchyItemId",
                   "doc": ""
                 },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "NodeIdVecDestructor",
                   "doc": ""
                 }
               }
@@ -31830,9 +32336,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "NodeHierarchyItemDestructor",
+                "ptr": {
+                  "type": "*const NodeHierarchyItem",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "NodeHierarchyItemVecDestructor"
                 }
               }
             ]
@@ -31844,16 +32361,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const StyledNode",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "StyledNodeVecDestructor",
                   "doc": ""
                 }
               }
@@ -31910,9 +32419,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "NodeDataDestructor",
+                "ptr": {
+                  "type": "*const NodeData",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "NodeDataVecDestructor"
                 }
               }
             ]
@@ -31924,12 +32444,16 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const AttributeType",
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "AttributeDestructor",
+                  "type": "AttributeVecDestructor",
                   "doc": ""
                 }
               }
@@ -31964,9 +32488,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "AccessibilityActionDestructor",
+                "ptr": {
+                  "type": "*const AccessibilityAction",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "AccessibilityActionVecDestructor"
                 }
               }
             ]
@@ -31978,9 +32513,20 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "XmlNodeChildDestructor",
+                "ptr": {
+                  "type": "*const XmlNodeChild",
                   "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "XmlNodeChildVecDestructor"
                 }
               }
             ]
@@ -31992,16 +32538,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const GridTrackSizing",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "GridTrackSizingVecDestructor",
                   "doc": ""
                 }
               }
@@ -32218,7 +32756,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleBackgroundContentVec",
+                  "type": "StyleBackgroundContentVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32230,7 +32768,11 @@
             "external": "azul_core::svg::SvgPathVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "SvgPathVecDestructorType"
+                }
               }
             ]
           },
@@ -32239,7 +32781,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleBackgroundRepeatVec",
+                  "type": "StyleBackgroundRepeatVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32251,7 +32793,11 @@
             "external": "azul_css::props::style::filter::StyleFilterVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleFilterVecDestructorType"
+                }
               }
             ]
           },
@@ -32259,7 +32805,11 @@
             "external": "azul_css::props::style::transform::StyleTransformVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleTransformVecDestructorType"
+                }
               }
             ]
           },
@@ -32268,7 +32818,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut MenuItemVec",
+                  "type": "MenuItemVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32281,7 +32831,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut AccessibilityStateVec",
+                  "type": "AccessibilityStateVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32294,7 +32844,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NodeDataInlineCssPropertyVec",
+                  "type": "NodeDataInlineCssPropertyVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32307,7 +32857,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NormalizedLinearColorStopVec",
+                  "type": "NormalizedLinearColorStopVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32320,7 +32870,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut F32Vec",
+                  "type": "F32Vec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32333,7 +32883,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "GLuintVecDestructorType"
+                }
               }
             ]
           },
@@ -32342,7 +32895,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "XmlNodeChildVecDestructorType"
+                }
               }
             ]
           },
@@ -32351,7 +32907,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleBackgroundSizeVec",
+                  "type": "StyleBackgroundSizeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32363,7 +32919,11 @@
             "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleBackgroundContentVecDestructorType"
+                }
               }
             ]
           },
@@ -32372,7 +32932,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StringVec",
+                  "type": "StringVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32384,7 +32944,11 @@
             "external": "azul_core::style::CascadeInfoVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "CascadeInfoVecDestructorType"
+                }
               }
             ]
           },
@@ -32393,7 +32957,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut DomVec",
+                  "type": "DomVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32406,7 +32970,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "AccessibilityStateVecDestructorType"
+                }
               }
             ]
           },
@@ -32415,7 +32982,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StringPairVec",
+                  "type": "StringPairVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32440,7 +33007,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "StringVecDestructorType"
+                }
               }
             ]
           },
@@ -32449,7 +33019,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut CssRuleBlockVec",
+                  "type": "CssRuleBlockVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32462,7 +33032,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "NodeDataVecDestructorType"
+                }
               }
             ]
           },
@@ -32471,7 +33044,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "MenuItemVecDestructorType"
+                }
               }
             ]
           },
@@ -32480,7 +33056,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut AttributeVec",
+                  "type": "AttributeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32493,7 +33069,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "SvgMultiPolygonVecDestructorType"
+                }
               }
             ]
           },
@@ -32501,9 +33080,7 @@
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructor",
             "enum_fields": [
               {
-                "External": {
-                  "type": "ListViewRowVecDestructorType"
-                }
+                "External": {}
               }
             ]
           },
@@ -32512,7 +33089,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NodeIdVec",
+                  "type": "NodeIdVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32525,7 +33102,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleFilterVec",
+                  "type": "StyleFilterVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32538,7 +33115,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut U32Vec",
+                  "type": "U32Vec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32551,7 +33128,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "SvgVertexVecDestructorType"
+                }
               }
             ]
           },
@@ -32571,7 +33151,11 @@
             "external": "azul_css::corety::U32VecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "U32VecDestructorType"
+                }
               }
             ]
           },
@@ -32579,7 +33163,11 @@
             "external": "azul_css::css::CssRuleBlockVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "CssRuleBlockVecDestructorType"
+                }
               }
             ]
           },
@@ -32588,7 +33176,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut ParentWithNodeDepthVec",
+                  "type": "ParentWithNodeDepthVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32601,7 +33189,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "NormalizedLinearColorStopVecDestructorType"
+                }
               }
             ]
           },
@@ -32610,7 +33201,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut CoreCallbackDataVec",
+                  "type": "CoreCallbackDataVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32622,6 +33213,8 @@
             "external": "azul_css::props::basic::font::StyleFontFamilyVecDestructor",
             "enum_fields": [
               {
+                "DefaultRust": {},
+                "NoDestructor": {},
                 "External": {
                   "type": "StyleFontFamilyVecDestructorType"
                 }
@@ -32633,7 +33226,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut CascadeInfoVec",
+                  "type": "CascadeInfoVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32646,7 +33239,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut U8Vec",
+                  "type": "U8Vec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32659,7 +33252,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NodeHierarchyItemVec",
+                  "type": "NodeHierarchyItemVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32672,7 +33265,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "CssPathSelectorVecDestructorType"
+                }
               }
             ]
           },
@@ -32681,7 +33277,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleBackgroundPositionVec",
+                  "type": "StyleBackgroundPositionVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32694,7 +33290,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut VirtualKeyCodeVec",
+                  "type": "VirtualKeyCodeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32707,7 +33303,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "NodeHierarchyItemVecDestructorType"
+                }
               }
             ]
           },
@@ -32716,7 +33315,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "VirtualKeyCodeVecDestructorType"
+                }
               }
             ]
           },
@@ -32725,7 +33327,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut SvgVertexVec",
+                  "type": "SvgVertexVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32738,7 +33340,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "F32VecDestructorType"
+                }
               }
             ]
           },
@@ -32747,7 +33352,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut SvgPathElementVec",
+                  "type": "SvgPathElementVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32759,7 +33364,11 @@
             "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleBackgroundRepeatVecDestructorType"
+                }
               }
             ]
           },
@@ -32780,7 +33389,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut ListViewRowVec",
+                  "type": "ListViewRowVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32793,7 +33402,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut GLuintVec",
+                  "type": "GLuintVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32806,7 +33415,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleTransformVec",
+                  "type": "StyleTransformVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32819,7 +33428,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut TagIdToNodeIdMappingVec",
+                  "type": "TagIdToNodeIdMappingVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32832,7 +33441,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "U16VecDestructorType"
+                }
               }
             ]
           },
@@ -32841,7 +33453,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "TagIdToNodeIdMappingVecDestructorType"
+                }
               }
             ]
           },
@@ -32849,9 +33464,7 @@
             "external": "azul_core::styled_dom::NodeIdVecDestructor",
             "enum_fields": [
               {
-                "External": {
-                  "type": "NodeIdVecDestructorType"
-                }
+                "External": {}
               }
             ]
           },
@@ -32860,7 +33473,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut U16Vec",
+                  "type": "U16Vec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32873,7 +33486,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut SvgSimpleNodeVec",
+                  "type": "SvgSimpleNodeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32886,7 +33499,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut GridTrackSizingVec",
+                  "type": "GridTrackSizingVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32899,7 +33512,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut CssDeclarationVec",
+                  "type": "CssDeclarationVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32912,7 +33525,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "ParentWithNodeDepthVecDestructorType"
+                }
               }
             ]
           },
@@ -32920,7 +33536,11 @@
             "external": "azul_core::gl::GLintVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "GLintVecDestructorType"
+                }
               }
             ]
           },
@@ -32928,7 +33548,11 @@
             "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "NodeDataInlineCssPropertyVecDestructorType"
+                }
               }
             ]
           },
@@ -32937,7 +33561,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NormalizedRadialColorStopVec",
+                  "type": "NormalizedRadialColorStopVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32949,7 +33573,11 @@
             "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "NormalizedRadialColorStopVecDestructorType"
+                }
               }
             ]
           },
@@ -32958,7 +33586,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyledNodeVecDestructorType"
+                }
               }
             ]
           },
@@ -32967,7 +33598,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleBackgroundPositionVecDestructorType"
+                }
               }
             ]
           },
@@ -32976,7 +33610,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut SvgMultiPolygonVec",
+                  "type": "SvgMultiPolygonVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -32988,7 +33622,11 @@
             "external": "azul_core::svg::SvgSimpleNodeVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "SvgSimpleNodeVecDestructorType"
+                }
               }
             ]
           },
@@ -32997,7 +33635,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut AccessibilityActionVec",
+                  "type": "AccessibilityActionVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33010,7 +33648,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut GLintVec",
+                  "type": "GLintVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33023,7 +33661,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "AttributeVecDestructorType"
+                }
               }
             ]
           },
@@ -33032,7 +33673,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut NodeDataVec",
+                  "type": "NodeDataVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33057,7 +33698,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyledNodeVec",
+                  "type": "StyledNodeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33070,7 +33711,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "IdOrClassVecDestructorType"
+                }
               }
             ]
           },
@@ -33079,7 +33723,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "StyleBackgroundSizeVecDestructorType"
+                }
               }
             ]
           },
@@ -33088,7 +33735,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut SvgPathVec",
+                  "type": "SvgPathVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33101,7 +33748,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StyleFontFamilyVec",
+                  "type": "StyleFontFamilyVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33113,7 +33760,11 @@
             "external": "azul_core::window::StringPairVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "StringPairVecDestructorType"
+                }
               }
             ]
           },
@@ -33121,9 +33772,7 @@
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructor",
             "enum_fields": [
               {
-                "External": {
-                  "type": "CoreCallbackDataVecDestructorType"
-                }
+                "External": {}
               }
             ]
           },
@@ -33132,7 +33781,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "SvgPathElementVecDestructorType"
+                }
               }
             ]
           },
@@ -33141,7 +33793,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "U8VecDestructorType"
+                }
               }
             ]
           },
@@ -33149,6 +33804,8 @@
             "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructor",
             "enum_fields": [
               {
+                "DefaultRust": {},
+                "NoDestructor": {},
                 "External": {
                   "type": "GridTrackSizingVecDestructorType"
                 }
@@ -33160,7 +33817,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut IdOrClassVec",
+                  "type": "IdOrClassVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33173,7 +33830,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut XmlNodeChildVec",
+                  "type": "XmlNodeChildVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33186,7 +33843,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut StylesheetVec",
+                  "type": "StylesheetVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33199,7 +33856,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut CssPathSelectorVec",
+                  "type": "CssPathSelectorVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33212,7 +33869,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut VertexAttributeVec",
+                  "type": "VertexAttributeVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33225,7 +33882,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "VertexAttributeVecDestructorType"
+                }
               }
             ]
           },
@@ -33233,20 +33893,8 @@
             "external": "azul_core::gl::VertexAttributeVec",
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const VertexAttribute",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
                 "destructor": {
-                  "type": "VertexAttributeDestructor",
+                  "type": "VertexAttributeVecDestructor",
                   "doc": ""
                 }
               }
@@ -33257,7 +33905,10 @@
             "enum_fields": [
               {
                 "DefaultRust": {},
-                "NoDestructor": {}
+                "NoDestructor": {},
+                "External": {
+                  "type": "DebugMessageVecDestructorType"
+                }
               }
             ]
           },
@@ -33266,7 +33917,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "*mut DebugMessageVec",
+                  "type": "DebugMessageVec",
                   "ref": "value",
                   "doc": null
                 }
@@ -33278,20 +33929,8 @@
             "external": "azul_core::gl::DebugMessageVec",
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const DebugMessage",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
                 "destructor": {
-                  "type": "DebugMessageDestructor",
+                  "type": "DebugMessageVecDestructor",
                   "doc": ""
                 }
               }
@@ -33840,7 +34479,10 @@
             "external": "azul_css::corety::OptionAzString",
             "enum_fields": [
               {
-                "None": {}
+                "None": {},
+                "Some": {
+                  "type": "String"
+                }
               }
             ]
           },
@@ -34782,7 +35424,10 @@
             ],
             "enum_fields": [
               {
-                "None": {}
+                "None": {},
+                "Named": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C"
@@ -34993,8 +35638,10 @@
             "doc": "Type alias for CssPropertyValue < FlowFrom >",
             "external": "azul_css::props::property::FlowFromValue",
             "type_alias": {
-              "target": "CssPropertyValue < FlowFrom >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowFrom"
+              ]
             }
           },
           "IdOrClass": {
@@ -35066,7 +35713,10 @@
             ],
             "enum_fields": [
               {
-                "None": {}
+                "None": {},
+                "Named": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C"
@@ -35151,8 +35801,10 @@
             "doc": "Type alias for CssPropertyValue < FlowInto >",
             "external": "azul_css::props::property::FlowIntoValue",
             "type_alias": {
-              "target": "CssPropertyValue < FlowInto >",
-              "generic_args": []
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowInto"
+              ]
             }
           },
           "EdgeType": {

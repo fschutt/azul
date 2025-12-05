@@ -38,9 +38,17 @@ pub fn analyze_type(arg_type: &str) -> (String, String, String) {
     } else if arg_type.starts_with('&') {
         starts = "&".to_string();
         arg_type_clean = arg_type.replace('&', "");
+    } else if arg_type.starts_with("* const") {
+        // Handle "* const" with space (from syn/api.json)
+        starts = "* const ".to_string();
+        arg_type_clean = arg_type.replace("* const", "");
     } else if arg_type.starts_with("*const") {
         starts = "*const ".to_string();
         arg_type_clean = arg_type.replace("*const", "");
+    } else if arg_type.starts_with("* mut") {
+        // Handle "* mut" with space (from syn/api.json)
+        starts = "* mut ".to_string();
+        arg_type_clean = arg_type.replace("* mut", "");
     } else if arg_type.starts_with("*mut") {
         starts = "*mut ".to_string();
         arg_type_clean = arg_type.replace("*mut", "");

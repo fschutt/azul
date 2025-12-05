@@ -272,9 +272,13 @@ impl<'a> TypeResolver<'a> {
                     }
                 }
             }
-            TypeDefKind::TypeAlias { target } => {
+            TypeDefKind::TypeAlias { target, generic_base: _, generic_args } => {
                 let parent_context = format!("{} (type alias)", type_name);
                 self.resolve_type_with_context(target, ctx, Some(&parent_context));
+                // Also resolve generic arguments
+                for arg in generic_args {
+                    self.resolve_type_with_context(arg, ctx, Some(&parent_context));
+                }
             }
             TypeDefKind::CallbackTypedef { args, returns } => {
                 for (i, arg) in args.iter().enumerate() {
