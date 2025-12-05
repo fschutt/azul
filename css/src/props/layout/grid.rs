@@ -3,6 +3,7 @@
 use alloc::{
     string::{String, ToString},
     vec::Vec,
+    boxed::Box,
 };
 
 use crate::{
@@ -13,6 +14,23 @@ use crate::{
 };
 
 // --- grid-template-columns / grid-template-rows ---
+
+/// Wrapper for minmax(min, max) to satisfy repr(C) (enum variants can only have 1 field)
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GridMinMax {
+    pub min: Box<GridTrackSizing>,
+    pub max: Box<GridTrackSizing>,
+}
+
+impl core::fmt::Debug for GridMinMax {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "minmax({}, {})", 
+            self.min.print_as_css_value(),
+            self.max.print_as_css_value()
+        )
+    }
+}
 
 /// Represents a single track sizing function for grid
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -28,8 +46,8 @@ pub enum GridTrackSizing {
     MaxContent,
     /// auto
     Auto,
-    /// minmax(min, max)
-    MinMax(Box<GridTrackSizing>, Box<GridTrackSizing>),
+    /// minmax(min, max) - uses GridMinMax which contains Box<GridTrackSizing> for each bound
+    MinMax(GridMinMax),
     /// fit-content(size)
     FitContent(PixelValue),
 }
@@ -54,11 +72,11 @@ impl PrintAsCssValue for GridTrackSizing {
             GridTrackSizing::MinContent => "min-content".to_string(),
             GridTrackSizing::MaxContent => "max-content".to_string(),
             GridTrackSizing::Auto => "auto".to_string(),
-            GridTrackSizing::MinMax(min, max) => {
+            GridTrackSizing::MinMax(minmax) => {
                 format!(
                     "minmax({}, {})",
-                    min.print_as_css_value(),
-                    max.print_as_css_value()
+                    minmax.min.print_as_css_value(),
+                    minmax.max.print_as_css_value()
                 )
             }
             GridTrackSizing::FitContent(size) => {
@@ -311,7 +329,10 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
         if parts.len() == 2 {
             let min = parse_grid_track_owned(parts[0].trim())?;
             let max = parse_grid_track_owned(parts[1].trim())?;
-            return Ok(GridTrackSizing::MinMax(Box::new(min), Box::new(max)));
+            return Ok(GridTrackSizing::MinMax(GridMinMax {
+                min: Box::new(min),
+                max: Box::new(max),
+            }));
         }
         return Err(());
     }
@@ -769,7 +790,7 @@ mod tests {
     fn test_parse_grid_template_minmax() {
         let result = parse_grid_template("minmax(100px, 1fr)").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks[0], GridTrackSizing::MinMax(_, _)));
+        assert!(matches!(result.tracks[0], GridTrackSizing::MinMax(_)));
     }
 
     #[test]

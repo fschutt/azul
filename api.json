@@ -873,6 +873,36 @@
               }
             ],
             "repr": "C"
+          },
+          "InstantPtrCloneCallbackType": {
+            "external": "azul_core::task::InstantPtrCloneCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "InstantPtr",
+                  "ref": "value",
+                  "doc": null
+                }
+              ],
+              "returns": {
+                "type": "InstantPtr"
+              }
+            },
+            "repr": "C"
+          },
+          "InstantPtrDestructorCallbackType": {
+            "external": "azul_core::task::InstantPtrDestructorCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "InstantPtr",
+                  "ref": "value",
+                  "doc": null
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
           }
         }
       },
@@ -4085,6 +4115,28 @@
                 },
                 "item_count": {
                   "type": "usize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "InstantPtrCloneCallback": {
+            "external": "azul_core::task::InstantPtrCloneCallback",
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "InstantPtrCloneCallbackType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "InstantPtrDestructorCallback": {
+            "external": "azul_core::task::InstantPtrDestructorCallback",
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "InstantPtrDestructorCallbackType"
                 }
               }
             ],
@@ -12458,21 +12510,15 @@
             ],
             "enum_fields": [
               {
-                "Fixed": {
-                  "type": "PixelValue"
-                },
-                "Fr": {
-                  "type": "i32"
-                },
+                "Fixed": {},
+                "Fr": {},
                 "MinContent": {},
                 "MaxContent": {},
                 "Auto": {},
                 "MinMax": {
-                  "type": "Box < GridTrackSizing >, Box < GridTrackSizing >"
+                  "type": "GridMinMax"
                 },
-                "FitContent": {
-                  "type": "PixelValue"
-                }
+                "FitContent": {}
               }
             ],
             "repr": "C"
@@ -13413,6 +13459,30 @@
               {
                 "fields": {
                   "type": "VertexAttributeVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "GridMinMax": {
+            "external": "azul_css::props::layout::grid::GridMinMax",
+            "derive": [
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "min": {
+                  "type": "c_void",
+                  "ref_kind": "boxed"
+                },
+                "max": {
+                  "type": "c_void",
+                  "ref_kind": "boxed"
                 }
               }
             ],
@@ -31805,6 +31875,38 @@
               {
                 "id": {
                   "type": "usize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "InstantPtr": {
+            "external": "azul_core::task::InstantPtr",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "clone_fn": {
+                  "type": "InstantPtrCloneCallback"
+                },
+                "destructor": {
+                  "type": "InstantPtrDestructorCallback"
+                },
+                "run_destructor": {
+                  "type": "bool"
                 }
               }
             ],

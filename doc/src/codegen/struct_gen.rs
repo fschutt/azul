@@ -344,13 +344,16 @@ fn generate_single_type(
 
         // Generate callback trait implementations if this struct wraps a callback_typedef type
         // A callback wrapper struct has exactly one field whose type is a callback_typedef
-        if let Some(field_name) = get_callback_wrapper_field(struct_fields, callback_typedef_types) {
-            code.push_str(&generate_callback_trait_impls(
-                struct_name,
-                &field_name,
-                config,
-                indent_str,
-            )?);
+        // Skip for memtest - we already generate manual trait impls that work correctly
+        if !config.is_memtest {
+            if let Some(field_name) = get_callback_wrapper_field(struct_fields, callback_typedef_types) {
+                code.push_str(&generate_callback_trait_impls(
+                    struct_name,
+                    &field_name,
+                    config,
+                    indent_str,
+                )?);
+            }
         }
     }
     // Handle enums

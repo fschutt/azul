@@ -100,7 +100,7 @@ impl ThreadId {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Instant {
-    System(AzInstantPtr),
+    System(InstantPtr),
     Tick(SystemTick),
 }
 
@@ -144,7 +144,7 @@ impl Instant {
                     {
                         let s: StdInstant = i.clone().into();
                         let d: StdDuration = d.clone().into();
-                        let new: AzInstantPtr = (s + d).into();
+                        let new: InstantPtr = (s + d).into();
                         Instant::System(new)
                     }
                     #[cfg(not(feature = "std"))]
@@ -227,7 +227,7 @@ impl SystemTick {
 }
 
 #[repr(C)]
-pub struct AzInstantPtr {
+pub struct InstantPtr {
     #[cfg(feature = "std")]
     pub ptr: Box<StdInstant>,
     #[cfg(not(feature = "std"))]
@@ -237,110 +237,110 @@ pub struct AzInstantPtr {
     pub run_destructor: bool,
 }
 
-pub type InstantPtrCloneCallbackType = extern "C" fn(*const AzInstantPtr) -> AzInstantPtr;
+pub type InstantPtrCloneCallbackType = extern "C" fn(*const InstantPtr) -> InstantPtr;
 #[repr(C)]
 pub struct InstantPtrCloneCallback {
     pub cb: InstantPtrCloneCallbackType,
 }
 impl_callback!(InstantPtrCloneCallback);
 
-pub type InstantPtrDestructorCallbackType = extern "C" fn(*mut AzInstantPtr);
+pub type InstantPtrDestructorCallbackType = extern "C" fn(*mut InstantPtr);
 #[repr(C)]
 pub struct InstantPtrDestructorCallback {
     pub cb: InstantPtrDestructorCallbackType,
 }
 impl_callback!(InstantPtrDestructorCallback);
 
-// ----  LIBSTD implementation for AzInstantPtr BEGIN
+// ----  LIBSTD implementation for InstantPtr BEGIN
 #[cfg(feature = "std")]
-impl core::fmt::Debug for AzInstantPtr {
+impl core::fmt::Debug for InstantPtr {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{:?}", self.get())
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl core::fmt::Debug for AzInstantPtr {
+impl core::fmt::Debug for InstantPtr {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{:?}", self.ptr as usize)
     }
 }
 
 #[cfg(feature = "std")]
-impl core::hash::Hash for AzInstantPtr {
+impl core::hash::Hash for InstantPtr {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.get().hash(state);
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl core::hash::Hash for AzInstantPtr {
+impl core::hash::Hash for InstantPtr {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         (self.ptr as usize).hash(state);
     }
 }
 
 #[cfg(feature = "std")]
-impl PartialEq for AzInstantPtr {
-    fn eq(&self, other: &AzInstantPtr) -> bool {
+impl PartialEq for InstantPtr {
+    fn eq(&self, other: &InstantPtr) -> bool {
         self.get() == other.get()
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl PartialEq for AzInstantPtr {
-    fn eq(&self, other: &AzInstantPtr) -> bool {
+impl PartialEq for InstantPtr {
+    fn eq(&self, other: &InstantPtr) -> bool {
         (self.ptr as usize).eq(&(other.ptr as usize))
     }
 }
 
-impl Eq for AzInstantPtr {}
+impl Eq for InstantPtr {}
 
 #[cfg(feature = "std")]
-impl PartialOrd for AzInstantPtr {
+impl PartialOrd for InstantPtr {
     fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
         Some((self.get()).cmp(&(other.get())))
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl PartialOrd for AzInstantPtr {
+impl PartialOrd for InstantPtr {
     fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
         Some((self.ptr as usize).cmp(&(other.ptr as usize)))
     }
 }
 
 #[cfg(feature = "std")]
-impl Ord for AzInstantPtr {
+impl Ord for InstantPtr {
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
         (self.get()).cmp(&(other.get()))
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl Ord for AzInstantPtr {
+impl Ord for InstantPtr {
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
         (self.ptr as usize).cmp(&(other.ptr as usize))
     }
 }
 
 #[cfg(feature = "std")]
-impl AzInstantPtr {
+impl InstantPtr {
     fn get(&self) -> StdInstant {
         *(self.ptr).clone()
     }
 }
 
-impl Clone for AzInstantPtr {
+impl Clone for InstantPtr {
     fn clone(&self) -> Self {
         (self.clone_fn.cb)(self)
     }
 }
 
 #[cfg(feature = "std")]
-extern "C" fn std_instant_clone(ptr: *const AzInstantPtr) -> AzInstantPtr {
+extern "C" fn std_instant_clone(ptr: *const InstantPtr) -> InstantPtr {
     let az_instant_ptr = unsafe { &*ptr };
-    AzInstantPtr {
+    InstantPtr {
         ptr: az_instant_ptr.ptr.clone(),
         clone_fn: az_instant_ptr.clone_fn.clone(),
         destructor: az_instant_ptr.destructor.clone(),
@@ -349,8 +349,8 @@ extern "C" fn std_instant_clone(ptr: *const AzInstantPtr) -> AzInstantPtr {
 }
 
 #[cfg(feature = "std")]
-impl From<StdInstant> for AzInstantPtr {
-    fn from(s: StdInstant) -> AzInstantPtr {
+impl From<StdInstant> for InstantPtr {
+    fn from(s: StdInstant) -> InstantPtr {
         Self {
             ptr: Box::new(s),
             clone_fn: InstantPtrCloneCallback {
@@ -365,13 +365,13 @@ impl From<StdInstant> for AzInstantPtr {
 }
 
 #[cfg(feature = "std")]
-impl From<AzInstantPtr> for StdInstant {
-    fn from(s: AzInstantPtr) -> StdInstant {
+impl From<InstantPtr> for StdInstant {
+    fn from(s: InstantPtr) -> StdInstant {
         s.get()
     }
 }
 
-impl Drop for AzInstantPtr {
+impl Drop for InstantPtr {
     fn drop(&mut self) {
         self.run_destructor = false;
         (self.destructor.cb)(self);
@@ -379,9 +379,9 @@ impl Drop for AzInstantPtr {
 }
 
 #[cfg(feature = "std")]
-extern "C" fn std_instant_drop(_: *mut AzInstantPtr) {}
+extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
 
-// ----  LIBSTD implementation for AzInstantPtr END
+// ----  LIBSTD implementation for InstantPtr END
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]

@@ -105,8 +105,8 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             taffy::MinTrackSizingFunction::max_content(),
             taffy::MaxTrackSizingFunction::max_content(),
         ),
-        GridTrackSizing::MinMax(min, max) => {
-            minmax(translate_track(min).min, translate_track(max).max)
+        GridTrackSizing::MinMax(minmax_box) => {
+            minmax(translate_track(&minmax_box.min).min, translate_track(&minmax_box.max).max)
         }
         GridTrackSizing::Fixed(px) => {
             // Fixed tracks: resolve em/rem to pixels

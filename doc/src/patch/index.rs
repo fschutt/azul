@@ -1249,16 +1249,28 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 let mut variants = IndexMap::new();
                 for variant in &e.variants {
                     let variant_name = variant.ident.to_string();
+                    
+                    // Check for repr(C) violations: variants can only have 0 or 1 field
+                    let field_count = variant.fields.len();
+                    if field_count > 1 {
+                        eprintln!(
+                            "[WARNING] repr(C) violation in enum '{}' variant '{}': \
+                             has {} fields but repr(C) enums can only have 0 or 1 field per variant. \
+                             File: {}",
+                            type_name, variant_name, field_count, parsed_file.path.display()
+                        );
+                        // Skip this variant - it cannot be represented in FFI
+                        continue;
+                    }
+                    
                     let variant_ty = if variant.fields.is_empty() {
                         None
                     } else {
-                        let fields_str = variant
-                            .fields
-                            .iter()
-                            .map(|f| f.ty.to_token_stream().to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        Some(crate::autofix::utils::clean_type_string(&fields_str))
+                        // Exactly one field - safe for repr(C)
+                        let field = variant.fields.iter().next().unwrap();
+                        Some(crate::autofix::utils::clean_type_string(
+                            &field.ty.to_token_stream().to_string()
+                        ))
                     };
 
                     variants.insert(
