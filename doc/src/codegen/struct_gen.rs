@@ -81,7 +81,12 @@ impl StructMetadata {
     /// Extract metadata from ClassData
     pub fn from_class_data(name: String, class_data: &ClassData) -> Self {
         let has_explicit_derive = class_data.derive.is_some();
-        let derive = class_data.derive.clone().unwrap_or_default();
+        let mut derive = class_data.derive.clone().unwrap_or_default();
+        
+        // If Copy is derived, Clone must also be derived (Copy requires Clone)
+        if derive.contains(&"Copy".to_string()) && !derive.contains(&"Clone".to_string()) {
+            derive.push("Clone".to_string());
+        }
 
         let is_callback_typedef = class_data.callback_typedef.is_some();
         let can_be_copied = derive.contains(&"Copy".to_string());
@@ -352,18 +357,15 @@ fn generate_single_type(
             indent_str,
         )?);
     }
-    // Handle opaque types (have external path but no struct/enum fields)
-    // Generate a type alias to allow Vec types to reference them
+    // Error: Type has external path but no struct_fields or enum_fields
+    // This is invalid - every non-alias type must have fields defined
     else if struct_meta.external.is_some() && !struct_meta.is_callback_typedef {
-        // Generate as opaque type alias (we don't know the size/layout)
-        code.push_str(&format!(
-            "{}/// Opaque type (no struct_fields/enum_fields in api.json)\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}pub type {} = *const c_void;\n\n",
-            indent_str, struct_name
-        ));
+        anyhow::bail!(
+            "Type '{}' has external path '{}' but no struct_fields or enum_fields defined in api.json. \
+             Every type (except type_alias and callback_typedef) must have either struct_fields or enum_fields.",
+            struct_name,
+            struct_meta.external.as_ref().unwrap()
+        );
     }
 
     Ok(code)

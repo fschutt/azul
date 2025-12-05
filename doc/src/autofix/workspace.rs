@@ -17,6 +17,7 @@ use crate::{
     api::ApiData,
     autofix::message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
     autofix::module_map::{get_correct_module, MODULES},
+    autofix::unified_index::TypeLookup,
     patch::{
         index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
@@ -191,8 +192,8 @@ pub fn is_workspace_type(full_path: &str) -> bool {
 }
 
 /// Discover a type in the workspace
-pub fn discover_type(
-    workspace_index: &WorkspaceIndex,
+pub fn discover_type<T: TypeLookup>(
+    workspace_index: &T,
     type_name: &str,
     messages: &mut AutofixMessages,
 ) -> Option<ParsedTypeInfo> {
@@ -231,8 +232,8 @@ pub fn discover_type(
 }
 
 /// Find a type in workspace and verify it matches the expected path
-pub fn find_type_in_workspace(
-    workspace_index: &WorkspaceIndex,
+pub fn find_type_in_workspace<T: TypeLookup>(
+    workspace_index: &T,
     class_name: &str,
     expected_path: &str,
     messages: &mut AutofixMessages,
@@ -242,7 +243,7 @@ pub fn find_type_in_workspace(
 
     // Try to find by full path first
     if let Some(type_info) = workspace_index.find_type_by_path(expected_path) {
-        return Some(type_info.clone());
+        return Some(type_info);
     }
 
     // Try to find by simple name
@@ -252,7 +253,7 @@ pub fn find_type_in_workspace(
         }
 
         // Multiple matches, try to find the one matching the expected path
-        for candidate in candidates {
+        for candidate in &candidates {
             if candidate.full_path == expected_path {
                 return Some(candidate.clone());
             }
@@ -430,9 +431,9 @@ pub fn infer_module_from_path(type_path: &str) -> String {
 }
 
 /// Generate patches for discovered types
-pub fn generate_patches(
+pub fn generate_patches<T: TypeLookup>(
     api_data: &ApiData,
-    workspace_index: &WorkspaceIndex,
+    workspace_index: &T,
     types_to_add: &[ParsedTypeInfo],
     patch_summary: &PatchSummary,
     patches_dir: &Path,
@@ -507,7 +508,7 @@ pub fn generate_patches(
         // Get struct/enum info from workspace if available
         if let Some(type_info) = workspace_index.find_type_by_path(&change.new_path) {
             // Merge with existing patch or create new one with full info
-            let full_patch = convert_type_info_to_class_patch(type_info);
+            let full_patch = convert_type_info_to_class_patch(&type_info);
             all_patches
                 .entry(key.clone())
                 .and_modify(|p| {
@@ -699,7 +700,7 @@ pub fn generate_patches(
             if let Some(external_path) = &class_data.external {
                 if let Some(type_info) = workspace_index.find_type_by_path(external_path) {
                     // Convert type info to a full class patch to get struct/enum fields
-                    let full_patch = convert_type_info_to_class_patch(type_info);
+                    let full_patch = convert_type_info_to_class_patch(&type_info);
                     
                     // Extract derives and implemented_traits from the workspace type
                     let (derives, implemented_traits) = match &type_info.kind {
@@ -763,6 +764,59 @@ pub fn generate_patches(
                             });
                     }
                 }
+            }
+        }
+    }
+
+    // 5.1. Ensure all Vec/VecDestructor/VecDestructorType types have proper struct_fields/enum_fields
+    // This handles macro-generated types that weren't properly resolved in step 5
+    for (module_name, module_data) in &version_data.api {
+        for (class_name, class_data) in &module_data.classes {
+            // Get external path for generating synthetic types
+            let external_path = match &class_data.external {
+                Some(p) => p.clone(),
+                None => continue,
+            };
+            
+            // Handle Vec types missing struct_fields
+            if is_vec_type(class_name) && class_data.struct_fields.is_none() {
+                eprintln!("[DEBUG 5.1] Vec type '{}' missing struct_fields, generating...", class_name);
+                // Extract element type from the Vec type name (e.g., "DebugMessageVec" -> "DebugMessage")
+                let element_type = class_name.trim_end_matches("Vec");
+                let generated = generate_vec_structure(class_name, element_type, &external_path);
+                
+                let key = (module_name.clone(), class_name.clone());
+                all_patches
+                    .entry(key)
+                    .and_modify(|p| {
+                        if p.struct_fields.is_none() {
+                            p.struct_fields = generated.struct_fields.clone();
+                            p.doc = generated.doc.clone();
+                            p.custom_destructor = generated.custom_destructor;
+                            p.vec_element_type = generated.vec_element_type.clone();
+                        }
+                        if p.derive.is_none() || p.derive.as_ref().map(|d| d.is_empty()).unwrap_or(true) {
+                            p.derive = Some(vec!["Clone".to_string(), "Debug".to_string()]);
+                        }
+                    })
+                    .or_insert_with(|| {
+                        let mut patch = generated;
+                        patch.derive = Some(vec!["Clone".to_string(), "Debug".to_string()]);
+                        patch
+                    });
+                    
+                // Also ensure VecDestructor and VecDestructorType exist
+                generate_synthetic_vec_types(class_name, &external_path, None, &mut all_patches);
+            }
+            
+            // Handle VecDestructor types missing enum_fields
+            if is_vec_destructor_type(class_name) && class_data.enum_fields.is_none() {
+                ensure_vec_destructor_enum_fields(class_name, &external_path, &mut all_patches);
+            }
+            
+            // Handle VecDestructorType types missing callback_typedef
+            if is_vec_destructor_callback_type(class_name) && class_data.callback_typedef.is_none() {
+                ensure_vec_destructor_callback_typedef(class_name, &mut all_patches);
             }
         }
     }
@@ -1490,9 +1544,9 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
 /// 1. Creating a temporary API with newly discovered types
 /// 2. Re-running type discovery to find their dependencies
 /// 3. Repeating until no new types are found
-pub fn virtual_patch_application(
+pub fn virtual_patch_application<T: TypeLookup>(
     api_data: &ApiData,
-    workspace_index: &WorkspaceIndex,
+    workspace_index: &T,
     initial_types: Vec<ParsedTypeInfo>,
     mut known_types: HashMap<String, String>,
     messages: &mut AutofixMessages,

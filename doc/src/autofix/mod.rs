@@ -16,6 +16,7 @@ pub mod diff;
 pub mod debug;
 pub mod patch_format;
 pub mod module_map;
+pub mod unified_index;
 
 // Legacy modules - still needed for some utilities
 pub mod message;
@@ -216,6 +217,68 @@ pub fn autofix_api(
                         new_type
                     );
                 }
+                diff::ModificationKind::CallbackTypedefAdded { args, returns } => {
+                    let args_str: Vec<String> = args.iter()
+                        .map(|arg| {
+                            let ref_str = match arg.ref_kind {
+                                type_index::RefKind::Ref => "&",
+                                type_index::RefKind::RefMut => "&mut ",
+                                type_index::RefKind::Value => "",
+                            };
+                            format!("{}{}", ref_str, arg.ty)
+                        })
+                        .collect();
+                    println!("  {}: {} callback_typedef({}) -> {:?}", 
+                        modification.type_name.white(), 
+                        "+".green(),
+                        args_str.join(", ").cyan(),
+                        returns
+                    );
+                }
+                diff::ModificationKind::CallbackArgChanged { arg_index, old_type, new_type, old_ref_kind, new_ref_kind } => {
+                    let old_ref_str = match old_ref_kind {
+                        Some(type_index::RefKind::Ref) => "&",
+                        Some(type_index::RefKind::RefMut) => "&mut ",
+                        Some(type_index::RefKind::Value) | None => "",
+                    };
+                    let new_ref_str = match new_ref_kind {
+                        type_index::RefKind::Ref => "&",
+                        type_index::RefKind::RefMut => "&mut ",
+                        type_index::RefKind::Value => "",
+                    };
+                    println!("  {}: callback arg[{}] : {}{} {} {}{}", 
+                        modification.type_name.white(), 
+                        arg_index,
+                        old_ref_str.red(),
+                        old_type.red(),
+                        "->".dimmed(),
+                        new_ref_str.green(),
+                        new_type.green()
+                    );
+                }
+                diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {
+                    println!("  {}: callback return : {:?} {} {:?}", 
+                        modification.type_name.white(), 
+                        old_type,
+                        "->".dimmed(),
+                        new_type
+                    );
+                }
+                diff::ModificationKind::TypeAliasAdded { target } => {
+                    println!("  {}: {} type_alias = {}", 
+                        modification.type_name.white(), 
+                        "+".green(),
+                        target.cyan()
+                    );
+                }
+                diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target } => {
+                    println!("  {}: type_alias = {} {} {}", 
+                        modification.type_name.white(), 
+                        old_target.red(),
+                        "->".dimmed(),
+                        new_target.green()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -379,6 +442,59 @@ fn generate_combined_patch(
                     new_type: new_type.clone(),
                 });
             }
+            diff::ModificationKind::CallbackTypedefAdded { args, returns } => {
+                changes.push(ModifyChange::SetCallbackTypedef {
+                    args: args.iter().map(|arg| {
+                        let ref_str = match arg.ref_kind {
+                            type_index::RefKind::Ref => "ref",
+                            type_index::RefKind::RefMut => "refmut",
+                            type_index::RefKind::Value => "value",
+                        };
+                        patch_format::CallbackArgDef {
+                            arg_type: arg.ty.clone(),
+                            ref_kind: ref_str.to_string(),
+                            name: arg.name.clone(),
+                        }
+                    }).collect(),
+                    returns: returns.clone(),
+                });
+            }
+            diff::ModificationKind::CallbackArgChanged { arg_index, old_type, new_type, old_ref_kind, new_ref_kind } => {
+                let old_ref_str = old_ref_kind.map(|rk| match rk {
+                    type_index::RefKind::Ref => "ref",
+                    type_index::RefKind::RefMut => "refmut",
+                    type_index::RefKind::Value => "value",
+                }.to_string());
+                let new_ref_str = match new_ref_kind {
+                    type_index::RefKind::Ref => "ref",
+                    type_index::RefKind::RefMut => "refmut",
+                    type_index::RefKind::Value => "value",
+                };
+                changes.push(ModifyChange::ChangeCallbackArg {
+                    arg_index: *arg_index,
+                    old_type: old_type.clone(),
+                    new_type: new_type.clone(),
+                    old_ref: old_ref_str,
+                    new_ref: new_ref_str.to_string(),
+                });
+            }
+            diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {
+                changes.push(ModifyChange::ChangeCallbackReturn {
+                    old_type: old_type.clone(),
+                    new_type: new_type.clone(),
+                });
+            }
+            diff::ModificationKind::TypeAliasAdded { target } => {
+                changes.push(ModifyChange::SetTypeAlias {
+                    target: target.clone(),
+                });
+            }
+            diff::ModificationKind::TypeAliasTargetChanged { old_target, new_target } => {
+                changes.push(ModifyChange::ChangeTypeAlias {
+                    old_target: old_target.clone(),
+                    new_target: new_target.clone(),
+                });
+            }
         }
     }
     
@@ -425,6 +541,29 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         "callback_value" => TypeKind::CallbackValue,
         _ => TypeKind::Struct,
     };
+    
+    // Convert struct_fields to FieldDef format
+    let struct_fields = addition.struct_fields.as_ref().map(|fields| {
+        fields.iter().map(|(name, ty)| patch_format::FieldDef {
+            name: name.clone(),
+            field_type: ty.clone(),
+            doc: None,
+        }).collect()
+    });
+    
+    // Convert enum_variants to VariantDef format
+    let enum_variants = addition.enum_variants.as_ref().map(|variants| {
+        variants.iter().map(|(name, ty)| patch_format::VariantDef {
+            name: name.clone(),
+            variant_type: ty.clone(),
+        }).collect()
+    });
+    
+    let derives = if addition.derives.is_empty() { 
+        None 
+    } else { 
+        Some(addition.derives.clone()) 
+    };
 
     let mut patch = AutofixPatch::new(format!("Add new type {}", addition.type_name));
     patch.add_operation(PatchOperation::Add(AddOperation {
@@ -432,10 +571,10 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         external: addition.full_path.clone(),
         kind,
         module: None,
-        derives: None,
-        repr_c: None,
-        struct_fields: None,
-        enum_variants: None,
+        derives,
+        repr_c: Some(true), // All API types should have repr(C)
+        struct_fields,
+        enum_variants,
     }));
     
     patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))

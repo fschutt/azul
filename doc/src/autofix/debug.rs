@@ -49,9 +49,47 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                             println!("        ... and {} more", variants.len() - 10);
                         }
                     }
-                    TypeDefKind::MacroGenerated { source_macro, base_type, .. } => {
+                    TypeDefKind::MacroGenerated { source_macro, base_type, kind, .. } => {
                         println!("      Macro: {}", source_macro);
                         println!("      Base type: {}", base_type);
+                        println!("      MacroKind: {:?}", kind);
+                        
+                        // Show the expanded form
+                        let expanded = def.expand_macro_generated();
+                        match &expanded {
+                            TypeDefKind::Struct { fields, has_repr_c, derives, .. } => {
+                                println!("      [Expanded to Struct]");
+                                println!("        repr(C): {}", has_repr_c);
+                                println!("        Fields ({}):", fields.len());
+                                for (name, field) in fields {
+                                    println!("          - {}: {}", name, field.ty);
+                                }
+                                if !derives.is_empty() {
+                                    println!("        Derives: {:?}", derives);
+                                }
+                            }
+                            TypeDefKind::Enum { variants, has_repr_c, derives, .. } => {
+                                println!("      [Expanded to Enum]");
+                                println!("        repr(C): {}", has_repr_c);
+                                println!("        Variants ({}):", variants.len());
+                                for (name, variant) in variants {
+                                    if let Some(ty) = &variant.ty {
+                                        println!("          - {}({})", name, ty);
+                                    } else {
+                                        println!("          - {}", name);
+                                    }
+                                }
+                                if !derives.is_empty() {
+                                    println!("        Derives: {:?}", derives);
+                                }
+                            }
+                            TypeDefKind::CallbackTypedef { args, returns } => {
+                                println!("      [Expanded to CallbackTypedef]");
+                                println!("        Args: {:?}", args.iter().map(|a| &a.ty).collect::<Vec<_>>());
+                                println!("        Returns: {:?}", returns);
+                            }
+                            _ => {}
+                        }
                     }
                     TypeDefKind::TypeAlias { target } => {
                         println!("      Target: {}", target);

@@ -3448,7 +3448,7 @@ pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /* Error: Type is not stack allocated! */
 
 /// Pointer to rust-allocated `Box<AzDebugMessage>` struct
-#[repr(C)] pub struct AzAzDebugMessage { pub ptr: *mut c_void }
+#[repr(C)] pub struct AzDebugMessage { pub ptr: *mut c_void }
 /* Error: Type is not stack allocated! */
 
 /// Type alias for u32

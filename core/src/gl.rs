@@ -16,9 +16,8 @@ use azul_css::{
     AzString, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
-    ctypes::*, gl, GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum,
-    GLfloat, GLint, GLint64, GLintptr, GLsizei, GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64,
-    GLvoid, GenericGlContext, GlType,
+    ctypes::*, gl, GLvoid, GLsync, GLeglImageOES, 
+    GenericGlContext, GlType as GlContextGlType,
 };
 
 pub use crate::glconst::*;
@@ -30,6 +29,19 @@ use crate::{
     window::RendererType,
     FastHashMap,
 };
+
+pub type GLuint = u32;
+pub type GLint = i32;
+pub type GLint64 = i64;
+pub type GLuint64 = u64;
+pub type GLenum = u32;
+pub type GLintptr = isize;
+pub type GLboolean = u8;
+pub type GLsizeiptr = isize;
+pub type GLbitfield = u32;
+pub type GLsizei = i32;
+pub type GLclampf = f32;
+pub type GLfloat = f32;
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
@@ -570,7 +582,7 @@ impl_option!(
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
-pub struct AzDebugMessage {
+pub struct DebugMessage {
     pub message: AzString,
     pub source: GLenum,
     pub ty: GLenum,
@@ -579,21 +591,22 @@ pub struct AzDebugMessage {
 }
 
 impl_vec!(
-    AzDebugMessage,
-    AzDebugMessageVec,
-    AzDebugMessageVecDestructor
+    DebugMessage,
+    DebugMessageVec,
+    DebugMessageVecDestructor
 );
-impl_vec_debug!(AzDebugMessage, AzDebugMessageVec);
-impl_vec_partialord!(AzDebugMessage, AzDebugMessageVec);
-impl_vec_ord!(AzDebugMessage, AzDebugMessageVec);
+impl_vec_debug!(DebugMessage, DebugMessageVec);
+impl_vec_partialord!(DebugMessage, DebugMessageVec);
+impl_vec_ord!(DebugMessage, DebugMessageVec);
 impl_vec_clone!(
-    AzDebugMessage,
-    AzDebugMessageVec,
-    AzDebugMessageVecDestructor
+    DebugMessage,
+    DebugMessageVec,
+    DebugMessageVecDestructor
 );
-impl_vec_partialeq!(AzDebugMessage, AzDebugMessageVec);
-impl_vec_eq!(AzDebugMessage, AzDebugMessageVec);
-impl_vec_hash!(AzDebugMessage, AzDebugMessageVec);
+impl_vec_partialeq!(DebugMessage, DebugMessageVec);
+impl_vec_eq!(DebugMessage, DebugMessageVec);
+impl_vec_hash!(DebugMessage, DebugMessageVec);
+
 
 impl_vec!(GLint, GLintVec, GLintVecDestructor);
 impl_vec_debug!(GLint, GLintVec);
@@ -615,16 +628,16 @@ impl_vec_hash!(GLuint, GLuintVec);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum AzGlType {
+pub enum GlType {
     Gl,
     Gles,
 }
 
-impl From<GlType> for AzGlType {
-    fn from(a: GlType) -> AzGlType {
+impl From<GlContextGlType> for GlType {
+    fn from(a: GlContextGlType) -> GlType {
         match a {
-            GlType::Gl => AzGlType::Gl,
-            GlType::GlEs => AzGlType::Gles,
+            GlContextGlType::Gl => GlType::Gl,
+            GlContextGlType::GlEs => GlType::Gles,
         }
     }
 }
@@ -1065,7 +1078,7 @@ impl GlContextPtr {
 }
 
 impl GlContextPtr {
-    pub fn get_type(&self) -> AzGlType {
+    pub fn get_type(&self) -> GlType {
         self.get().get_type().into()
     }
     pub fn buffer_data_untyped(
@@ -2238,12 +2251,12 @@ impl GlContextPtr {
         self.get()
             .bind_frag_data_location_indexed(program, color_number, index, name.as_str())
     }
-    pub fn get_debug_messages(&self) -> AzDebugMessageVec {
-        let dmv: Vec<AzDebugMessage> = self
+    pub fn get_debug_messages(&self) -> DebugMessageVec {
+        let dmv: Vec<DebugMessage> = self
             .get()
             .get_debug_messages()
             .into_iter()
-            .map(|d| AzDebugMessage {
+            .map(|d| DebugMessage {
                 message: d.message.into(),
                 source: d.source,
                 ty: d.ty,

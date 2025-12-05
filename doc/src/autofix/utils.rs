@@ -236,7 +236,7 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
 /// since the code generator will add the prefix when generating FFI code.
 /// 
 /// IMPORTANT: This should ONLY be called for types from azul_dll module, not for types
-/// like AzDebugMessage from azul_core which intentionally have "Az" in their name.
+/// like AzString from azul_core which intentionally have "Az" in their name.
 pub fn normalize_az_prefix(type_name: &str) -> String {
     // Only strip "Az" prefix if the remaining part starts with uppercase
     // This prevents stripping from types like "Azure" where "Az" is part of the name

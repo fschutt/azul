@@ -49,6 +49,12 @@ pub struct TypeAddition {
     pub type_name: String,
     pub full_path: String,
     pub kind: String, // "struct", "enum", "callback", etc.
+    /// Struct fields (for struct types)
+    pub struct_fields: Option<Vec<(String, String)>>, // (field_name, field_type)
+    /// Enum variants (for enum types)
+    pub enum_variants: Option<Vec<(String, Option<String>)>>, // (variant_name, variant_type)
+    /// Derives from source code
+    pub derives: Vec<String>,
 }
 
 /// A type that should be moved to a different module
@@ -69,6 +75,14 @@ pub struct TypeModification {
     pub kind: ModificationKind,
 }
 
+/// Callback argument with name, type, and reference kind
+#[derive(Debug, Clone)]
+pub struct CallbackArgInfo {
+    pub name: Option<String>,
+    pub ty: String,
+    pub ref_kind: super::type_index::RefKind,
+}
+
 #[derive(Debug, Clone)]
 pub enum ModificationKind {
     FieldAdded { field_name: String, field_type: String },
@@ -80,6 +94,16 @@ pub enum ModificationKind {
     DeriveAdded { derive_name: String },
     DeriveRemoved { derive_name: String },
     ReprCChanged { old_repr_c: bool, new_repr_c: bool },
+    /// Callback typedef needs to be added (type exists but has no callback_typedef)
+    CallbackTypedefAdded { args: Vec<CallbackArgInfo>, returns: Option<String> },
+    /// Callback typedef arg changed
+    CallbackArgChanged { arg_index: usize, old_type: String, new_type: String, old_ref_kind: Option<super::type_index::RefKind>, new_ref_kind: super::type_index::RefKind },
+    /// Callback typedef return changed
+    CallbackReturnChanged { old_type: Option<String>, new_type: Option<String> },
+    /// Type alias needs to be added (type exists but has no type_alias)
+    TypeAliasAdded { target: String },
+    /// Type alias target changed
+    TypeAliasTargetChanged { old_target: String, new_target: String },
 }
 
 // ============================================================================
@@ -356,34 +380,68 @@ pub fn generate_diff(
         
         // This type is used by workspace functions but not in api.json - should be added
         if seen_additions.insert(type_name.clone()) {
-            // Look up the type to get its kind
-            let kind = if let Some(typedef) = index.resolve(type_name, None) {
-                match &typedef.kind {
+            // Look up the type to get its kind and fields
+            let (kind, struct_fields, enum_variants, derives) = if let Some(typedef) = index.resolve(type_name, None) {
+                // Get the expanded kind (handles MacroGenerated types)
+                let expanded = typedef.expand_macro_generated();
+                
+                let kind_str = match &typedef.kind {
                     super::type_index::TypeDefKind::Struct { .. } => "struct",
                     super::type_index::TypeDefKind::Enum { .. } => "enum",
                     super::type_index::TypeDefKind::TypeAlias { .. } => "type_alias",
                     super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback",
                     super::type_index::TypeDefKind::MacroGenerated { kind, .. } => {
                         match kind {
-                            super::type_index::MacroGeneratedKind::Vec => "vec",
-                            super::type_index::MacroGeneratedKind::VecDestructor => "vec_destructor",
+                            super::type_index::MacroGeneratedKind::Vec => "struct",
+                            super::type_index::MacroGeneratedKind::VecDestructor => "enum",
                             super::type_index::MacroGeneratedKind::VecDestructorType => "callback_typedef",
-                            super::type_index::MacroGeneratedKind::Option => "option",
-                            super::type_index::MacroGeneratedKind::OptionEnumWrapper => "option_wrapper",
-                            super::type_index::MacroGeneratedKind::Result => "result",
-                            super::type_index::MacroGeneratedKind::CallbackWrapper => "callback_wrapper",
-                            super::type_index::MacroGeneratedKind::CallbackValue => "callback_value",
+                            super::type_index::MacroGeneratedKind::Option => "enum",
+                            super::type_index::MacroGeneratedKind::OptionEnumWrapper => "struct",
+                            super::type_index::MacroGeneratedKind::Result => "enum",
+                            super::type_index::MacroGeneratedKind::CallbackWrapper => "struct",
+                            super::type_index::MacroGeneratedKind::CallbackValue => "struct",
                         }
                     }
-                }
+                };
+                
+                // Extract fields/variants from the EXPANDED kind
+                let (fields, variants, derives) = match expanded {
+                    super::type_index::TypeDefKind::Struct { fields, derives, .. } => {
+                        let field_vec: Vec<(String, String)> = fields.iter()
+                            .map(|(name, field)| (name.clone(), field.ty.clone()))
+                            .collect();
+                        (Some(field_vec), None, derives)
+                    }
+                    super::type_index::TypeDefKind::Enum { variants, derives, .. } => {
+                        let variant_vec: Vec<(String, Option<String>)> = variants.iter()
+                            .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                            .collect();
+                        (None, Some(variant_vec), derives)
+                    }
+                    super::type_index::TypeDefKind::CallbackTypedef { .. } => {
+                        (None, None, vec![])
+                    }
+                    super::type_index::TypeDefKind::TypeAlias { .. } => {
+                        (None, None, vec![])
+                    }
+                    super::type_index::TypeDefKind::MacroGenerated { .. } => {
+                        // This shouldn't happen after expand_macro_generated()
+                        (None, None, vec![])
+                    }
+                };
+                
+                (kind_str, fields, variants, derives)
             } else {
-                "unknown"
+                ("unknown", None, None, vec![])
             };
             
             diff.additions.push(TypeAddition {
                 type_name: type_name.clone(),
                 full_path: resolved.full_path.clone(),
                 kind: kind.to_string(),
+                struct_fields,
+                enum_variants,
+                derives,
             });
         }
     }
@@ -596,12 +654,61 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
                 let has_repr_c = class_data.repr.as_deref() == Some("C");
                 
+                // Extract struct fields
+                let struct_fields = class_data.struct_fields.as_ref().map(|fields_vec| {
+                    fields_vec.iter()
+                        .flat_map(|field_map| {
+                            field_map.iter().map(|(name, data)| {
+                                (name.clone(), data.r#type.clone())
+                            })
+                        })
+                        .collect()
+                });
+                
+                // Extract enum variants
+                let enum_variants = class_data.enum_fields.as_ref().map(|variants_vec| {
+                    variants_vec.iter()
+                        .flat_map(|variant_map| {
+                            variant_map.iter().map(|(name, data)| {
+                                (name.clone(), data.r#type.clone())
+                            })
+                        })
+                        .collect()
+                });
+                
+                // Extract callback typedef
+                let (callback_args, callback_returns) = if let Some(ref callback_def) = class_data.callback_typedef {
+                    use crate::api::BorrowMode;
+                    let args: Vec<(String, Option<String>)> = callback_def.fn_args.iter()
+                        .map(|arg| {
+                            let ref_str = match arg.ref_kind {
+                                BorrowMode::Ref => Some("ref".to_string()),
+                                BorrowMode::RefMut => Some("refmut".to_string()),
+                                BorrowMode::Value => Some("value".to_string()),
+                            };
+                            (arg.r#type.clone(), ref_str)
+                        })
+                        .collect();
+                    let returns = callback_def.returns.as_ref().map(|r| r.r#type.clone());
+                    (Some(args), returns)
+                } else {
+                    (None, None)
+                };
+                
+                // Extract type alias
+                let type_alias_target = class_data.type_alias.as_ref().map(|ta| ta.target.clone());
+                
                 types.insert(class_name.clone(), ApiTypeInfo {
                     path,
                     module: module_name.clone(),
                     derives,
                     custom_impls,
                     has_repr_c,
+                    struct_fields,
+                    enum_variants,
+                    callback_args,
+                    callback_returns,
+                    type_alias_target,
                 });
             }
         }
@@ -618,6 +725,17 @@ pub struct ApiTypeInfo {
     pub derives: Vec<String>,
     pub custom_impls: Vec<String>,
     pub has_repr_c: bool,
+    /// Struct fields: (field_name, field_type)
+    pub struct_fields: Option<Vec<(String, String)>>,
+    /// Enum variants: (variant_name, variant_type)
+    pub enum_variants: Option<Vec<(String, Option<String>)>>,
+    /// Callback typedef args: (arg_type, ref_kind_string)
+    /// ref_kind_string is "ref", "refmut", or "value"
+    pub callback_args: Option<Vec<(String, Option<String>)>>,
+    /// Callback typedef return type
+    pub callback_returns: Option<String>,
+    /// Type alias target
+    pub type_alias_target: Option<String>,
 }
 
 /// Generate diff between expected (workspace-resolved) and current (api.json) types
@@ -658,10 +776,30 @@ fn generate_diff_v2(
                     });
                 }
                 
-                // Check for derive/impl changes
+                // Check for derive/impl changes and field/variant differences
                 if let Some(typedef) = index.resolve(workspace_name, None) {
                     diff.modifications.extend(
                         compare_derives_and_impls(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for struct field differences
+                    diff.modifications.extend(
+                        compare_struct_fields(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for enum variant differences
+                    diff.modifications.extend(
+                        compare_enum_variants(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for callback_typedef differences
+                    diff.modifications.extend(
+                        compare_callback_typedef(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for type_alias differences
+                    diff.modifications.extend(
+                        compare_type_alias(matched_api_name, typedef, api_info)
                     );
                 }
                 
@@ -678,11 +816,14 @@ fn generate_diff_v2(
             // Type is in workspace but not in api.json - should be added
             // Use the api_lookup_name (without Az prefix) as the type_name for api.json
             if seen_additions.insert(api_lookup_name.to_string()) {
-                let kind = get_type_kind(index, workspace_name);
+                let (kind, struct_fields, enum_variants, derives) = get_type_kind_with_fields(index, workspace_name);
                 diff.additions.push(TypeAddition {
                     type_name: api_lookup_name.to_string(),
                     full_path: resolved.full_path.clone(),
                     kind,
+                    struct_fields,
+                    enum_variants,
+                    derives,
                 });
             }
         }
@@ -800,6 +941,334 @@ fn compare_derives_and_impls(
     modifications
 }
 
+/// Compare struct fields between workspace type and api.json type
+fn compare_struct_fields(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    let mut modifications = Vec::new();
+    
+    // Get workspace fields (expand MacroGenerated types)
+    let expanded = workspace_type.expand_macro_generated();
+    let workspace_fields: Vec<(String, String)> = match expanded {
+        TypeDefKind::Struct { fields, .. } => {
+            fields.iter()
+                .map(|(name, field)| (name.clone(), field.ty.clone()))
+                .collect()
+        }
+        _ => return modifications, // Not a struct
+    };
+    
+    // Get api.json fields
+    let api_fields = match &api_info.struct_fields {
+        Some(fields) => fields.clone(),
+        None => {
+            // api.json has no fields but workspace does - all fields need to be added
+            for (field_name, field_type) in workspace_fields {
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::FieldAdded {
+                        field_name,
+                        field_type,
+                    },
+                });
+            }
+            return modifications;
+        }
+    };
+    
+    // Create lookup maps
+    let workspace_map: HashMap<&str, &str> = workspace_fields.iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    let api_map: HashMap<&str, &str> = api_fields.iter()
+        .map(|(n, t)| (n.as_str(), t.as_str()))
+        .collect();
+    
+    // Check for added/changed fields (in workspace but not in api.json or different type)
+    for (field_name, field_type) in &workspace_fields {
+        match api_map.get(field_name.as_str()) {
+            None => {
+                // Field added in workspace
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::FieldAdded {
+                        field_name: field_name.clone(),
+                        field_type: field_type.clone(),
+                    },
+                });
+            }
+            Some(api_type) => {
+                // Field exists - check if type matches
+                if normalize_type_name(field_type) != normalize_type_name(api_type) {
+                    modifications.push(TypeModification {
+                        type_name: type_name.to_string(),
+                        kind: ModificationKind::FieldTypeChanged {
+                            field_name: field_name.clone(),
+                            old_type: api_type.to_string(),
+                            new_type: field_type.clone(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    
+    // Check for removed fields (in api.json but not in workspace)
+    for (field_name, _) in &api_fields {
+        if !workspace_map.contains_key(field_name.as_str()) {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::FieldRemoved {
+                    field_name: field_name.clone(),
+                },
+            });
+        }
+    }
+    
+    modifications
+}
+
+/// Compare enum variants between workspace type and api.json type
+fn compare_enum_variants(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    let mut modifications = Vec::new();
+    
+    // Get workspace variants (expand MacroGenerated types)
+    let expanded = workspace_type.expand_macro_generated();
+    let workspace_variants: Vec<(String, Option<String>)> = match expanded {
+        TypeDefKind::Enum { variants, .. } => {
+            variants.iter()
+                .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                .collect()
+        }
+        _ => return modifications, // Not an enum
+    };
+    
+    // Get api.json variants
+    let api_variants = match &api_info.enum_variants {
+        Some(variants) => variants.clone(),
+        None => {
+            // api.json has no variants but workspace does - all variants need to be added
+            for (variant_name, _) in workspace_variants {
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::VariantAdded {
+                        variant_name,
+                    },
+                });
+            }
+            return modifications;
+        }
+    };
+    
+    // Create lookup maps
+    let workspace_map: HashMap<&str, &Option<String>> = workspace_variants.iter()
+        .map(|(n, t)| (n.as_str(), t))
+        .collect();
+    let api_map: HashMap<&str, &Option<String>> = api_variants.iter()
+        .map(|(n, t)| (n.as_str(), t))
+        .collect();
+    
+    // Check for added/changed variants (in workspace but not in api.json or different type)
+    for (variant_name, variant_type) in &workspace_variants {
+        match api_map.get(variant_name.as_str()) {
+            None => {
+                // Variant added in workspace
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::VariantAdded {
+                        variant_name: variant_name.clone(),
+                    },
+                });
+            }
+            Some(api_type) => {
+                // Variant exists - check if type matches
+                let workspace_normalized = variant_type.as_ref().map(|t| normalize_type_name(t));
+                let api_normalized = api_type.as_ref().map(|t| normalize_type_name(t));
+                
+                if workspace_normalized != api_normalized {
+                    modifications.push(TypeModification {
+                        type_name: type_name.to_string(),
+                        kind: ModificationKind::VariantTypeChanged {
+                            variant_name: variant_name.clone(),
+                            old_type: (*api_type).clone(),
+                            new_type: variant_type.clone(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    
+    // Check for removed variants (in api.json but not in workspace)
+    for (variant_name, _) in &api_variants {
+        if !workspace_map.contains_key(variant_name.as_str()) {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::VariantRemoved {
+                    variant_name: variant_name.clone(),
+                },
+            });
+        }
+    }
+    
+    modifications
+}
+
+/// Compare callback_typedef between workspace type and api.json type
+fn compare_callback_typedef(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    use super::type_index::RefKind;
+    
+    let mut modifications = Vec::new();
+    
+    // Get workspace callback info (expand MacroGenerated types)
+    let expanded = workspace_type.expand_macro_generated();
+    let (workspace_args, workspace_returns): (Vec<CallbackArgInfo>, Option<String>) = match expanded {
+        TypeDefKind::CallbackTypedef { args, returns } => {
+            let arg_vec: Vec<CallbackArgInfo> = args.iter()
+                .map(|arg| CallbackArgInfo {
+                    name: arg.name.clone(),
+                    ty: arg.ty.clone(),
+                    ref_kind: arg.ref_kind,
+                })
+                .collect();
+            (arg_vec, returns)
+        }
+        _ => return modifications, // Not a callback typedef
+    };
+    
+    // Get api.json callback info
+    match (&api_info.callback_args, &api_info.callback_returns) {
+        (None, _) => {
+            // api.json has no callback_typedef but workspace does - needs to be added
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::CallbackTypedefAdded {
+                    args: workspace_args,
+                    returns: workspace_returns,
+                },
+            });
+        }
+        (Some(api_args), api_returns) => {
+            // Compare args - check both type and ref_kind
+            // If ANY argument differs, we need to replace the entire callback_typedef
+            // because ChangeCallbackArg doesn't work correctly in the patch application
+            let mut any_arg_differs = false;
+            
+            // Check argument count
+            if workspace_args.len() != api_args.len() {
+                any_arg_differs = true;
+            } else {
+                for (i, workspace_arg) in workspace_args.iter().enumerate() {
+                    if let Some((api_arg_ty, api_arg_ref)) = api_args.get(i) {
+                        let workspace_normalized = normalize_type_name(&workspace_arg.ty);
+                        let api_normalized = normalize_type_name(api_arg_ty);
+                        
+                        // Convert api ref string to RefKind for comparison
+                        let api_ref_kind = match api_arg_ref.as_deref() {
+                            Some("ref") => Some(RefKind::Ref),
+                            Some("refmut") => Some(RefKind::RefMut),
+                            Some("value") | None => Some(RefKind::Value),
+                            _ => None,
+                        };
+                        
+                        // Check if type or ref_kind differs
+                        let type_differs = workspace_normalized != api_normalized;
+                        let ref_differs = api_ref_kind != Some(workspace_arg.ref_kind);
+                        
+                        if type_differs || ref_differs {
+                            any_arg_differs = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Compare return type
+            let workspace_ret_normalized = workspace_returns.as_ref().map(|t| normalize_type_name(t));
+            let api_ret_normalized = api_returns.as_ref().map(|t| normalize_type_name(t));
+            let return_differs = workspace_ret_normalized != api_ret_normalized;
+            
+            // If anything differs, replace the entire callback_typedef
+            if any_arg_differs || return_differs {
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::CallbackTypedefAdded {
+                        args: workspace_args,
+                        returns: workspace_returns,
+                    },
+                });
+            }
+        }
+    }
+    
+    modifications
+}
+
+/// Compare type_alias between workspace type and api.json type
+fn compare_type_alias(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    let mut modifications = Vec::new();
+    
+    // Get workspace type alias target
+    let workspace_target: String = match &workspace_type.kind {
+        TypeDefKind::TypeAlias { target } => target.clone(),
+        _ => return modifications, // Not a type alias
+    };
+    
+    // Get api.json type alias
+    match &api_info.type_alias_target {
+        None => {
+            // api.json has no type_alias but workspace does - needs to be added
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::TypeAliasAdded {
+                    target: workspace_target,
+                },
+            });
+        }
+        Some(api_target) => {
+            // Compare targets
+            if normalize_type_name(&workspace_target) != normalize_type_name(api_target) {
+                modifications.push(TypeModification {
+                    type_name: type_name.to_string(),
+                    kind: ModificationKind::TypeAliasTargetChanged {
+                        old_target: api_target.clone(),
+                        new_target: workspace_target,
+                    },
+                });
+            }
+        }
+    }
+    
+    modifications
+}
+
+/// Normalize a type name for comparison (remove whitespace, handle Az prefix)
+fn normalize_type_name(type_name: &str) -> String {
+    let trimmed = type_name.replace(" ", "");
+    // Remove Az prefix for comparison
+    if trimmed.starts_with("Az") && trimmed.len() > 2 {
+        let third_char = trimmed.chars().nth(2);
+        if third_char.map(|c| c.is_uppercase()).unwrap_or(false) {
+            return trimmed[2..].to_string();
+        }
+    }
+    trimmed
+}
+
 /// Get the kind of a type from the index
 fn get_type_kind(index: &TypeIndex, type_name: &str) -> String {
     if let Some(typedef) = index.resolve(type_name, None) {
@@ -823,6 +1292,56 @@ fn get_type_kind(index: &TypeIndex, type_name: &str) -> String {
         }.to_string()
     } else {
         "unknown".to_string()
+    }
+}
+
+/// Get the kind, fields, variants, and derives of a type from the index
+/// This expands MacroGenerated types to get their actual fields
+fn get_type_kind_with_fields(
+    index: &TypeIndex, 
+    type_name: &str
+) -> (String, Option<Vec<(String, String)>>, Option<Vec<(String, Option<String>)>>, Vec<String>) {
+    if let Some(typedef) = index.resolve(type_name, None) {
+        // Get the expanded kind (handles MacroGenerated types)
+        let expanded = typedef.expand_macro_generated();
+        
+        let kind_str = match &typedef.kind {
+            super::type_index::TypeDefKind::Struct { .. } => "struct",
+            super::type_index::TypeDefKind::Enum { .. } => "enum",
+            super::type_index::TypeDefKind::TypeAlias { .. } => "type_alias",
+            super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback",
+            super::type_index::TypeDefKind::MacroGenerated { kind, .. } => {
+                match kind {
+                    super::type_index::MacroGeneratedKind::Vec => "struct",
+                    super::type_index::MacroGeneratedKind::VecDestructor => "enum",
+                    super::type_index::MacroGeneratedKind::VecDestructorType => "callback_typedef",
+                    super::type_index::MacroGeneratedKind::Option => "enum",
+                    super::type_index::MacroGeneratedKind::OptionEnumWrapper => "struct",
+                    super::type_index::MacroGeneratedKind::Result => "enum",
+                    super::type_index::MacroGeneratedKind::CallbackWrapper => "struct",
+                    super::type_index::MacroGeneratedKind::CallbackValue => "struct",
+                }
+            }
+        };
+        
+        // Extract fields/variants from the EXPANDED kind
+        match expanded {
+            super::type_index::TypeDefKind::Struct { fields, derives, .. } => {
+                let field_vec: Vec<(String, String)> = fields.iter()
+                    .map(|(name, field)| (name.clone(), field.ty.clone()))
+                    .collect();
+                (kind_str.to_string(), Some(field_vec), None, derives)
+            }
+            super::type_index::TypeDefKind::Enum { variants, derives, .. } => {
+                let variant_vec: Vec<(String, Option<String>)> = variants.iter()
+                    .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                    .collect();
+                (kind_str.to_string(), None, Some(variant_vec), derives)
+            }
+            _ => (kind_str.to_string(), None, None, vec![])
+        }
+    } else {
+        ("unknown".to_string(), None, None, vec![])
     }
 }
 

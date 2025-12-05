@@ -23,11 +23,3 @@ pub mod azul_impl {
     #[cfg(not(target_arch = "wasm32"))]
     pub use super::desktop::*;
 }
-
-#[cfg(all(
-    feature = "python-extension",
-    feature = "link-dynamic",
-    not(feature = "link-static")
-))]
-pub mod python;
-

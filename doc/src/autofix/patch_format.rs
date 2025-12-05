@@ -101,6 +101,47 @@ pub enum ModifyChange {
         old_type: Option<String>,
         new_type: Option<String>,
     },
+    /// Set callback_typedef (add the entire callback definition)
+    SetCallbackTypedef {
+        args: Vec<CallbackArgDef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        returns: Option<String>,
+    },
+    /// Change a callback argument type
+    ChangeCallbackArg {
+        arg_index: usize,
+        old_type: String,
+        new_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        old_ref: Option<String>,
+        new_ref: String,
+    },
+    /// Change callback return type
+    ChangeCallbackReturn {
+        old_type: Option<String>,
+        new_type: Option<String>,
+    },
+    /// Set type_alias (add the entire type alias definition)
+    SetTypeAlias {
+        target: String,
+    },
+    /// Change type alias target
+    ChangeTypeAlias {
+        old_target: String,
+        new_target: String,
+    },
+}
+
+/// Callback argument definition for patches
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallbackArgDef {
+    #[serde(rename = "type")]
+    pub arg_type: String,
+    /// Reference kind: "ref", "refmut", or "value"
+    #[serde(rename = "ref")]
+    pub ref_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// Fix the external path of a type
@@ -315,6 +356,39 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::ChangeVariantType { name, old_type, new_type } => {
             format!("~ variant {}: {:?} → {:?}", name, old_type, new_type)
         }
+        ModifyChange::SetCallbackTypedef { args, returns } => {
+            let args_str: Vec<String> = args.iter().map(|a| {
+                let ref_str = match a.ref_kind.as_str() {
+                    "ref" => "&",
+                    "refmut" => "&mut ",
+                    _ => "",
+                };
+                format!("{}{}", ref_str, a.arg_type)
+            }).collect();
+            format!("+ callback_typedef({}) -> {:?}", args_str.join(", "), returns)
+        }
+        ModifyChange::ChangeCallbackArg { arg_index, old_type, new_type, old_ref, new_ref } => {
+            let old_ref_str = match old_ref.as_deref() {
+                Some("ref") => "&",
+                Some("refmut") => "&mut ",
+                _ => "",
+            };
+            let new_ref_str = match new_ref.as_str() {
+                "ref" => "&",
+                "refmut" => "&mut ",
+                _ => "",
+            };
+            format!("~ callback arg[{}]: {}{} → {}{}", arg_index, old_ref_str, old_type, new_ref_str, new_type)
+        }
+        ModifyChange::ChangeCallbackReturn { old_type, new_type } => {
+            format!("~ callback return: {:?} → {:?}", old_type, new_type)
+        }
+        ModifyChange::SetTypeAlias { target } => {
+            format!("+ type_alias = {}", target)
+        }
+        ModifyChange::ChangeTypeAlias { old_target, new_target } => {
+            format!("~ type_alias: {} → {}", old_target, new_target)
+        }
     }
 }
 
@@ -472,6 +546,71 @@ impl AutofixPatch {
                     enum_variants_to_add.insert(name.clone(), EnumVariantData {
                         r#type: new_type.clone(),
                         doc: None,
+                    });
+                }
+                ModifyChange::SetCallbackTypedef { args, returns } => {
+                    use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData, BorrowMode};
+                    
+                    let callback_args: Vec<CallbackArgData> = args.iter()
+                        .map(|arg| {
+                            let ref_kind = match arg.ref_kind.as_str() {
+                                "ref" => BorrowMode::Ref,
+                                "refmut" => BorrowMode::RefMut,
+                                _ => BorrowMode::Value,
+                            };
+                            CallbackArgData {
+                                r#type: arg.arg_type.clone(),
+                                ref_kind,
+                                doc: None,
+                            }
+                        })
+                        .collect();
+                    
+                    let callback_returns = returns.as_ref().map(|ret_type| ReturnTypeData {
+                        r#type: ret_type.clone(),
+                        doc: None,
+                    });
+                    
+                    patch.callback_typedef = Some(CallbackDefinition {
+                        fn_args: callback_args,
+                        returns: callback_returns,
+                    });
+                }
+                ModifyChange::ChangeCallbackArg { arg_index, new_type, new_ref, .. } => {
+                    // Update a specific callback argument
+                    // First, get the existing callback_typedef if any, or create a new one
+                    use crate::api::{CallbackDefinition, CallbackArgData, BorrowMode};
+                    
+                    let ref_kind = match new_ref.as_str() {
+                        "ref" => BorrowMode::Ref,
+                        "refmut" => BorrowMode::RefMut,
+                        _ => BorrowMode::Value,
+                    };
+                    
+                    // We need to update just this argument, but for now we'll need the full callback
+                    // This could be improved with more granular updates
+                    if let Some(ref mut callback_def) = patch.callback_typedef {
+                        if let Some(arg) = callback_def.fn_args.get_mut(*arg_index) {
+                            arg.r#type = new_type.clone();
+                            arg.ref_kind = ref_kind;
+                        }
+                    }
+                }
+                ModifyChange::ChangeCallbackReturn { .. } => {
+                    // For now, the entire callback_typedef would need to be re-set
+                }
+                ModifyChange::SetTypeAlias { target } => {
+                    use crate::api::TypeAliasInfo;
+                    patch.type_alias = Some(TypeAliasInfo {
+                        target: target.clone(),
+                        generic_args: vec![],
+                    });
+                }
+                ModifyChange::ChangeTypeAlias { new_target, .. } => {
+                    use crate::api::TypeAliasInfo;
+                    patch.type_alias = Some(TypeAliasInfo {
+                        target: new_target.clone(),
+                        generic_args: vec![],
                     });
                 }
             }
