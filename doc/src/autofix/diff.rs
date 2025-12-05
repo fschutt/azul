@@ -85,9 +85,9 @@ pub struct CallbackArgInfo {
 
 #[derive(Debug, Clone)]
 pub enum ModificationKind {
-    FieldAdded { field_name: String, field_type: String },
+    FieldAdded { field_name: String, field_type: String, ref_kind: crate::api::RefKind },
     FieldRemoved { field_name: String },
-    FieldTypeChanged { field_name: String, old_type: String, new_type: String },
+    FieldTypeChanged { field_name: String, old_type: String, new_type: String, ref_kind: crate::api::RefKind },
     VariantAdded { variant_name: String },
     VariantRemoved { variant_name: String },
     VariantTypeChanged { variant_name: String, old_type: Option<String>, new_type: Option<String> },
@@ -656,12 +656,12 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
                 let has_repr_c = class_data.repr.as_deref() == Some("C");
                 
-                // Extract struct fields
+                // Extract struct fields with ref_kind
                 let struct_fields = class_data.struct_fields.as_ref().map(|fields_vec| {
                     fields_vec.iter()
                         .flat_map(|field_map| {
                             field_map.iter().map(|(name, data)| {
-                                (name.clone(), data.r#type.clone())
+                                (name.clone(), data.r#type.clone(), data.ref_kind)
                             })
                         })
                         .collect()
@@ -727,8 +727,8 @@ pub struct ApiTypeInfo {
     pub derives: Vec<String>,
     pub custom_impls: Vec<String>,
     pub has_repr_c: bool,
-    /// Struct fields: (field_name, field_type)
-    pub struct_fields: Option<Vec<(String, String)>>,
+    /// Struct fields: (field_name, field_type, ref_kind)
+    pub struct_fields: Option<Vec<(String, String, crate::api::RefKind)>>,
     /// Enum variants: (variant_name, variant_type)
     pub enum_variants: Option<Vec<(String, Option<String>)>>,
     /// Callback typedef args: (arg_type, ref_kind_string)
@@ -967,6 +967,14 @@ fn compare_derives_and_impls(
     modifications
 }
 
+/// Field info for comparison including ref_kind
+#[derive(Debug, Clone)]
+struct FieldCompareInfo {
+    name: String,
+    ty: String,
+    ref_kind: crate::api::RefKind,
+}
+
 /// Compare struct fields between workspace type and api.json type
 fn compare_struct_fields(
     type_name: &str,
@@ -977,10 +985,14 @@ fn compare_struct_fields(
     
     // Get workspace fields (expand MacroGenerated types)
     let expanded = workspace_type.expand_macro_generated();
-    let workspace_fields: Vec<(String, String)> = match expanded {
+    let workspace_fields: Vec<FieldCompareInfo> = match expanded {
         TypeDefKind::Struct { fields, .. } => {
             fields.iter()
-                .map(|(name, field)| (name.clone(), field.ty.clone()))
+                .map(|(name, field)| FieldCompareInfo {
+                    name: name.clone(),
+                    ty: field.ty.clone(),
+                    ref_kind: field.ref_kind,
+                })
                 .collect()
         }
         _ => return modifications, // Not a struct
@@ -991,12 +1003,13 @@ fn compare_struct_fields(
         Some(fields) => fields.clone(),
         None => {
             // api.json has no fields but workspace does - all fields need to be added
-            for (field_name, field_type) in workspace_fields {
+            for field in workspace_fields {
                 modifications.push(TypeModification {
                     type_name: type_name.to_string(),
                     kind: ModificationKind::FieldAdded {
-                        field_name,
-                        field_type,
+                        field_name: field.name,
+                        field_type: field.ty,
+                        ref_kind: field.ref_kind,
                     },
                 });
             }
@@ -1004,36 +1017,47 @@ fn compare_struct_fields(
         }
     };
     
-    // Create lookup maps
-    let workspace_map: HashMap<&str, &str> = workspace_fields.iter()
-        .map(|(n, t)| (n.as_str(), t.as_str()))
+    // Create lookup maps - for api.json, we also need ref_kind
+    let workspace_map: HashMap<&str, &FieldCompareInfo> = workspace_fields.iter()
+        .map(|f| (f.name.as_str(), f))
         .collect();
-    let api_map: HashMap<&str, &str> = api_fields.iter()
-        .map(|(n, t)| (n.as_str(), t.as_str()))
+    let api_map: HashMap<&str, (&str, crate::api::RefKind)> = api_fields.iter()
+        .map(|(n, t, rk)| (n.as_str(), (t.as_str(), *rk)))
         .collect();
     
     // Check for added/changed fields (in workspace but not in api.json or different type)
-    for (field_name, field_type) in &workspace_fields {
-        match api_map.get(field_name.as_str()) {
+    for field in &workspace_fields {
+        match api_map.get(field.name.as_str()) {
             None => {
                 // Field added in workspace
                 modifications.push(TypeModification {
                     type_name: type_name.to_string(),
                     kind: ModificationKind::FieldAdded {
-                        field_name: field_name.clone(),
-                        field_type: field_type.clone(),
+                        field_name: field.name.clone(),
+                        field_type: field.ty.clone(),
+                        ref_kind: field.ref_kind,
                     },
                 });
             }
-            Some(api_type) => {
-                // Field exists - check if type matches
-                if normalize_type_name(field_type) != normalize_type_name(api_type) {
+            Some((api_type, api_ref_kind)) => {
+                // Field exists - check if type or ref_kind matches
+                let type_changed = normalize_type_name(&field.ty) != normalize_type_name(api_type);
+                let ref_kind_changed = field.ref_kind != *api_ref_kind;
+                
+                // DEBUG: Log when ref_kind differs for c_void fields
+                if field.ty == "c_void" && ref_kind_changed {
+                    eprintln!("[DEBUG] {}.{}: workspace ref_kind={:?}, api ref_kind={:?}", 
+                        type_name, field.name, field.ref_kind, api_ref_kind);
+                }
+                
+                if type_changed || ref_kind_changed {
                     modifications.push(TypeModification {
                         type_name: type_name.to_string(),
                         kind: ModificationKind::FieldTypeChanged {
-                            field_name: field_name.clone(),
+                            field_name: field.name.clone(),
                             old_type: api_type.to_string(),
-                            new_type: field_type.clone(),
+                            new_type: field.ty.clone(),
+                            ref_kind: field.ref_kind,
                         },
                     });
                 }
@@ -1042,7 +1066,7 @@ fn compare_struct_fields(
     }
     
     // Check for removed fields (in api.json but not in workspace)
-    for (field_name, _) in &api_fields {
+    for (field_name, _, _) in &api_fields {
         if !workspace_map.contains_key(field_name.as_str()) {
             modifications.push(TypeModification {
                 type_name: type_name.to_string(),

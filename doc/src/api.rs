@@ -9,10 +9,29 @@ use serde_derive::{Deserialize, Serialize}; // Use BTreeMap for sorted keys (ver
 
 // Re-export BorrowMode for use in API structures
 pub use crate::autofix::types::borrow::BorrowMode;
+pub use crate::autofix::types::ref_kind::RefKind;
 
 // Helper function to check if a bool is false (for skip_serializing_if)
 fn is_false(b: &bool) -> bool {
     !b
+}
+
+// Helper function to check if a string is empty (for skip_serializing_if)
+fn is_empty_string(s: &str) -> bool {
+    s.is_empty()
+}
+
+// Helper function to check if an Option<String> is None or empty
+fn is_none_or_empty(opt: &Option<String>) -> bool {
+    match opt {
+        None => true,
+        Some(s) => s.is_empty(),
+    }
+}
+
+// Helper function to check if RefKind is Value (default)
+fn is_ref_kind_value(kind: &RefKind) -> bool {
+    kind.is_default()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -380,7 +399,10 @@ pub struct TypeAliasInfo {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct FieldData {
     pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
+    #[serde(default, skip_serializing_if = "is_ref_kind_value")]
+    pub ref_kind: RefKind,
+    #[serde(default, skip_serializing_if = "is_none_or_empty")]
     pub doc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>, // For field-level derives like #[pyo3(get, set)]
@@ -391,13 +413,13 @@ pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "is_none_or_empty")]
     pub doc: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FunctionData {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "is_none_or_empty")]
     pub doc: Option<String>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.

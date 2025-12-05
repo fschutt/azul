@@ -665,6 +665,10 @@ fn generate_struct_definition(
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
             let field_type = &field_data.r#type;
+            
+            // Get ref_kind prefix/suffix for pointer types
+            let ref_prefix = field_data.ref_kind.to_rust_prefix();
+            let ref_suffix = field_data.ref_kind.to_rust_suffix();
 
             // Check if this is a generic type parameter (like T)
             let is_generic_param = struct_meta
@@ -674,29 +678,29 @@ fn generate_struct_definition(
                 .unwrap_or(false);
 
             if is_generic_param {
-                // Generic type parameter - use as-is
+                // Generic type parameter - use as-is with ref_kind
                 let visibility = if field_name == "ptr" && config.private_pointers {
                     "pub(crate)"
                 } else {
                     "pub"
                 };
                 code.push_str(&format!(
-                    "{}    {} {}: {},\n",
-                    indent_str, visibility, field_name, field_type
+                    "{}    {} {}: {}{}{},\n",
+                    indent_str, visibility, field_name, ref_prefix, field_type, ref_suffix
                 ));
             } else {
                 let (prefix, base_type, suffix) = analyze_type(field_type);
 
                 if is_primitive_arg(&base_type) {
-                    // Primitive type - use as-is
+                    // Primitive type - use with ref_kind prefix/suffix
                     let visibility = if field_name == "ptr" && config.private_pointers {
                         "pub(crate)"
                     } else {
                         "pub"
                     };
                     code.push_str(&format!(
-                        "{}    {} {}: {},\n",
-                        indent_str, visibility, field_name, field_type
+                        "{}    {} {}: {}{}{},\n",
+                        indent_str, visibility, field_name, ref_prefix, field_type, ref_suffix
                     ));
                 } else {
                     // Complex type - need to resolve and add prefix
@@ -729,22 +733,27 @@ fn generate_struct_definition(
                             }
                         }
 
+                        // Combine ref_kind prefix with analyze_type prefix
+                        // ref_prefix is for pointer types (*const, *mut, etc.)
+                        // prefix is for Option<>, Vec<>, etc. from analyze_type
                         code.push_str(&format!(
-                            "{}    {} {}: {}{}{}{}{},\n",
+                            "{}    {} {}: {}{}{}{}{}{}{},\n",
                             indent_str,
                             visibility,
                             field_name,
+                            ref_prefix,
                             prefix,
                             &config.prefix,
                             class_name,
                             field_postfix,
-                            suffix
+                            suffix,
+                            ref_suffix
                         ));
                     } else {
-                        // Type not found - use as-is
+                        // Type not found - use as-is with ref_kind
                         code.push_str(&format!(
-                            "{}    pub {}: {},\n",
-                            indent_str, field_name, field_type
+                            "{}    pub {}: {}{}{},\n",
+                            indent_str, field_name, ref_prefix, field_type, ref_suffix
                         ));
                     }
                 }

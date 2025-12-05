@@ -908,7 +908,7 @@ fn is_result_type(type_name: &str) -> bool {
 fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
     use indexmap::IndexMap;
 
-    use crate::api::FieldData;
+    use crate::api::{FieldData, RefKind};
 
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
 
@@ -918,7 +918,8 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
     ptr_field.insert(
         "ptr".to_string(),
         FieldData {
-            r#type: format!("*const {}", element_type),
+            r#type: element_type.to_string(),
+            ref_kind: RefKind::ConstPtr,
             doc: None,
             derive: None,
         },
@@ -929,6 +930,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         "len".to_string(),
         FieldData {
             r#type: "usize".to_string(),
+            ref_kind: RefKind::Value,
             doc: None,
             derive: None,
         },
@@ -939,6 +941,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         "cap".to_string(),
         FieldData {
             r#type: "usize".to_string(),
+            ref_kind: RefKind::Value,
             doc: None,
             derive: None,
         },
@@ -949,6 +952,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         "destructor".to_string(),
         FieldData {
             r#type: destructor_type,
+            ref_kind: RefKind::Value,
             doc: None,
             derive: None,
         },
@@ -1409,6 +1413,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                         field_name.clone(),
                         FieldData {
                             r#type: normalized_type,
+                            ref_kind: field_info.ref_kind,
                             doc: field_info.doc.clone(),
                             derive: None,
                         },

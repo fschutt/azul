@@ -17,6 +17,9 @@ use rayon::prelude::*;
 use syn::{File, Item, UseTree};
 use quote::ToTokens;
 
+// Re-export RefKind from the types module for use elsewhere
+pub use crate::autofix::types::RefKind;
+
 // ============================================================================
 // DATA STRUCTURES
 // ============================================================================
@@ -130,60 +133,6 @@ pub struct CallbackArg {
     pub ty: String,
     /// The reference kind (Ref, RefMut, Value)
     pub ref_kind: RefKind,
-}
-
-/// Reference kind for callback arguments and struct fields
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefKind {
-    /// `&T`
-    Ref,
-    /// `&mut T`
-    RefMut,
-    /// `*const T`
-    ConstPtr,
-    /// `*mut T`
-    MutPtr,
-    /// `Box<T>` - owned heap pointer
-    Boxed,
-    /// `Option<Box<T>>` - optional owned heap pointer
-    OptionBoxed,
-    /// `T` (by value)
-    Value,
-}
-
-impl RefKind {
-    /// Convert to the string representation used in api.json
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            RefKind::Ref => "ref",
-            RefKind::RefMut => "refmut",
-            RefKind::ConstPtr => "constptr",
-            RefKind::MutPtr => "mutptr",
-            RefKind::Boxed => "boxed",
-            RefKind::OptionBoxed => "optionboxed",
-            RefKind::Value => "value",
-        }
-    }
-    
-    /// Parse from the string representation used in api.json
-    pub fn from_str(s: &str) -> Option<RefKind> {
-        match s {
-            "ref" => Some(RefKind::Ref),
-            "refmut" => Some(RefKind::RefMut),
-            "constptr" => Some(RefKind::ConstPtr),
-            "mutptr" => Some(RefKind::MutPtr),
-            "boxed" => Some(RefKind::Boxed),
-            "optionboxed" => Some(RefKind::OptionBoxed),
-            "value" => Some(RefKind::Value),
-            _ => None,
-        }
-    }
-    
-    /// Returns true if this ref kind represents an opaque pointer type
-    /// that should not be recursed through for type resolution
-    pub fn is_opaque_pointer(&self) -> bool {
-        matches!(self, RefKind::ConstPtr | RefKind::MutPtr | RefKind::Boxed | RefKind::OptionBoxed)
-    }
 }
 
 // ============================================================================
@@ -426,6 +375,7 @@ impl TypeDefinition {
                         (name.clone(), FieldInfo {
                             name,
                             ty: field.ty,
+                            ref_kind: field.ref_kind,
                             doc: if field.doc.is_empty() { None } else { Some(field.doc) },
                         })
                     }).collect(),

@@ -261,6 +261,58 @@ pub fn should_normalize_az_prefix(type_name: &str) -> bool {
     false
 }
 
+/// Extract the base type and reference kind from a type string
+/// Returns (base_type, ref_kind) where:
+/// - "*const T" -> ("T", RefKind::ConstPtr)
+/// - "*mut T" -> ("T", RefKind::MutPtr)
+/// - "&T" -> ("T", RefKind::Ref)
+/// - "&mut T" -> ("T", RefKind::RefMut)
+/// - "Box<T>" -> ("T", RefKind::Boxed)
+/// - "Option<Box<T>>" -> ("T", RefKind::OptionBoxed)
+/// - "T" -> ("T", RefKind::Value)
+pub fn extract_type_and_ref_kind(type_str: &str) -> (String, crate::api::RefKind) {
+    use crate::api::RefKind;
+    
+    // Normalize spacing first
+    let normalized = type_str.replace(" ", "");
+    let trimmed = normalized.trim();
+    
+    // Check for raw pointers
+    if trimmed.starts_with("*const") {
+        let inner = trimmed[6..].trim_start();
+        return (inner.to_string(), RefKind::ConstPtr);
+    }
+    if trimmed.starts_with("*mut") {
+        let inner = trimmed[4..].trim_start();
+        return (inner.to_string(), RefKind::MutPtr);
+    }
+    
+    // Check for references
+    if trimmed.starts_with("&mut") {
+        let inner = trimmed[4..].trim_start();
+        return (inner.to_string(), RefKind::RefMut);
+    }
+    if trimmed.starts_with('&') {
+        let inner = trimmed[1..].trim_start();
+        return (inner.to_string(), RefKind::Ref);
+    }
+    
+    // Check for Option<Box<T>>
+    if let Some(inner) = extract_generic_type(trimmed, "Option") {
+        if let Some(box_inner) = extract_generic_type(&inner, "Box") {
+            return (box_inner, RefKind::OptionBoxed);
+        }
+    }
+    
+    // Check for Box<T>
+    if let Some(inner) = extract_generic_type(trimmed, "Box") {
+        return (inner, RefKind::Boxed);
+    }
+    
+    // No wrapper - it's a value type
+    (trimmed.to_string(), RefKind::Value)
+}
+
 /// Normalize raw pointer types to c_void
 /// Only c_void can take raw pointers in the C ABI
 /// Examples:

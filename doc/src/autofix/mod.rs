@@ -176,12 +176,17 @@ pub fn autofix_api(
                         new_repr_c.to_string().green()
                     );
                 }
-                diff::ModificationKind::FieldAdded { field_name, field_type } => {
+                diff::ModificationKind::FieldAdded { field_name, field_type, ref_kind } => {
+                    let type_display = if ref_kind.is_default() {
+                        field_type.clone()
+                    } else {
+                        format!("{}{}{}", ref_kind.to_rust_prefix(), field_type, ref_kind.to_rust_suffix())
+                    };
                     println!("  {}: {} field {} : {}", 
                         modification.type_name.white(), 
                         "+".green(), 
                         field_name.green(), 
-                        field_type.cyan()
+                        type_display.cyan()
                     );
                 }
                 diff::ModificationKind::FieldRemoved { field_name } => {
@@ -191,13 +196,18 @@ pub fn autofix_api(
                         field_name.red()
                     );
                 }
-                diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type } => {
+                diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type, ref_kind } => {
+                    let new_type_display = if ref_kind.is_default() {
+                        new_type.clone()
+                    } else {
+                        format!("{}{}{}", ref_kind.to_rust_prefix(), new_type, ref_kind.to_rust_suffix())
+                    };
                     println!("  {}: field {} : {} {} {}", 
                         modification.type_name.white(), 
                         field_name.white(),
                         old_type.red(),
                         "->".dimmed(),
-                        new_type.green()
+                        new_type_display.green()
                     );
                 }
                 diff::ModificationKind::VariantAdded { variant_name } => {
@@ -318,6 +328,11 @@ pub fn autofix_api(
 
     // Generate patch files - group by type for compact output
     let patches_dir = output_dir.join("patches");
+    
+    // Clear old patches before generating new ones
+    if patches_dir.exists() {
+        fs::remove_dir_all(&patches_dir)?;
+    }
     fs::create_dir_all(&patches_dir)?;
     
     let mut patch_count = 0;
@@ -443,10 +458,16 @@ fn generate_combined_patch(
                     new: *new_repr_c,
                 });
             }
-            diff::ModificationKind::FieldAdded { field_name, field_type } => {
+            diff::ModificationKind::FieldAdded { field_name, field_type, ref_kind } => {
+                let ref_kind_str = if ref_kind.is_default() {
+                    None
+                } else {
+                    Some(ref_kind.to_string())
+                };
                 changes.push(ModifyChange::AddField {
                     name: field_name.clone(),
                     field_type: field_type.clone(),
+                    ref_kind: ref_kind_str,
                     doc: None,
                 });
             }
@@ -455,11 +476,17 @@ fn generate_combined_patch(
                     name: field_name.clone(),
                 });
             }
-            diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type } => {
+            diff::ModificationKind::FieldTypeChanged { field_name, old_type, new_type, ref_kind } => {
+                let ref_kind_str = if ref_kind.is_default() {
+                    None
+                } else {
+                    Some(ref_kind.to_string())
+                };
                 changes.push(ModifyChange::ChangeFieldType {
                     name: field_name.clone(),
                     old_type: old_type.clone(),
                     new_type: new_type.clone(),
+                    ref_kind: ref_kind_str,
                 });
             }
             diff::ModificationKind::VariantAdded { variant_name } => {

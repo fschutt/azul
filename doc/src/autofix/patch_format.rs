@@ -80,6 +80,9 @@ pub enum ModifyChange {
         name: String,
         #[serde(rename = "type")]
         field_type: String,
+        /// Reference kind: "constptr", "mutptr", etc. Defaults to "value" if not present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ref_kind: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         doc: Option<String>,
     },
@@ -92,6 +95,9 @@ pub enum ModifyChange {
         name: String,
         old_type: String,
         new_type: String,
+        /// Reference kind: "constptr", "mutptr", etc. Defaults to "value" if not present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ref_kind: Option<String>,
     },
     /// Add an enum variant
     AddVariant {
@@ -355,14 +361,22 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::RemoveCustomImpls { impls } => {
             format!("- custom_impls: {}", impls.join(", "))
         }
-        ModifyChange::AddField { name, field_type, .. } => {
-            format!("+ field {}: {}", name, field_type)
+        ModifyChange::AddField { name, field_type, ref_kind, .. } => {
+            if let Some(rk) = ref_kind {
+                format!("+ field {} : {} ({})", name, field_type, rk)
+            } else {
+                format!("+ field {} : {}", name, field_type)
+            }
         }
         ModifyChange::RemoveField { name } => {
             format!("- field {}", name)
         }
-        ModifyChange::ChangeFieldType { name, old_type, new_type } => {
-            format!("~ field {}: {} → {}", name, old_type, new_type)
+        ModifyChange::ChangeFieldType { name, old_type, new_type, ref_kind } => {
+            if let Some(rk) = ref_kind {
+                format!("~ field {}: {} → {} ({})", name, old_type, new_type, rk)
+            } else {
+                format!("~ field {}: {} → {}", name, old_type, new_type)
+            }
         }
         ModifyChange::AddVariant { name, variant_type } => {
             if let Some(ty) = variant_type {
@@ -472,8 +486,12 @@ impl AutofixPatch {
                         repr: a.repr_c.map(|b| if b { "C".to_string() } else { "Rust".to_string() }),
                         struct_fields: a.struct_fields.as_ref().map(|fields| {
                             vec![fields.iter().map(|f| {
+                                let ref_kind = f.ref_kind.as_ref()
+                                    .and_then(|s| crate::api::RefKind::parse(s))
+                                    .unwrap_or_default();
                                 (f.name.clone(), FieldData {
                                     r#type: f.field_type.clone(),
+                                    ref_kind,
                                     doc: Some(f.doc.clone().unwrap_or_default()),
                                     derive: None,
                                 })
@@ -553,9 +571,13 @@ impl AutofixPatch {
                 ModifyChange::RemoveCustomImpls { impls } => {
                     custom_impls_to_remove.extend(impls.clone());
                 }
-                ModifyChange::AddField { name, field_type, doc } => {
+                ModifyChange::AddField { name, field_type, ref_kind, doc } => {
+                    let rk = ref_kind.as_ref()
+                        .and_then(|s| crate::api::RefKind::parse(s))
+                        .unwrap_or_default();
                     struct_fields_to_add.insert(name.clone(), FieldData {
                         r#type: field_type.clone(),
+                        ref_kind: rk,
                         doc: Some(doc.clone().unwrap_or_default()),
                         derive: None,
                     });
@@ -563,9 +585,13 @@ impl AutofixPatch {
                 ModifyChange::RemoveField { .. } => {
                     // Note: The legacy format doesn't support removing fields directly
                 }
-                ModifyChange::ChangeFieldType { name, new_type, .. } => {
+                ModifyChange::ChangeFieldType { name, new_type, ref_kind, .. } => {
+                    let rk = ref_kind.as_ref()
+                        .and_then(|s| crate::api::RefKind::parse(s))
+                        .unwrap_or_default();
                     struct_fields_to_add.insert(name.clone(), FieldData {
                         r#type: new_type.clone(),
+                        ref_kind: rk,
                         doc: None,
                         derive: None,
                     });

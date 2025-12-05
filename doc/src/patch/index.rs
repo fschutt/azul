@@ -160,6 +160,8 @@ pub struct CallbackArgInfo {
 pub struct FieldInfo {
     pub name: String,
     pub ty: String,
+    /// Reference kind: constptr (*const T), mutptr (*mut T), or value (T)
+    pub ref_kind: crate::api::RefKind,
     pub doc: Option<String>,
 }
 
@@ -910,6 +912,7 @@ impl WorkspaceIndex {
                         name.clone(),
                         FieldData {
                             r#type: field.ty.clone(),
+                            ref_kind: field.ref_kind,
                             doc: field.doc.clone(),
                             derive: None,
                         },
@@ -1174,11 +1177,16 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 for field in s.fields.iter() {
                     if let Some(field_name) = field.ident.as_ref() {
                         let field_ty = field.ty.to_token_stream().to_string();
+                        // Extract base type and ref_kind from the type string
+                        let (base_type, ref_kind) = crate::autofix::utils::extract_type_and_ref_kind(&field_ty);
+                        // Clean up the base type (path segments, etc.)
+                        let cleaned_type = crate::autofix::utils::clean_type_string(&base_type);
                         fields.insert(
                             field_name.to_string(),
                             FieldInfo {
                                 name: field_name.to_string(),
-                                ty: crate::autofix::utils::clean_type_string(&field_ty),
+                                ty: cleaned_type,
+                                ref_kind,
                                 doc: crate::autofix::utils::extract_doc_comments(&field.attrs),
                             },
                         );
@@ -1409,23 +1417,27 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 let mut fields = IndexMap::new();
                 fields.insert("ptr".to_string(), FieldInfo {
                     name: "ptr".to_string(),
-                    ty: format!("*const {}", gen_type.element_type),
+                    ty: gen_type.element_type.clone(),
+                    ref_kind: crate::api::RefKind::ConstPtr,
                     doc: None,
                 });
                 fields.insert("len".to_string(), FieldInfo {
                     name: "len".to_string(),
                     ty: "usize".to_string(),
+                    ref_kind: crate::api::RefKind::Value,
                     doc: None,
                 });
                 fields.insert("cap".to_string(), FieldInfo {
                     name: "cap".to_string(),
                     ty: "usize".to_string(),
+                    ref_kind: crate::api::RefKind::Value,
                     doc: None,
                 });
                 if let Some(destructor) = &gen_type.destructor_name {
                     fields.insert("destructor".to_string(), FieldInfo {
                         name: "destructor".to_string(),
                         ty: destructor.clone(),
+                        ref_kind: crate::api::RefKind::Value,
                         doc: None,
                     });
                 }

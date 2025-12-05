@@ -32,7 +32,12 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                         }
                         println!("      Fields ({}):", fields.len());
                         for (name, field) in fields.iter().take(5) {
-                            println!("        - {}: {}", name, field.ty);
+                            let ref_kind_str = if field.ref_kind.is_default() {
+                                String::new()
+                            } else {
+                                format!(" [ref_kind: {}]", field.ref_kind)
+                            };
+                            println!("        - {}: {}{}", name, field.ty, ref_kind_str);
                         }
                         if fields.len() > 5 {
                             println!("        ... and {} more", fields.len() - 5);
@@ -69,7 +74,12 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                                 println!("        repr(C): {}", has_repr_c);
                                 println!("        Fields ({}):", fields.len());
                                 for (name, field) in fields {
-                                    println!("          - {}: {}", name, field.ty);
+                                    let ref_kind_str = if field.ref_kind.is_default() {
+                                        String::new()
+                                    } else {
+                                        format!(" [ref_kind: {}]", field.ref_kind)
+                                    };
+                                    println!("          - {}: {}{}", name, field.ty, ref_kind_str);
                                 }
                                 if !derives.is_empty() {
                                     println!("        Derives: {:?}", derives);

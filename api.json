@@ -251,12 +251,10 @@
             "struct_fields": [
               {
                 "logical_size": {
-                  "type": "LogicalSize",
-                  "doc": ""
+                  "type": "LogicalSize"
                 },
                 "hidpi_factor": {
-                  "type": "DpiScaleFactor",
-                  "doc": ""
+                  "type": "DpiScaleFactor"
                 }
               }
             ],
@@ -300,8 +298,7 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "FloatValue",
-                  "doc": ""
+                  "type": "FloatValue"
                 }
               }
             ],
@@ -795,33 +792,21 @@
             ],
             "struct_fields": [
               {
-                "reason": {
-                  "type": "IFrameCallbackReason",
-                  "doc": ""
+                "system_fonts": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "window_theme": {
-                  "type": "WindowTheme",
-                  "doc": ""
+                "image_cache": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "bounds": {
-                  "type": "HidpiAdjustedBounds",
-                  "doc": ""
+                "_abi_ref": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "scroll_size": {
-                  "type": "LogicalSize",
-                  "doc": ""
-                },
-                "scroll_offset": {
-                  "type": "LogicalPosition",
-                  "doc": ""
-                },
-                "virtual_scroll_size": {
-                  "type": "LogicalSize",
-                  "doc": ""
-                },
-                "virtual_scroll_offset": {
-                  "type": "LogicalPosition",
-                  "doc": ""
+                "_abi_mut": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
                 }
               }
             ],
@@ -835,16 +820,13 @@
             "struct_fields": [
               {
                 "hit_dom_node": {
-                  "type": "DomNodeId",
-                  "doc": ""
+                  "type": "DomNodeId"
                 },
                 "cursor_relative_to_item": {
-                  "type": "OptionLogicalPosition",
-                  "doc": ""
+                  "type": "OptionLogicalPosition"
                 },
                 "cursor_in_viewport": {
-                  "type": "OptionLogicalPosition",
-                  "doc": ""
+                  "type": "OptionLogicalPosition"
                 }
               }
             ],
@@ -861,12 +843,10 @@
             "struct_fields": [
               {
                 "callback_node_id": {
-                  "type": "DomNodeId",
-                  "doc": ""
+                  "type": "DomNodeId"
                 },
                 "bounds": {
-                  "type": "HidpiAdjustedBounds",
-                  "doc": ""
+                  "type": "HidpiAdjustedBounds"
                 }
               }
             ],
@@ -1681,36 +1661,9 @@
             ],
             "struct_fields": [
               {
-                "node_type": {
-                  "type": "NodeType",
-                  "doc": ""
-                },
-                "dataset": {
-                  "type": "OptionRefAny",
-                  "doc": ""
-                },
-                "ids_and_classes": {
-                  "type": "IdOrClassVec",
-                  "doc": ""
-                },
-                "attributes": {
-                  "type": "AttributeVec",
-                  "doc": ""
-                },
-                "callbacks": {
-                  "type": "CoreCallbackDataVec",
-                  "doc": ""
-                },
-                "inline_css_props": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": ""
-                },
-                "tab_index": {
-                  "type": "OptionTabIndex",
-                  "doc": ""
-                },
                 "extra": {
-                  "type": "c_void"
+                  "type": "c_void",
+                  "ref_kind": "optionboxed"
                 }
               }
             ],
@@ -2724,35 +2677,28 @@
                   "type": "OptionString"
                 },
                 "role": {
-                  "type": "AccessibilityRole",
-                  "doc": ""
+                  "type": "AccessibilityRole"
                 },
                 "states": {
-                  "type": "AccessibilityStateVec",
-                  "doc": ""
+                  "type": "AccessibilityStateVec"
                 },
                 "accelerator": {
-                  "type": "OptionVirtualKeyCodeCombo",
-                  "doc": ""
+                  "type": "OptionVirtualKeyCodeCombo"
                 },
                 "default_action": {
                   "type": "OptionString"
                 },
                 "supported_actions": {
-                  "type": "AccessibilityActionVec",
-                  "doc": ""
+                  "type": "AccessibilityActionVec"
                 },
                 "is_live_region": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 },
                 "labelled_by": {
-                  "type": "OptionDomNodeId",
-                  "doc": ""
+                  "type": "OptionDomNodeId"
                 },
                 "described_by": {
-                  "type": "OptionDomNodeId",
-                  "doc": ""
+                  "type": "OptionDomNodeId"
                 }
               }
             ],
@@ -3413,8 +3359,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ListViewOnColumnClickCallbackType",
-                  "doc": ""
+                  "type": "ListViewOnColumnClickCallbackType"
                 }
               }
             ]
@@ -3471,8 +3416,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "CoreCallbackType",
-                  "doc": ""
+                  "type": "CoreCallbackType"
                 }
               }
             ],
@@ -3496,8 +3440,7 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -3511,9 +3454,9 @@
             ],
             "struct_fields": [
               {
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                "node": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -3533,16 +3476,13 @@
             "struct_fields": [
               {
                 "event": {
-                  "type": "EventFilter",
-                  "doc": ""
+                  "type": "EventFilter"
                 },
                 "callback": {
-                  "type": "CoreCallback",
-                  "doc": ""
+                  "type": "CoreCallback"
                 },
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 }
               }
             ],
@@ -3553,8 +3493,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ListViewOnRowClickCallbackType",
-                  "doc": ""
+                  "type": "ListViewOnRowClickCallbackType"
                 }
               }
             ]
@@ -3602,12 +3541,10 @@
             "struct_fields": [
               {
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 },
                 "callback": {
-                  "type": "CoreCallback",
-                  "doc": ""
+                  "type": "CoreCallback"
                 }
               }
             ],
@@ -3627,12 +3564,10 @@
             "struct_fields": [
               {
                 "name": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "value": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 }
               }
             ],
@@ -3651,8 +3586,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "CheckBoxOnToggleCallbackType",
-                  "doc": ""
+                  "type": "CheckBoxOnToggleCallbackType"
                 }
               }
             ]
@@ -3662,8 +3596,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "TabOnClickCallbackType",
-                  "doc": ""
+                  "type": "TabOnClickCallbackType"
                 }
               }
             ]
@@ -3701,8 +3634,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ListViewOnLazyLoadScrollCallbackType",
-                  "doc": ""
+                  "type": "ListViewOnLazyLoadScrollCallbackType"
                 }
               }
             ]
@@ -3903,8 +3835,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ButtonOnClickCallbackType",
-                  "doc": ""
+                  "type": "ButtonOnClickCallbackType"
                 }
               }
             ]
@@ -3924,16 +3855,13 @@
             "struct_fields": [
               {
                 "node_type": {
-                  "type": "XmlTagName",
-                  "doc": ""
+                  "type": "XmlTagName"
                 },
                 "attributes": {
-                  "type": "XmlAttributeMap",
-                  "doc": ""
+                  "type": "XmlAttributeMap"
                 },
                 "children": {
-                  "type": "XmlNodeChildVec",
-                  "doc": ""
+                  "type": "XmlNodeChildVec"
                 }
               }
             ],
@@ -4147,20 +4075,16 @@
             "struct_fields": [
               {
                 "name": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "layout_location": {
-                  "type": "OptionUsize",
-                  "doc": ""
+                  "type": "OptionUsize"
                 },
                 "attribute_type": {
-                  "type": "VertexAttributeType",
-                  "doc": ""
+                  "type": "VertexAttributeType"
                 },
                 "item_count": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -12381,9 +12305,8 @@
             ],
             "struct_fields": [
               {
-                "sink": {
-                  "type": "OptionU32",
-                  "doc": ""
+                "size": {
+                  "type": "u32"
                 }
               }
             ],
@@ -12664,12 +12587,10 @@
             "struct_fields": [
               {
                 "start": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "end": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -12731,32 +12652,25 @@
             "struct_fields": [
               {
                 "line_join": {
-                  "type": "SvgLineJoin",
-                  "doc": ""
+                  "type": "SvgLineJoin"
                 },
                 "miter_limit": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "tolerance": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "fill_rule": {
-                  "type": "SvgFillRule",
-                  "doc": ""
+                  "type": "SvgFillRule"
                 },
                 "transform": {
-                  "type": "SvgTransform",
-                  "doc": ""
+                  "type": "SvgTransform"
                 },
                 "anti_alias": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 },
                 "high_quality_aa": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 }
               }
             ],
@@ -12779,12 +12693,10 @@
             "struct_fields": [
               {
                 "row": {
-                  "type": "u32",
-                  "doc": ""
+                  "type": "u32"
                 },
                 "col": {
-                  "type": "u32",
-                  "doc": ""
+                  "type": "u32"
                 }
               }
             ],
@@ -12809,12 +12721,10 @@
             "struct_fields": [
               {
                 "width": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "height": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -12872,7 +12782,7 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "boxed"
                 }
               }
             ],
@@ -12891,28 +12801,22 @@
             "struct_fields": [
               {
                 "sx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "kx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "ky": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "sy": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "tx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "ty": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -13011,12 +12915,10 @@
             "struct_fields": [
               {
                 "x": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "y": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -13078,12 +12980,10 @@
             "struct_fields": [
               {
                 "width": {
-                  "type": "T",
-                  "doc": ""
+                  "type": "T"
                 },
                 "height": {
-                  "type": "T",
-                  "doc": ""
+                  "type": "T"
                 }
               }
             ],
@@ -13477,28 +13377,22 @@
             "struct_fields": [
               {
                 "sx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "kx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "ky": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "sy": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "tx": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "ty": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -13518,8 +13412,7 @@
             "struct_fields": [
               {
                 "fields": {
-                  "type": "VertexAttributeVec",
-                  "doc": ""
+                  "type": "VertexAttributeVec"
                 }
               }
             ],
@@ -13637,9 +13530,8 @@
             "external": "azul_layout::widgets::button::ButtonOnClick",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "ButtonOnClickCallback",
-                  "doc": ""
+                "data": {
+                  "type": "RefAny"
                 }
               }
             ]
@@ -13787,16 +13679,13 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "FileInputState",
-                  "doc": ""
+                  "type": "FileInputState"
                 },
                 "on_path_change": {
-                  "type": "OptionFileInputOnPathChange",
-                  "doc": ""
+                  "type": "OptionFileInputOnPathChange"
                 },
                 "file_dialog_title": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 }
               }
             ],
@@ -13825,9 +13714,8 @@
             "external": "azul_layout::widgets::file_input::FileInputOnPathChange",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "FileInputOnPathChangeCallback",
-                  "doc": ""
+                "data": {
+                  "type": "RefAny"
                 }
               }
             ]
@@ -13956,9 +13844,8 @@
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggle",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "CheckBoxOnToggleCallback",
-                  "doc": ""
+                "data": {
+                  "type": "RefAny"
                 }
               }
             ]
@@ -14114,8 +14001,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ColorInputOnValueChangeCallback",
-                  "doc": ""
+                  "type": "ColorInputOnValueChangeCallback"
                 }
               }
             ]
@@ -14462,9 +14348,17 @@
             ],
             "struct_fields": [
               {
-                "placeholder": {
-                  "type": "OptionString",
-                  "doc": ""
+                "text": {
+                  "type": "U32Vec"
+                },
+                "max_len": {
+                  "type": "usize"
+                },
+                "selection": {
+                  "type": "OptionTextInputSelection"
+                },
+                "cursor_pos": {
+                  "type": "usize"
                 }
               }
             ],
@@ -14531,9 +14425,8 @@
             "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                "cb": {
+                  "type": "TextInputOnTextInputCallback"
                 }
               }
             ]
@@ -14553,8 +14446,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "TextInputOnVirtualKeyDownCallback",
-                  "doc": ""
+                  "type": "TextInputOnVirtualKeyDownCallback"
                 }
               }
             ]
@@ -14574,8 +14466,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "TextInputOnFocusLostCallback",
-                  "doc": ""
+                  "type": "TextInputOnFocusLostCallback"
                 }
               }
             ]
@@ -14940,8 +14831,7 @@
             "struct_fields": [
               {
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 }
               }
             ]
@@ -14960,9 +14850,8 @@
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "NumberInputOnFocusLostCallback",
-                  "doc": ""
+                "data": {
+                  "type": "RefAny"
                 }
               }
             ]
@@ -15236,9 +15125,8 @@
             "external": "azul_layout::widgets::tabs::TabOnClick",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                "cb": {
+                  "type": "TabOnClickCallback"
                 }
               }
             ]
@@ -15452,8 +15340,7 @@
             "struct_fields": [
               {
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 }
               }
             ]
@@ -15463,8 +15350,7 @@
             "struct_fields": [
               {
                 "cb": {
-                  "type": "ListViewOnColumnClickCallback",
-                  "doc": ""
+                  "type": "ListViewOnColumnClickCallback"
                 }
               }
             ]
@@ -15474,8 +15360,7 @@
             "struct_fields": [
               {
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 }
               }
             ]
@@ -15494,12 +15379,10 @@
             "struct_fields": [
               {
                 "callback": {
-                  "type": "IFrameCallback",
-                  "doc": ""
+                  "type": "IFrameCallback"
                 },
                 "data": {
-                  "type": "RefAny",
-                  "doc": ""
+                  "type": "RefAny"
                 }
               }
             ],
@@ -15514,28 +15397,22 @@
             "struct_fields": [
               {
                 "columns": {
-                  "type": "StringVec",
-                  "doc": ""
+                  "type": "StringVec"
                 },
                 "sorted_by": {
-                  "type": "OptionUsize",
-                  "doc": ""
+                  "type": "OptionUsize"
                 },
                 "current_row_count": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "scroll_offset": {
-                  "type": "PixelValueNoPercent",
-                  "doc": ""
+                  "type": "PixelValueNoPercent"
                 },
                 "current_scroll_position": {
-                  "type": "LogicalPosition",
-                  "doc": ""
+                  "type": "LogicalPosition"
                 },
                 "current_content_height": {
-                  "type": "LogicalSize",
-                  "doc": ""
+                  "type": "LogicalSize"
                 }
               }
             ],
@@ -15546,8 +15423,7 @@
             "struct_fields": [
               {
                 "active_tab": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -15569,36 +15445,9 @@
             ],
             "struct_fields": [
               {
-                "texture_id": {
-                  "type": "GLuint",
-                  "doc": ""
-                },
-                "flags": {
-                  "type": "TextureFlags",
-                  "doc": ""
-                },
-                "size": {
-                  "type": "PhysicalSizeU32",
-                  "doc": ""
-                },
-                "background_color": {
-                  "type": "ColorU",
-                  "doc": ""
-                },
-                "gl_context": {
-                  "type": "GlContextPtr",
-                  "doc": ""
-                },
-                "format": {
-                  "type": "RawImageFormat",
-                  "doc": ""
-                },
                 "refcount": {
-                  "type": "c_void"
-                },
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -15756,11 +15605,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void"
-                },
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -15777,7 +15623,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void"
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
                 }
               }
             ],
@@ -24482,7 +24329,13 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "boxed"
+                },
+                "renderer_type": {
+                  "type": "RendererType"
+                },
+                "run_destructor": {
+                  "type": "bool"
                 }
               }
             ],
@@ -28409,8 +28262,7 @@
             "struct_fields": [
               {
                 "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 }
               }
             ],
@@ -28459,12 +28311,10 @@
             "struct_fields": [
               {
                 "x": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "y": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -28483,21 +28333,9 @@
             ],
             "struct_fields": [
               {
-                "vertex_layout": {
-                  "type": "VertexLayout",
-                  "doc": ""
-                },
-                "vao_id": {
-                  "type": "GLuint",
-                  "doc": ""
-                },
-                "gl_context": {
-                  "type": "GlContextPtr",
-                  "doc": ""
-                },
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                "refcount": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -28536,9 +28374,30 @@
             ],
             "struct_fields": [
               {
+                "vertex_buffer_id": {
+                  "type": "GLuint"
+                },
+                "vertex_buffer_len": {
+                  "type": "usize"
+                },
+                "vao": {
+                  "type": "VertexArrayObject"
+                },
+                "index_buffer_id": {
+                  "type": "GLuint"
+                },
+                "index_buffer_len": {
+                  "type": "usize"
+                },
+                "index_buffer_format": {
+                  "type": "IndexBufferFormat"
+                },
                 "refcount": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "run_destructor": {
+                  "type": "bool"
                 }
               }
             ],
@@ -28611,14 +28470,12 @@
             "struct_fields": [
               {
                 "data": {
-                  "type": "c_void"
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
                 "copies": {
-                  "type": "c_void"
-                },
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -29715,15 +29572,14 @@
               {
                 "parsed": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
                 "copies": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
-                "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                "parsed_destructor": {
+                  "type": "FontRefDestructorCallbackType"
                 }
               }
             ],
@@ -29826,7 +29682,7 @@
               {
                 "tree": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -31608,12 +31464,10 @@
             "struct_fields": [
               {
                 "origin": {
-                  "type": "LogicalPosition",
-                  "doc": ""
+                  "type": "LogicalPosition"
                 },
                 "size": {
-                  "type": "LogicalSize",
-                  "doc": ""
+                  "type": "LogicalSize"
                 }
               }
             ],
@@ -31675,8 +31529,7 @@
             "struct_fields": [
               {
                 "selectors": {
-                  "type": "CssPathSelectorVec",
-                  "doc": ""
+                  "type": "CssPathSelectorVec"
                 }
               }
             ],
@@ -31692,8 +31545,7 @@
             "struct_fields": [
               {
                 "vertex_index_buffer": {
-                  "type": "VertexBuffer",
-                  "doc": ""
+                  "type": "VertexBuffer"
                 }
               }
             ],
@@ -31709,8 +31561,7 @@
             "struct_fields": [
               {
                 "vertex_index_buffer": {
-                  "type": "VertexBuffer",
-                  "doc": ""
+                  "type": "VertexBuffer"
                 }
               }
             ],
@@ -31953,8 +31804,7 @@
             "struct_fields": [
               {
                 "id": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -31999,9 +31849,8 @@
             ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
                 }
               }
             ],
@@ -32022,12 +31871,10 @@
             "struct_fields": [
               {
                 "key": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "value": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 }
               }
             ],
@@ -32060,8 +31907,7 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 }
               }
             ],
@@ -32081,7 +31927,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ListViewRowVecDestructor"
                 }
               }
             ]
@@ -32093,17 +31948,9 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "StyleFilterVecDestructor",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ]
@@ -32115,17 +31962,9 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "AccessibilityStateVecDestructor",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ]
@@ -32138,16 +31977,13 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "MenuItemVecDestructor",
-                  "doc": ""
+                  "type": "MenuItemVecDestructor"
                 }
               }
             ]
@@ -32159,13 +31995,12 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "StyleFontFamilyVecDestructor"
                 }
               }
             ]
@@ -32179,7 +32014,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "DomVecDestructor"
                 }
               }
             ]
@@ -32192,8 +32036,7 @@
             "struct_fields": [
               {
                 "destructor": {
-                  "type": "IdOrClassVecDestructor",
-                  "doc": ""
+                  "type": "IdOrClassVecDestructor"
                 }
               }
             ]
@@ -32205,13 +32048,12 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "NodeDataInlineCssPropertyVecDestructor"
                 }
               }
             ]
@@ -32225,7 +32067,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "StyleBackgroundContentVecDestructor"
                 }
               }
             ]
@@ -32239,7 +32090,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "StyleBackgroundPositionVecDestructor"
                 }
               }
             ]
@@ -32252,16 +32112,13 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "StyleBackgroundRepeatVecDestructor",
-                  "doc": ""
+                  "type": "StyleBackgroundRepeatVecDestructor"
                 }
               }
             ]
@@ -32273,17 +32130,18 @@
             "derive": [],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "StyleBackgroundSizeVecDestructor",
-                  "doc": ""
+                  "type": "StyleBackgroundSizeVecDestructor"
                 }
               }
             ]
@@ -32295,13 +32153,11 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
                 },
-                "destructor": {
-                  "type": "StyleTransformVecDestructor",
-                  "doc": ""
+                "cap": {
+                  "type": "usize"
                 }
               }
             ]
@@ -32315,15 +32171,13 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ]
@@ -32335,13 +32189,12 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "SvgSimpleNodeVecDestructor"
                 }
               }
             ]
@@ -32355,7 +32208,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "SvgPathVecDestructor"
                 }
               }
             ]
@@ -32369,7 +32231,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "SvgPathElementVecDestructor"
                 }
               }
             ]
@@ -32383,11 +32254,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
                 "destructor": {
-                  "type": "SvgVertexVecDestructor",
-                  "doc": ""
+                  "type": "SvgVertexVecDestructor"
                 }
               }
             ]
@@ -32399,17 +32269,9 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "U32VecDestructor",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ]
@@ -32423,15 +32285,13 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ]
@@ -32445,7 +32305,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "CascadeInfoVecDestructor"
                 }
               }
             ]
@@ -32457,9 +32326,14 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "CssDeclarationVecDestructor"
                 }
               }
             ]
@@ -32473,7 +32347,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "CssPathSelectorVecDestructor"
                 }
               }
             ]
@@ -32485,13 +32368,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
-                },
                 "destructor": {
-                  "type": "StylesheetVecDestructor",
-                  "doc": ""
+                  "type": "StylesheetVecDestructor"
                 }
               }
             ]
@@ -32503,13 +32381,11 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
                 },
-                "destructor": {
-                  "type": "CssRuleBlockVecDestructor",
-                  "doc": ""
+                "cap": {
+                  "type": "usize"
                 }
               }
             ]
@@ -32523,7 +32399,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "U16VecDestructor"
                 }
               }
             ]
@@ -32535,17 +32420,18 @@
             "derive": [],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "F32VecDestructor",
-                  "doc": ""
+                  "type": "F32VecDestructor"
                 }
               }
             ]
@@ -32557,17 +32443,9 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "U8VecDestructor",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -32612,15 +32490,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "GLuintVecDestructor"
                 }
               }
             ]
@@ -32634,7 +32507,16 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "GLintVecDestructor"
                 }
               }
             ]
@@ -32646,20 +32528,14 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void"
-                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "StringVecDestructor",
-                  "doc": ""
+                  "type": "StringVecDestructor"
                 }
               }
             ]
@@ -32672,12 +32548,10 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ]
@@ -32690,8 +32564,7 @@
             "struct_fields": [
               {
                 "destructor": {
-                  "type": "NormalizedLinearColorStopVecDestructor",
-                  "doc": ""
+                  "type": "NormalizedLinearColorStopVecDestructor"
                 }
               }
             ]
@@ -32703,9 +32576,11 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "NormalizedRadialColorStopVecDestructor",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
                 }
               }
             ]
@@ -32717,17 +32592,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "NodeIdVecDestructor"
                 }
               }
             ]
@@ -32739,17 +32605,18 @@
             "derive": [],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "NodeHierarchyItemVecDestructor",
-                  "doc": ""
+                  "type": "NodeHierarchyItemVecDestructor"
                 }
               }
             ]
@@ -32761,17 +32628,11 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
-                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ]
@@ -32783,13 +32644,8 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "TagIdToNodeIdMappingVecDestructor"
                 }
               }
             ]
@@ -32801,13 +32657,12 @@
             "derive": [],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "ParentWithNodeDepthVecDestructor"
                 }
               }
             ]
@@ -32820,16 +32675,13 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "NodeDataVecDestructor",
-                  "doc": ""
+                  "type": "NodeDataVecDestructor"
                 }
               }
             ]
@@ -32841,17 +32693,18 @@
             "derive": [],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "AttributeVecDestructor",
-                  "doc": ""
+                  "type": "AttributeVecDestructor"
                 }
               }
             ]
@@ -32865,11 +32718,13 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
-                "destructor": {
-                  "type": "CoreCallbackDataVecDestructor",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
                 }
               }
             ]
@@ -32881,17 +32736,18 @@
             "derive": [],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "AccessibilityActionVecDestructor",
-                  "doc": ""
+                  "type": "AccessibilityActionVecDestructor"
                 }
               }
             ]
@@ -32904,16 +32760,13 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "destructor": {
-                  "type": "XmlNodeChildVecDestructor",
-                  "doc": ""
+                  "type": "XmlNodeChildVecDestructor"
                 }
               }
             ]
@@ -32927,15 +32780,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "GridTrackSizingVecDestructor"
                 }
               }
             ]
@@ -32950,8 +32798,7 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -32966,9 +32813,8 @@
             ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
+                "len": {
+                  "type": "usize"
                 }
               }
             ],
@@ -32984,8 +32830,7 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -33002,7 +32847,7 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "mutptr"
                 }
               }
             ],
@@ -33018,7 +32863,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
                 }
               }
             ],
@@ -33033,9 +32881,12 @@
             ],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -33052,7 +32903,7 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -33067,9 +32918,12 @@
             ],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -33089,9 +32943,9 @@
             ],
             "struct_fields": [
               {
-                "len": {
-                  "type": "usize",
-                  "doc": ""
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
                 }
               }
             ],
@@ -33107,8 +32961,7 @@
             "struct_fields": [
               {
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -33125,7 +32978,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "doc": ""
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
                 }
               }
             ],
@@ -33140,9 +32996,12 @@
             ],
             "struct_fields": [
               {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ],
@@ -34316,17 +34175,8 @@
             "external": "azul_core::gl::VertexAttributeVec",
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
+                "destructor": {
+                  "type": "VertexAttributeVecDestructor"
                 }
               }
             ]
@@ -34360,17 +34210,11 @@
             "external": "azul_core::gl::DebugMessageVec",
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "doc": ""
-                },
                 "len": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 },
                 "cap": {
-                  "type": "usize",
-                  "doc": ""
+                  "type": "usize"
                 }
               }
             ]
@@ -34928,40 +34772,31 @@
             "struct_fields": [
               {
                 "dpi": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "default_font_family": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "font_size": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "languages": {
-                  "type": "StringVec",
-                  "doc": ""
+                  "type": "StringVec"
                 },
                 "shape_rendering": {
-                  "type": "ShapeRendering",
-                  "doc": ""
+                  "type": "ShapeRendering"
                 },
                 "text_rendering": {
-                  "type": "TextRendering",
-                  "doc": ""
+                  "type": "TextRendering"
                 },
                 "image_rendering": {
-                  "type": "ImageRendering",
-                  "doc": ""
+                  "type": "ImageRendering"
                 },
                 "keep_named_groups": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 },
                 "fontdb": {
-                  "type": "FontDatabase",
-                  "doc": ""
+                  "type": "FontDatabase"
                 }
               }
             ],
@@ -34981,16 +34816,13 @@
             "struct_fields": [
               {
                 "use_single_quote": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 },
                 "indent": {
-                  "type": "Indent",
-                  "doc": ""
+                  "type": "Indent"
                 },
                 "attributes_indent": {
-                  "type": "Indent",
-                  "doc": ""
+                  "type": "Indent"
                 }
               }
             ],
@@ -35009,20 +34841,16 @@
             "struct_fields": [
               {
                 "target_size": {
-                  "type": "OptionLayoutSize",
-                  "doc": ""
+                  "type": "OptionLayoutSize"
                 },
                 "background_color": {
-                  "type": "OptionColorU",
-                  "doc": ""
+                  "type": "OptionColorU"
                 },
                 "fit": {
-                  "type": "SvgFitTo",
-                  "doc": ""
+                  "type": "SvgFitTo"
                 },
                 "transform": {
-                  "type": "SvgRenderTransform",
-                  "doc": ""
+                  "type": "SvgRenderTransform"
                 }
               }
             ],
@@ -35049,7 +34877,7 @@
               {
                 "None": {},
                 "Some": {
-                  "type": "AzString"
+                  "type": "String"
                 }
               }
             ],
@@ -35714,12 +35542,10 @@
             "struct_fields": [
               {
                 "expected": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "got": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 }
               }
             ],
@@ -36097,8 +35923,7 @@
             "struct_fields": [
               {
                 "keys": {
-                  "type": "VirtualKeyCodeVec",
-                  "doc": ""
+                  "type": "VirtualKeyCodeVec"
                 }
               }
             ],
@@ -36147,24 +35972,19 @@
             "struct_fields": [
               {
                 "interpolate_func": {
-                  "type": "AnimationInterpolationFunction",
-                  "doc": ""
+                  "type": "AnimationInterpolationFunction"
                 },
                 "parent_rect_width": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "parent_rect_height": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "current_rect_width": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 },
                 "current_rect_height": {
-                  "type": "f32",
-                  "doc": ""
+                  "type": "f32"
                 }
               }
             ],
@@ -36211,8 +36031,7 @@
             "struct_fields": [
               {
                 "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 }
               }
             ],
@@ -36256,16 +36075,13 @@
             "struct_fields": [
               {
                 "sharing_info": {
-                  "type": "RefCount",
-                  "doc": ""
+                  "type": "RefCount"
                 },
                 "instance_id": {
-                  "type": "u64",
-                  "doc": ""
+                  "type": "u64"
                 },
                 "run_destructor": {
-                  "type": "bool",
-                  "doc": ""
+                  "type": "bool"
                 }
               }
             ],
@@ -36314,24 +36130,19 @@
             "struct_fields": [
               {
                 "message": {
-                  "type": "String",
-                  "doc": ""
+                  "type": "String"
                 },
                 "source": {
-                  "type": "GLenum",
-                  "doc": ""
+                  "type": "GLenum"
                 },
                 "ty": {
-                  "type": "GLenum",
-                  "doc": ""
+                  "type": "GLenum"
                 },
                 "id": {
-                  "type": "GLenum",
-                  "doc": ""
+                  "type": "GLenum"
                 },
                 "severity": {
-                  "type": "GLenum",
-                  "doc": ""
+                  "type": "GLenum"
                 }
               }
             ],
