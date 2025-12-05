@@ -12,7 +12,7 @@ pub use azul_core::xml::*;
 use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
 #[cfg(feature = "parser")]
 use azul_css::parser2::{CssApiWrapper, CssParseError};
-use azul_css::{css::Css, AzString, OptionAzString, U8Vec};
+use azul_css::{css::Css, AzString, OptionString, U8Vec};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]

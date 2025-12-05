@@ -67,6 +67,14 @@ pub enum ModifyChange {
     RemoveDerives {
         derives: Vec<String>,
     },
+    /// Add custom impl traits (manual impl blocks)
+    AddCustomImpls {
+        impls: Vec<String>,
+    },
+    /// Remove custom impl traits
+    RemoveCustomImpls {
+        impls: Vec<String>,
+    },
     /// Add a struct field
     AddField {
         name: String,
@@ -226,6 +234,9 @@ pub struct FieldDef {
     pub name: String,
     #[serde(rename = "type")]
     pub field_type: String,
+    /// The reference kind (value, constptr, mutptr, boxed)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
 }
@@ -337,6 +348,12 @@ fn explain_change(change: &ModifyChange) -> String {
         }
         ModifyChange::RemoveDerives { derives } => {
             format!("- derive: {}", derives.join(", "))
+        }
+        ModifyChange::AddCustomImpls { impls } => {
+            format!("+ custom_impls: {}", impls.join(", "))
+        }
+        ModifyChange::RemoveCustomImpls { impls } => {
+            format!("- custom_impls: {}", impls.join(", "))
         }
         ModifyChange::AddField { name, field_type, .. } => {
             format!("+ field {}: {}", name, field_type)
@@ -511,6 +528,8 @@ impl AutofixPatch {
         
         let mut derives_to_add = Vec::new();
         let mut derives_to_remove = Vec::new();
+        let mut custom_impls_to_add = Vec::new();
+        let mut custom_impls_to_remove = Vec::new();
         let mut struct_fields_to_add: IndexMap<String, FieldData> = IndexMap::new();
         let mut enum_variants_to_add: IndexMap<String, EnumVariantData> = IndexMap::new();
         
@@ -527,6 +546,12 @@ impl AutofixPatch {
                 }
                 ModifyChange::RemoveDerives { derives } => {
                     derives_to_remove.extend(derives.clone());
+                }
+                ModifyChange::AddCustomImpls { impls } => {
+                    custom_impls_to_add.extend(impls.clone());
+                }
+                ModifyChange::RemoveCustomImpls { impls } => {
+                    custom_impls_to_remove.extend(impls.clone());
                 }
                 ModifyChange::AddField { name, field_type, doc } => {
                     struct_fields_to_add.insert(name.clone(), FieldData {
@@ -634,6 +659,13 @@ impl AutofixPatch {
         }
         if !derives_to_remove.is_empty() {
             patch.remove_derive = Some(derives_to_remove);
+        }
+        if !custom_impls_to_add.is_empty() {
+            patch.custom_impls = Some(custom_impls_to_add);
+            patch.add_custom_impls = Some(true); // Merge with existing custom_impls
+        }
+        if !custom_impls_to_remove.is_empty() {
+            patch.remove_custom_impls = Some(custom_impls_to_remove);
         }
         if !struct_fields_to_add.is_empty() {
             patch.struct_fields = Some(vec![struct_fields_to_add]);

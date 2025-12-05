@@ -20,7 +20,7 @@ use azul_css::{
         property::CssProperty,
         style::StyleCursor,
     },
-    AzString, LayoutDebugMessage, OptionAzString, OptionF32, OptionI32, U8Vec,
+    AzString, LayoutDebugMessage, OptionString, OptionF32, OptionI32, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -724,7 +724,7 @@ pub struct Monitor {
     /// Unique identifier for this monitor (stable across frames)
     pub id: MonitorId,
     /// Human-readable name (e.g., "\\.\DISPLAY1", "HDMI-1", "Built-in Retina Display")
-    pub name: OptionAzString,
+    pub name: OptionString,
     /// Physical size of the monitor in logical pixels
     pub size: LayoutSize,
     /// Position of the monitor in the virtual screen coordinate system
@@ -758,7 +758,7 @@ impl Default for Monitor {
     fn default() -> Self {
         Monitor {
             id: MonitorId::PRIMARY,
-            name: OptionAzString::None,
+            name: OptionString::None,
             size: LayoutSize::zero(),
             position: LayoutPoint::zero(),
             scale_factor: 1.0,
@@ -1153,7 +1153,7 @@ pub struct LinuxWindowOptions {
     pub x11_window_types: XWindowTypeVec,
     /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only
     /// relevant on X11. Can only be set at window creation, can't be changed in callbacks.
-    pub x11_gtk_theme_variant: OptionAzString,
+    pub x11_gtk_theme_variant: OptionString,
     /// Build window with resize increment hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_resize_increments: OptionLogicalSize,
@@ -1166,7 +1166,7 @@ pub struct LinuxWindowOptions {
     ///
     /// For details about application ID conventions, see the
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
-    pub wayland_app_id: OptionAzString,
+    pub wayland_app_id: OptionString,
     pub wayland_theme: OptionWaylandTheme,
     pub request_user_attention: UserAttentionType,
     pub window_icon: OptionWindowIcon,

@@ -162,6 +162,12 @@ pub fn autofix_api(
                 diff::ModificationKind::DeriveRemoved { derive_name } => {
                     println!("  {}: {} derive({})", modification.type_name.white(), "-".red(), derive_name.red());
                 }
+                diff::ModificationKind::CustomImplAdded { impl_name } => {
+                    println!("  {}: {} custom_impl({})", modification.type_name.white(), "+".green(), impl_name.green());
+                }
+                diff::ModificationKind::CustomImplRemoved { impl_name } => {
+                    println!("  {}: {} custom_impl({})", modification.type_name.white(), "-".red(), impl_name.red());
+                }
                 diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
                     println!("  {}: repr(C) {} {} {}", 
                         modification.type_name.white(), 
@@ -220,14 +226,16 @@ pub fn autofix_api(
                 diff::ModificationKind::CallbackTypedefAdded { args, returns } => {
                     let args_str: Vec<String> = args.iter()
                         .map(|arg| {
-                            let ref_str = match arg.ref_kind {
-                                type_index::RefKind::Ref => "&",
-                                type_index::RefKind::RefMut => "&mut ",
-                                type_index::RefKind::ConstPtr => "*const ",
-                                type_index::RefKind::MutPtr => "*mut ",
-                                type_index::RefKind::Value => "",
+                            let (ref_str, suffix) = match arg.ref_kind {
+                                type_index::RefKind::Ref => ("&", ""),
+                                type_index::RefKind::RefMut => ("&mut ", ""),
+                                type_index::RefKind::ConstPtr => ("*const ", ""),
+                                type_index::RefKind::MutPtr => ("*mut ", ""),
+                                type_index::RefKind::Boxed => ("Box<", ">"),
+                                type_index::RefKind::OptionBoxed => ("Option<Box<", ">>"),
+                                type_index::RefKind::Value => ("", ""),
                             };
-                            format!("{}{}", ref_str, arg.ty)
+                            format!("{}{}{}", ref_str, arg.ty, suffix)
                         })
                         .collect();
                     println!("  {}: {} callback_typedef({}) -> {:?}", 
@@ -238,28 +246,34 @@ pub fn autofix_api(
                     );
                 }
                 diff::ModificationKind::CallbackArgChanged { arg_index, old_type, new_type, old_ref_kind, new_ref_kind } => {
-                    let old_ref_str = match old_ref_kind {
-                        Some(type_index::RefKind::Ref) => "&",
-                        Some(type_index::RefKind::RefMut) => "&mut ",
-                        Some(type_index::RefKind::ConstPtr) => "*const ",
-                        Some(type_index::RefKind::MutPtr) => "*mut ",
-                        Some(type_index::RefKind::Value) | None => "",
+                    let (old_ref_str, old_suffix) = match old_ref_kind {
+                        Some(type_index::RefKind::Ref) => ("&", ""),
+                        Some(type_index::RefKind::RefMut) => ("&mut ", ""),
+                        Some(type_index::RefKind::ConstPtr) => ("*const ", ""),
+                        Some(type_index::RefKind::MutPtr) => ("*mut ", ""),
+                        Some(type_index::RefKind::Boxed) => ("Box<", ">"),
+                        Some(type_index::RefKind::OptionBoxed) => ("Option<Box<", ">>"),
+                        Some(type_index::RefKind::Value) | None => ("", ""),
                     };
-                    let new_ref_str = match new_ref_kind {
-                        type_index::RefKind::Ref => "&",
-                        type_index::RefKind::RefMut => "&mut ",
-                        type_index::RefKind::ConstPtr => "*const ",
-                        type_index::RefKind::MutPtr => "*mut ",
-                        type_index::RefKind::Value => "",
+                    let (new_ref_str, new_suffix) = match new_ref_kind {
+                        type_index::RefKind::Ref => ("&", ""),
+                        type_index::RefKind::RefMut => ("&mut ", ""),
+                        type_index::RefKind::ConstPtr => ("*const ", ""),
+                        type_index::RefKind::MutPtr => ("*mut ", ""),
+                        type_index::RefKind::Boxed => ("Box<", ">"),
+                        type_index::RefKind::OptionBoxed => ("Option<Box<", ">>"),
+                        type_index::RefKind::Value => ("", ""),
                     };
-                    println!("  {}: callback arg[{}] : {}{} {} {}{}", 
+                    println!("  {}: callback arg[{}] : {}{}{} {} {}{}{}", 
                         modification.type_name.white(), 
                         arg_index,
                         old_ref_str.red(),
                         old_type.red(),
+                        old_suffix.red(),
                         "->".dimmed(),
                         new_ref_str.green(),
-                        new_type.green()
+                        new_type.green(),
+                        new_suffix.green()
                     );
                 }
                 diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {
@@ -406,6 +420,8 @@ fn generate_combined_patch(
     // Group modifications by kind
     let mut derives_added: Vec<String> = Vec::new();
     let mut derives_removed: Vec<String> = Vec::new();
+    let mut custom_impls_added: Vec<String> = Vec::new();
+    let mut custom_impls_removed: Vec<String> = Vec::new();
     
     for m in modifications {
         match &m.kind {
@@ -414,6 +430,12 @@ fn generate_combined_patch(
             }
             diff::ModificationKind::DeriveRemoved { derive_name } => {
                 derives_removed.push(derive_name.clone());
+            }
+            diff::ModificationKind::CustomImplAdded { impl_name } => {
+                custom_impls_added.push(impl_name.clone());
+            }
+            diff::ModificationKind::CustomImplRemoved { impl_name } => {
+                custom_impls_removed.push(impl_name.clone());
             }
             diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
                 changes.push(ModifyChange::SetReprC {
@@ -512,6 +534,14 @@ fn generate_combined_patch(
         changes.push(ModifyChange::RemoveDerives { derives: derives_removed });
     }
     
+    // Add grouped custom_impls
+    if !custom_impls_added.is_empty() {
+        changes.push(ModifyChange::AddCustomImpls { impls: custom_impls_added });
+    }
+    if !custom_impls_removed.is_empty() {
+        changes.push(ModifyChange::RemoveCustomImpls { impls: custom_impls_removed });
+    }
+    
     patch.add_operation(PatchOperation::Modify(ModifyOperation {
         type_name: type_name.to_string(),
         module: None,
@@ -550,9 +580,10 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
     
     // Convert struct_fields to FieldDef format
     let struct_fields = addition.struct_fields.as_ref().map(|fields| {
-        fields.iter().map(|(name, ty)| patch_format::FieldDef {
+        fields.iter().map(|(name, ty, ref_kind)| patch_format::FieldDef {
             name: name.clone(),
             field_type: ty.clone(),
+            ref_kind: if ref_kind == "value" { None } else { Some(ref_kind.clone()) },
             doc: None,
         }).collect()
     });

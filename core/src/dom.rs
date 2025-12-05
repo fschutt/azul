@@ -23,7 +23,7 @@ use azul_css::{
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},
         property::CssProperty,
     },
-    AzString, OptionAzString,
+    AzString, OptionString,
 };
 
 // Re-export event filters from events module (moved in Phase 3.5)
@@ -1224,11 +1224,11 @@ impl AttributeType {
 #[repr(C)]
 pub struct SmallAriaInfo {
     /// Accessible label/name
-    pub label: OptionAzString,
+    pub label: OptionString,
     /// Element's role (button, link, etc.)
     pub role: OptionAccessibilityRole,
     /// Additional description
-    pub description: OptionAzString,
+    pub description: OptionString,
 }
 
 impl_option!(
@@ -1241,9 +1241,9 @@ impl_option!(
 impl SmallAriaInfo {
     pub fn label<S: Into<AzString>>(text: S) -> Self {
         Self {
-            label: OptionAzString::Some(text.into()),
+            label: OptionString::Some(text.into()),
             role: OptionAccessibilityRole::None,
-            description: OptionAzString::None,
+            description: OptionString::None,
         }
     }
 
@@ -1253,7 +1253,7 @@ impl SmallAriaInfo {
     }
 
     pub fn with_description<S: Into<AzString>>(mut self, desc: S) -> Self {
-        self.description = OptionAzString::Some(desc.into());
+        self.description = OptionString::Some(desc.into());
         self
     }
 
@@ -1261,14 +1261,14 @@ impl SmallAriaInfo {
     pub fn to_full_info(&self) -> AccessibilityInfo {
         AccessibilityInfo {
             name: self.label.clone(),
-            value: OptionAzString::None,
+            value: OptionString::None,
             role: match self.role {
                 OptionAccessibilityRole::Some(r) => r,
                 OptionAccessibilityRole::None => AccessibilityRole::Unknown,
             },
             states: Vec::new().into(),
             accelerator: OptionVirtualKeyCodeCombo::None,
-            default_action: OptionAzString::None,
+            default_action: OptionString::None,
             supported_actions: Vec::new().into(),
             is_live_region: false,
             labelled_by: OptionDomNodeId::None,
@@ -1529,10 +1529,10 @@ pub struct AccessibilityInfo {
     /// name of a button, checkbox or menu item. Try to use unique names
     /// for each item in a dialog so that voice dictation software doesn't
     /// have to deal with extra ambiguity.
-    pub name: OptionAzString,
+    pub name: OptionString,
     /// Get the "value" of the `IAccessible`, for example a number in a slider,
     /// a URL for a link, the text a user entered in a field.
-    pub value: OptionAzString,
+    pub value: OptionString,
     /// Get an enumerated value representing what this IAccessible is used for,
     /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
     pub role: AccessibilityRole,
@@ -1543,7 +1543,7 @@ pub struct AccessibilityInfo {
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional "default action" description. Only used when there is at least
     /// one `ComponentEventFilter::DefaultAction` callback present on this node.
-    pub default_action: OptionAzString,
+    pub default_action: OptionString,
     /// A list of actions the user can perform on this element.
     /// Maps to accesskit's Action enum.
     pub supported_actions: AccessibilityActionVec,
@@ -3496,9 +3496,9 @@ impl Dom {
     /// - `text`: Human-readable time/date
     /// - `datetime`: Optional machine-readable datetime
     #[inline]
-    pub fn time(text: AzString, datetime: OptionAzString) -> Self {
+    pub fn time(text: AzString, datetime: OptionString) -> Self {
         let mut element = Self::new(NodeType::Time).with_child(Self::text(text));
-        if let OptionAzString::Some(dt) = datetime {
+        if let OptionString::Some(dt) = datetime {
             element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
                 name: "datetime".into(),
                 value: dt,
@@ -3524,9 +3524,9 @@ impl Dom {
     /// - `href`: Link destination URL
     /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
-    pub fn a(href: AzString, label: OptionAzString) -> Self {
+    pub fn a(href: AzString, label: OptionString) -> Self {
         let mut link = Self::new(NodeType::A).with_attribute(AttributeType::Href(href));
-        if let OptionAzString::Some(text) = label {
+        if let OptionString::Some(text) = label {
             link = link.with_child(Self::text(text));
         }
         link
@@ -4238,7 +4238,7 @@ impl Dom {
         text: S2,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut link = Self::a(href.into(), OptionAzString::Some(text.into()));
+        let mut link = Self::a(href.into(), OptionString::Some(text.into()));
         link.root.set_accessibility_info(aria.to_full_info());
         link
     }

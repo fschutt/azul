@@ -61,7 +61,7 @@ pub struct FileInputStateWrapper {
     /// Title displayed in the file selection dialog
     pub file_dialog_title: AzString,
     /// Default directory of file input
-    pub default_dir: OptionAzString,
+    pub default_dir: OptionString,
 }
 
 impl Default for FileInputStateWrapper {
@@ -78,7 +78,7 @@ impl Default for FileInputStateWrapper {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct FileInputState {
-    pub path: OptionAzString,
+    pub path: OptionString,
 }
 
 impl Default for FileInputState {
@@ -97,7 +97,7 @@ impl_callback!(
 );
 
 impl FileInput {
-    pub fn new(path: OptionAzString) -> Self {
+    pub fn new(path: OptionString) -> Self {
         Self {
             state: FileInputStateWrapper {
                 inner: FileInputState {

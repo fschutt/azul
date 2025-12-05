@@ -67,6 +67,12 @@ pub struct ClassPatch {
     /// Traits with manual `impl Trait for Type` blocks (e.g., ["Clone", "Drop"])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_impls: Option<Vec<String>>,
+    /// If true, merge custom_impls instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_custom_impls: Option<bool>,
+    /// Custom impls to remove from existing list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_custom_impls: Option<Vec<String>>,
     // DEPRECATED: Use custom_impls: ["Clone"] instead
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clone: Option<bool>,
@@ -1096,14 +1102,54 @@ fn apply_class_patch(
     }
 
     if let Some(ref new_custom_impls) = patch.custom_impls {
-        println!(
-            "  [NOTE] Patching {}.{}: custom_impls",
-            module_name, class_name
-        );
-        println!("     Old: {:?}", class_data.custom_impls);
-        println!("     New: {:?}", new_custom_impls);
-        class_data.custom_impls = Some(new_custom_impls.clone());
+        if patch.add_custom_impls == Some(true) {
+            // Merge mode: add to existing custom_impls
+            let mut existing_impls = class_data.custom_impls.clone().unwrap_or_default();
+            for imp in new_custom_impls {
+                if !existing_impls.contains(imp) {
+                    existing_impls.push(imp.clone());
+                }
+            }
+            existing_impls.sort();
+            println!(
+                "  [NOTE] Patching {}.{}: custom_impls (merge)",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.custom_impls);
+            println!("     Adding: {:?}", new_custom_impls);
+            println!("     Result: {:?}", existing_impls);
+            class_data.custom_impls = Some(existing_impls);
+        } else {
+            // Replace mode: replace all custom_impls
+            println!(
+                "  [NOTE] Patching {}.{}: custom_impls",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.custom_impls);
+            println!("     New: {:?}", new_custom_impls);
+            class_data.custom_impls = Some(new_custom_impls.clone());
+        }
         patches_applied += 1;
+    }
+
+    // Handle remove_custom_impls separately (can be combined with add_custom_impls)
+    if let Some(impls_to_remove) = &patch.remove_custom_impls {
+        if let Some(existing_impls) = &class_data.custom_impls {
+            let new_impls: Vec<String> = existing_impls
+                .iter()
+                .filter(|i| !impls_to_remove.contains(i))
+                .cloned()
+                .collect();
+            println!(
+                "  [NOTE] Patching {}.{}: custom_impls (remove)",
+                module_name, class_name
+            );
+            println!("     Old: {:?}", class_data.custom_impls);
+            println!("     Removing: {:?}", impls_to_remove);
+            println!("     Result: {:?}", new_impls);
+            class_data.custom_impls = if new_impls.is_empty() { None } else { Some(new_impls) };
+            patches_applied += 1;
+        }
     }
 
     if let Some(new_serde) = &patch.serde {

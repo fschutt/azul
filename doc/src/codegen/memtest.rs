@@ -661,6 +661,7 @@ fn generate_dll_module(
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
+        is_memtest: true, // Skip generating custom_impls trait implementations
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,

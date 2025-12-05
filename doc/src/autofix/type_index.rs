@@ -49,12 +49,16 @@ pub enum TypeDefKind {
         has_repr_c: bool,
         generic_params: Vec<String>,
         derives: Vec<String>,
+        /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
+        custom_impls: Vec<String>,
     },
     Enum {
         variants: IndexMap<String, VariantDef>,
         has_repr_c: bool,
         generic_params: Vec<String>,
         derives: Vec<String>,
+        /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
+        custom_impls: Vec<String>,
     },
     TypeAlias {
         /// The base type (e.g., "CssPropertyValue" from "CssPropertyValue<BreakInside>")
@@ -103,7 +107,10 @@ pub enum MacroGeneratedKind {
 #[derive(Debug, Clone)]
 pub struct FieldDef {
     pub name: String,
+    /// The base type (for pointers/Box, this is "c_void")
     pub ty: String,
+    /// The reference kind (Value, ConstPtr, MutPtr, or Boxed)
+    pub ref_kind: RefKind,
     pub doc: String,
 }
 
@@ -125,7 +132,7 @@ pub struct CallbackArg {
     pub ref_kind: RefKind,
 }
 
-/// Reference kind for callback arguments
+/// Reference kind for callback arguments and struct fields
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefKind {
     /// `&T`
@@ -136,6 +143,10 @@ pub enum RefKind {
     ConstPtr,
     /// `*mut T`
     MutPtr,
+    /// `Box<T>` - owned heap pointer
+    Boxed,
+    /// `Option<Box<T>>` - optional owned heap pointer
+    OptionBoxed,
     /// `T` (by value)
     Value,
 }
@@ -148,6 +159,8 @@ impl RefKind {
             RefKind::RefMut => "refmut",
             RefKind::ConstPtr => "constptr",
             RefKind::MutPtr => "mutptr",
+            RefKind::Boxed => "boxed",
+            RefKind::OptionBoxed => "optionboxed",
             RefKind::Value => "value",
         }
     }
@@ -159,9 +172,17 @@ impl RefKind {
             "refmut" => Some(RefKind::RefMut),
             "constptr" => Some(RefKind::ConstPtr),
             "mutptr" => Some(RefKind::MutPtr),
+            "boxed" => Some(RefKind::Boxed),
+            "optionboxed" => Some(RefKind::OptionBoxed),
             "value" => Some(RefKind::Value),
             _ => None,
         }
+    }
+    
+    /// Returns true if this ref kind represents an opaque pointer type
+    /// that should not be recursed through for type resolution
+    pub fn is_opaque_pointer(&self) -> bool {
+        matches!(self, RefKind::ConstPtr | RefKind::MutPtr | RefKind::Boxed | RefKind::OptionBoxed)
     }
 }
 
@@ -184,22 +205,26 @@ impl TypeDefinition {
                         let mut fields = IndexMap::new();
                         fields.insert("ptr".to_string(), FieldDef {
                             name: "ptr".to_string(),
-                            ty: format!("*const {}", base_type),
+                            ty: "c_void".to_string(),
+                            ref_kind: RefKind::ConstPtr,
                             doc: String::new(),
                         });
                         fields.insert("len".to_string(), FieldDef {
                             name: "len".to_string(),
                             ty: "usize".to_string(),
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         fields.insert("cap".to_string(), FieldDef {
                             name: "cap".to_string(),
                             ty: "usize".to_string(),
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         fields.insert("destructor".to_string(), FieldDef {
                             name: "destructor".to_string(),
                             ty: destructor_type,
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         TypeDefKind::Struct {
@@ -207,6 +232,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::VecDestructor => {
@@ -233,6 +259,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::VecDestructorType => {
@@ -266,6 +293,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::OptionEnumWrapper => {
@@ -275,11 +303,13 @@ impl TypeDefinition {
                         fields.insert("tag".to_string(), FieldDef {
                             name: "tag".to_string(),
                             ty: "u8".to_string(),
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         fields.insert("payload".to_string(), FieldDef {
                             name: "payload".to_string(),
                             ty: base_type.clone(),
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         TypeDefKind::Struct {
@@ -287,6 +317,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::Result => {
@@ -310,6 +341,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::CallbackWrapper => {
@@ -319,11 +351,13 @@ impl TypeDefinition {
                         fields.insert("cb".to_string(), FieldDef {
                             name: "cb".to_string(),
                             ty: base_type.clone(), // CallbackValue
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         fields.insert("data".to_string(), FieldDef {
                             name: "data".to_string(),
                             ty: "RefAny".to_string(),
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         TypeDefKind::Struct {
@@ -331,6 +365,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                     MacroGeneratedKind::CallbackValue => {
@@ -339,6 +374,7 @@ impl TypeDefinition {
                         fields.insert("cb".to_string(), FieldDef {
                             name: "cb".to_string(),
                             ty: base_type.clone(), // CallbackType
+                            ref_kind: RefKind::Value,
                             doc: String::new(),
                         });
                         TypeDefKind::Struct {
@@ -346,6 +382,7 @@ impl TypeDefinition {
                             has_repr_c: true,
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
+                            custom_impls: vec![],
                         }
                     }
                 }
@@ -383,7 +420,7 @@ impl TypeDefinition {
         
         // Convert TypeDefKind to TypeKind
         let kind = match expanded_kind {
-            TypeDefKind::Struct { fields, has_repr_c, generic_params, derives } => {
+            TypeDefKind::Struct { fields, has_repr_c, generic_params, derives, custom_impls } => {
                 TypeKind::Struct {
                     fields: fields.into_iter().map(|(name, field)| {
                         (name.clone(), FieldInfo {
@@ -395,11 +432,11 @@ impl TypeDefinition {
                     has_repr_c,
                     doc: None,
                     generic_params,
-                    implemented_traits: vec![],
+                    implemented_traits: custom_impls,
                     derives,
                 }
             }
-            TypeDefKind::Enum { variants, has_repr_c, generic_params, derives } => {
+            TypeDefKind::Enum { variants, has_repr_c, generic_params, derives, custom_impls } => {
                 TypeKind::Enum {
                     variants: variants.into_iter().map(|(name, variant)| {
                         (name.clone(), VariantInfo {
@@ -411,7 +448,7 @@ impl TypeDefinition {
                     has_repr_c,
                     doc: None,
                     generic_params,
-                    implemented_traits: vec![],
+                    implemented_traits: custom_impls,
                     derives,
                 }
             }
@@ -434,6 +471,8 @@ impl TypeDefinition {
                             RefKind::RefMut => (BorrowMode::RefMut, arg.ty),
                             RefKind::ConstPtr => (BorrowMode::Value, format!("*const {}", arg.ty)),
                             RefKind::MutPtr => (BorrowMode::Value, format!("*mut {}", arg.ty)),
+                            RefKind::Boxed => (BorrowMode::Value, format!("Box<{}>", arg.ty)),
+                            RefKind::OptionBoxed => (BorrowMode::Value, format!("Option<Box<{}>>", arg.ty)),
                             RefKind::Value => (BorrowMode::Value, arg.ty),
                         };
                         CallbackArgInfo { ty, ref_kind: borrow_mode }
@@ -824,7 +863,8 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 
     let module_path = infer_module_path(crate_name, file_path);
     let mut types = Vec::new();
-
+    
+    // First pass: collect all type definitions
     for item in &syntax_tree.items {
         match item {
             // SKIP Item::Use entirely - re-exports are NOT definitions
@@ -872,6 +912,17 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
         }
     }
 
+    // Second pass: extract manual trait implementations (`impl Trait for Type`)
+    // and attach them to the corresponding type definitions
+    let custom_impls_map = extract_custom_impls_from_items(&syntax_tree.items);
+    
+    // Attach custom_impls to types
+    for typedef in &mut types {
+        if let Some(impls) = custom_impls_map.get(&typedef.type_name) {
+            attach_custom_impls(typedef, impls.clone());
+        }
+    }
+
     Ok(types)
 }
 
@@ -879,6 +930,7 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Path, items: &[Item]) -> Vec<TypeDefinition> {
     let mut types = Vec::new();
     
+    // First pass: collect type definitions
     for item in items {
         match item {
             Item::Use(_) => continue,
@@ -924,6 +976,14 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
         }
     }
     
+    // Second pass: extract custom trait implementations and attach to types
+    let custom_impls_map = extract_custom_impls_from_items(items);
+    for typedef in &mut types {
+        if let Some(impls) = custom_impls_map.get(&typedef.type_name) {
+            attach_custom_impls(typedef, impls.clone());
+        }
+    }
+    
     types
 }
 
@@ -963,6 +1023,138 @@ fn build_full_path(crate_name: &str, module_path: &str, type_name: &str) -> Stri
 // TYPE EXTRACTION
 // ============================================================================
 
+/// Strip the "Az" prefix from a type name if present.
+/// For example, `AzInstantPtr` -> `InstantPtr`, `String` -> `String`
+/// This is used because source code uses "Az" prefixes for disambiguation,
+/// but api.json should store types WITHOUT the prefix (prefix is added later by codegen).
+fn strip_az_prefix(type_name: &str) -> String {
+    // Don't strip "Az" if the remaining name would be too short or empty
+    if type_name.starts_with("Az") && type_name.len() > 2 {
+        // Check that the character after "Az" is uppercase (to avoid stripping "Azure" etc.)
+        let after_az = &type_name[2..];
+        if after_az.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+            return after_az.to_string();
+        }
+    }
+    type_name.to_string()
+}
+
+/// Extract just the type name from a syn::Type, without the full path.
+/// For example, `crate::props::basic::color::ColorU` -> `ColorU`
+/// For generic types like `Option<T>`, returns `Option<T>`.
+/// NOTE: This also strips the "Az" prefix from type names.
+fn extract_type_name(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Path(type_path) => {
+            // Get the last segment of the path (the actual type name)
+            if let Some(segment) = type_path.path.segments.last() {
+                let ident = strip_az_prefix(&segment.ident.to_string());
+                // Check if there are generic arguments
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    // Recursively extract type names for generic arguments
+                    let generic_args: Vec<String> = args.args.iter().filter_map(|arg| {
+                        match arg {
+                            syn::GenericArgument::Type(inner_ty) => Some(extract_type_name(inner_ty)),
+                            _ => None,
+                        }
+                    }).collect();
+                    if generic_args.is_empty() {
+                        ident
+                    } else {
+                        format!("{}<{}>", ident, generic_args.join(", "))
+                    }
+                } else {
+                    ident
+                }
+            } else {
+                // Fallback: no segments, use token stream
+                clean_type_string(&ty.to_token_stream().to_string())
+            }
+        }
+        syn::Type::Reference(ref_type) => {
+            // &T or &mut T
+            let inner = extract_type_name(&ref_type.elem);
+            if ref_type.mutability.is_some() {
+                format!("&mut {}", inner)
+            } else {
+                format!("&{}", inner)
+            }
+        }
+        syn::Type::Ptr(ptr_type) => {
+            // *const T or *mut T
+            let inner = extract_type_name(&ptr_type.elem);
+            if ptr_type.mutability.is_some() {
+                format!("*mut {}", inner)
+            } else {
+                format!("*const {}", inner)
+            }
+        }
+        syn::Type::Slice(slice_type) => {
+            format!("[{}]", extract_type_name(&slice_type.elem))
+        }
+        syn::Type::Array(array_type) => {
+            let elem = extract_type_name(&array_type.elem);
+            let len = array_type.len.to_token_stream().to_string();
+            format!("[{}; {}]", elem, len)
+        }
+        syn::Type::Tuple(tuple_type) => {
+            let elems: Vec<String> = tuple_type.elems.iter().map(extract_type_name).collect();
+            format!("({})", elems.join(", "))
+        }
+        _ => {
+            // Fallback for other types
+            clean_type_string(&ty.to_token_stream().to_string())
+        }
+    }
+}
+
+/// Extract field type and ref_kind for struct fields.
+/// For pointer types (*const T, *mut T), Box<T>, and Option<Box<T>>, the type is replaced with "c_void"
+/// and the ref_kind is set appropriately. This prevents recursion through opaque pointers.
+fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
+    match ty {
+        syn::Type::Ptr(ptr_type) => {
+            // *const T or *mut T -> type becomes "c_void", ref_kind is ConstPtr/MutPtr
+            if ptr_type.mutability.is_some() {
+                ("c_void".to_string(), RefKind::MutPtr)
+            } else {
+                ("c_void".to_string(), RefKind::ConstPtr)
+            }
+        }
+        syn::Type::Path(type_path) => {
+            if let Some(segment) = type_path.path.segments.last() {
+                // Check if it's Box<T>
+                if segment.ident == "Box" {
+                    // Box<T> -> type becomes "c_void", ref_kind is Boxed
+                    return ("c_void".to_string(), RefKind::Boxed);
+                }
+                // Check if it's Option<Box<T>>
+                if segment.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                            // Check if the inner type is Box<T>
+                            if let syn::Type::Path(inner_path) = inner_ty {
+                                if let Some(inner_segment) = inner_path.path.segments.last() {
+                                    if inner_segment.ident == "Box" {
+                                        // Option<Box<T>> -> type becomes "c_void", ref_kind is OptionBoxed
+                                        return ("c_void".to_string(), RefKind::OptionBoxed);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Regular type - extract just the type name (not the full path)
+            (extract_type_name(ty), RefKind::Value)
+        }
+        _ => {
+            // Any other type - extract just the type name
+            (extract_type_name(ty), RefKind::Value)
+        }
+    }
+}
+
 /// Extract a struct definition
 fn extract_struct(
     crate_name: &str,
@@ -982,12 +1174,13 @@ fn extract_struct(
     let mut fields = IndexMap::new();
     for field in s.fields.iter() {
         if let Some(field_name) = field.ident.as_ref() {
-            let field_ty = field.ty.to_token_stream().to_string();
+            let (field_ty, ref_kind) = extract_struct_field_type(&field.ty);
             fields.insert(
                 field_name.to_string(),
                 FieldDef {
                     name: field_name.to_string(),
-                    ty: clean_type_string(&field_ty),
+                    ty: field_ty,
+                    ref_kind,
                     doc: extract_doc_comments(&field.attrs),
                 },
             );
@@ -1008,6 +1201,7 @@ fn extract_struct(
             has_repr_c,
             generic_params,
             derives,
+            custom_impls: vec![], // Will be filled in by second pass
         },
         source_code: s.to_token_stream().to_string(),
     })
@@ -1038,10 +1232,10 @@ fn extract_enum(
             let fields_str = variant
                 .fields
                 .iter()
-                .map(|f| f.ty.to_token_stream().to_string())
+                .map(|f| extract_type_name(&f.ty))
                 .collect::<Vec<_>>()
                 .join(", ");
-            Some(clean_type_string(&fields_str))
+            Some(fields_str)
         };
 
         variants.insert(
@@ -1068,6 +1262,7 @@ fn extract_enum(
             has_repr_c,
             generic_params,
             derives,
+            custom_impls: vec![], // Will be filled in by second pass
         },
         source_code: e.to_token_stream().to_string(),
     })
@@ -1079,7 +1274,7 @@ fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
     match ty {
         syn::Type::Reference(ref_type) => {
             // &T or &mut T
-            let inner_type = clean_type_string(&ref_type.elem.to_token_stream().to_string());
+            let inner_type = extract_type_name(&ref_type.elem);
             if ref_type.mutability.is_some() {
                 (inner_type, RefKind::RefMut)
             } else {
@@ -1088,7 +1283,7 @@ fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
         }
         syn::Type::Ptr(ptr_type) => {
             // *const T or *mut T - extract base type and use ConstPtr/MutPtr
-            let inner_type = clean_type_string(&ptr_type.elem.to_token_stream().to_string());
+            let inner_type = extract_type_name(&ptr_type.elem);
             if ptr_type.mutability.is_some() {
                 (inner_type, RefKind::MutPtr)
             } else {
@@ -1097,7 +1292,7 @@ fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
         }
         _ => {
             // Any other type is passed by value
-            (clean_type_string(&ty.to_token_stream().to_string()), RefKind::Value)
+            (extract_type_name(ty), RefKind::Value)
         }
     }
 }
@@ -1111,7 +1306,6 @@ fn extract_type_alias(
 ) -> Option<TypeDefinition> {
     let type_name = t.ident.to_string();
     let full_path = build_full_path(crate_name, module_path, &type_name);
-    let target = t.ty.to_token_stream().to_string();
 
     // Check if this is a callback typedef (extern "C" fn)
     if let syn::Type::BareFn(bare_fn) = &*t.ty {
@@ -1131,12 +1325,11 @@ fn extract_type_alias(
         let returns = match &bare_fn.output {
             syn::ReturnType::Default => None,
             syn::ReturnType::Type(_, ty) => {
-                let ret_str = ty.to_token_stream().to_string();
-                let cleaned = clean_type_string(&ret_str);
-                if cleaned.is_empty() || cleaned == "()" {
+                let ret_str = extract_type_name(ty);
+                if ret_str.is_empty() || ret_str == "()" {
                     None
                 } else {
-                    Some(cleaned)
+                    Some(ret_str)
                 }
             }
         };
@@ -1155,6 +1348,9 @@ fn extract_type_alias(
     // Try to extract generic arguments from the type
     let (generic_base, generic_args) = extract_generic_args_from_type(&t.ty);
     
+    // Extract just the type name for the target, not the full path
+    let target = extract_type_name(&t.ty);
+    
     Some(TypeDefinition {
         full_path,
         type_name,
@@ -1162,7 +1358,7 @@ fn extract_type_alias(
         module_path: module_path.to_string(),
         crate_name: crate_name.to_string(),
         kind: TypeDefKind::TypeAlias {
-            target: clean_type_string(&target),
+            target,
             generic_base,
             generic_args,
         },
@@ -1186,7 +1382,7 @@ fn extract_generic_args_from_type(ty: &syn::Type) -> (Option<String>, Vec<String
                             match arg {
                                 syn::GenericArgument::Type(ty) => {
                                     // Recursively get the type name
-                                    Some(clean_type_string(&ty.to_token_stream().to_string()))
+                                    Some(extract_type_name(ty))
                                 }
                                 syn::GenericArgument::Lifetime(_) => None,
                                 _ => None,
@@ -1440,6 +1636,7 @@ fn extract_macro_generated_types(
                             fields.insert("inner".to_string(), FieldDef {
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
+                                ref_kind: RefKind::Value,
                                 doc: String::new(),
                             });
                             fields
@@ -1451,6 +1648,7 @@ fn extract_macro_generated_types(
                             "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
                             "Ord".to_string(), "Hash".to_string(),
                         ],
+                        custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
                 });
@@ -1474,6 +1672,7 @@ fn extract_macro_generated_types(
                             fields.insert("inner".to_string(), FieldDef {
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
+                                ref_kind: RefKind::Value,
                                 doc: String::new(),
                             });
                             fields
@@ -1485,6 +1684,7 @@ fn extract_macro_generated_types(
                             "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
                             "Ord".to_string(), "Hash".to_string(),
                         ],
+                        custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
                 });
@@ -1515,6 +1715,7 @@ fn extract_macro_generated_types(
                             fields.insert("inner".to_string(), FieldDef {
                                 name: "inner".to_string(),
                                 ty: inner_type,
+                                ref_kind: RefKind::Value,
                                 doc: String::new(),
                             });
                             fields
@@ -1526,6 +1727,7 @@ fn extract_macro_generated_types(
                             "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
                             "Ord".to_string(), "Hash".to_string(),
                         ],
+                        custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
                 });
@@ -1549,6 +1751,7 @@ fn extract_macro_generated_types(
                             fields.insert("inner".to_string(), FieldDef {
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
+                                ref_kind: RefKind::Value,
                                 doc: String::new(),
                             });
                             fields
@@ -1560,6 +1763,7 @@ fn extract_macro_generated_types(
                             "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
                             "Ord".to_string(), "Hash".to_string(),
                         ],
+                        custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
                 });
@@ -1615,6 +1819,79 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
         }
     }
     derives
+}
+
+/// Extract custom trait implementations from `impl Trait for Type` blocks.
+/// Returns a map from type name to list of implemented traits.
+fn extract_custom_impls_from_items(items: &[Item]) -> HashMap<String, Vec<String>> {
+    let mut custom_impls: HashMap<String, Vec<String>> = HashMap::new();
+    
+    for item in items {
+        if let Item::Impl(impl_item) = item {
+            // Only interested in `impl Trait for Type`, not inherent impls
+            if let Some((_, trait_path, _)) = &impl_item.trait_ {
+                // Get the trait name (last segment of path)
+                let trait_name = trait_path.segments.last()
+                    .map(|seg| seg.ident.to_string())
+                    .unwrap_or_default();
+                
+                // Get the type name that this trait is implemented for
+                if let syn::Type::Path(type_path) = impl_item.self_ty.as_ref() {
+                    let type_name = type_path.path.segments.last()
+                        .map(|seg| seg.ident.to_string())
+                        .unwrap_or_default();
+                    
+                    // We're interested in standard traits that affect code generation
+                    let relevant_traits = [
+                        "Clone", "Copy", "Debug", "Default", "Drop",
+                        "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+                        "Display", "From", "Into", "AsRef", "AsMut",
+                        "Deref", "DerefMut", "Iterator", "IntoIterator",
+                    ];
+                    
+                    if relevant_traits.contains(&trait_name.as_str()) && !type_name.is_empty() {
+                        custom_impls
+                            .entry(type_name)
+                            .or_default()
+                            .push(trait_name);
+                    }
+                }
+            }
+        }
+        
+        // Recursively handle inline modules
+        if let Item::Mod(m) = item {
+            if let Some((_, nested_items)) = &m.content {
+                let nested_impls = extract_custom_impls_from_items(nested_items);
+                for (type_name, traits) in nested_impls {
+                    custom_impls
+                        .entry(type_name)
+                        .or_default()
+                        .extend(traits);
+                }
+            }
+        }
+    }
+    
+    custom_impls
+}
+
+/// Attach custom_impls to a TypeDefinition
+fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
+    match &mut typedef.kind {
+        TypeDefKind::Struct { custom_impls, .. } => {
+            custom_impls.extend(impls);
+            custom_impls.sort();
+            custom_impls.dedup();
+        }
+        TypeDefKind::Enum { custom_impls, .. } => {
+            custom_impls.extend(impls);
+            custom_impls.sort();
+            custom_impls.dedup();
+        }
+        // Other kinds don't have custom_impls
+        _ => {}
+    }
 }
 
 /// Extract doc comments from attributes

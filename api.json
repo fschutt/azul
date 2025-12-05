@@ -111,6 +111,9 @@
         "classes": {
           "StyleCursor": {
             "external": "azul_css::props::style::effects::StyleCursor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Eq",
@@ -261,6 +264,9 @@
           },
           "WindowTheme": {
             "external": "azul_core::window::WindowTheme",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Eq",
@@ -365,6 +371,9 @@
           "IFrameCallbackReturn": {
             "doc": "Return value for an IFrame rendering callback. # Dual Size Model IFrame callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the IFrame **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The IFrame callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the IFrame appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and IFrame bounds exceed `scroll_size` - ✅ Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - ✅ Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: IFrame bounds = 800×600, scroll_size = 800×600 (perfectly covered) Frame 1: Window resizes to 1000×700 (larger) -> IFrame bounds = 1000×700 -> Bounds no longer fully covered by scroll_size (800×600) -> ✅ RE-INVOKE callback once Frame 2: Window resizes to 1100×800 (even larger) -> If callback returned scroll_size = 1100×800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000×700, not fully covered -> ✅ RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900×650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000×2000 (width × height) Container = 800×600 Threshold = 200px Current scroll_offset = 0×0 User scrolls to scroll_offset = 0×1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> ✅ RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000×4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionStyledDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return IFrameCallbackReturn { dom: OptionStyledDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); IFrameCallbackReturn { dom: OptionStyledDom::Some(new_dom), ... } } ``` # Example: Basic IFrame ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from IFrame!\")); let styled_dom = dom.style(Css::empty()); IFrameCallbackReturn { // The rendered content dom: OptionStyledDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_iframe_callback(data: &mut TableData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); IFrameCallbackReturn { dom: OptionStyledDom::Some(dom.style(Css::empty())), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the IFrame's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold",
             "external": "azul_core::callbacks::IFrameCallbackReturn",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -431,22 +440,6 @@
             "type_alias": {
               "target": "usize",
               "generic_args": []
-            }
-          },
-          "InstantPtrCloneCallbackType": {
-            "doc": "Type alias for extern \"C\" fn (*const AzInstantPtr) -> AzInstantPtr",
-            "external": "azul_core::task::InstantPtrCloneCallbackType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "InstantPtr",
-                  "ref": "value",
-                  "doc": null
-                }
-              ],
-              "returns": {
-                "type": "InstantPtr"
-              }
             }
           },
           "NumberInputOnFocusLostCallbackType": {
@@ -517,20 +510,6 @@
               "returns": {
                 "type": "Update"
               }
-            }
-          },
-          "InstantPtrDestructorCallbackType": {
-            "doc": "Type alias for extern \"C\" fn (*mut AzInstantPtr)",
-            "external": "azul_core::task::InstantPtrDestructorCallbackType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "InstantPtr",
-                  "ref": "value",
-                  "doc": null
-                }
-              ],
-              "returns": null
             }
           },
           "CheckBoxOnToggleCallbackType": {
@@ -808,6 +787,9 @@
           },
           "IFrameCallbackInfo": {
             "external": "azul_core::callbacks::IFrameCallbackInfo",
+            "custom_impls": [
+              "Clone"
+            ],
             "derive": [
               "Debug"
             ],
@@ -815,14 +797,6 @@
               {
                 "reason": {
                   "type": "IFrameCallbackReason",
-                  "doc": ""
-                },
-                "system_fonts": {
-                  "type": "* const FcFontCache",
-                  "doc": ""
-                },
-                "image_cache": {
-                  "type": "* const ImageCache",
                   "doc": ""
                 },
                 "window_theme": {
@@ -848,14 +822,6 @@
                 "virtual_scroll_offset": {
                   "type": "LogicalPosition",
                   "doc": ""
-                },
-                "_abi_ref": {
-                  "type": "* const c_void",
-                  "doc": ""
-                },
-                "_abi_mut": {
-                  "type": "* mut c_void",
-                  "doc": ""
                 }
               }
             ],
@@ -868,10 +834,6 @@
             ],
             "struct_fields": [
               {
-                "ref_data": {
-                  "type": "* const CallbackInfoRefData < 'static >",
-                  "doc": ""
-                },
                 "hit_dom_node": {
                   "type": "DomNodeId",
                   "doc": ""
@@ -883,10 +845,6 @@
                 "cursor_in_viewport": {
                   "type": "OptionLogicalPosition",
                   "doc": ""
-                },
-                "changes": {
-                  "type": "* mut Vec < CallbackChange >",
-                  "doc": ""
                 }
               }
             ],
@@ -894,6 +852,9 @@
           },
           "RenderImageCallbackInfo": {
             "external": "azul_layout::callbacks::RenderImageCallbackInfo",
+            "custom_impls": [
+              "Clone"
+            ],
             "derive": [
               "Debug"
             ],
@@ -905,26 +866,6 @@
                 },
                 "bounds": {
                   "type": "HidpiAdjustedBounds",
-                  "doc": ""
-                },
-                "gl_context": {
-                  "type": "* const OptionGlContextPtr",
-                  "doc": ""
-                },
-                "image_cache": {
-                  "type": "* const ImageCache",
-                  "doc": ""
-                },
-                "system_fonts": {
-                  "type": "* const FcFontCache",
-                  "doc": ""
-                },
-                "_abi_ref": {
-                  "type": "* const core :: ffi :: c_void",
-                  "doc": ""
-                },
-                "_abi_mut": {
-                  "type": "* mut core :: ffi :: c_void",
                   "doc": ""
                 }
               }
@@ -961,6 +902,9 @@
           "Dom": {
             "doc": "The document model, similar to HTML. This is a create-only structure, you don't actually read anything back from it. It's designed for ease of construction.",
             "external": "azul_core::dom::Dom",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -1722,6 +1666,12 @@
           "NodeData": {
             "doc": "Represents all data associated with a single DOM node, such as its type, classes, IDs, callbacks, and inline styles.",
             "external": "azul_core::dom::NodeData",
+            "custom_impls": [
+              "Clone",
+              "Default",
+              "Display",
+              "Hash"
+            ],
             "derive": [
               "PartialEq",
               "Debug",
@@ -1758,6 +1708,9 @@
                 "tab_index": {
                   "type": "OptionTabIndex",
                   "doc": ""
+                },
+                "extra": {
+                  "type": "c_void"
                 }
               }
             ],
@@ -2765,15 +2718,40 @@
             "struct_fields": [
               {
                 "name": {
-                  "type": "OptionAzString",
-                  "doc": ""
+                  "type": "OptionString"
                 },
                 "value": {
-                  "type": "OptionAzString",
+                  "type": "OptionString"
+                },
+                "role": {
+                  "type": "AccessibilityRole",
+                  "doc": ""
+                },
+                "states": {
+                  "type": "AccessibilityStateVec",
+                  "doc": ""
+                },
+                "accelerator": {
+                  "type": "OptionVirtualKeyCodeCombo",
                   "doc": ""
                 },
                 "default_action": {
-                  "type": "OptionAzString",
+                  "type": "OptionString"
+                },
+                "supported_actions": {
+                  "type": "AccessibilityActionVec",
+                  "doc": ""
+                },
+                "is_live_region": {
+                  "type": "bool",
+                  "doc": ""
+                },
+                "labelled_by": {
+                  "type": "OptionDomNodeId",
+                  "doc": ""
+                },
+                "described_by": {
+                  "type": "OptionDomNodeId",
                   "doc": ""
                 }
               }
@@ -3222,6 +3200,9 @@
           "TabIndex": {
             "doc": "Determines the behavior of an element in sequential focus navigation",
             "external": "azul_core::dom::TabIndex",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -3255,6 +3236,9 @@
           "NodeDataInlineCssProperty": {
             "doc": "Represents an inline CSS property attached to a node for a specific interaction state. This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node.",
             "external": "azul_core::dom::NodeDataInlineCssProperty",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Eq",
               "PartialOrd",
@@ -3318,6 +3302,10 @@
           "DomId": {
             "doc": "A unique, runtime-generated identifier for a single `Dom` instance.",
             "external": "azul_core::dom::DomId",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Ord",
               "Debug",
@@ -3492,6 +3480,10 @@
           },
           "NodeHierarchyItemId": {
             "external": "azul_core::styled_dom::NodeHierarchyItemId",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Hash",
               "Eq",
@@ -3519,10 +3511,6 @@
             ],
             "struct_fields": [
               {
-                "node": {
-                  "type": "* const c_void",
-                  "doc": ""
-                },
                 "run_destructor": {
                   "type": "bool",
                   "doc": ""
@@ -3570,18 +3558,6 @@
                 }
               }
             ]
-          },
-          "InstantPtrDestructorCallback": {
-            "external": "azul_core::task::InstantPtrDestructorCallback",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "InstantPtrDestructorCallbackType",
-                  "doc": ""
-                }
-              }
-            ],
-            "repr": "C"
           },
           "SvgSimpleNode": {
             "external": "azul_core::svg::SvgSimpleNode",
@@ -3694,6 +3670,9 @@
           },
           "ParentWithNodeDepth": {
             "external": "azul_core::styled_dom::ParentWithNodeDepth",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Ord",
               "PartialOrd",
@@ -3882,6 +3861,9 @@
           },
           "NodeHierarchyItem": {
             "external": "azul_core::styled_dom::NodeHierarchyItem",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -3911,18 +3893,6 @@
               {
                 "last_child": {
                   "type": "usize"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "InstantPtrCloneCallback": {
-            "external": "azul_core::task::InstantPtrCloneCallback",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "InstantPtrCloneCallbackType",
-                  "doc": ""
                 }
               }
             ],
@@ -3971,6 +3941,9 @@
           },
           "TagId": {
             "external": "azul_core::dom::TagId",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Clone",
               "PartialOrd",
@@ -4000,6 +3973,9 @@
           },
           "NodeTypeTag": {
             "external": "azul_css::css::NodeTypeTag",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -4270,6 +4246,9 @@
           "ContextMenuMouseButton": {
             "doc": "Determines whether this context menu should pop up on a left, right or middle click",
             "external": "azul_core::window::ContextMenuMouseButton",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -4296,6 +4275,9 @@
           "MenuPopupPosition": {
             "doc": "Specifies where a popup menu should appear relative to the cursor or clicked element. This positioning information is ignored for application-level menus (menu bars) and only applies to context menus and dropdowns.",
             "external": "azul_core::menu::MenuPopupPosition",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -5466,6 +5448,9 @@
           },
           "CssNthChildSelector": {
             "external": "azul_css::css::CssNthChildSelector",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -5524,6 +5509,9 @@
           },
           "Stylesheet": {
             "external": "azul_css::css::Stylesheet",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "Default",
               "Clone",
@@ -5669,6 +5657,11 @@
           "ColorU": {
             "doc": "u8-based color, range 0 to 255 (similar to webrenders ColorU)",
             "external": "azul_css::props::basic::color::ColorU",
+            "custom_impls": [
+              "Default",
+              "Display",
+              "From"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -5741,6 +5734,10 @@
           "SizeMetric": {
             "doc": "Enum representing the metric associated with a number (px, pt, em, etc.)",
             "external": "azul_css::props::basic::length::SizeMetric",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -5801,6 +5798,10 @@
           },
           "PixelValue": {
             "external": "azul_css::props::basic::pixel::PixelValue",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -5828,6 +5829,11 @@
           "PixelValueNoPercent": {
             "doc": "Same as PixelValue, but doesn't allow a \"%\" sign",
             "external": "azul_css::props::basic::pixel::PixelValueNoPercent",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "From"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -5850,6 +5856,9 @@
           "BoxShadowClipMode": {
             "doc": "What direction should a `box-shadow` be clipped in (inset or outset).",
             "external": "azul_css::props::style::box_shadow::BoxShadowClipMode",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -5874,6 +5883,9 @@
           "StyleBoxShadow": {
             "doc": "Represents a `box-shadow` or `text-shadow` property.",
             "external": "azul_css::props::style::box_shadow::StyleBoxShadow",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -5916,6 +5928,10 @@
           "StyleMixBlendMode": {
             "doc": "Represents a `mix-blend-mode` attribute, which determines how an element's content should blend with the content of the element's parent.",
             "external": "azul_css::props::style::effects::StyleMixBlendMode",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -6149,6 +6165,9 @@
           "LayoutAlignContent": {
             "doc": "Represents an `align-content` attribute, which aligns a flex container's lines within it when there is extra space in the cross-axis. Default: `Stretch`",
             "external": "azul_css::props::layout::flex::LayoutAlignContent",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Hash",
@@ -6184,6 +6203,9 @@
           "LayoutAlignItems": {
             "doc": "Represents an `align-items` attribute, which defines the default behavior for how flex items are laid out along the cross axis on the current line. Default: `Stretch`",
             "external": "azul_css::props::layout::flex::LayoutAlignItems",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Hash",
@@ -6237,6 +6259,9 @@
           "LayoutBoxSizing": {
             "doc": "Represents a `box-sizing` attribute",
             "external": "azul_css::props::layout::dimensions::LayoutBoxSizing",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -6260,6 +6285,9 @@
           "LayoutFlexDirection": {
             "doc": "Represents a `flex-direction` attribute, which establishes the main-axis, thus defining the direction flex items are placed in the flex container. Default: `Row`",
             "external": "azul_css::props::layout::flex::LayoutFlexDirection",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -6373,6 +6401,10 @@
           "LayoutFlexGrow": {
             "doc": "Represents a `flex-grow` attribute, which dictates what proportion of the remaining space in the flex container should be assigned to the item. Default: 0",
             "external": "azul_css::props::layout::flex::LayoutFlexGrow",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -6394,6 +6426,10 @@
           "LayoutFlexShrink": {
             "doc": "Represents a `flex-shrink` attribute, which dictates what proportion of the negative space in the flex container should be removed from the item. Default: 1",
             "external": "azul_css::props::layout::flex::LayoutFlexShrink",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -6415,6 +6451,9 @@
           "LayoutFloat": {
             "doc": "Represents a `float` attribute",
             "external": "azul_css::props::layout::display::LayoutFloat",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -6440,6 +6479,9 @@
           },
           "LayoutHeight": {
             "external": "azul_css::props::layout::dimensions::LayoutHeight",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -6478,6 +6520,9 @@
           "LayoutJustifyContent": {
             "doc": "Represents a `justify-content` attribute, which defines the alignment along the main axis. Default: `Start` (flex-start)",
             "external": "azul_css::props::layout::flex::LayoutJustifyContent",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -6540,6 +6585,9 @@
           "LayoutMarginBottom": {
             "doc": "Layout margin bottom value",
             "external": "azul_css::props::layout::spacing::LayoutMarginBottom",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -6562,6 +6610,9 @@
           "LayoutMarginLeft": {
             "doc": "Layout margin left value",
             "external": "azul_css::props::layout::spacing::LayoutMarginLeft",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Hash",
@@ -6584,6 +6635,9 @@
           "LayoutMarginRight": {
             "doc": "Layout margin right value",
             "external": "azul_css::props::layout::spacing::LayoutMarginRight",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -6606,6 +6660,9 @@
           "LayoutMarginTop": {
             "doc": "Layout margin top value",
             "external": "azul_css::props::layout::spacing::LayoutMarginTop",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -6712,6 +6769,9 @@
           "LayoutPaddingBottom": {
             "doc": "Layout padding bottom value",
             "external": "azul_css::props::layout::spacing::LayoutPaddingBottom",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -6733,6 +6793,9 @@
           },
           "LayoutPaddingLeft": {
             "external": "azul_css::props::layout::spacing::LayoutPaddingLeft",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Default",
@@ -6755,6 +6818,9 @@
           "LayoutPaddingRight": {
             "doc": "Layout padding right value",
             "external": "azul_css::props::layout::spacing::LayoutPaddingRight",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -6777,6 +6843,9 @@
           "LayoutPaddingTop": {
             "doc": "Layout padding top value",
             "external": "azul_css::props::layout::spacing::LayoutPaddingTop",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -6799,6 +6868,9 @@
           "LayoutPosition": {
             "doc": "Represents a `position` attribute - default: `Static`",
             "external": "azul_css::props::layout::position::LayoutPosition",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -6872,6 +6944,9 @@
           },
           "LayoutWidth": {
             "external": "azul_css::props::layout::dimensions::LayoutWidth",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -6910,6 +6985,9 @@
           "LayoutFlexWrap": {
             "doc": "Represents a `flex-wrap` attribute, which determines whether flex items are forced onto one line or can wrap onto multiple lines. Default: `NoWrap`",
             "external": "azul_css::props::layout::flex::LayoutFlexWrap",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -6979,6 +7057,12 @@
           "FloatValue": {
             "doc": "Wrapper around an f32 value that is internally casted to an isize, in order to provide hash-ability (to avoid numerical instability).",
             "external": "azul_css::props::basic::length::FloatValue",
+            "custom_impls": [
+              "Debug",
+              "Default",
+              "Display",
+              "From"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -7000,6 +7084,9 @@
           "PercentageValue": {
             "doc": "Wrapper around FloatValue, represents a percentage instead of just being a regular floating-point value, i.e `5` = `5%`",
             "external": "azul_css::props::basic::length::PercentageValue",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -7023,6 +7110,10 @@
           "AngleMetric": {
             "doc": "Enum representing the metric associated with an angle (deg, rad, etc.)",
             "external": "azul_css::props::basic::angle::AngleMetric",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -7055,6 +7146,10 @@
           "AngleValue": {
             "doc": "FloatValue, but associated with a certain metric (i.e. deg, rad, etc.)",
             "external": "azul_css::props::basic::angle::AngleValue",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -7144,6 +7239,9 @@
           },
           "DirectionCorner": {
             "external": "azul_css::props::basic::direction::DirectionCorner",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -7211,6 +7309,9 @@
           "Direction": {
             "doc": "CSS direction (necessary for gradients). Can either be a fixed angle or a direction (\"to right\" / \"to left\", etc.).",
             "external": "azul_css::props::basic::direction::Direction",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -7237,6 +7338,9 @@
           },
           "LinearGradient": {
             "external": "azul_css::props::style::background::LinearGradient",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -7267,6 +7371,10 @@
           },
           "Shape": {
             "external": "azul_css::props::style::background::Shape",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -7289,6 +7397,10 @@
           },
           "RadialGradientSize": {
             "external": "azul_css::props::style::background::RadialGradientSize",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Clone",
               "PartialOrd",
@@ -7316,6 +7428,9 @@
           },
           "RadialGradient": {
             "external": "azul_css::props::style::background::RadialGradient",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Debug",
@@ -7356,6 +7471,9 @@
           },
           "ConicGradient": {
             "external": "azul_css::props::style::background::ConicGradient",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "PartialOrd",
@@ -7391,6 +7509,9 @@
           },
           "StyleBackgroundContent": {
             "external": "azul_css::props::style::background::StyleBackgroundContent",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Ord",
@@ -7491,6 +7612,9 @@
           },
           "StyleBackgroundPosition": {
             "external": "azul_css::props::style::background::StyleBackgroundPosition",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -7517,6 +7641,9 @@
           },
           "StyleBackgroundRepeat": {
             "external": "azul_css::props::style::background::StyleBackgroundRepeat",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -7545,6 +7672,9 @@
           },
           "StyleBackgroundSize": {
             "external": "azul_css::props::style::background::StyleBackgroundSize",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -7635,6 +7765,10 @@
           "BorderStyle": {
             "doc": "Style of a `border`: solid, double, dash, ridge, etc.",
             "external": "azul_css::props::style::border::BorderStyle",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -7944,6 +8078,9 @@
           "ScrollbarInfo": {
             "doc": "Holds info necessary for layouting / styling -webkit-scrollbar properties.",
             "external": "azul_css::props::style::scrollbar::ScrollbarInfo",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Hash",
@@ -8068,6 +8205,9 @@
           "StyleFontSize": {
             "doc": "Represents a `font-size` attribute",
             "external": "azul_css::props::basic::font::StyleFontSize",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -8090,6 +8230,10 @@
           "StyleLetterSpacing": {
             "doc": "Represents a `letter-spacing` attribute",
             "external": "azul_css::props::style::text::StyleLetterSpacing",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -8111,6 +8255,9 @@
           "StyleLineHeight": {
             "doc": "Represents a `line-height` attribute",
             "external": "azul_css::props::style::text::StyleLineHeight",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -8132,6 +8279,10 @@
           "StyleTabWidth": {
             "doc": "Represents a `tab-width` attribute",
             "external": "azul_css::props::style::text::StyleTabWidth",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -8153,6 +8304,9 @@
           "StyleOpacity": {
             "doc": "Represents an `opacity` attribute, a value from 0.0 to 1.0.",
             "external": "azul_css::props::style::effects::StyleOpacity",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -8174,6 +8328,9 @@
           "StyleTransformOrigin": {
             "doc": "Represents a `transform-origin` attribute",
             "external": "azul_css::props::style::transform::StyleTransformOrigin",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -8346,6 +8503,9 @@
           },
           "StyleTransformMatrix2D": {
             "external": "azul_css::props::style::transform::StyleTransformMatrix2D",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -8392,6 +8552,9 @@
           },
           "StyleTransformMatrix3D": {
             "external": "azul_css::props::style::transform::StyleTransformMatrix3D",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -8701,6 +8864,9 @@
           "StyleTextColor": {
             "doc": "Represents a `color` attribute.",
             "external": "azul_css::props::style::text::StyleTextColor",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -8714,7 +8880,7 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "crate :: props :: basic :: color :: ColorU"
+                  "type": "ColorU"
                 }
               }
             ],
@@ -8723,6 +8889,10 @@
           "StyleWordSpacing": {
             "doc": "Represents a `word-spacing` attribute",
             "external": "azul_css::props::style::text::StyleWordSpacing",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -10081,6 +10251,11 @@
           "CssPropertyValue": {
             "doc": "Generic CSS property value that can be Auto, None, Initial, Inherit, or an exact value",
             "external": "azul_css::css::CssPropertyValue",
+            "custom_impls": [
+              "Default",
+              "Display",
+              "From"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -10123,6 +10298,9 @@
           },
           "CounterReset": {
             "external": "azul_css::props::style::content::CounterReset",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Hash",
@@ -10149,6 +10327,10 @@
           "GridLine": {
             "doc": "Represents a grid line position (start or end)",
             "external": "azul_css::props::layout::grid::GridLine",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -10215,6 +10397,9 @@
           "LayoutZIndex": {
             "doc": "Represents a `z-index` attribute - controls stacking order of positioned elements",
             "external": "azul_css::props::layout::position::LayoutZIndex",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Debug",
@@ -10240,6 +10425,9 @@
           "LayoutJustifyItems": {
             "doc": "Represents `justify-items` for grid containers",
             "external": "azul_css::props::layout::grid::LayoutJustifyItems",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "Copy",
@@ -10268,6 +10456,9 @@
           },
           "SelectionBackgroundColor": {
             "external": "azul_css::props::style::selection::SelectionBackgroundColor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -10289,6 +10480,9 @@
           },
           "ColumnRuleColor": {
             "external": "azul_css::props::layout::column::ColumnRuleColor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -10310,6 +10504,9 @@
           },
           "ColumnSpan": {
             "external": "azul_css::props::layout::column::ColumnSpan",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Copy",
@@ -10333,6 +10530,11 @@
           "LayoutClear": {
             "doc": "Represents a `clear` attribute",
             "external": "azul_css::props::layout::wrapping::LayoutClear",
+            "custom_impls": [
+              "Debug",
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Eq",
               "Ord",
@@ -10361,6 +10563,9 @@
           "StyleWhiteSpace": {
             "doc": "How to handle white space inside an element.",
             "external": "azul_css::props::style::text::StyleWhiteSpace",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "Eq",
@@ -10387,6 +10592,9 @@
           "BreakInside": {
             "doc": "Represents a `break-inside` CSS property value.",
             "external": "azul_css::props::layout::fragmentation::BreakInside",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Eq",
@@ -10416,6 +10624,9 @@
           "LayoutAlignSelf": {
             "doc": "Represents an `align-self` attribute, which allows the default alignment (or the one specified by align-items) to be overridden for individual flex items. Default: `Auto`",
             "external": "azul_css::props::layout::flex::LayoutAlignSelf",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -10450,6 +10661,9 @@
           },
           "CaretAnimationDuration": {
             "external": "azul_css::props::style::text::CaretAnimationDuration",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -10471,6 +10685,9 @@
           },
           "ColumnRuleStyle": {
             "external": "azul_css::props::layout::column::ColumnRuleStyle",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Copy",
@@ -10493,6 +10710,10 @@
           "GridPlacement": {
             "doc": "Represents `grid-row` or `grid-column` (start / end)",
             "external": "azul_css::props::layout::grid::GridPlacement",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Ord",
@@ -10518,6 +10739,13 @@
           "ShapeOutside": {
             "doc": "CSS shape-outside property for wrapping text around shapes",
             "external": "azul_css::props::layout::shape::ShapeOutside",
+            "custom_impls": [
+              "Default",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -10537,6 +10765,9 @@
           },
           "ColumnCount": {
             "external": "azul_css::props::layout::column::ColumnCount",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Eq",
@@ -10562,6 +10793,11 @@
           "LayoutWritingMode": {
             "doc": "Represents a `writing-mode` attribute",
             "external": "azul_css::props::layout::wrapping::LayoutWritingMode",
+            "custom_impls": [
+              "Debug",
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Clone",
               "Ord",
@@ -10587,6 +10823,9 @@
           "StyleUserSelect": {
             "doc": "Controls whether the user can select text. Used to prevent accidental text selection on UI controls like buttons.",
             "external": "azul_css::props::style::text::StyleUserSelect",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -10624,6 +10863,10 @@
           "GridTemplate": {
             "doc": "Represents `grid-template-columns` or `grid-template-rows`",
             "external": "azul_css::props::layout::grid::GridTemplate",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialOrd",
@@ -10644,6 +10887,9 @@
           "LayoutJustifySelf": {
             "doc": "Represents `justify-self` for grid items",
             "external": "azul_css::props::layout::grid::LayoutJustifySelf",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Hash",
@@ -10675,6 +10921,9 @@
           },
           "Content": {
             "external": "azul_css::props::style::content::Content",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Debug",
@@ -10696,6 +10945,9 @@
           "StyleHyphens": {
             "doc": "Hyphenation rules.",
             "external": "azul_css::props::style::text::StyleHyphens",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Copy",
@@ -10718,6 +10970,9 @@
           },
           "LayoutGap": {
             "external": "azul_css::props::layout::grid::LayoutGap",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Default",
               "Clone",
@@ -10731,7 +10986,7 @@
             "struct_fields": [
               {
                 "inner": {
-                  "type": "crate :: props :: basic :: pixel :: PixelValue"
+                  "type": "PixelValue"
                 }
               }
             ],
@@ -10740,6 +10995,9 @@
           "StyleDirection": {
             "doc": "Text direction.",
             "external": "azul_css::props::style::text::StyleDirection",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "Clone",
@@ -10763,6 +11021,10 @@
           "LayoutFlexBasis": {
             "doc": "Represents a `flex-basis` attribute",
             "external": "azul_css::props::layout::flex::LayoutFlexBasis",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Copy",
@@ -10776,7 +11038,7 @@
               {
                 "Auto": {},
                 "Exact": {
-                  "type": "crate :: props :: basic :: pixel :: PixelValue"
+                  "type": "PixelValue"
                 }
               }
             ],
@@ -10784,6 +11046,9 @@
           },
           "ShapeMargin": {
             "external": "azul_css::props::layout::shape::ShapeMargin",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Clone",
@@ -10805,6 +11070,9 @@
           },
           "LayoutTextJustify": {
             "external": "azul_css::props::layout::text::LayoutTextJustify",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -10836,6 +11104,9 @@
           },
           "ColumnWidth": {
             "external": "azul_css::props::layout::column::ColumnWidth",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Clone",
@@ -10860,6 +11131,9 @@
           },
           "CounterIncrement": {
             "external": "azul_css::props::style::content::CounterIncrement",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "PartialOrd",
@@ -10886,6 +11160,9 @@
           "BoxDecorationBreak": {
             "doc": "Represents a `box-decoration-break` CSS property value.",
             "external": "azul_css::props::layout::fragmentation::BoxDecorationBreak",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -10908,6 +11185,9 @@
           },
           "SelectionColor": {
             "external": "azul_css::props::style::selection::SelectionColor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -10930,6 +11210,9 @@
           "StyleVisibility": {
             "doc": "Represents a `visibility` attribute, controlling element visibility.",
             "external": "azul_css::props::style::effects::StyleVisibility",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -10955,6 +11238,9 @@
           },
           "ShapeImageThreshold": {
             "external": "azul_css::props::layout::shape::ShapeImageThreshold",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -10977,6 +11263,9 @@
           "LayoutGridAutoFlow": {
             "doc": "Represents the `grid-auto-flow` property",
             "external": "azul_css::props::layout::grid::LayoutGridAutoFlow",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Eq",
@@ -11005,6 +11294,9 @@
           },
           "ColumnRuleWidth": {
             "external": "azul_css::props::layout::column::ColumnRuleWidth",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -11027,6 +11319,9 @@
           "StyleTextDecoration": {
             "doc": "Text decoration (underline, overline, line-through).",
             "external": "azul_css::props::style::text::StyleTextDecoration",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialOrd",
@@ -11063,6 +11358,9 @@
           },
           "CaretColor": {
             "external": "azul_css::props::style::text::CaretColor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "Clone",
@@ -11085,6 +11383,10 @@
           "LayoutSize": {
             "doc": "Only used for calculations: Size (width, height) in layout space.",
             "external": "azul_css::props::basic::geometry::LayoutSize",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Hash",
               "PartialEq",
@@ -11111,6 +11413,9 @@
           },
           "ColumnFill": {
             "external": "azul_css::props::layout::column::ColumnFill",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "PartialOrd",
@@ -11142,6 +11447,9 @@
           "PageBreak": {
             "doc": "Represents a `break-before` or `break-after` CSS property value.",
             "external": "azul_css::props::layout::fragmentation::PageBreak",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "Copy",
@@ -11195,6 +11503,9 @@
           "LayoutScrollbarWidth": {
             "doc": "Represents the standard `scrollbar-width` property.",
             "external": "azul_css::props::style::scrollbar::LayoutScrollbarWidth",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Hash",
@@ -11221,6 +11532,9 @@
           "StyleScrollbarColor": {
             "doc": "Represents the standard `scrollbar-color` property.",
             "external": "azul_css::props::style::scrollbar::StyleScrollbarColor",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -11246,6 +11560,9 @@
           "StyleVerticalAlign": {
             "doc": "Vertical text alignment enum (top, center, bottom) - default: `Top`",
             "external": "azul_css::props::style::text::StyleVerticalAlign",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Hash",
@@ -11314,6 +11631,13 @@
           "ShapeInside": {
             "doc": "CSS shape-inside property for flowing text within shapes",
             "external": "azul_css::props::layout::shape::ShapeInside",
+            "custom_impls": [
+              "Default",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -11333,6 +11657,9 @@
           },
           "SelectionRadius": {
             "external": "azul_css::props::style::selection::SelectionRadius",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Copy",
@@ -11354,6 +11681,9 @@
           },
           "Orphans": {
             "external": "azul_css::props::layout::fragmentation::Orphans",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Eq",
@@ -11376,6 +11706,9 @@
           "StyleTextIndent": {
             "doc": "Represents a `text-indent` attribute (indentation of first line in a block).",
             "external": "azul_css::props::style::text::StyleTextIndent",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Eq",
               "PartialOrd",
@@ -11398,6 +11731,9 @@
           "LayoutBorderSpacing": {
             "doc": "Sets the distance between the borders of adjacent cells. The `border-spacing` property is only applicable when `border-collapse` is set to `separate`. It can have one or two values: - One value: Sets both horizontal and vertical spacing - Two values: First is horizontal, second is vertical This struct represents a single spacing value (either horizontal or vertical).",
             "external": "azul_css::props::layout::table::LayoutBorderSpacing",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Ord",
               "PartialOrd",
@@ -11426,6 +11762,9 @@
           },
           "LayoutPaddingInlineStart": {
             "external": "azul_css::props::layout::spacing::LayoutPaddingInlineStart",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Clone",
               "Copy",
@@ -11458,6 +11797,9 @@
           "StyleFontWeight": {
             "doc": "Represents the `font-weight` property.",
             "external": "azul_css::props::basic::font::StyleFontWeight",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -11518,6 +11860,9 @@
           "StyleExclusionMargin": {
             "doc": "`-azul-exclusion-margin` property: defines margin around shape exclusions This property controls the spacing between text and shapes that text flows around. It's similar to `shape-margin` but specifically for exclusions (text wrapping). # Example ```css .element { -azul-exclusion-margin: 10.5; } ```",
             "external": "azul_css::props::style::azul_exclusion::StyleExclusionMargin",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Copy",
@@ -11539,6 +11884,9 @@
           },
           "Widows": {
             "external": "azul_css::props::layout::fragmentation::Widows",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Eq",
@@ -11560,6 +11908,9 @@
           },
           "LayoutColumnGap": {
             "external": "azul_css::props::layout::spacing::LayoutColumnGap",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Clone",
               "Default",
@@ -11581,6 +11932,9 @@
           },
           "LayoutPaddingInlineEnd": {
             "external": "azul_css::props::layout::spacing::LayoutPaddingInlineEnd",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -11602,6 +11956,10 @@
           },
           "StyleListStyleType": {
             "external": "azul_css::props::style::lists::StyleListStyleType",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Eq",
               "Hash",
@@ -11655,6 +12013,13 @@
           "ClipPath": {
             "doc": "CSS clip-path property for clipping element rendering",
             "external": "azul_css::props::layout::shape::ClipPath",
+            "custom_impls": [
+              "Default",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -11705,6 +12070,9 @@
           "StyleHyphenationLanguage": {
             "doc": "`-azul-hyphenation-language` property: specifies language for hyphenation This property defines the language code (BCP 47 format) used for automatic hyphenation. Examples: \"en-US\", \"de-DE\", \"fr-FR\" # Example ```css .element { -azul-hyphenation-language: \"en-US\"; } ```",
             "external": "azul_css::props::style::azul_exclusion::StyleHyphenationLanguage",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -11805,6 +12173,10 @@
           },
           "StyleListStylePosition": {
             "external": "azul_css::props::style::lists::StyleListStylePosition",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "PartialOrd",
               "Copy",
@@ -11828,6 +12200,9 @@
           "StyleBorderCollapse": {
             "doc": "Specifies whether cell borders are collapsed into a single border or separated. The `border-collapse` property determines the border rendering model: - **separate**: Each cell has its own border (default, uses border-spacing) - **collapse**: Adjacent cells share borders (ignores border-spacing)",
             "external": "azul_css::props::layout::table::StyleBorderCollapse",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -11855,6 +12230,9 @@
           "StyleCaptionSide": {
             "doc": "Specifies the placement of a table caption. The `caption-side` property positions the caption either above or below the table.",
             "external": "azul_css::props::layout::table::StyleCaptionSide",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Hash",
@@ -11911,6 +12289,9 @@
           },
           "LayoutRowGap": {
             "external": "azul_css::props::layout::spacing::LayoutRowGap",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Ord",
@@ -11933,6 +12314,9 @@
           "StyleHangingPunctuation": {
             "doc": "hanging-punctuation property for hanging punctuation marks",
             "external": "azul_css::props::style::text::StyleHangingPunctuation",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -11955,6 +12339,9 @@
           "LayoutTableLayout": {
             "doc": "Controls the algorithm used to lay out table cells, rows, and columns. The `table-layout` property determines whether the browser should use: - **auto**: Column widths are determined by the content (slower but flexible) - **fixed**: Column widths are determined by the first row (faster and predictable)",
             "external": "azul_css::props::layout::table::LayoutTableLayout",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Ord",
@@ -11994,11 +12381,9 @@
             ],
             "struct_fields": [
               {
-                "size": {
-                  "type": "u32"
-                },
                 "sink": {
-                  "type": "crate :: corety :: OptionU32"
+                  "type": "OptionU32",
+                  "doc": ""
                 }
               }
             ],
@@ -12007,6 +12392,9 @@
           "StyleEmptyCells": {
             "doc": "Specifies whether or not to display borders and background on empty cells. The `empty-cells` property only applies when `border-collapse` is set to `separate`. A cell is considered empty if it contains no visible content.",
             "external": "azul_css::props::layout::table::StyleEmptyCells",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -12044,6 +12432,9 @@
           "StyleFontStyle": {
             "doc": "Represents the `font-style` property.",
             "external": "azul_css::props::basic::font::StyleFontStyle",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -12080,6 +12471,9 @@
           "StyleTextCombineUpright": {
             "doc": "text-combine-upright property for combining horizontal text in vertical layout",
             "external": "azul_css::props::style::text::StyleTextCombineUpright",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Hash",
@@ -12127,6 +12521,10 @@
           },
           "GridTrackSizing": {
             "external": "azul_css::props::layout::grid::GridTrackSizing",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Ord",
               "PartialOrd",
@@ -12320,6 +12718,9 @@
           },
           "SvgFillStyle": {
             "external": "azul_core::svg::SvgFillStyle",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Copy",
@@ -12363,6 +12764,9 @@
           },
           "XmlTextPos": {
             "external": "azul_core::xml::XmlTextPos",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "PartialEq",
               "Ord",
@@ -12388,6 +12792,13 @@
           },
           "LogicalSize": {
             "external": "azul_core::geom::LogicalSize",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Eq",
+              "Hash",
+              "Ord"
+            ],
             "derive": [
               "Copy",
               "PartialEq",
@@ -12411,6 +12822,10 @@
           },
           "StyledNodeState": {
             "external": "azul_core::styled_dom::StyledNodeState",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Hash",
               "Clone",
@@ -12445,6 +12860,9 @@
           },
           "CssPropertyCachePtr": {
             "external": "azul_core::prop_cache::CssPropertyCachePtr",
+            "custom_impls": [
+              "Drop"
+            ],
             "derive": [
               "Debug",
               "PartialEq",
@@ -12453,11 +12871,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "Box < CssPropertyCache >",
-                  "doc": ""
-                },
-                "run_destructor": {
-                  "type": "bool",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -12580,6 +12994,13 @@
           },
           "LogicalPosition": {
             "external": "azul_core::geom::LogicalPosition",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Eq",
+              "Hash",
+              "Ord"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -12603,6 +13024,9 @@
           },
           "EventFilter": {
             "external": "azul_core::events::EventFilter",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "PartialOrd",
               "Copy",
@@ -12639,6 +13063,9 @@
           },
           "PhysicalSize": {
             "external": "azul_core::geom::PhysicalSize",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Copy",
               "Eq",
@@ -12724,6 +13151,9 @@
           },
           "StyledDom": {
             "external": "azul_core::styled_dom::StyledDom",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -13207,8 +13637,8 @@
             "external": "azul_layout::widgets::button::ButtonOnClick",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "ButtonOnClickCallback",
                   "doc": ""
                 }
               }
@@ -13216,6 +13646,9 @@
           },
           "FileInput": {
             "external": "azul_layout::widgets::file_input::FileInput",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -13343,6 +13776,9 @@
           },
           "FileInputStateWrapper": {
             "external": "azul_layout::widgets::file_input::FileInputStateWrapper",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -13368,6 +13804,9 @@
           },
           "FileInputState": {
             "external": "azul_layout::widgets::file_input::FileInputState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Debug",
@@ -13376,7 +13815,7 @@
             "struct_fields": [
               {
                 "path": {
-                  "type": "OptionAzString"
+                  "type": "OptionString"
                 }
               }
             ],
@@ -13619,6 +14058,9 @@
           },
           "ColorInputStateWrapper": {
             "external": "azul_layout::widgets::color_input::ColorInputStateWrapper",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Debug",
@@ -13646,6 +14088,9 @@
           },
           "ColorInputState": {
             "external": "azul_layout::widgets::color_input::ColorInputState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Debug",
@@ -13668,8 +14113,8 @@
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChange",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "ColorInputOnValueChangeCallback",
                   "doc": ""
                 }
               }
@@ -13687,6 +14132,9 @@
           },
           "TextInput": {
             "external": "azul_layout::widgets::text_input::TextInput",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -13955,6 +14403,9 @@
           },
           "TextInputStateWrapper": {
             "external": "azul_layout::widgets::text_input::TextInputStateWrapper",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -14001,6 +14452,9 @@
           },
           "TextInputState": {
             "external": "azul_layout::widgets::text_input::TextInputState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -14008,20 +14462,8 @@
             ],
             "struct_fields": [
               {
-                "text": {
-                  "type": "U32Vec",
-                  "doc": ""
-                },
-                "max_len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "selection": {
-                  "type": "OptionTextInputSelection",
-                  "doc": ""
-                },
-                "cursor_pos": {
-                  "type": "usize",
+                "placeholder": {
+                  "type": "OptionString",
                   "doc": ""
                 }
               }
@@ -14089,8 +14531,8 @@
             "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "TextInputOnTextInputCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -14131,8 +14573,8 @@
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "TextInputOnFocusLostCallback",
                   "doc": ""
                 }
               }
@@ -14461,6 +14903,9 @@
           },
           "NumberInputState": {
             "external": "azul_layout::widgets::number_input::NumberInputState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -14494,8 +14939,8 @@
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChange",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "NumberInputOnValueChangeCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -14515,8 +14960,8 @@
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
             "struct_fields": [
               {
-                "data": {
-                  "type": "RefAny",
+                "cb": {
+                  "type": "NumberInputOnFocusLostCallback",
                   "doc": ""
                 }
               }
@@ -14682,6 +15127,9 @@
           },
           "TabHeader": {
             "external": "azul_layout::widgets::tabs::TabHeader",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Debug"
@@ -14874,6 +15322,9 @@
           "ListView": {
             "doc": "List view, optionally able to lazy-load data",
             "external": "azul_layout::widgets::list_view::ListView",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone"
@@ -15000,8 +15451,8 @@
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScroll",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "ListViewOnLazyLoadScrollCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -15022,8 +15473,8 @@
             "external": "azul_layout::widgets::list_view::ListViewOnRowClick",
             "struct_fields": [
               {
-                "cb": {
-                  "type": "ListViewOnRowClickCallback",
+                "data": {
+                  "type": "RefAny",
                   "doc": ""
                 }
               }
@@ -15111,10 +15562,42 @@
             "doc": "OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture",
             "external": "azul_core::gl::Texture",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Display",
+              "Drop"
+            ],
             "struct_fields": [
               {
+                "texture_id": {
+                  "type": "GLuint",
+                  "doc": ""
+                },
+                "flags": {
+                  "type": "TextureFlags",
+                  "doc": ""
+                },
+                "size": {
+                  "type": "PhysicalSizeU32",
+                  "doc": ""
+                },
+                "background_color": {
+                  "type": "ColorU",
+                  "doc": ""
+                },
+                "gl_context": {
+                  "type": "GlContextPtr",
+                  "doc": ""
+                },
+                "format": {
+                  "type": "RawImageFormat",
+                  "doc": ""
+                },
                 "refcount": {
-                  "type": "*const AtomicUsize",
+                  "type": "c_void"
+                },
+                "run_destructor": {
+                  "type": "bool",
                   "doc": ""
                 }
               }
@@ -15263,13 +15746,20 @@
             "doc": "Passing *const c_void is not easily possible when generating APIs, so this wrapper struct is for easier API generation",
             "external": "azul_core::gl::GlVoidPtrConst",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Drop"
+            ],
             "derive": [
               "Debug"
             ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const GLvoid",
+                  "type": "c_void"
+                },
+                "run_destructor": {
+                  "type": "bool",
                   "doc": ""
                 }
               }
@@ -15278,13 +15768,16 @@
           },
           "GlVoidPtrMut": {
             "external": "azul_core::gl::GlVoidPtrMut",
+            "custom_impls": [
+              "Clone"
+            ],
             "derive": [
               "Debug"
             ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*mut GLvoid"
+                  "type": "c_void"
                 }
               }
             ],
@@ -15358,6 +15851,15 @@
           "GlContextPtr": {
             "external": "azul_core::gl::GlContextPtr",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop",
+              "Eq",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "constants": [
               {
                 "ACCUM": {
@@ -23978,12 +24480,8 @@
             ],
             "struct_fields": [
               {
-                "renderer_type": {
-                  "type": "RendererType",
-                  "doc": ""
-                },
-                "run_destructor": {
-                  "type": "bool",
+                "ptr": {
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -27903,15 +28401,16 @@
             "doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
             "external": "azul_core::gl::GLsyncPtr",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const c_void"
-                }
-              },
-              {
                 "run_destructor": {
-                  "type": "bool"
+                  "type": "bool",
+                  "doc": ""
                 }
               }
             ],
@@ -27973,6 +28472,10 @@
           },
           "VertexArrayObject": {
             "external": "azul_core::gl::VertexArrayObject",
+            "custom_impls": [
+              "Clone",
+              "Drop"
+            ],
             "derive": [
               "Debug",
               "PartialEq",
@@ -27990,10 +28493,6 @@
                 },
                 "gl_context": {
                   "type": "GlContextPtr",
-                  "doc": ""
-                },
-                "refcount": {
-                  "type": "* const AtomicUsize",
                   "doc": ""
                 },
                 "run_destructor": {
@@ -28030,38 +28529,15 @@
           },
           "VertexBuffer": {
             "external": "azul_core::gl::VertexBuffer",
+            "custom_impls": [
+              "Clone",
+              "Display",
+              "Drop"
+            ],
             "struct_fields": [
               {
-                "vertex_buffer_id": {
-                  "type": "GLuint",
-                  "doc": ""
-                },
-                "vertex_buffer_len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "vao": {
-                  "type": "VertexArrayObject",
-                  "doc": ""
-                },
-                "index_buffer_id": {
-                  "type": "GLuint",
-                  "doc": ""
-                },
-                "index_buffer_len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "index_buffer_format": {
-                  "type": "IndexBufferFormat",
-                  "doc": ""
-                },
                 "refcount": {
-                  "type": "* const AtomicUsize",
-                  "doc": ""
-                },
-                "run_destructor": {
-                  "type": "bool",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -28070,6 +28546,9 @@
           },
           "GlType": {
             "external": "azul_core::gl::GlType",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "Clone",
               "Ord",
@@ -28117,17 +28596,28 @@
           "ImageRef": {
             "external": "azul_core::resources::ImageRef",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Drop",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug"
             ],
             "struct_fields": [
               {
                 "data": {
-                  "type": "*const DecodedImage",
-                  "doc": ""
+                  "type": "c_void"
                 },
                 "copies": {
-                  "type": "*const AtomicUsize",
+                  "type": "c_void"
+                },
+                "run_destructor": {
+                  "type": "bool",
                   "doc": ""
                 }
               }
@@ -28587,6 +29077,9 @@
           "FontMetrics": {
             "doc": "Font metrics structure containing all font-related measurements from the font file tables (head, hhea, and os/2 tables).",
             "external": "azul_css::props::basic::font::FontMetrics",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Eq",
@@ -29208,14 +29701,28 @@
             "doc": "FontRef is a reference-counted pointer to a parsed font. It holds a *const c_void that points to the actual parsed font data (typically a ParsedFont from the layout crate). The parsed data is managed via atomic reference counting, allowing safe sharing across threads without duplicating the font data.",
             "external": "azul_css::props::basic::font::FontRef",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
-                "copies": {
-                  "type": "*const AtomicUsize",
+                "parsed": {
+                  "type": "c_void",
                   "doc": ""
                 },
-                "parsed_destructor": {
-                  "type": "FontRefDestructorCallbackType",
+                "copies": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "run_destructor": {
+                  "type": "bool",
                   "doc": ""
                 }
               }
@@ -29318,12 +29825,8 @@
             "struct_fields": [
               {
                 "tree": {
-                  "type": "*const c_void"
-                }
-              },
-              {
-                "run_destructor": {
-                  "type": "bool"
+                  "type": "c_void",
+                  "doc": ""
                 }
               }
             ],
@@ -30767,6 +31270,9 @@
           },
           "TessellatedSvgNode": {
             "external": "azul_core::svg::TessellatedSvgNode",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -30853,6 +31359,9 @@
           },
           "SvgFitTo": {
             "external": "azul_core::svg::SvgFitTo",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -30884,6 +31393,9 @@
           },
           "SvgFillRule": {
             "external": "azul_core::svg::SvgFillRule",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Debug",
@@ -30903,6 +31415,9 @@
           },
           "SvgStrokeStyle": {
             "external": "azul_core::svg::SvgStrokeStyle",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -30988,6 +31503,9 @@
           },
           "SvgLineJoin": {
             "external": "azul_core::svg::SvgLineJoin",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -31016,6 +31534,9 @@
           },
           "SvgLineCap": {
             "external": "azul_core::svg::SvgLineCap",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -31041,6 +31562,9 @@
           },
           "CssPathPseudoSelector": {
             "external": "azul_css::css::CssPathPseudoSelector",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Ord",
               "Eq",
@@ -31067,6 +31591,10 @@
           },
           "LogicalRect": {
             "external": "azul_core::geom::LogicalRect",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Copy",
               "PartialOrd",
@@ -31093,6 +31621,10 @@
           },
           "CssPathSelector": {
             "external": "azul_css::css::CssPathSelector",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
             "derive": [
               "Clone",
               "Eq",
@@ -31127,6 +31659,10 @@
           },
           "CssPath": {
             "external": "azul_css::css::CssPath",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -31223,6 +31759,9 @@
         "classes": {
           "Instant": {
             "external": "azul_core::task::Instant",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "Ord",
               "Hash",
@@ -31342,6 +31881,10 @@
           },
           "Duration": {
             "external": "azul_core::task::Duration",
+            "custom_impls": [
+              "Display",
+              "From"
+            ],
             "derive": [
               "Copy",
               "Hash",
@@ -31368,6 +31911,9 @@
           },
           "SystemTimeDiff": {
             "external": "azul_core::task::SystemTimeDiff",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -31387,33 +31933,6 @@
               {
                 "nanos": {
                   "type": "u32"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "InstantPtr": {
-            "external": "azul_core::task::AzInstantPtr",
-            "is_boxed_object": true,
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "*const c_void"
-                }
-              },
-              {
-                "clone_fn": {
-                  "type": "InstantPtrCloneCallback"
-                }
-              },
-              {
-                "destructor": {
-                  "type": "InstantPtrDestructorCallback"
-                }
-              },
-              {
-                "run_destructor": {
-                  "type": "bool"
                 }
               }
             ],
@@ -31448,6 +31967,20 @@
         "classes": {
           "String": {
             "external": "azul_css::corety::AzString",
+            "custom_impls": [
+              "AsRef",
+              "Clone",
+              "Debug",
+              "Default",
+              "Deref",
+              "Display",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "vec": {
@@ -31459,14 +31992,15 @@
           },
           "Refstr": {
             "external": "azul_core::gl::Refstr",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* const u8",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -31511,6 +32045,9 @@
           },
           "StringSet": {
             "external": "azul_css::props::style::content::StringSet",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "Ord",
@@ -31543,19 +32080,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const ListViewRow",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "ListViewRowVecDestructor"
                 }
               }
             ]
@@ -31567,10 +32093,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const StyleFilter",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31580,7 +32102,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "StyleFilterVecDestructor"
+                  "type": "StyleFilterVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31592,10 +32115,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const AccessibilityState",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31605,7 +32124,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "AccessibilityStateVecDestructor"
+                  "type": "AccessibilityStateVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31617,10 +32137,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const MenuItem",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31630,7 +32146,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "MenuItemVecDestructor"
+                  "type": "MenuItemVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31642,10 +32159,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const StyleFontFamily",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31665,19 +32178,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const Dom",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "DomVecDestructor"
                 }
               }
             ]
@@ -31703,10 +32205,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const NodeDataInlineCssProperty",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31726,19 +32224,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const StyleBackgroundContent",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "StyleBackgroundContentVecDestructor"
                 }
               }
             ]
@@ -31751,19 +32238,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const StyleBackgroundPosition",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "StyleBackgroundPositionVecDestructor"
                 }
               }
             ]
@@ -31775,10 +32251,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const StyleBackgroundRepeat",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31788,7 +32260,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "StyleBackgroundRepeatVecDestructor"
+                  "type": "StyleBackgroundRepeatVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31800,10 +32273,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const StyleBackgroundSize",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31813,7 +32282,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "StyleBackgroundSizeVecDestructor"
+                  "type": "StyleBackgroundSizeVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31826,7 +32296,25 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const StyleTransform",
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StyleTransformVecDestructor",
+                  "doc": ""
+                }
+              }
+            ]
+          },
+          "SvgMultiPolygonVec": {
+            "doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>",
+            "external": "azul_core::svg::SvgMultiPolygonVec",
+            "custom_destructor": true,
+            "derive": [],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
                   "doc": ""
                 },
                 "len": {
@@ -31840,20 +32328,6 @@
               }
             ]
           },
-          "SvgMultiPolygonVec": {
-            "doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>",
-            "external": "azul_core::svg::SvgMultiPolygonVec",
-            "custom_destructor": true,
-            "derive": [],
-            "struct_fields": [
-              {
-                "destructor": {
-                  "type": "SvgMultiPolygonVecDestructor",
-                  "doc": ""
-                }
-              }
-            ]
-          },
           "SvgSimpleNodeVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<SvgSimpleNode>",
             "external": "azul_core::svg::SvgSimpleNodeVec",
@@ -31861,10 +32335,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const SvgSimpleNode",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31884,19 +32354,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const SvgPath",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "SvgPathVecDestructor"
                 }
               }
             ]
@@ -31909,19 +32368,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const SvgPathElement",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "SvgPathElementVecDestructor"
                 }
               }
             ]
@@ -31934,15 +32382,11 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const SvgVertex",
+                  "type": "c_void",
                   "doc": ""
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "SvgVertexVecDestructor",
                   "doc": ""
                 }
               }
@@ -31955,10 +32399,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const u32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -31968,7 +32408,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "U32VecDestructor"
+                  "type": "U32VecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -31980,8 +32421,16 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "VirtualKeyCodeVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -31995,19 +32444,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const CascadeInfo",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "CascadeInfoVecDestructor"
                 }
               }
             ]
@@ -32020,19 +32458,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const CssDeclaration",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "CssDeclarationVecDestructor"
                 }
               }
             ]
@@ -32045,19 +32472,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const CssPathSelector",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "CssPathSelectorVecDestructor"
                 }
               }
             ]
@@ -32070,15 +32486,11 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const Stylesheet",
+                  "type": "c_void",
                   "doc": ""
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "StylesheetVecDestructor",
                   "doc": ""
                 }
               }
@@ -32092,15 +32504,11 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const CssRuleBlock",
+                  "type": "c_void",
                   "doc": ""
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "CssRuleBlockVecDestructor",
                   "doc": ""
                 }
               }
@@ -32114,19 +32522,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const u16",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "U16VecDestructor"
                 }
               }
             ]
@@ -32138,10 +32535,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const f32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32151,7 +32544,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "F32VecDestructor"
+                  "type": "F32VecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -32163,10 +32557,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const u8",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32176,7 +32566,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "U8VecDestructor"
+                  "type": "U8VecDestructor",
+                  "doc": ""
                 }
               }
             ],
@@ -32219,8 +32610,16 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "GLuintVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -32234,19 +32633,8 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const GLint",
+                  "type": "c_void",
                   "doc": ""
-                },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "destructor": {
-                  "type": "GLintVecDestructor"
                 }
               }
             ]
@@ -32259,7 +32647,18 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const AzString",
+                  "type": "c_void"
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "destructor": {
+                  "type": "StringVecDestructor",
                   "doc": ""
                 }
               }
@@ -32319,11 +32718,15 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const NodeHierarchyItemId",
+                  "type": "c_void",
                   "doc": ""
                 },
-                "destructor": {
-                  "type": "NodeIdVecDestructor",
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -32336,10 +32739,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const NodeHierarchyItem",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32349,7 +32748,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "NodeHierarchyItemVecDestructor"
+                  "type": "NodeHierarchyItemVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -32361,8 +32761,16 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "StyledNodeVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -32375,10 +32783,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const TagIdToNodeIdMapping",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32397,10 +32801,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const ParentWithNodeDepth",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32419,10 +32819,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const NodeData",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32432,7 +32828,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "NodeDataVecDestructor"
+                  "type": "NodeDataVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -32467,15 +32864,11 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "*const CoreCallbackData",
+                  "type": "c_void",
                   "doc": ""
                 },
-                "len": {
-                  "type": "usize",
-                  "doc": ""
-                },
-                "cap": {
-                  "type": "usize",
+                "destructor": {
+                  "type": "CoreCallbackDataVecDestructor",
                   "doc": ""
                 }
               }
@@ -32488,10 +32881,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const AccessibilityAction",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32501,7 +32890,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "AccessibilityActionVecDestructor"
+                  "type": "AccessibilityActionVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -32513,10 +32903,6 @@
             "derive": [],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "*const XmlNodeChild",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32526,7 +32912,8 @@
                   "doc": ""
                 },
                 "destructor": {
-                  "type": "XmlNodeChildVecDestructor"
+                  "type": "XmlNodeChildVecDestructor",
+                  "doc": ""
                 }
               }
             ]
@@ -32538,8 +32925,16 @@
             "derive": [],
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "GridTrackSizingVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -32547,12 +32942,13 @@
           },
           "GLbooleanVecRefMut": {
             "external": "azul_core::gl::GLbooleanVecRefMut",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* mut u8",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32563,14 +32959,15 @@
           },
           "RefstrVecRef": {
             "external": "azul_core::gl::RefstrVecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* const Refstr",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -32579,12 +32976,13 @@
           },
           "GLfloatVecRefMut": {
             "external": "azul_core::gl::GLfloatVecRefMut",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* mut f32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32595,14 +32993,15 @@
           },
           "U8VecRefMut": {
             "external": "azul_core::gl::U8VecRefMut",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* mut u8",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -32611,14 +33010,14 @@
           },
           "TessellatedSvgNodeVecRef": {
             "external": "azul_core::svg::TessellatedSvgNodeVecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* const TessellatedSvgNode",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -32627,12 +33026,13 @@
           },
           "F32VecRef": {
             "external": "azul_core::gl::F32VecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* const f32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32643,14 +33043,15 @@
           },
           "GLuintVecRef": {
             "external": "azul_core::gl::GLuintVecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* const u32",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -32659,12 +33060,13 @@
           },
           "I32VecRef": {
             "external": "azul_core::gl::I32VecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* const i32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32675,12 +33077,18 @@
           },
           "U8VecRef": {
             "external": "azul_core::gl::U8VecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* const u8",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32691,12 +33099,13 @@
           },
           "GLintVecRefMut": {
             "external": "azul_core::gl::GLintVecRefMut",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* mut i32",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -32707,14 +33116,15 @@
           },
           "GLenumVecRef": {
             "external": "azul_core::gl::GLenumVecRef",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "* const u32",
-                  "doc": ""
-                },
-                "len": {
-                  "type": "usize",
+                  "type": "c_void",
                   "doc": ""
                 }
               }
@@ -32723,12 +33133,13 @@
           },
           "GLint64VecRefMut": {
             "external": "azul_core::gl::GLint64VecRefMut",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "From"
+            ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* mut i64",
-                  "doc": ""
-                },
                 "len": {
                   "type": "usize",
                   "doc": ""
@@ -33080,7 +33491,11 @@
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ListViewRowVecDestructorType"
+                }
               }
             ]
           },
@@ -33464,7 +33879,11 @@
             "external": "azul_core::styled_dom::NodeIdVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "NodeIdVecDestructorType"
+                }
               }
             ]
           },
@@ -33772,7 +34191,11 @@
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructor",
             "enum_fields": [
               {
-                "External": {}
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "CoreCallbackDataVecDestructorType"
+                }
               }
             ]
           },
@@ -33893,8 +34316,16 @@
             "external": "azul_core::gl::VertexAttributeVec",
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "VertexAttributeVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -33929,8 +34360,16 @@
             "external": "azul_core::gl::DebugMessageVec",
             "struct_fields": [
               {
-                "destructor": {
-                  "type": "DebugMessageVecDestructor",
+                "ptr": {
+                  "type": "c_void",
+                  "doc": ""
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": ""
+                },
+                "cap": {
+                  "type": "usize",
                   "doc": ""
                 }
               }
@@ -34475,19 +34914,11 @@
               }
             ]
           },
-          "OptionAzString": {
-            "external": "azul_css::corety::OptionAzString",
-            "enum_fields": [
-              {
-                "None": {},
-                "Some": {
-                  "type": "String"
-                }
-              }
-            ]
-          },
           "SvgParseOptions": {
             "external": "azul_core::svg::SvgParseOptions",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialOrd",
               "Debug",
@@ -34496,10 +34927,6 @@
             ],
             "struct_fields": [
               {
-                "relative_image_path": {
-                  "type": "OptionAzString",
-                  "doc": ""
-                },
                 "dpi": {
                   "type": "f32",
                   "doc": ""
@@ -34542,6 +34969,9 @@
           },
           "SvgXmlOptions": {
             "external": "azul_core::svg::SvgXmlOptions",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "PartialEq",
               "Debug",
@@ -34608,6 +35038,22 @@
                 }
               }
             ]
+          },
+          "OptionString": {
+            "external": "azul_css::corety::OptionString",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "AzString"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -34646,6 +35092,9 @@
           },
           "SvgParseError": {
             "external": "azul_core::svg::SvgParseError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "PartialOrd",
               "Clone",
@@ -34678,6 +35127,9 @@
           },
           "XmlError": {
             "external": "azul_core::xml::XmlError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "PartialEq",
               "PartialOrd",
@@ -34958,6 +35410,9 @@
           },
           "XmlParseError": {
             "external": "azul_core::xml::XmlParseError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "PartialEq",
               "Clone",
@@ -35042,6 +35497,9 @@
           },
           "XmlStreamError": {
             "external": "azul_core::xml::XmlStreamError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "PartialOrd",
               "Debug",
@@ -35269,6 +35727,9 @@
           },
           "EncodeImageError": {
             "external": "azul_layout::image::encode::EncodeImageError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Debug",
               "PartialOrd",
@@ -35305,6 +35766,9 @@
           },
           "DecodeImageError": {
             "external": "azul_layout::image::decode::DecodeImageError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Clone",
               "PartialOrd",
@@ -35393,6 +35857,9 @@
           },
           "ExtendMode": {
             "external": "azul_css::props::style::background::ExtendMode",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -35413,6 +35880,9 @@
           },
           "FlowInto": {
             "external": "azul_css::props::layout::flow::FlowInto",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Hash",
@@ -35702,6 +36172,9 @@
           },
           "FlowFrom": {
             "external": "azul_css::props::layout::flow::FlowFrom",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Eq",
               "Clone",
@@ -35723,6 +36196,11 @@
           },
           "RefCount": {
             "external": "azul_core::refany::RefCount",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop"
+            ],
             "derive": [
               "PartialOrd",
               "PartialEq",
@@ -35732,10 +36210,6 @@
             ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "* const RefCountInner",
-                  "doc": ""
-                },
                 "run_destructor": {
                   "type": "bool",
                   "doc": ""
@@ -35767,6 +36241,10 @@
           },
           "RefAny": {
             "external": "azul_core::refany::RefAny",
+            "custom_impls": [
+              "Clone",
+              "Drop"
+            ],
             "derive": [
               "Debug",
               "PartialOrd",
@@ -35777,10 +36255,6 @@
             ],
             "struct_fields": [
               {
-                "_internal_ptr": {
-                  "type": "* const c_void",
-                  "doc": ""
-                },
                 "sharing_info": {
                   "type": "RefCount",
                   "doc": ""

@@ -525,7 +525,7 @@ pub struct TextInput {
 #[repr(C)]
 pub struct TextInputState {
     pub text: U32Vec, // Vec<char>
-    pub placeholder: OptionAzString,
+    pub placeholder: OptionString,
     pub max_len: usize,
     pub selection: OptionTextInputSelection,
     pub cursor_pos: usize,

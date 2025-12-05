@@ -116,7 +116,7 @@ pub struct AzString {
 
 impl_option!(
     AzString,
-    OptionAzString,
+    OptionString,
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );

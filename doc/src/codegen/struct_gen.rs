@@ -26,6 +26,9 @@ pub struct GenerateConfig {
     pub no_derive: bool,
     /// Suffix to add to enum wrapper types
     pub wrapper_postfix: String,
+    /// Whether this is memtest mode - if true, don't generate trait impls that call external functions
+    /// (like Clone calling _deepCopy, Drop calling _delete)
+    pub is_memtest: bool,
 }
 
 impl Default for GenerateConfig {
@@ -36,6 +39,7 @@ impl Default for GenerateConfig {
             private_pointers: true,
             no_derive: false,
             wrapper_postfix: String::new(),
+            is_memtest: false,
         }
     }
 }
@@ -552,6 +556,23 @@ fn generate_struct_definition(
                 other => derives.push(other),
             }
         }
+        
+        // For memtest: add custom_impls as derives (since we skip generating the trait impls)
+        // This way types that have manual `impl Clone for X` in real code get `#[derive(Clone)]` in memtest
+        if config.is_memtest {
+            for impl_trait in &struct_meta.custom_impls {
+                // Skip traits that can't be derived
+                match impl_trait.as_str() {
+                    "Clone" | "Copy" | "Debug" | "Default" | "PartialEq" | "Eq" | 
+                    "PartialOrd" | "Ord" | "Hash" => {
+                        if !derives.contains(&impl_trait.as_str()) {
+                            derives.push(impl_trait.as_str());
+                        }
+                    }
+                    _ => {} // Skip non-derivable traits like Drop, Display, AsRef, From, etc.
+                }
+            }
+        }
     }
     
     // For callback wrapper structs, don't derive any traits because we generate custom implementations
@@ -735,140 +756,143 @@ fn generate_struct_definition(
 
     // Generate trait implementations for custom_impls
     // These cast to the external type, call the trait method, and cast back if needed
-    let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
+    // Skip for memtest - those traits are already implemented in the original source
+    if !config.is_memtest {
+        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
 
-    // Generate impl Clone if custom_impls contains "Clone"
-    if struct_meta.custom_impls.contains(&"Clone".to_string()) {
-        code.push_str(&format!(
-            "{}impl Clone for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn clone(&self) -> Self {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ {}_deepCopy(self) }}\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl Clone if custom_impls contains "Clone"
+        if struct_meta.custom_impls.contains(&"Clone".to_string()) {
+            code.push_str(&format!(
+                "{}impl Clone for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn clone(&self) -> Self {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ {}_deepCopy(self) }}\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl Drop if custom_impls contains "Drop"
-    if struct_meta.custom_impls.contains(&"Drop".to_string()) {
-        code.push_str(&format!(
-            "{}impl Drop for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn drop(&mut self) {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ {}_delete(self) }}\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl Drop if custom_impls contains "Drop"
+        if struct_meta.custom_impls.contains(&"Drop".to_string()) {
+            code.push_str(&format!(
+                "{}impl Drop for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn drop(&mut self) {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ {}_delete(self) }}\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl Debug if custom_impls contains "Debug"
-    if struct_meta.custom_impls.contains(&"Debug".to_string()) {
-        code.push_str(&format!(
-            "{}impl core::fmt::Debug for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ (*(self as *const {} as *const {})).fmt(f) }}\n",
-            indent_str, struct_name, external_path
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl Debug if custom_impls contains "Debug"
+        if struct_meta.custom_impls.contains(&"Debug".to_string()) {
+            code.push_str(&format!(
+                "{}impl core::fmt::Debug for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ (*(self as *const {} as *const {})).fmt(f) }}\n",
+                indent_str, struct_name, external_path
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl PartialEq if custom_impls contains "PartialEq"
-    if struct_meta.custom_impls.contains(&"PartialEq".to_string()) {
-        code.push_str(&format!(
-            "{}impl PartialEq for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn eq(&self, other: &Self) -> bool {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} as *const {})) }}\n",
-            indent_str, struct_name, external_path, struct_name, external_path
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl PartialEq if custom_impls contains "PartialEq"
+        if struct_meta.custom_impls.contains(&"PartialEq".to_string()) {
+            code.push_str(&format!(
+                "{}impl PartialEq for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn eq(&self, other: &Self) -> bool {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} as *const {})) }}\n",
+                indent_str, struct_name, external_path, struct_name, external_path
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl PartialOrd if custom_impls contains "PartialOrd"
-    if struct_meta.custom_impls.contains(&"PartialOrd".to_string()) {
-        code.push_str(&format!(
-            "{}impl PartialOrd for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as *const {} as *const {})) }}\n",
-            indent_str, struct_name, external_path, struct_name, external_path
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl PartialOrd if custom_impls contains "PartialOrd"
+        if struct_meta.custom_impls.contains(&"PartialOrd".to_string()) {
+            code.push_str(&format!(
+                "{}impl PartialOrd for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as *const {} as *const {})) }}\n",
+                indent_str, struct_name, external_path, struct_name, external_path
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl Eq if custom_impls contains "Eq"
-    if struct_meta.custom_impls.contains(&"Eq".to_string()) {
-        code.push_str(&format!(
-            "{}impl Eq for {} {{}}\n\n",
-            indent_str, struct_name
-        ));
-    }
+        // Generate impl Eq if custom_impls contains "Eq"
+        if struct_meta.custom_impls.contains(&"Eq".to_string()) {
+            code.push_str(&format!(
+                "{}impl Eq for {} {{}}\n\n",
+                indent_str, struct_name
+            ));
+        }
 
-    // Generate impl Ord if custom_impls contains "Ord"
-    if struct_meta.custom_impls.contains(&"Ord".to_string()) {
-        code.push_str(&format!(
-            "{}impl Ord for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const {} as *const {})) }}\n",
-            indent_str, struct_name, external_path, struct_name, external_path
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
-    }
+        // Generate impl Ord if custom_impls contains "Ord"
+        if struct_meta.custom_impls.contains(&"Ord".to_string()) {
+            code.push_str(&format!(
+                "{}impl Ord for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const {} as *const {})) }}\n",
+                indent_str, struct_name, external_path, struct_name, external_path
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
 
-    // Generate impl Hash if custom_impls contains "Hash"
-    if struct_meta.custom_impls.contains(&"Hash".to_string()) {
-        code.push_str(&format!(
-            "{}impl core::hash::Hash for {} {{\n",
-            indent_str, struct_name
-        ));
-        code.push_str(&format!(
-            "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
-            indent_str
-        ));
-        code.push_str(&format!(
-            "{}        unsafe {{ (*(self as *const {} as *const {})).hash(state) }}\n",
-            indent_str, struct_name, external_path
-        ));
-        code.push_str(&format!("{}    }}\n", indent_str));
-        code.push_str(&format!("{}}}\n\n", indent_str));
+        // Generate impl Hash if custom_impls contains "Hash"
+        if struct_meta.custom_impls.contains(&"Hash".to_string()) {
+            code.push_str(&format!(
+                "{}impl core::hash::Hash for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ (*(self as *const {} as *const {})).hash(state) }}\n",
+                indent_str, struct_name, external_path
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
     }
 
     Ok(code)
@@ -923,6 +947,24 @@ fn generate_enum_definition(
         // So re-add it to the derives list
         if has_default {
             derives.push("Default");
+        }
+        
+        // For memtest: add custom_impls as derives (since we skip generating the trait impls)
+        // This way types that have manual `impl Clone for X` in real code get `#[derive(Clone)]` in memtest
+        if config.is_memtest {
+            for impl_trait in &struct_meta.custom_impls {
+                // Skip traits that can't be derived
+                match impl_trait.as_str() {
+                    "Clone" | "Copy" | "Debug" | "PartialEq" | "Eq" | 
+                    "PartialOrd" | "Ord" | "Hash" => {
+                        if !derives.contains(&impl_trait.as_str()) {
+                            derives.push(impl_trait.as_str());
+                        }
+                    }
+                    // Note: Default is handled separately above for enums
+                    _ => {} // Skip non-derivable traits like Drop, Display, AsRef, From, etc.
+                }
+            }
         }
     }
 

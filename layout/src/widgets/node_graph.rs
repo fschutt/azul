@@ -322,7 +322,7 @@ pub enum NodeTypeFieldValue {
     NumberInput(f32),
     CheckBox(bool),
     ColorInput(ColorU),
-    FileInput(OptionAzString),
+    FileInput(OptionString),
 }
 
 #[derive(Debug, Clone)]

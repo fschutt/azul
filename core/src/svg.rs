@@ -43,7 +43,7 @@ use azul_css::{
         },
         style::{StyleTransformOrigin, StyleTransformVec},
     },
-    AzString, OptionAzString, StringVec, U32Vec,
+    AzString, OptionString, StringVec, U32Vec,
 };
 
 use crate::{
@@ -1260,7 +1260,7 @@ impl Default for SvgFitTo {
 #[repr(C)]
 pub struct SvgParseOptions {
     /// SVG image path. Used to resolve relative image paths.
-    pub relative_image_path: OptionAzString,
+    pub relative_image_path: OptionString,
     /// Target DPI. Impact units conversion. Default: 96.0
     pub dpi: f32,
     /// Default font family. Will be used when no font-family attribute is set in the SVG. Default:
@@ -1292,7 +1292,7 @@ impl Default for SvgParseOptions {
     fn default() -> Self {
         let lang_vec: Vec<AzString> = vec![String::from("en").into()];
         SvgParseOptions {
-            relative_image_path: OptionAzString::None,
+            relative_image_path: OptionString::None,
             dpi: 96.0,
             default_font_family: "Times New Roman".to_string().into(),
             font_size: 12.0,

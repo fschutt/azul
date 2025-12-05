@@ -26,7 +26,7 @@ use alloc::{
 use core::time::Duration;
 
 use crate::{
-    corety::{AzString, OptionAzString, OptionF32},
+    corety::{AzString, OptionString, OptionF32},
     css::Stylesheet,
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
@@ -108,11 +108,11 @@ pub struct SystemColors {
 #[repr(C)]
 pub struct SystemFonts {
     /// The primary font used for UI elements like buttons and labels.
-    pub ui_font: OptionAzString,
+    pub ui_font: OptionString,
     /// The default font size for UI elements, in points.
     pub ui_font_size: OptionF32,
     /// The font used for code or other monospaced text.
-    pub monospace_font: OptionAzString,
+    pub monospace_font: OptionString,
 }
 
 /// Common system metrics for UI element sizing and spacing.
@@ -415,11 +415,11 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
     style.platform = Platform::Linux(DesktopEnvironment::Gnome);
     if let Some(font) = ui_font {
         style.fonts.ui_font =
-            OptionAzString::Some(font.trim().trim_matches('\'').to_string().into());
+            OptionString::Some(font.trim().trim_matches('\'').to_string().into());
     }
     if let Some(font) = monospace_font {
         style.fonts.monospace_font =
-            OptionAzString::Some(font.trim().trim_matches('\'').to_string().into());
+            OptionString::Some(font.trim().trim_matches('\'').to_string().into());
     }
 
     Ok(style)
@@ -460,7 +460,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     ) {
         let mut parts = font_str.trim().split(',');
         if let Some(font_name) = parts.next() {
-            style.fonts.ui_font = OptionAzString::Some(font_name.to_string().into());
+            style.fonts.ui_font = OptionString::Some(font_name.to_string().into());
         }
         if let Some(font_size_str) = parts.next() {
             if let Ok(size) = font_size_str.parse::<f32>() {
@@ -476,7 +476,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         Duration::from_secs(1),
     ) {
         if let Some(font_name) = font_str.trim().split(',').next() {
-            style.fonts.monospace_font = OptionAzString::Some(font_name.to_string().into());
+            style.fonts.monospace_font = OptionString::Some(font_name.to_string().into());
         }
     }
 
@@ -590,7 +590,7 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
         Duration::from_secs(1),
     ) {
         if let Some(font_name) = font_str.trim().trim_matches('\'').split(' ').next() {
-            style.fonts.ui_font = OptionAzString::Some(font_name.to_string().into());
+            style.fonts.ui_font = OptionString::Some(font_name.to_string().into());
         }
     }
 
@@ -761,7 +761,7 @@ pub mod defaults {
     //! for testing and environments where system calls are not desired.
 
     use crate::{
-        corety::{AzString, OptionAzString, OptionF32},
+        corety::{AzString, OptionString, OptionF32},
         props::{
             basic::{
                 color::{ColorU, OptionColorU},
@@ -918,9 +918,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Segoe UI Variable Text".into()),
+                ui_font: OptionString::Some("Segoe UI Variable Text".into()),
                 ui_font_size: OptionF32::Some(9.0),
-                monospace_font: OptionAzString::Some("Consolas".into()),
+                monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -945,9 +945,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Segoe UI Variable Text".into()),
+                ui_font: OptionString::Some("Segoe UI Variable Text".into()),
                 ui_font_size: OptionF32::Some(9.0),
-                monospace_font: OptionAzString::Some("Consolas".into()),
+                monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -972,9 +972,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Segoe UI".into()),
+                ui_font: OptionString::Some("Segoe UI".into()),
                 ui_font_size: OptionF32::Some(9.0),
-                monospace_font: OptionAzString::Some("Consolas".into()),
+                monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(6.0)),
@@ -999,9 +999,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Tahoma".into()),
+                ui_font: OptionString::Some("Tahoma".into()),
                 ui_font_size: OptionF32::Some(8.0),
-                monospace_font: OptionAzString::Some("Lucida Console".into()),
+                monospace_font: OptionString::Some("Lucida Console".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(3.0)),
@@ -1026,9 +1026,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some(".SF NS".into()),
+                ui_font: OptionString::Some(".SF NS".into()),
                 ui_font_size: OptionF32::Some(13.0),
-                monospace_font: OptionAzString::Some("Menlo".into()),
+                monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(8.0)),
@@ -1051,9 +1051,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some(".SF NS".into()),
+                ui_font: OptionString::Some(".SF NS".into()),
                 ui_font_size: OptionF32::Some(13.0),
-                monospace_font: OptionAzString::Some("Menlo".into()),
+                monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(8.0)),
@@ -1076,9 +1076,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Lucida Grande".into()),
+                ui_font: OptionString::Some("Lucida Grande".into()),
                 ui_font_size: OptionF32::Some(13.0),
-                monospace_font: OptionAzString::Some("Monaco".into()),
+                monospace_font: OptionString::Some("Monaco".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(12.0)),
@@ -1103,9 +1103,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Cantarell".into()),
+                ui_font: OptionString::Some("Cantarell".into()),
                 ui_font_size: OptionF32::Some(11.0),
-                monospace_font: OptionAzString::Some("Monospace".into()),
+                monospace_font: OptionString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1128,9 +1128,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Cantarell".into()),
+                ui_font: OptionString::Some("Cantarell".into()),
                 ui_font_size: OptionF32::Some(11.0),
-                monospace_font: OptionAzString::Some("Monospace".into()),
+                monospace_font: OptionString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1152,9 +1152,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("DejaVu Sans".into()),
+                ui_font: OptionString::Some("DejaVu Sans".into()),
                 ui_font_size: OptionF32::Some(10.0),
-                monospace_font: OptionAzString::Some("DejaVu Sans Mono".into()),
+                monospace_font: OptionString::Some("DejaVu Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1176,9 +1176,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Noto Sans".into()),
+                ui_font: OptionString::Some("Noto Sans".into()),
                 ui_font_size: OptionF32::Some(10.0),
-                monospace_font: OptionAzString::Some("Hack".into()),
+                monospace_font: OptionString::Some("Hack".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(4.0)),
@@ -1202,9 +1202,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Roboto".into()),
+                ui_font: OptionString::Some("Roboto".into()),
                 ui_font_size: OptionF32::Some(14.0),
-                monospace_font: OptionAzString::Some("Droid Sans Mono".into()),
+                monospace_font: OptionString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(12.0)),
@@ -1226,9 +1226,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some("Roboto".into()),
+                ui_font: OptionString::Some("Roboto".into()),
                 ui_font_size: OptionF32::Some(14.0),
-                monospace_font: OptionAzString::Some("Droid Sans Mono".into()),
+                monospace_font: OptionString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(2.0)),
@@ -1250,9 +1250,9 @@ pub mod defaults {
                 ..Default::default()
             },
             fonts: SystemFonts {
-                ui_font: OptionAzString::Some(".SFUI-Display-Regular".into()),
+                ui_font: OptionString::Some(".SFUI-Display-Regular".into()),
                 ui_font_size: OptionF32::Some(17.0),
-                monospace_font: OptionAzString::Some("Menlo".into()),
+                monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
                 corner_radius: Some(PixelValue::px(10.0)),

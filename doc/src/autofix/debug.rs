@@ -6,7 +6,7 @@
 use std::path::Path;
 use anyhow::Result;
 
-use super::type_index::{TypeIndex, TypeDefinition, TypeDefKind};
+use super::type_index::{TypeIndex, TypeDefinition, TypeDefKind, FieldDef, RefKind};
 use super::type_resolver::{TypeResolver, ResolutionContext, ResolvedTypeSet};
 use super::diff::{ApiTypeResolution, resolve_api_types};
 use crate::api::ApiData;
@@ -24,9 +24,12 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                 println!("      Kind: {}", kind_to_string(&def.kind));
                 
                 match &def.kind {
-                    TypeDefKind::Struct { fields, has_repr_c, derives, .. } => {
+                    TypeDefKind::Struct { fields, has_repr_c, derives, custom_impls, .. } => {
                         println!("      repr(C): {}", has_repr_c);
                         println!("      Derives: {:?}", derives);
+                        if !custom_impls.is_empty() {
+                            println!("      Custom impls: {:?}", custom_impls);
+                        }
                         println!("      Fields ({}):", fields.len());
                         for (name, field) in fields.iter().take(5) {
                             println!("        - {}: {}", name, field.ty);
@@ -35,8 +38,12 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                             println!("        ... and {} more", fields.len() - 5);
                         }
                     }
-                    TypeDefKind::Enum { variants, has_repr_c, .. } => {
+                    TypeDefKind::Enum { variants, has_repr_c, derives, custom_impls, .. } => {
                         println!("      repr(C): {}", has_repr_c);
+                        println!("      Derives: {:?}", derives);
+                        if !custom_impls.is_empty() {
+                            println!("      Custom impls: {:?}", custom_impls);
+                        }
                         println!("      Variants ({}):", variants.len());
                         for (name, variant) in variants.iter().take(10) {
                             if let Some(ty) = &variant.ty {
@@ -57,7 +64,7 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                         // Show the expanded form
                         let expanded = def.expand_macro_generated();
                         match &expanded {
-                            TypeDefKind::Struct { fields, has_repr_c, derives, .. } => {
+                            TypeDefKind::Struct { fields, has_repr_c, derives, custom_impls, .. } => {
                                 println!("      [Expanded to Struct]");
                                 println!("        repr(C): {}", has_repr_c);
                                 println!("        Fields ({}):", fields.len());
@@ -67,8 +74,11 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                                 if !derives.is_empty() {
                                     println!("        Derives: {:?}", derives);
                                 }
+                                if !custom_impls.is_empty() {
+                                    println!("        Custom impls: {:?}", custom_impls);
+                                }
                             }
-                            TypeDefKind::Enum { variants, has_repr_c, derives, .. } => {
+                            TypeDefKind::Enum { variants, has_repr_c, derives, custom_impls, .. } => {
                                 println!("      [Expanded to Enum]");
                                 println!("        repr(C): {}", has_repr_c);
                                 println!("        Variants ({}):", variants.len());
@@ -81,6 +91,9 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                                 }
                                 if !derives.is_empty() {
                                     println!("        Derives: {:?}", derives);
+                                }
+                                if !custom_impls.is_empty() {
+                                    println!("        Custom impls: {:?}", custom_impls);
                                 }
                             }
                             TypeDefKind::CallbackTypedef { args, returns } => {
@@ -318,6 +331,7 @@ mod tests {
                                     name: field_name.to_string(),
                                     ty: field.ty.to_token_stream().to_string()
                                         .split_whitespace().collect::<Vec<_>>().join(" "),
+                                    ref_kind: RefKind::Value,
                                     doc: String::new(),
                                 },
                             );

@@ -49,8 +49,8 @@ pub struct TypeAddition {
     pub type_name: String,
     pub full_path: String,
     pub kind: String, // "struct", "enum", "callback", etc.
-    /// Struct fields (for struct types)
-    pub struct_fields: Option<Vec<(String, String)>>, // (field_name, field_type)
+    /// Struct fields (for struct types): (field_name, field_type, ref_kind)
+    pub struct_fields: Option<Vec<(String, String, String)>>, // (field_name, field_type, ref_kind)
     /// Enum variants (for enum types)
     pub enum_variants: Option<Vec<(String, Option<String>)>>, // (variant_name, variant_type)
     /// Derives from source code
@@ -93,6 +93,8 @@ pub enum ModificationKind {
     VariantTypeChanged { variant_name: String, old_type: Option<String>, new_type: Option<String> },
     DeriveAdded { derive_name: String },
     DeriveRemoved { derive_name: String },
+    CustomImplAdded { impl_name: String },
+    CustomImplRemoved { impl_name: String },
     ReprCChanged { old_repr_c: bool, new_repr_c: bool },
     /// Callback typedef needs to be added (type exists but has no callback_typedef)
     CallbackTypedefAdded { args: Vec<CallbackArgInfo>, returns: Option<String> },
@@ -407,8 +409,8 @@ pub fn generate_diff(
                 // Extract fields/variants from the EXPANDED kind
                 let (fields, variants, derives) = match expanded {
                     super::type_index::TypeDefKind::Struct { fields, derives, .. } => {
-                        let field_vec: Vec<(String, String)> = fields.iter()
-                            .map(|(name, field)| (name.clone(), field.ty.clone()))
+                        let field_vec: Vec<(String, String, String)> = fields.iter()
+                            .map(|(name, field)| (name.clone(), field.ty.clone(), field.ref_kind.as_str().to_string()))
                             .collect();
                         (Some(field_vec), None, derives)
                     }
@@ -896,10 +898,10 @@ fn compare_derives_and_impls(
 ) -> Vec<TypeModification> {
     let mut modifications = Vec::new();
     
-    // Get workspace derives and repr_c
-    let (workspace_derives, workspace_repr_c) = match &workspace_type.kind {
-        TypeDefKind::Struct { derives, has_repr_c, .. } => (derives.clone(), *has_repr_c),
-        TypeDefKind::Enum { derives, has_repr_c, .. } => (derives.clone(), *has_repr_c),
+    // Get workspace derives, custom_impls and repr_c
+    let (workspace_derives, workspace_custom_impls, workspace_repr_c) = match &workspace_type.kind {
+        TypeDefKind::Struct { derives, custom_impls, has_repr_c, .. } => (derives.clone(), custom_impls.clone(), *has_repr_c),
+        TypeDefKind::Enum { derives, custom_impls, has_repr_c, .. } => (derives.clone(), custom_impls.clone(), *has_repr_c),
         _ => return modifications, // Skip non-struct/enum types
     };
     
@@ -923,6 +925,30 @@ fn compare_derives_and_impls(
             type_name: type_name.to_string(),
             kind: ModificationKind::DeriveRemoved {
                 derive_name: (*derive).clone(),
+            },
+        });
+    }
+    
+    // Compare custom_impls
+    let workspace_impl_set: HashSet<_> = workspace_custom_impls.iter().collect();
+    let api_impl_set: HashSet<_> = api_info.custom_impls.iter().collect();
+    
+    // Custom impls added in workspace (not in api.json)
+    for impl_name in workspace_impl_set.difference(&api_impl_set) {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::CustomImplAdded {
+                impl_name: (*impl_name).clone(),
+            },
+        });
+    }
+    
+    // Custom impls removed from workspace (in api.json but not workspace)
+    for impl_name in api_impl_set.difference(&workspace_impl_set) {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::CustomImplRemoved {
+                impl_name: (*impl_name).clone(),
             },
         });
     }
@@ -1306,7 +1332,7 @@ fn get_type_kind(index: &TypeIndex, type_name: &str) -> String {
 fn get_type_kind_with_fields(
     index: &TypeIndex, 
     type_name: &str
-) -> (String, Option<Vec<(String, String)>>, Option<Vec<(String, Option<String>)>>, Vec<String>) {
+) -> (String, Option<Vec<(String, String, String)>>, Option<Vec<(String, Option<String>)>>, Vec<String>) {
     if let Some(typedef) = index.resolve(type_name, None) {
         // Get the expanded kind (handles MacroGenerated types)
         let expanded = typedef.expand_macro_generated();
@@ -1333,8 +1359,8 @@ fn get_type_kind_with_fields(
         // Extract fields/variants from the EXPANDED kind
         match expanded {
             super::type_index::TypeDefKind::Struct { fields, derives, .. } => {
-                let field_vec: Vec<(String, String)> = fields.iter()
-                    .map(|(name, field)| (name.clone(), field.ty.clone()))
+                let field_vec: Vec<(String, String, String)> = fields.iter()
+                    .map(|(name, field)| (name.clone(), field.ty.clone(), field.ref_kind.as_str().to_string()))
                     .collect();
                 (kind_str.to_string(), Some(field_vec), None, derives)
             }

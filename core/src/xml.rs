@@ -70,7 +70,7 @@ use azul_css::{
             StyleTransformVec,
         },
     },
-    AzString, OptionAzString, U8Vec,
+    AzString, OptionString, U8Vec,
 };
 
 use crate::{
@@ -86,7 +86,7 @@ pub type SyntaxError = String;
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
 pub type XmlTagName = AzString;
 /// (Unparsed) text content of an XML node, such as the "Hello" in `<button>Hello</button>`.
-pub type XmlTextContent = OptionAzString;
+pub type XmlTextContent = OptionString;
 /// Attributes of an XML node, such as `["color" => "blue"]` in `<button color="blue" />`.
 pub type XmlAttributeMap = StringPairVec;
 
@@ -123,7 +123,7 @@ pub enum XmlNodeType {
 #[repr(C)]
 pub struct XmlQualifiedName {
     pub name: AzString,
-    pub namespace: OptionAzString,
+    pub namespace: OptionString,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -1929,7 +1929,7 @@ pub fn render_dom_from_body_node_inner<'a>(
     let mut dom = xml_component.renderer.render_dom(
         component_map,
         &filtered_xml_attributes,
-        &OptionAzString::None,
+        &OptionString::None,
     )?;
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
