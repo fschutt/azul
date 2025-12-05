@@ -100,7 +100,7 @@ impl Default for OverflowingScrollNode {
             virtual_child_rect: LogicalRect::zero(),
             parent_external_scroll_id: ExternalScrollId(0, PipelineId::DUMMY),
             parent_dom_hash: DomNodeHash(0),
-            scroll_tag_id: ScrollTagId(TagId(0)),
+            scroll_tag_id: ScrollTagId { inner: TagId { inner: 0 } },
         }
     }
 }

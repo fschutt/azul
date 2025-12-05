@@ -242,18 +242,12 @@ fn resolve_api_type_name(
     }
 }
 
-/// Check if two paths are equivalent (ignoring crate name differences)
+/// Check if two paths are equivalent
+/// 
+/// Paths are only equivalent if they are exactly the same.
+/// We DO want to catch crate renames (e.g., azul_dll -> azul_layout).
 fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
-    // Simple check: same path
-    if path1 == path2 {
-        return true;
-    }
-
-    // Check if they end with the same module::type pattern
-    let suffix1 = path1.rsplit("::").take(2).collect::<Vec<_>>();
-    let suffix2 = path2.rsplit("::").take(2).collect::<Vec<_>>();
-
-    suffix1 == suffix2
+    path1 == path2
 }
 
 // ============================================================================
@@ -540,6 +534,44 @@ fn resolve_api_functions_with_workspace_index(
                         }
                     }
                 }
+                
+                // Resolve struct_fields types
+                // These are the types used in struct field definitions
+                if let Some(ref fields) = class_data.struct_fields {
+                    for field_map in fields {
+                        for (field_name, field_data) in field_map {
+                            let parent_context = format!("{}.{}", class_name, field_name);
+                            resolver.resolve_type_with_context(&field_data.r#type, &ctx, Some(&parent_context));
+                        }
+                    }
+                }
+                
+                // Resolve enum_fields variant types
+                if let Some(ref variants) = class_data.enum_fields {
+                    for variant_map in variants {
+                        for (variant_name, variant_data) in variant_map {
+                            if let Some(ref variant_type) = variant_data.r#type {
+                                let parent_context = format!("{}::{}", class_name, variant_name);
+                                resolver.resolve_type_with_context(variant_type, &ctx, Some(&parent_context));
+                            }
+                        }
+                    }
+                }
+                
+                // Resolve callback_typedef argument types
+                // These are entry points for callbacks and their argument types need to be resolved
+                if let Some(ref callback_def) = class_data.callback_typedef {
+                    for (i, arg_data) in callback_def.fn_args.iter().enumerate() {
+                        let parent_context = format!("{} callback arg[{}]", class_name, i);
+                        resolver.resolve_type_with_context(&arg_data.r#type, &ctx, Some(&parent_context));
+                    }
+                    
+                    // Resolve return type
+                    if let Some(ref returns) = callback_def.returns {
+                        let parent_context = format!("{} callback -> return", class_name);
+                        resolver.resolve_type_with_context(&returns.r#type, &ctx, Some(&parent_context));
+                    }
+                }
             }
         }
     }
@@ -681,6 +713,33 @@ fn generate_diff_v2(
                     from_module: api_info.module.clone(),
                     to_module: correct_module,
                 });
+            }
+        }
+        
+        // 3. Check path fixes for ALL api.json types against workspace index
+        // This catches types that aren't reachable from function signatures
+        // but still have wrong paths (e.g., azul_dll -> azul_layout moves)
+        if !api_info.path.is_empty() && !matched_api_types.contains(api_name) {
+            // Try to find this type in the workspace index
+            // First try exact name, then with Az prefix
+            let workspace_typedef = index.resolve(api_name, None)
+                .or_else(|| index.resolve(&format!("Az{}", api_name), None));
+            
+            if let Some(typedef) = workspace_typedef {
+                // Found in workspace - check if path matches
+                if !paths_are_equivalent(&api_info.path, &typedef.full_path) {
+                    // Path mismatch - need to fix
+                    let already_has_fix = diff.path_fixes.iter()
+                        .any(|f| f.type_name == *api_name);
+                    
+                    if !already_has_fix {
+                        diff.path_fixes.push(PathFix {
+                            type_name: api_name.to_string(),
+                            old_path: api_info.path.clone(),
+                            new_path: typedef.full_path.clone(),
+                        });
+                    }
+                }
             }
         }
     }

@@ -35,7 +35,7 @@ use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn},
-    dom::{DomId, DomNodeHash, ScrollTagId, TagId},
+    dom::{DomId, DomNodeHash},
     geom::{LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize},
     gl::OptionGlContextPtr,
     gpu::GpuEventChanges,

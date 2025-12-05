@@ -235,7 +235,10 @@ impl TypeIndex {
             }
 
             // Prefer azul_core over others (but lower priority than explicit preference)
-            if candidate.crate_name == "azul_core" {
+            // Blacklist azul_dll - it's being phased out, prefer azul_layout
+            if candidate.crate_name == "azul_dll" {
+                score -= 1000; // Strongly deprioritize azul_dll
+            } else if candidate.crate_name == "azul_core" {
                 score += 100;
             } else if candidate.crate_name == "azul_css" {
                 score += 80;
@@ -638,12 +641,13 @@ fn extract_macro_generated_types(
     let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
 
     match macro_name.as_str() {
-        "impl_vec" | "impl_vec_clone" | "impl_vec_debug" => {
+        "impl_vec" => {
             // impl_vec!(BaseType, VecType, DestructorType)
             // Generates:
             //   - VecType (struct with ptr, len, cap, destructor fields)
             //   - DestructorType (enum with DefaultRust, NoDestructor, External variants)
             //   - DestructorTypeType (callback_typedef for extern "C" fn(*mut VecType))
+            // NOTE: impl_vec_clone and impl_vec_debug only add trait impls, not new types
             if args.len() >= 3 {
                 let base_type = args[0].to_string();
                 let vec_type = args[1].to_string();

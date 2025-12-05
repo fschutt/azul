@@ -57,7 +57,7 @@ use crate::{
     callbacks::Update,
     dom::{
         Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex, TabIndex,
-        TagId,
+        OptionTagId, TagId,
     },
     id::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
@@ -315,27 +315,6 @@ impl NodeHierarchyItemId {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
-pub struct AzTagId {
-    pub inner: u64,
-}
-
-impl_option!(
-    AzTagId,
-    OptionTagId,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
-
-impl AzTagId {
-    pub const fn into_crate_internal(&self) -> TagId {
-        TagId(self.inner)
-    }
-    pub const fn from_crate_internal(t: TagId) -> Self {
-        AzTagId { inner: t.0 }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[repr(C)]
 pub struct NodeHierarchyItem {
     pub parent: usize,
     pub previous_sibling: usize,
@@ -460,7 +439,7 @@ impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 #[repr(C)]
 pub struct TagIdToNodeIdMapping {
     // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
-    pub tag_id: AzTagId,
+    pub tag_id: TagId,
     /// Node ID of the node that has a tag
     pub node_id: NodeHierarchyItemId,
     /// Whether this node has a tab-index field

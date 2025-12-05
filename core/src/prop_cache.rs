@@ -246,7 +246,7 @@ use crate::{
     id::{NodeDataContainer, NodeDataContainerRef},
     style::CascadeInfo,
     styled_dom::{
-        AzTagId, NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
+        NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
 };
@@ -855,7 +855,7 @@ impl CssPropertyCache {
                     None
                 } else {
                     Some(TagIdToNodeIdMapping {
-                        tag_id: AzTagId::from_crate_internal(TagId::unique()),
+                        tag_id: TagId::from_crate_internal(TagId::unique()),
                         node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                         tab_index: tab_index.into(),
                         parent_node_ids: {

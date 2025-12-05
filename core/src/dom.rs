@@ -137,27 +137,40 @@ impl InputType {
     }
 }
 
-/// Unique tag that is used to annotate which rectangles are relevant for hit-testing.
-/// These tags are generated per-frame to identify interactable areas.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct TagId(pub u64);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub struct TagId {
+    pub inner: u64,
+}
 
 impl ::core::fmt::Display for TagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TagId({})", self.0)
+        f.debug_struct("TagId")
+            .field("inner", &self.inner)
+            .finish()
     }
 }
 
-impl ::core::fmt::Debug for TagId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
-}
+impl_option!(
+    TagId,
+    OptionTagId,
+    [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
+);
 
 impl TagId {
+    pub const fn into_crate_internal(&self) -> TagId {
+        TagId { inner: self.inner }
+    }
+    pub const fn from_crate_internal(t: TagId) -> Self {
+        TagId { inner: t.inner }
+    }
+
     /// Creates a new, unique hit-testing tag ID.
     pub fn unique() -> Self {
-        TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
+        TagId {
+            inner: TAG_ID.fetch_add(1, Ordering::SeqCst) as u64 
+        }
     }
 
     /// Resets the counter (usually done after each frame) so that we can
@@ -170,11 +183,16 @@ impl TagId {
 /// Same as the `TagId`, but only for scrollable nodes.
 /// This provides a typed distinction for tags associated with scrolling containers.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct ScrollTagId(pub TagId);
+#[repr(C)]
+pub struct ScrollTagId {
+    pub inner: TagId,
+}
 
 impl ::core::fmt::Display for ScrollTagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ScrollTagId({})", (self.0).0)
+        f.debug_struct("ScrollTagId")
+            .field("inner", &self.inner)
+            .finish()
     }
 }
 
@@ -188,7 +206,7 @@ impl ScrollTagId {
     /// Creates a new, unique scroll tag ID. Note that this should not
     /// be used for identifying nodes, use the `DomNodeHash` instead.
     pub fn unique() -> ScrollTagId {
-        ScrollTagId(TagId::unique())
+        ScrollTagId { inner: TagId::unique() }
     }
 }
 

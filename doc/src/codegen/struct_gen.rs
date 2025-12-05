@@ -352,6 +352,19 @@ fn generate_single_type(
             indent_str,
         )?);
     }
+    // Handle opaque types (have external path but no struct/enum fields)
+    // Generate a type alias to allow Vec types to reference them
+    else if struct_meta.external.is_some() && !struct_meta.is_callback_typedef {
+        // Generate as opaque type alias (we don't know the size/layout)
+        code.push_str(&format!(
+            "{}/// Opaque type (no struct_fields/enum_fields in api.json)\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}pub type {} = *const c_void;\n\n",
+            indent_str, struct_name
+        ));
+    }
 
     Ok(code)
 }

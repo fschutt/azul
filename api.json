@@ -149,6 +149,43 @@
                 "StyleCursor"
               ]
             }
+          },
+          "HidpiAdjustedBounds": {
+            "external": "azul_core::callbacks::HidpiAdjustedBounds",
+            "derive": [
+              "Clone",
+              "Copy",
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "WindowTheme": {
+            "external": "azul_core::window::WindowTheme",
+            "derive": [
+              "PartialEq",
+              "Eq",
+              "Clone",
+              "Hash",
+              "Copy",
+              "PartialOrd",
+              "Ord",
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "DpiScaleFactor": {
+            "external": "azul_core::resources::DpiScaleFactor",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Eq",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord"
+            ],
+            "repr": "C"
           }
         }
       },
@@ -355,6 +392,38 @@
           },
           "FileInputOnPathChangeCallbackType": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChangeCallbackType"
+          },
+          "IFrameCallbackInfo": {
+            "external": "azul_core::callbacks::IFrameCallbackInfo",
+            "derive": [
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "CallbackInfo": {
+            "external": "azul_layout::callbacks::CallbackInfo",
+            "derive": [
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "RenderImageCallbackInfo": {
+            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
+            "derive": [
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "IFrameCallbackReason": {
+            "external": "azul_core::callbacks::IFrameCallbackReason",
+            "derive": [
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Debug"
+            ],
+            "repr": "C"
           }
         }
       },
@@ -3103,16 +3172,16 @@
             "repr": "C"
           },
           "TagId": {
-            "external": "azul_core::styled_dom::AzTagId",
+            "external": "azul_core::dom::TagId",
             "derive": [
               "Clone",
               "PartialOrd",
               "Hash",
-              "Debug",
               "Ord",
               "PartialEq",
               "Eq",
-              "Copy"
+              "Copy",
+              "Debug"
             ],
             "struct_fields": [
               {
@@ -3143,6 +3212,37 @@
               "PartialEq",
               "Debug"
             ],
+            "repr": "C"
+          },
+          "VertexAttributeType": {
+            "external": "azul_core::gl::VertexAttributeType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Copy",
+              "PartialOrd",
+              "Eq",
+              "Hash",
+              "Ord"
+            ],
+            "repr": "C"
+          },
+          "VertexAttribute": {
+            "external": "azul_core::gl::VertexAttribute",
+            "derive": [
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash",
+              "Clone",
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "Callback": {
+            "external": "azul_layout::callbacks::Callback",
             "repr": "C"
           }
         }
@@ -11659,6 +11759,29 @@
               "Debug"
             ],
             "repr": "C"
+          },
+          "VertexLayout": {
+            "external": "azul_core::gl::VertexLayout",
+            "derive": [
+              "Hash",
+              "PartialEq",
+              "Clone",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "FileTypeList": {
+            "external": "azul_layout::desktop::dialogs::FileTypeList",
+            "derive": [
+              "Debug",
+              "PartialEq",
+              "Clone",
+              "PartialOrd"
+            ],
+            "repr": "C"
           }
         }
       },
@@ -11666,7 +11789,7 @@
         "doc": "Default, built-in widgets (button, label, textinput, etc.)",
         "classes": {
           "Button": {
-            "external": "azul_dll::widgets::button::Button",
+            "external": "azul_layout::widgets::button::Button",
             "derive": [
               "PartialOrd",
               "PartialEq",
@@ -11769,7 +11892,7 @@
             "repr": "C"
           },
           "ButtonOnClick": {
-            "external": "azul_dll::widgets::button::ButtonOnClick",
+            "external": "azul_layout::widgets::button::ButtonOnClick",
             "struct_fields": [
               {
                 "data": {
@@ -11784,7 +11907,7 @@
             ]
           },
           "FileInput": {
-            "external": "azul_dll::widgets::file_input::FileInput",
+            "external": "azul_layout::widgets::file_input::FileInput",
             "derive": [
               "Debug",
               "Clone",
@@ -11911,7 +12034,7 @@
             "repr": "C"
           },
           "FileInputStateWrapper": {
-            "external": "azul_dll::widgets::file_input::FileInputStateWrapper",
+            "external": "azul_layout::widgets::file_input::FileInputStateWrapper",
             "derive": [
               "PartialEq",
               "Clone",
@@ -11950,7 +12073,7 @@
             "repr": "C"
           },
           "FileInputState": {
-            "external": "azul_dll::widgets::file_input::FileInputState",
+            "external": "azul_layout::widgets::file_input::FileInputState",
             "derive": [
               "PartialEq",
               "Debug",
@@ -11966,7 +12089,7 @@
             "repr": "C"
           },
           "FileInputOnPathChange": {
-            "external": "azul_dll::widgets::file_input::FileInputOnPathChange",
+            "external": "azul_layout::widgets::file_input::FileInputOnPathChange",
             "struct_fields": [
               {
                 "data": {
@@ -11981,7 +12104,7 @@
             ]
           },
           "FileInputOnPathChangeCallback": {
-            "external": "azul_dll::widgets::file_input::FileInputOnPathChangeCallback",
+            "external": "azul_layout::widgets::file_input::FileInputOnPathChangeCallback",
             "derive": [
               "Copy"
             ],
@@ -11994,7 +12117,7 @@
             ]
           },
           "CheckBox": {
-            "external": "azul_dll::widgets::check_box::CheckBox",
+            "external": "azul_layout::widgets::check_box::CheckBox",
             "derive": [
               "Debug",
               "PartialEq",
@@ -12077,7 +12200,7 @@
             "repr": "C"
           },
           "CheckBoxStateWrapper": {
-            "external": "azul_dll::widgets::check_box::CheckBoxStateWrapper",
+            "external": "azul_layout::widgets::check_box::CheckBoxStateWrapper",
             "derive": [
               "Default",
               "Clone",
@@ -12116,7 +12239,7 @@
             ]
           },
           "CheckBoxState": {
-            "external": "azul_dll::widgets::check_box::CheckBoxState",
+            "external": "azul_layout::widgets::check_box::CheckBoxState",
             "derive": [
               "Clone",
               "PartialEq",
@@ -12133,7 +12256,7 @@
             "repr": "C"
           },
           "ColorInput": {
-            "external": "azul_dll::widgets::color_input::ColorInput",
+            "external": "azul_layout::widgets::color_input::ColorInput",
             "derive": [
               "Default",
               "PartialEq",
@@ -12209,7 +12332,7 @@
             "repr": "C"
           },
           "ColorInputStateWrapper": {
-            "external": "azul_dll::widgets::color_input::ColorInputStateWrapper",
+            "external": "azul_layout::widgets::color_input::ColorInputStateWrapper",
             "derive": [
               "Clone",
               "Debug",
@@ -12236,7 +12359,7 @@
             "repr": "C"
           },
           "ColorInputState": {
-            "external": "azul_dll::widgets::color_input::ColorInputState",
+            "external": "azul_layout::widgets::color_input::ColorInputState",
             "derive": [
               "PartialOrd",
               "Debug",
@@ -12256,7 +12379,7 @@
             "repr": "C"
           },
           "ColorInputOnValueChange": {
-            "external": "azul_dll::widgets::color_input::ColorInputOnValueChange",
+            "external": "azul_layout::widgets::color_input::ColorInputOnValueChange",
             "struct_fields": [
               {
                 "data": {
@@ -12271,7 +12394,7 @@
             ]
           },
           "ColorInputOnValueChangeCallback": {
-            "external": "azul_dll::widgets::color_input::ColorInputOnValueChangeCallback",
+            "external": "azul_layout::widgets::color_input::ColorInputOnValueChangeCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12281,7 +12404,7 @@
             ]
           },
           "TextInput": {
-            "external": "azul_dll::widgets::text_input::TextInput",
+            "external": "azul_layout::widgets::text_input::TextInput",
             "derive": [
               "Debug",
               "Clone",
@@ -12549,7 +12672,7 @@
             "repr": "C"
           },
           "TextInputStateWrapper": {
-            "external": "azul_dll::widgets::text_input::TextInputStateWrapper",
+            "external": "azul_layout::widgets::text_input::TextInputStateWrapper",
             "derive": [
               "PartialEq",
               "Clone",
@@ -12595,7 +12718,7 @@
             "repr": "C"
           },
           "TextInputState": {
-            "external": "azul_dll::widgets::text_input::TextInputState",
+            "external": "azul_layout::widgets::text_input::TextInputState",
             "derive": [
               "Debug",
               "Clone",
@@ -12644,7 +12767,7 @@
             "repr": "C"
           },
           "TextInputSelection": {
-            "external": "azul_dll::widgets::text_input::TextInputSelection",
+            "external": "azul_layout::widgets::text_input::TextInputSelection",
             "derive": [
               "Debug",
               "Clone",
@@ -12665,7 +12788,7 @@
             "repr": "C"
           },
           "TextInputSelectionRange": {
-            "external": "azul_dll::widgets::text_input::TextInputSelectionRange",
+            "external": "azul_layout::widgets::text_input::TextInputSelectionRange",
             "derive": [
               "Clone",
               "Debug",
@@ -12688,7 +12811,7 @@
             "repr": "C"
           },
           "TextInputOnTextInput": {
-            "external": "azul_dll::widgets::text_input::TextInputOnTextInput",
+            "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
             "struct_fields": [
               {
                 "data": {
@@ -12703,7 +12826,7 @@
             ]
           },
           "TextInputOnTextInputCallback": {
-            "external": "azul_dll::widgets::text_input::TextInputOnTextInputCallback",
+            "external": "azul_layout::widgets::text_input::TextInputOnTextInputCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12713,7 +12836,7 @@
             ]
           },
           "TextInputOnVirtualKeyDown": {
-            "external": "azul_dll::widgets::text_input::TextInputOnVirtualKeyDown",
+            "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDown",
             "struct_fields": [
               {
                 "data": {
@@ -12728,7 +12851,7 @@
             ]
           },
           "TextInputOnVirtualKeyDownCallback": {
-            "external": "azul_dll::widgets::text_input::TextInputOnVirtualKeyDownCallback",
+            "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDownCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12738,7 +12861,7 @@
             ]
           },
           "TextInputOnFocusLost": {
-            "external": "azul_dll::widgets::text_input::TextInputOnFocusLost",
+            "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
             "struct_fields": [
               {
                 "data": {
@@ -12753,7 +12876,7 @@
             ]
           },
           "TextInputOnFocusLostCallback": {
-            "external": "azul_dll::widgets::text_input::TextInputOnFocusLostCallback",
+            "external": "azul_layout::widgets::text_input::TextInputOnFocusLostCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -12763,7 +12886,7 @@
             ]
           },
           "OnTextInputReturn": {
-            "external": "azul_dll::widgets::text_input::OnTextInputReturn",
+            "external": "azul_layout::widgets::text_input::OnTextInputReturn",
             "derive": [
               "PartialEq",
               "Debug",
@@ -12785,7 +12908,7 @@
             "repr": "C"
           },
           "TextInputValid": {
-            "external": "azul_dll::widgets::text_input::TextInputValid",
+            "external": "azul_layout::widgets::text_input::TextInputValid",
             "derive": [
               "Debug",
               "Copy",
@@ -12803,7 +12926,7 @@
             "repr": "C"
           },
           "NumberInput": {
-            "external": "azul_dll::widgets::number_input::NumberInput",
+            "external": "azul_layout::widgets::number_input::NumberInput",
             "derive": [
               "Default",
               "Clone",
@@ -13047,7 +13170,7 @@
             "repr": "C"
           },
           "NumberInputStateWrapper": {
-            "external": "azul_dll::widgets::number_input::NumberInputStateWrapper",
+            "external": "azul_layout::widgets::number_input::NumberInputStateWrapper",
             "derive": [
               "PartialEq",
               "Clone",
@@ -13074,7 +13197,7 @@
             "repr": "C"
           },
           "NumberInputState": {
-            "external": "azul_dll::widgets::number_input::NumberInputState",
+            "external": "azul_layout::widgets::number_input::NumberInputState",
             "derive": [
               "Debug",
               "Clone",
@@ -13105,7 +13228,7 @@
             "repr": "C"
           },
           "NumberInputOnValueChange": {
-            "external": "azul_dll::widgets::number_input::NumberInputOnValueChange",
+            "external": "azul_layout::widgets::number_input::NumberInputOnValueChange",
             "struct_fields": [
               {
                 "data": {
@@ -13120,7 +13243,7 @@
             ]
           },
           "NumberInputOnValueChangeCallback": {
-            "external": "azul_dll::widgets::number_input::NumberInputOnValueChangeCallback",
+            "external": "azul_layout::widgets::number_input::NumberInputOnValueChangeCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13130,7 +13253,7 @@
             ]
           },
           "NumberInputOnFocusLost": {
-            "external": "azul_dll::widgets::number_input::NumberInputOnFocusLost",
+            "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
             "struct_fields": [
               {
                 "data": {
@@ -13145,7 +13268,7 @@
             ]
           },
           "NumberInputOnFocusLostCallback": {
-            "external": "azul_dll::widgets::number_input::NumberInputOnFocusLostCallback",
+            "external": "azul_layout::widgets::number_input::NumberInputOnFocusLostCallback",
             "struct_fields": [
               {
                 "cb": {
@@ -13155,7 +13278,7 @@
             ]
           },
           "ProgressBar": {
-            "external": "azul_dll::widgets::progressbar::ProgressBar",
+            "external": "azul_layout::widgets::progressbar::ProgressBar",
             "derive": [
               "Debug",
               "Clone"
@@ -13283,7 +13406,7 @@
             "repr": "C"
           },
           "ProgressBarState": {
-            "external": "azul_dll::widgets::progressbar::ProgressBarState",
+            "external": "azul_layout::widgets::progressbar::ProgressBarState",
             "derive": [
               "Clone",
               "Debug"
@@ -13303,7 +13426,7 @@
             "repr": "C"
           },
           "TabHeader": {
-            "external": "azul_dll::widgets::tabs::TabHeader",
+            "external": "azul_layout::widgets::tabs::TabHeader",
             "derive": [
               "Clone",
               "Debug"
@@ -13407,7 +13530,7 @@
             "repr": "C"
           },
           "TabOnClick": {
-            "external": "azul_dll::widgets::tabs::TabOnClick",
+            "external": "azul_layout::widgets::tabs::TabOnClick",
             "struct_fields": [
               {
                 "data": {
@@ -13422,7 +13545,7 @@
             ]
           },
           "Frame": {
-            "external": "crate::widgets::frame::Frame",
+            "external": "azul_layout::widgets::frame::Frame",
             "derive": [
               "Debug",
               "Clone"
@@ -13499,7 +13622,7 @@
           },
           "ListView": {
             "doc": "List view, optionally able to lazy-load data",
-            "external": "azul_dll::widgets::list_view::ListView",
+            "external": "azul_layout::widgets::list_view::ListView",
             "derive": [
               "Debug",
               "Clone"
@@ -13601,7 +13724,7 @@
           },
           "ListViewRow": {
             "doc": "Row of the ListView",
-            "external": "azul_dll::widgets::list_view::ListViewRow",
+            "external": "azul_layout::widgets::list_view::ListViewRow",
             "derive": [
               "Debug",
               "Clone"
@@ -13623,7 +13746,7 @@
             "repr": "C"
           },
           "ListViewOnLazyLoadScroll": {
-            "external": "azul_dll::widgets::list_view::ListViewOnLazyLoadScroll",
+            "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScroll",
             "struct_fields": [
               {
                 "data": {
@@ -13638,7 +13761,7 @@
             ]
           },
           "ListViewOnColumnClick": {
-            "external": "azul_dll::widgets::list_view::ListViewOnColumnClick",
+            "external": "azul_layout::widgets::list_view::ListViewOnColumnClick",
             "struct_fields": [
               {
                 "data": {
@@ -13653,7 +13776,7 @@
             ]
           },
           "ListViewOnRowClick": {
-            "external": "azul_dll::widgets::list_view::ListViewOnRowClick",
+            "external": "azul_layout::widgets::list_view::ListViewOnRowClick",
             "struct_fields": [
               {
                 "data": {
@@ -13678,6 +13801,18 @@
               "Ord",
               "Hash"
             ],
+            "repr": "C"
+          },
+          "ListViewState": {
+            "external": "azul_layout::widgets::list_view::ListViewState",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "repr": "C"
+          },
+          "TabHeaderState": {
+            "external": "azul_layout::widgets::tabs::TabHeaderState",
             "repr": "C"
           }
         }
@@ -26603,6 +26738,33 @@
               "Debug"
             ],
             "repr": "C"
+          },
+          "VertexArrayObject": {
+            "external": "azul_core::gl::VertexArrayObject",
+            "derive": [
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "repr": "C"
+          },
+          "IndexBufferFormat": {
+            "external": "azul_core::gl::IndexBufferFormat",
+            "derive": [
+              "Clone",
+              "PartialOrd",
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "Copy",
+              "Ord",
+              "Hash"
+            ],
+            "repr": "C"
+          },
+          "VertexBuffer": {
+            "external": "azul_core::gl::VertexBuffer",
+            "repr": "C"
           }
         }
       },
@@ -27837,7 +27999,7 @@
         "doc": "SVG parsing and rendering functions",
         "classes": {
           "Svg": {
-            "external": "azul_layout::xml::svg::Svg",
+            "external": "azul_core::svg::Svg",
             "is_boxed_object": true,
             "derive": [
               "Debug",
@@ -29620,6 +29782,24 @@
               "Hash"
             ],
             "repr": "C"
+          },
+          "TessellatedGPUSvgNode": {
+            "external": "azul_core::svg::TessellatedGPUSvgNode",
+            "derive": [
+              "PartialEq",
+              "PartialOrd",
+              "Debug"
+            ],
+            "repr": "C"
+          },
+          "TessellatedColoredGPUSvgNode": {
+            "external": "azul_core::svg::TessellatedColoredGPUSvgNode",
+            "derive": [
+              "Debug",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "repr": "C"
           }
         }
       },
@@ -29938,7 +30118,7 @@
         "classes": {
           "ListViewRowVec": {
             "doc": "Wrapper over a Rust-allocated `Vec<ListViewRow>",
-            "external": "azul_dll::widgets::list_view::ListViewRowVec",
+            "external": "azul_layout::widgets::list_view::ListViewRowVec",
             "custom_destructor": true,
             "derive": [],
             "struct_fields": [
@@ -31288,6 +31468,294 @@
                 }
               }
             ]
+          },
+          "StyleBackgroundContentVecDestructorType": {
+            "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructorType"
+          },
+          "SvgPathVecDestructor": {
+            "external": "azul_core::svg::SvgPathVecDestructor"
+          },
+          "StyleBackgroundRepeatVecDestructorType": {
+            "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructorType"
+          },
+          "StyleFilterVecDestructor": {
+            "external": "azul_css::props::style::filter::StyleFilterVecDestructor"
+          },
+          "StyleTransformVecDestructor": {
+            "external": "azul_css::props::style::transform::StyleTransformVecDestructor"
+          },
+          "MenuItemVecDestructorType": {
+            "external": "azul_core::menu::MenuItemVecDestructorType"
+          },
+          "AccessibilityStateVecDestructorType": {
+            "external": "azul_core::dom::AccessibilityStateVecDestructorType"
+          },
+          "NodeDataInlineCssPropertyVecDestructorType": {
+            "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructorType"
+          },
+          "NormalizedLinearColorStopVecDestructorType": {
+            "external": "azul_css::props::style::background::NormalizedLinearColorStopVecDestructorType"
+          },
+          "F32VecDestructorType": {
+            "external": "azul_css::corety::F32VecDestructorType"
+          },
+          "GLuintVecDestructor": {
+            "external": "azul_core::gl::GLuintVecDestructor"
+          },
+          "XmlNodeChildVecDestructor": {
+            "external": "azul_core::xml::XmlNodeChildVecDestructor"
+          },
+          "StyleBackgroundSizeVecDestructorType": {
+            "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructorType"
+          },
+          "StyleBackgroundContentVecDestructor": {
+            "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructor"
+          },
+          "StringVecDestructorType": {
+            "external": "azul_css::corety::StringVecDestructorType"
+          },
+          "CascadeInfoVecDestructor": {
+            "external": "azul_core::style::CascadeInfoVecDestructor"
+          },
+          "DomVecDestructorType": {
+            "external": "azul_core::dom::DomVecDestructorType"
+          },
+          "AccessibilityStateVecDestructor": {
+            "external": "azul_core::dom::AccessibilityStateVecDestructor"
+          },
+          "StringPairVecDestructorType": {
+            "external": "azul_core::window::StringPairVecDestructorType"
+          },
+          "DomVecDestructor": {
+            "external": "azul_core::dom::DomVecDestructor"
+          },
+          "StringVecDestructor": {
+            "external": "azul_css::corety::StringVecDestructor"
+          },
+          "CssRuleBlockVecDestructorType": {
+            "external": "azul_css::css::CssRuleBlockVecDestructorType"
+          },
+          "NodeDataVecDestructor": {
+            "external": "azul_core::dom::NodeDataVecDestructor"
+          },
+          "MenuItemVecDestructor": {
+            "external": "azul_core::menu::MenuItemVecDestructor"
+          },
+          "AttributeVecDestructorType": {
+            "external": "azul_core::dom::AttributeVecDestructorType"
+          },
+          "SvgMultiPolygonVecDestructor": {
+            "external": "azul_core::svg::SvgMultiPolygonVecDestructor"
+          },
+          "ListViewRowVecDestructor": {
+            "external": "azul_layout::widgets::list_view::ListViewRowVecDestructor"
+          },
+          "NodeIdVecDestructorType": {
+            "external": "azul_core::styled_dom::NodeIdVecDestructorType"
+          },
+          "StyleFilterVecDestructorType": {
+            "external": "azul_css::props::style::filter::StyleFilterVecDestructorType"
+          },
+          "U32VecDestructorType": {
+            "external": "azul_css::corety::U32VecDestructorType"
+          },
+          "SvgVertexVecDestructor": {
+            "external": "azul_core::svg::SvgVertexVecDestructor"
+          },
+          "StylesheetVecDestructor": {
+            "external": "azul_css::css::StylesheetVecDestructor"
+          },
+          "U32VecDestructor": {
+            "external": "azul_css::corety::U32VecDestructor"
+          },
+          "CssRuleBlockVecDestructor": {
+            "external": "azul_css::css::CssRuleBlockVecDestructor"
+          },
+          "ParentWithNodeDepthVecDestructorType": {
+            "external": "azul_core::styled_dom::ParentWithNodeDepthVecDestructorType"
+          },
+          "NormalizedLinearColorStopVecDestructor": {
+            "external": "azul_css::props::style::background::NormalizedLinearColorStopVecDestructor"
+          },
+          "CoreCallbackDataVecDestructorType": {
+            "external": "azul_core::callbacks::CoreCallbackDataVecDestructorType"
+          },
+          "StyleFontFamilyVecDestructor": {
+            "external": "azul_css::props::basic::font::StyleFontFamilyVecDestructor"
+          },
+          "CascadeInfoVecDestructorType": {
+            "external": "azul_core::style::CascadeInfoVecDestructorType"
+          },
+          "U8VecDestructorType": {
+            "external": "azul_css::corety::U8VecDestructorType"
+          },
+          "NodeHierarchyItemVecDestructorType": {
+            "external": "azul_core::styled_dom::NodeHierarchyItemVecDestructorType"
+          },
+          "CssPathSelectorVecDestructor": {
+            "external": "azul_css::css::CssPathSelectorVecDestructor"
+          },
+          "StyleBackgroundPositionVecDestructorType": {
+            "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructorType"
+          },
+          "VirtualKeyCodeVecDestructorType": {
+            "external": "azul_core::window::VirtualKeyCodeVecDestructorType"
+          },
+          "NodeHierarchyItemVecDestructor": {
+            "external": "azul_core::styled_dom::NodeHierarchyItemVecDestructor"
+          },
+          "VirtualKeyCodeVecDestructor": {
+            "external": "azul_core::window::VirtualKeyCodeVecDestructor"
+          },
+          "SvgVertexVecDestructorType": {
+            "external": "azul_core::svg::SvgVertexVecDestructorType"
+          },
+          "F32VecDestructor": {
+            "external": "azul_css::corety::F32VecDestructor"
+          },
+          "SvgPathElementVecDestructorType": {
+            "external": "azul_core::svg::SvgPathElementVecDestructorType"
+          },
+          "StyleBackgroundRepeatVecDestructor": {
+            "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructor"
+          },
+          "AccessibilityActionVecDestructor": {
+            "external": "azul_core::dom::AccessibilityActionVecDestructor"
+          },
+          "ListViewRowVecDestructorType": {
+            "external": "azul_layout::widgets::list_view::ListViewRowVecDestructorType"
+          },
+          "GLuintVecDestructorType": {
+            "external": "azul_core::gl::GLuintVecDestructorType"
+          },
+          "StyleTransformVecDestructorType": {
+            "external": "azul_css::props::style::transform::StyleTransformVecDestructorType"
+          },
+          "TagIdToNodeIdMappingVecDestructorType": {
+            "external": "azul_core::styled_dom::TagIdToNodeIdMappingVecDestructorType"
+          },
+          "U16VecDestructor": {
+            "external": "azul_css::corety::U16VecDestructor"
+          },
+          "TagIdToNodeIdMappingVecDestructor": {
+            "external": "azul_core::styled_dom::TagIdToNodeIdMappingVecDestructor"
+          },
+          "NodeIdVecDestructor": {
+            "external": "azul_core::styled_dom::NodeIdVecDestructor"
+          },
+          "U16VecDestructorType": {
+            "external": "azul_css::corety::U16VecDestructorType"
+          },
+          "SvgSimpleNodeVecDestructorType": {
+            "external": "azul_core::svg::SvgSimpleNodeVecDestructorType"
+          },
+          "GridTrackSizingVecDestructorType": {
+            "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructorType"
+          },
+          "CssDeclarationVecDestructorType": {
+            "external": "azul_css::css::CssDeclarationVecDestructorType"
+          },
+          "ParentWithNodeDepthVecDestructor": {
+            "external": "azul_core::styled_dom::ParentWithNodeDepthVecDestructor"
+          },
+          "GLintVecDestructor": {
+            "external": "azul_core::gl::GLintVecDestructor"
+          },
+          "NodeDataInlineCssPropertyVecDestructor": {
+            "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructor"
+          },
+          "NormalizedRadialColorStopVecDestructorType": {
+            "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructorType"
+          },
+          "NormalizedRadialColorStopVecDestructor": {
+            "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructor"
+          },
+          "StyledNodeVecDestructor": {
+            "external": "azul_core::styled_dom::StyledNodeVecDestructor"
+          },
+          "StyleBackgroundPositionVecDestructor": {
+            "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructor"
+          },
+          "SvgMultiPolygonVecDestructorType": {
+            "external": "azul_core::svg::SvgMultiPolygonVecDestructorType"
+          },
+          "SvgSimpleNodeVecDestructor": {
+            "external": "azul_core::svg::SvgSimpleNodeVecDestructor"
+          },
+          "AccessibilityActionVecDestructorType": {
+            "external": "azul_core::dom::AccessibilityActionVecDestructorType"
+          },
+          "GLintVecDestructorType": {
+            "external": "azul_core::gl::GLintVecDestructorType"
+          },
+          "AttributeVecDestructor": {
+            "external": "azul_core::dom::AttributeVecDestructor"
+          },
+          "NodeDataVecDestructorType": {
+            "external": "azul_core::dom::NodeDataVecDestructorType"
+          },
+          "CssDeclarationVecDestructor": {
+            "external": "azul_css::css::CssDeclarationVecDestructor"
+          },
+          "StyledNodeVecDestructorType": {
+            "external": "azul_core::styled_dom::StyledNodeVecDestructorType"
+          },
+          "IdOrClassVecDestructor": {
+            "external": "azul_core::dom::IdOrClassVecDestructor"
+          },
+          "StyleBackgroundSizeVecDestructor": {
+            "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructor"
+          },
+          "SvgPathVecDestructorType": {
+            "external": "azul_core::svg::SvgPathVecDestructorType"
+          },
+          "StyleFontFamilyVecDestructorType": {
+            "external": "azul_css::props::basic::font::StyleFontFamilyVecDestructorType"
+          },
+          "StringPairVecDestructor": {
+            "external": "azul_core::window::StringPairVecDestructor"
+          },
+          "CoreCallbackDataVecDestructor": {
+            "external": "azul_core::callbacks::CoreCallbackDataVecDestructor"
+          },
+          "SvgPathElementVecDestructor": {
+            "external": "azul_core::svg::SvgPathElementVecDestructor"
+          },
+          "U8VecDestructor": {
+            "external": "azul_css::corety::U8VecDestructor"
+          },
+          "GridTrackSizingVecDestructor": {
+            "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructor"
+          },
+          "IdOrClassVecDestructorType": {
+            "external": "azul_core::dom::IdOrClassVecDestructorType"
+          },
+          "XmlNodeChildVecDestructorType": {
+            "external": "azul_core::xml::XmlNodeChildVecDestructorType"
+          },
+          "StylesheetVecDestructorType": {
+            "external": "azul_css::css::StylesheetVecDestructorType"
+          },
+          "CssPathSelectorVecDestructorType": {
+            "external": "azul_css::css::CssPathSelectorVecDestructorType"
+          },
+          "VertexAttributeVecDestructorType": {
+            "external": "azul_core::gl::VertexAttributeVecDestructorType"
+          },
+          "VertexAttributeVecDestructor": {
+            "external": "azul_core::gl::VertexAttributeVecDestructor"
+          },
+          "VertexAttributeVec": {
+            "external": "azul_core::gl::VertexAttributeVec"
+          },
+          "XmlNodeVecDestructor": {
+            "external": "azul_core::xml::XmlNodeVecDestructor"
+          },
+          "XmlNodeVec": {
+            "external": "azul_core::xml::XmlNodeVec"
+          },
+          "XmlNodeVecDestructorType": {
+            "external": "azul_core::xml::XmlNodeVecDestructorType"
           }
         }
       },
@@ -31309,7 +31777,7 @@
             ]
           },
           "OptionListViewOnRowClick": {
-            "external": "azul_dll::widgets::list_view::OptionListViewOnRowClick",
+            "external": "azul_layout::widgets::list_view::OptionListViewOnRowClick",
             "derive": [],
             "enum_fields": [
               {
@@ -31323,7 +31791,7 @@
             ]
           },
           "OptionListViewOnColumnClick": {
-            "external": "azul_dll::widgets::list_view::OptionListViewOnColumnClick",
+            "external": "azul_layout::widgets::list_view::OptionListViewOnColumnClick",
             "derive": [],
             "enum_fields": [
               {
@@ -31337,7 +31805,7 @@
             ]
           },
           "OptionListViewOnLazyLoadScroll": {
-            "external": "azul_dll::widgets::list_view::OptionListViewOnLazyLoadScroll",
+            "external": "azul_layout::widgets::list_view::OptionListViewOnLazyLoadScroll",
             "derive": [],
             "enum_fields": [
               {
@@ -31379,7 +31847,7 @@
             ]
           },
           "OptionColorInputOnValueChange": {
-            "external": "azul_dll::widgets::color_input::OptionColorInputOnValueChange",
+            "external": "azul_layout::widgets::color_input::OptionColorInputOnValueChange",
             "derive": [],
             "enum_fields": [
               {
@@ -31393,7 +31861,7 @@
             ]
           },
           "OptionButtonOnClick": {
-            "external": "azul_dll::widgets::button::OptionButtonOnClick",
+            "external": "azul_layout::widgets::button::OptionButtonOnClick",
             "derive": [],
             "enum_fields": [
               {
@@ -31407,7 +31875,7 @@
             ]
           },
           "OptionTabOnClick": {
-            "external": "azul_dll::widgets::tabs::OptionTabOnClick",
+            "external": "azul_layout::widgets::tabs::OptionTabOnClick",
             "derive": [],
             "enum_fields": [
               {
@@ -31421,7 +31889,7 @@
             ]
           },
           "OptionFileInputOnPathChange": {
-            "external": "azul_dll::widgets::file_input::OptionFileInputOnPathChange",
+            "external": "azul_layout::widgets::file_input::OptionFileInputOnPathChange",
             "derive": [],
             "enum_fields": [
               {
@@ -31435,7 +31903,7 @@
             ]
           },
           "OptionCheckBoxOnToggle": {
-            "external": "azul_dll::widgets::check_box::OptionCheckBoxOnToggle",
+            "external": "azul_layout::widgets::check_box::OptionCheckBoxOnToggle",
             "derive": [],
             "enum_fields": [
               {
@@ -31449,7 +31917,7 @@
             ]
           },
           "OptionTextInputOnTextInput": {
-            "external": "azul_dll::widgets::text_input::OptionTextInputOnTextInput",
+            "external": "azul_layout::widgets::text_input::OptionTextInputOnTextInput",
             "derive": [],
             "enum_fields": [
               {
@@ -31463,7 +31931,7 @@
             ]
           },
           "OptionTextInputOnVirtualKeyDown": {
-            "external": "azul_dll::widgets::text_input::OptionTextInputOnVirtualKeyDown",
+            "external": "azul_layout::widgets::text_input::OptionTextInputOnVirtualKeyDown",
             "derive": [],
             "enum_fields": [
               {
@@ -31477,7 +31945,7 @@
             ]
           },
           "OptionTextInputOnFocusLost": {
-            "external": "azul_dll::widgets::text_input::OptionTextInputOnFocusLost",
+            "external": "azul_layout::widgets::text_input::OptionTextInputOnFocusLost",
             "derive": [],
             "enum_fields": [
               {
@@ -31491,7 +31959,7 @@
             ]
           },
           "OptionTextInputSelection": {
-            "external": "azul_dll::widgets::text_input::OptionTextInputSelection",
+            "external": "azul_layout::widgets::text_input::OptionTextInputSelection",
             "derive": [],
             "enum_fields": [
               {
@@ -31505,7 +31973,7 @@
             ]
           },
           "OptionNumberInputOnFocusLost": {
-            "external": "azul_dll::widgets::number_input::OptionNumberInputOnFocusLost",
+            "external": "azul_layout::widgets::number_input::OptionNumberInputOnFocusLost",
             "derive": [],
             "enum_fields": [
               {
@@ -31519,7 +31987,7 @@
             ]
           },
           "OptionNumberInputOnValueChange": {
-            "external": "azul_dll::widgets::number_input::OptionNumberInputOnValueChange",
+            "external": "azul_layout::widgets::number_input::OptionNumberInputOnValueChange",
             "derive": [],
             "enum_fields": [
               {
@@ -31757,7 +32225,7 @@
             ]
           },
           "OptionTagId": {
-            "external": "azul_core::styled_dom::OptionTagId",
+            "external": "azul_core::dom::OptionTagId",
             "derive": [],
             "enum_fields": [
               {
@@ -31862,6 +32330,12 @@
               "PartialEq"
             ],
             "repr": "C"
+          },
+          "OptionLogicalPosition": {
+            "external": "azul_core::geom::OptionLogicalPosition"
+          },
+          "OptionFileTypeList": {
+            "external": "azul_layout::desktop::dialogs::OptionFileTypeList"
           }
         }
       },
@@ -32701,6 +33175,17 @@
                 "FlowInto"
               ]
             }
+          },
+          "EdgeType": {
+            "external": "azul_core::callbacks::EdgeType",
+            "derive": [
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "Clone",
+              "Copy"
+            ],
+            "repr": "C"
           }
         }
       }

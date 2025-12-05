@@ -296,6 +296,11 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
             continue;
         }
         
+        // Skip types without struct_fields or enum_fields - they aren't generated in generated.rs
+        if !test_case.has_struct && !test_case.has_enum {
+            continue;
+        }
+        
         output.push_str(&generate_size_and_align_test(&test_case)?);
         output.push_str("\n");
 
@@ -1240,9 +1245,14 @@ fn generate_reexports(
     output.push_str("    // Re-export types with friendly names\n");
 
     if let Some(module_data) = version_data.api.get(module_name) {
-        for class_name in module_data.classes.keys() {
+        for (class_name, class_data) in &module_data.classes {
             // Skip primitive types and generic type parameters - they don't need re-exports
             if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
+            // Skip types without struct_fields or enum_fields - they aren't generated
+            // Also include callback_typedef types
+            if class_data.struct_fields.is_none() && class_data.enum_fields.is_none() && class_data.callback_typedef.is_none() {
                 continue;
             }
             output.push_str(&format!(

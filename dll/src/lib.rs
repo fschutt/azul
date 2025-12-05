@@ -31,11 +31,3 @@ pub mod azul_impl {
 ))]
 pub mod python;
 
-// TODO: Re-enable widgets after fixing API compatibility
-// The widgets module has similar API incompatibilities as extra:
-// - NodeId::from_crate_internal() / into_crate_internal() usage throughout
-// - Direct NodeData.callbacks field access (now private, use accessors)
-// - LayoutCallbackInfo API changes
-// - ExternalSystemCallbacks::default() -> ::rust_internal()
-// Total errors: ~68 across all widget implementations
-// pub mod widgets;
