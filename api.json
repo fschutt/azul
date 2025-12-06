@@ -10771,11 +10771,9 @@
             ],
             "enum_fields": [
               {
-                "None": {}
-              },
-              {
+                "None": {},
                 "Shape": {
-                  "type": "Shape"
+                  "type": "CssShape"
                 }
               }
             ],
@@ -11661,11 +11659,9 @@
             ],
             "enum_fields": [
               {
-                "None": {}
-              },
-              {
+                "None": {},
                 "Shape": {
-                  "type": "Shape"
+                  "type": "CssShape"
                 }
               }
             ],
@@ -12043,11 +12039,9 @@
             ],
             "enum_fields": [
               {
-                "None": {}
-              },
-              {
+                "None": {},
                 "Shape": {
-                  "type": "Shape"
+                  "type": "CssShape"
                 }
               }
             ],
@@ -13586,6 +13580,150 @@
                 },
                 "track": {
                   "type": "ColorU"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ShapeInset": {
+            "external": "azul_css::shape::ShapeInset",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "top": {
+                  "type": "f32"
+                },
+                "right": {
+                  "type": "f32"
+                },
+                "bottom": {
+                  "type": "f32"
+                },
+                "left": {
+                  "type": "f32"
+                },
+                "border_radius": {
+                  "type": "OptionF32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CssShape": {
+            "external": "azul_css::shape::CssShape",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Circle": {
+                  "type": "ShapeCircle"
+                },
+                "Ellipse": {
+                  "type": "ShapeEllipse"
+                },
+                "Polygon": {
+                  "type": "ShapePolygon"
+                },
+                "Inset": {
+                  "type": "ShapeInset"
+                },
+                "Path": {
+                  "type": "ShapePath"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "LayoutPoint": {
+            "external": "azul_css::props::basic::geometry::LayoutPoint",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
+            "derive": [
+              "Copy",
+              "Default",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "isize"
+                },
+                "y": {
+                  "type": "isize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ShapePath": {
+            "external": "azul_css::shape::ShapePath",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
+            "struct_fields": [
+              {
+                "data": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ShapeEllipse": {
+            "external": "azul_css::shape::ShapeEllipse",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "center": {
+                  "type": "LayoutPoint"
+                },
+                "radius_x": {
+                  "type": "f32"
+                },
+                "radius_y": {
+                  "type": "f32"
                 }
               }
             ],
@@ -31833,6 +31971,51 @@
               }
             ],
             "repr": "C"
+          },
+          "ShapeCircle": {
+            "external": "azul_css::shape::ShapeCircle",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "center": {
+                  "type": "LayoutPoint"
+                },
+                "radius": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ShapePolygon": {
+            "external": "azul_css::shape::ShapePolygon",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
+            "struct_fields": [
+              {
+                "points": {
+                  "type": "LayoutPointVec"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -34759,6 +34942,60 @@
                 }
               }
             ]
+          },
+          "LayoutPointVec": {
+            "external": "azul_css::shape::LayoutPointVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "LayoutPointVecDestructor"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LayoutPointVecDestructorType": {
+            "external": "azul_css::shape::LayoutPointVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "LayoutPointVec",
+                  "ref_kind": "mutptr",
+                  "doc": null
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "LayoutPointVecDestructor": {
+            "external": "azul_css::shape::LayoutPointVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "LayoutPointVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -35425,6 +35662,22 @@
                 }
               }
             ]
+          },
+          "OptionF32": {
+            "external": "azul_css::corety::OptionF32",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },

@@ -7,7 +7,7 @@
 //! - `inset(top right bottom left [round radius])`
 //! - `path(svg-path-data)`
 
-use crate::shape::{LayoutPoint, Shape};
+use crate::shape::{LayoutPoint, CssShape};
 
 /// Error type for shape parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl core::fmt::Display for ShapeParseError {
 /// let polygon = parse_shape("polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)").unwrap();
 /// let inset = parse_shape("inset(10px 20px 30px 40px)").unwrap();
 /// ```
-pub fn parse_shape(input: &str) -> Result<Shape, ShapeParseError> {
+pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
     let input = input.trim();
 
     if input.is_empty() {
@@ -106,7 +106,7 @@ fn parse_function(
 /// - `circle(50px)` - circle at origin with radius 50px
 /// - `circle(50px at 100px 100px)` - circle at (100, 100) with radius 50px
 /// - `circle(50%)` - circle with radius 50% of container
-fn parse_circle(args: &str) -> Result<Shape, ShapeParseError> {
+fn parse_circle(args: &str) -> Result<CssShape, ShapeParseError> {
     let parts: Vec<&str> = args.split_whitespace().collect();
 
     if parts.is_empty() {
@@ -123,7 +123,7 @@ fn parse_circle(args: &str) -> Result<Shape, ShapeParseError> {
         LayoutPoint::zero() // Default to origin
     };
 
-    Ok(Shape::circle(center, radius))
+    Ok(CssShape::circle(center, radius))
 }
 
 /// Parses an ellipse: `ellipse(rx ry at x y)` or `ellipse(rx ry)`
@@ -131,7 +131,7 @@ fn parse_circle(args: &str) -> Result<Shape, ShapeParseError> {
 /// Examples:
 /// - `ellipse(50px 75px)` - ellipse at origin
 /// - `ellipse(50px 75px at 100px 100px)` - ellipse at (100, 100)
-fn parse_ellipse(args: &str) -> Result<Shape, ShapeParseError> {
+fn parse_ellipse(args: &str) -> Result<CssShape, ShapeParseError> {
     let parts: Vec<&str> = args.split_whitespace().collect();
 
     if parts.len() < 2 {
@@ -151,7 +151,7 @@ fn parse_ellipse(args: &str) -> Result<Shape, ShapeParseError> {
         LayoutPoint::zero()
     };
 
-    Ok(Shape::ellipse(center, radius_x, radius_y))
+    Ok(CssShape::ellipse(center, radius_x, radius_y))
 }
 
 /// Parses a polygon: `polygon([fill-rule,] x1 y1, x2 y2, ...)`
@@ -160,7 +160,7 @@ fn parse_ellipse(args: &str) -> Result<Shape, ShapeParseError> {
 /// - `polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)` - rectangle
 /// - `polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)` - diamond
 /// - `polygon(nonzero, 0 0, 100 0, 100 100)` - with fill rule
-fn parse_polygon(args: &str) -> Result<Shape, ShapeParseError> {
+fn parse_polygon(args: &str) -> Result<CssShape, ShapeParseError> {
     let args = args.trim();
 
     // Check for optional fill-rule
@@ -205,7 +205,7 @@ fn parse_polygon(args: &str) -> Result<Shape, ShapeParseError> {
         ));
     }
 
-    Ok(Shape::polygon(points.into()))
+    Ok(CssShape::polygon(points.into()))
 }
 
 /// Parses an inset: `inset(top right bottom left [round radius])`
@@ -216,7 +216,7 @@ fn parse_polygon(args: &str) -> Result<Shape, ShapeParseError> {
 /// - `inset(10px 20px 30px)` - top 10px, left/right 20px, bottom 30px
 /// - `inset(10px 20px 30px 40px)` - individual sides
 /// - `inset(10px round 5px)` - with border radius
-fn parse_inset(args: &str) -> Result<Shape, ShapeParseError> {
+fn parse_inset(args: &str) -> Result<CssShape, ShapeParseError> {
     let args = args.trim();
 
     // Check for optional "round" keyword for border radius
@@ -267,9 +267,9 @@ fn parse_inset(args: &str) -> Result<Shape, ShapeParseError> {
     };
 
     if let Some(radius) = border_radius {
-        Ok(Shape::inset_rounded(top, right, bottom, left, radius))
+        Ok(CssShape::inset_rounded(top, right, bottom, left, radius))
     } else {
-        Ok(Shape::inset(top, right, bottom, left))
+        Ok(CssShape::inset(top, right, bottom, left))
     }
 }
 
@@ -277,7 +277,7 @@ fn parse_inset(args: &str) -> Result<Shape, ShapeParseError> {
 ///
 /// Example:
 /// - `path("M 0 0 L 100 0 L 100 100 Z")`
-fn parse_path(args: &str) -> Result<Shape, ShapeParseError> {
+fn parse_path(args: &str) -> Result<CssShape, ShapeParseError> {
     use crate::corety::AzString;
 
     let args = args.trim();
@@ -291,7 +291,7 @@ fn parse_path(args: &str) -> Result<Shape, ShapeParseError> {
 
     let path_data = AzString::from(&args[1..args.len() - 1]);
 
-    Ok(Shape::Path(crate::shape::ShapePath { data: path_data }))
+    Ok(CssShape::Path(crate::shape::ShapePath { data: path_data }))
 }
 
 /// Parses a CSS length value (px, %, em, etc.)
@@ -333,7 +333,7 @@ mod tests {
     fn test_parse_circle() {
         let shape = parse_shape("circle(50px at 100px 100px)").unwrap();
         match shape {
-            Shape::Circle(ShapeCircle { center, radius }) => {
+            CssShape::Circle(ShapeCircle { center, radius }) => {
                 assert_eq!(radius, 50.0);
                 assert_eq!(center.x, 100.0);
                 assert_eq!(center.y, 100.0);
@@ -346,7 +346,7 @@ mod tests {
     fn test_parse_circle_no_position() {
         let shape = parse_shape("circle(50px)").unwrap();
         match shape {
-            Shape::Circle(ShapeCircle { center, radius }) => {
+            CssShape::Circle(ShapeCircle { center, radius }) => {
                 assert_eq!(radius, 50.0);
                 assert_eq!(center.x, 0.0);
                 assert_eq!(center.y, 0.0);
@@ -359,7 +359,7 @@ mod tests {
     fn test_parse_ellipse() {
         let shape = parse_shape("ellipse(50px 75px at 100px 100px)").unwrap();
         match shape {
-            Shape::Ellipse(ShapeEllipse {
+            CssShape::Ellipse(ShapeEllipse {
                 center,
                 radius_x,
                 radius_y,
@@ -377,7 +377,7 @@ mod tests {
     fn test_parse_polygon_rectangle() {
         let shape = parse_shape("polygon(0px 0px, 100px 0px, 100px 100px, 0px 100px)").unwrap();
         match shape {
-            Shape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { points }) => {
                 assert_eq!(points.as_ref().len(), 4);
                 assert_eq!(points.as_ref()[0].x, 0.0);
                 assert_eq!(points.as_ref()[0].y, 0.0);
@@ -397,7 +397,7 @@ mod tests {
         )
         .unwrap();
         match shape {
-            Shape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { points }) => {
                 assert_eq!(points.as_ref().len(), 10); // 5-pointed star has 10 vertices
             }
             _ => panic!("Expected Polygon"),
@@ -408,7 +408,7 @@ mod tests {
     fn test_parse_inset() {
         let shape = parse_shape("inset(10px 20px 30px 40px)").unwrap();
         match shape {
-            Shape::Inset(ShapeInset {
+            CssShape::Inset(ShapeInset {
                 top,
                 right,
                 bottom,
@@ -429,7 +429,7 @@ mod tests {
     fn test_parse_inset_rounded() {
         let shape = parse_shape("inset(10px round 5px)").unwrap();
         match shape {
-            Shape::Inset(ShapeInset {
+            CssShape::Inset(ShapeInset {
                 top,
                 right,
                 bottom,
@@ -450,7 +450,7 @@ mod tests {
     fn test_parse_path() {
         let shape = parse_shape(r#"path("M 0 0 L 100 0 L 100 100 Z")"#).unwrap();
         match shape {
-            Shape::Path(ShapePath { data }) => {
+            CssShape::Path(ShapePath { data }) => {
                 assert_eq!(data.as_str(), "M 0 0 L 100 0 L 100 100 Z");
             }
             _ => panic!("Expected Path"),

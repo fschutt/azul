@@ -190,7 +190,7 @@ pub struct ShapePath {
 /// Used for both text layout (shape-inside/outside) and rendering clipping (clip-path).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
-pub enum Shape {
+pub enum CssShape {
     Circle(ShapeCircle),
     Ellipse(ShapeEllipse),
     Polygon(ShapePolygon),
@@ -198,57 +198,57 @@ pub enum Shape {
     Path(ShapePath),
 }
 
-impl Eq for Shape {}
+impl Eq for CssShape {}
 
-impl core::hash::Hash for Shape {
+impl core::hash::Hash for CssShape {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         core::mem::discriminant(self).hash(state);
         match self {
-            Shape::Circle(c) => c.hash(state),
-            Shape::Ellipse(e) => e.hash(state),
-            Shape::Polygon(p) => p.hash(state),
-            Shape::Inset(i) => i.hash(state),
-            Shape::Path(p) => p.hash(state),
+            CssShape::Circle(c) => c.hash(state),
+            CssShape::Ellipse(e) => e.hash(state),
+            CssShape::Polygon(p) => p.hash(state),
+            CssShape::Inset(i) => i.hash(state),
+            CssShape::Path(p) => p.hash(state),
         }
     }
 }
 
-impl PartialOrd for Shape {
+impl PartialOrd for CssShape {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Shape {
+impl Ord for CssShape {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match (self, other) {
-            (Shape::Circle(a), Shape::Circle(b)) => a.cmp(b),
-            (Shape::Ellipse(a), Shape::Ellipse(b)) => a.cmp(b),
-            (Shape::Polygon(a), Shape::Polygon(b)) => a.cmp(b),
-            (Shape::Inset(a), Shape::Inset(b)) => a.cmp(b),
-            (Shape::Path(a), Shape::Path(b)) => a.cmp(b),
+            (CssShape::Circle(a), CssShape::Circle(b)) => a.cmp(b),
+            (CssShape::Ellipse(a), CssShape::Ellipse(b)) => a.cmp(b),
+            (CssShape::Polygon(a), CssShape::Polygon(b)) => a.cmp(b),
+            (CssShape::Inset(a), CssShape::Inset(b)) => a.cmp(b),
+            (CssShape::Path(a), CssShape::Path(b)) => a.cmp(b),
             // Different variants: use discriminant ordering
-            (Shape::Circle(_), _) => core::cmp::Ordering::Less,
-            (_, Shape::Circle(_)) => core::cmp::Ordering::Greater,
-            (Shape::Ellipse(_), _) => core::cmp::Ordering::Less,
-            (_, Shape::Ellipse(_)) => core::cmp::Ordering::Greater,
-            (Shape::Polygon(_), _) => core::cmp::Ordering::Less,
-            (_, Shape::Polygon(_)) => core::cmp::Ordering::Greater,
-            (Shape::Inset(_), Shape::Path(_)) => core::cmp::Ordering::Less,
-            (Shape::Path(_), Shape::Inset(_)) => core::cmp::Ordering::Greater,
+            (CssShape::Circle(_), _) => core::cmp::Ordering::Less,
+            (_, CssShape::Circle(_)) => core::cmp::Ordering::Greater,
+            (CssShape::Ellipse(_), _) => core::cmp::Ordering::Less,
+            (_, CssShape::Ellipse(_)) => core::cmp::Ordering::Greater,
+            (CssShape::Polygon(_), _) => core::cmp::Ordering::Less,
+            (_, CssShape::Polygon(_)) => core::cmp::Ordering::Greater,
+            (CssShape::Inset(_), CssShape::Path(_)) => core::cmp::Ordering::Less,
+            (CssShape::Path(_), CssShape::Inset(_)) => core::cmp::Ordering::Greater,
         }
     }
 }
 
-impl Shape {
+impl CssShape {
     /// Creates a circle shape at the given position with the given radius
     pub fn circle(center: LayoutPoint, radius: f32) -> Self {
-        Shape::Circle(ShapeCircle { center, radius })
+        CssShape::Circle(ShapeCircle { center, radius })
     }
 
     /// Creates an ellipse shape
     pub fn ellipse(center: LayoutPoint, radius_x: f32, radius_y: f32) -> Self {
-        Shape::Ellipse(ShapeEllipse {
+        CssShape::Ellipse(ShapeEllipse {
             center,
             radius_x,
             radius_y,
@@ -257,12 +257,12 @@ impl Shape {
 
     /// Creates a polygon from a list of points
     pub fn polygon(points: LayoutPointVec) -> Self {
-        Shape::Polygon(ShapePolygon { points })
+        CssShape::Polygon(ShapePolygon { points })
     }
 
     /// Creates an inset rectangle
     pub fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        Shape::Inset(ShapeInset {
+        CssShape::Inset(ShapeInset {
             top,
             right,
             bottom,
@@ -273,7 +273,7 @@ impl Shape {
 
     /// Creates an inset rectangle with rounded corners
     pub fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
-        Shape::Inset(ShapeInset {
+        CssShape::Inset(ShapeInset {
             top,
             right,
             bottom,
@@ -283,7 +283,7 @@ impl Shape {
     }
 }
 
-impl_option!(Shape, OptionShape, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(CssShape, OptionCssShape, copy = false, [Debug, Clone, PartialEq]);
 
 /// A line segment representing available horizontal space at a given y-position.
 /// Used for line breaking within shaped containers.
@@ -376,17 +376,17 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq]
 );
 
-impl Shape {
+impl CssShape {
     /// Computes the bounding box of this shape
     pub fn bounding_box(&self) -> LayoutRect {
         match self {
-            Shape::Circle(ShapeCircle { center, radius }) => LayoutRect {
+            CssShape::Circle(ShapeCircle { center, radius }) => LayoutRect {
                 origin: LayoutPoint::new(center.x - radius, center.y - radius),
                 width: radius * 2.0,
                 height: radius * 2.0,
             },
 
-            Shape::Ellipse(ShapeEllipse {
+            CssShape::Ellipse(ShapeEllipse {
                 center,
                 radius_x,
                 radius_y,
@@ -396,7 +396,7 @@ impl Shape {
                 height: radius_y * 2.0,
             },
 
-            Shape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { points }) => {
                 if points.as_ref().is_empty() {
                     return LayoutRect::zero();
                 }
@@ -421,7 +421,7 @@ impl Shape {
                 }
             }
 
-            Shape::Inset(ShapeInset {
+            CssShape::Inset(ShapeInset {
                 top,
                 right,
                 bottom,
@@ -437,7 +437,7 @@ impl Shape {
                 }
             }
 
-            Shape::Path(_) => {
+            CssShape::Path(_) => {
                 // Path bounding box computation requires parsing the path
                 // For now, return zero rect
                 LayoutRect::zero()
@@ -464,7 +464,7 @@ impl Shape {
         use alloc::vec::Vec;
 
         let segments: Vec<LineSegment> = match self {
-            Shape::Circle(ShapeCircle { center, radius }) => {
+            CssShape::Circle(ShapeCircle { center, radius }) => {
                 let dy = y - center.y;
                 let r_with_margin = radius - margin;
 
@@ -482,7 +482,7 @@ impl Shape {
                 }
             }
 
-            Shape::Ellipse(ShapeEllipse {
+            CssShape::Ellipse(ShapeEllipse {
                 center,
                 radius_x,
                 radius_y,
@@ -507,11 +507,11 @@ impl Shape {
                 }
             }
 
-            Shape::Polygon(ShapePolygon { points }) => {
+            CssShape::Polygon(ShapePolygon { points }) => {
                 compute_polygon_line_segments(points.as_ref(), y, margin)
             }
 
-            Shape::Inset(ShapeInset {
+            CssShape::Inset(ShapeInset {
                 top,
                 right,
                 bottom,
@@ -541,7 +541,7 @@ impl Shape {
                 }
             }
 
-            Shape::Path(_) => {
+            CssShape::Path(_) => {
                 // Path intersection requires path parsing
                 // For now, return empty
                 Vec::new()

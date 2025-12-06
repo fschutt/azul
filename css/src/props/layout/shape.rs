@@ -13,7 +13,7 @@ use crate::{
         },
         formatter::PrintAsCssValue,
     },
-    shape::Shape,
+    shape::CssShape,
 };
 
 /// CSS shape-outside property for wrapping text around shapes
@@ -21,7 +21,7 @@ use crate::{
 #[repr(C, u8)]
 pub enum ShapeOutside {
     None,
-    Shape(Shape),
+    Shape(CssShape),
 }
 
 impl Eq for ShapeOutside {}
@@ -69,7 +69,7 @@ impl PrintAsCssValue for ShapeOutside {
 #[repr(C, u8)]
 pub enum ShapeInside {
     None,
-    Shape(Shape),
+    Shape(CssShape),
 }
 
 impl Eq for ShapeInside {}
@@ -117,7 +117,7 @@ impl PrintAsCssValue for ShapeInside {
 #[repr(C, u8)]
 pub enum ClipPath {
     None,
-    Shape(Shape),
+    Shape(CssShape),
 }
 
 impl Eq for ClipPath {}
