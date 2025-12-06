@@ -960,7 +960,7 @@ pub fn parse_style_hanging_punctuation<'a>(
 
 /// text-combine-upright property for combining horizontal text in vertical layout
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum StyleTextCombineUpright {
     None,
     All,

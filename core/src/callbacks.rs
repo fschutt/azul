@@ -169,7 +169,7 @@ impl_callback!(IFrameCallback);
 ///
 /// This helps the callback optimize its behavior based on why it's being called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum IFrameCallbackReason {
     /// Initial render - first time the IFrame appears
     InitialRender,

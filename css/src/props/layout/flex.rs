@@ -794,7 +794,7 @@ pub fn parse_layout_align_self<'a>(
 
 /// Represents a `flex-basis` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum LayoutFlexBasis {
     /// auto
     Auto,

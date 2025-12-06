@@ -310,7 +310,7 @@ pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, LayoutLeftPar
 
 /// Represents a `z-index` attribute - controls stacking order of positioned elements
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum LayoutZIndex {
     Auto,
     Integer(i32),

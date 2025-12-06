@@ -403,62 +403,96 @@ fn generate_discriminant_test(
     output.push_str(&format!("/// Test discriminant order of {}\n", test.class));
     output.push_str(&format!("#[test]\n"));
     output.push_str(&format!("fn {}() {{\n", test_name));
-    output.push_str(&format!("    unsafe {{\n"));
 
-    // Generate instances for both types
-    let variant_count = enum_fields.len();
-    for (idx, variant_map) in enum_fields.iter().enumerate() {
-        for (variant_name, _) in variant_map {
-            output.push_str(&format!(
-                "        let generated_{}: {} = mem::MaybeUninit::uninit().assume_init();\n",
-                idx, generated_type
-            ));
-            output.push_str(&format!(
-                "        let external_{}: {} = mem::MaybeUninit::uninit().assume_init();\n",
-                idx, external_type
-            ));
-        }
+    // Collect all variant names in order
+    let variants: Vec<(String, bool)> = enum_fields
+        .iter()
+        .filter_map(|variant_map| {
+            variant_map.iter().next().map(|(name, data)| {
+                (name.clone(), data.r#type.is_some())
+            })
+        })
+        .collect();
+
+    if variants.is_empty() {
+        output.push_str("    // No variants to test\n");
+        output.push_str("}\n");
+        return Ok(output);
     }
 
-    output.push_str(&format!("\n"));
-
-    // Get discriminants
-    for idx in 0..variant_count {
-        output.push_str(&format!(
-            "        let gen_disc_{} = mem::discriminant(&generated_{});\n",
-            idx, idx
-        ));
-        output.push_str(&format!(
-            "        let ext_disc_{} = mem::discriminant(&external_{});\n",
-            idx, idx
-        ));
-    }
-
-    output.push_str(&format!("\n"));
-    output.push_str(&format!("        // Compare discriminants pairwise\n"));
-
-    // Compare each discriminant - only check generated types
-    for i in 0..variant_count {
-        for j in (i + 1)..variant_count {
-            let mut comment = String::new();
-            if let Some(variant_map_i) = enum_fields.get(i) {
-                if let Some(variant_map_j) = enum_fields.get(j) {
-                    if let Some((name_i, _)) = variant_map_i.iter().next() {
-                        if let Some((name_j, _)) = variant_map_j.iter().next() {
-                            comment = format!(" // {} != {}", name_i, name_j);
-                        }
-                    }
-                }
-            }
+    // Generate instances for each variant - use actual variant constructors
+    // We create the external type and transmute it to the generated type,
+    // then compare discriminants to ensure they match
+    for (idx, (variant_name, has_data)) in variants.iter().enumerate() {
+        if *has_data {
+            // Skip variants with data for now - they need more complex handling
             output.push_str(&format!(
-                "        assert_ne!(gen_disc_{}, gen_disc_{});{}\n",
-                i, j, comment
+                "    // Variant {} ({}) has data - skipping discriminant test\n",
+                idx, variant_name
+            ));
+        } else {
+            // For variants without data, create external type and transmute to generated
+            output.push_str(&format!(
+                "    let external_{} = {}::{};\n",
+                idx, external_type, variant_name
+            ));
+            output.push_str(&format!(
+                "    let generated_{} = {}::{};\n",
+                idx, generated_type, variant_name
+            ));
+            output.push_str(&format!(
+                "    let transmuted_{}: {} = unsafe {{ std::mem::transmute(external_{}) }};\n",
+                idx, generated_type, idx
+            ));
+            output.push_str(&format!(
+                "    let gen_disc_{} = std::mem::discriminant(&generated_{});\n",
+                idx, idx
+            ));
+            output.push_str(&format!(
+                "    let transmuted_disc_{} = std::mem::discriminant(&transmuted_{});\n",
+                idx, idx
             ));
         }
     }
 
-    output.push_str(&format!("    }}\n"));
-    output.push_str(&format!("}}\n"));
+    output.push_str("\n");
+    output.push_str("    // Verify discriminants match between generated and transmuted external\n");
+
+    // For variants without data, compare generated vs transmuted external discriminants
+    for (idx, (variant_name, has_data)) in variants.iter().enumerate() {
+        if !*has_data {
+            output.push_str(&format!(
+                "    assert_eq!(gen_disc_{}, transmuted_disc_{}, \"Discriminant mismatch for variant {}: external type has different discriminant value\");\n",
+                idx, idx, variant_name
+            ));
+        }
+    }
+
+    output.push_str("\n");
+    output.push_str("    // Verify all discriminants are unique within generated type\n");
+
+    // Compare discriminants to ensure they're all different (only for variants without data)
+    let no_data_indices: Vec<usize> = variants
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, has_data))| !*has_data)
+        .map(|(idx, _)| idx)
+        .collect();
+
+    for i in 0..no_data_indices.len() {
+        for j in (i + 1)..no_data_indices.len() {
+            let idx_i = no_data_indices[i];
+            let idx_j = no_data_indices[j];
+            let name_i = &variants[idx_i].0;
+            let name_j = &variants[idx_j].0;
+            output.push_str(&format!(
+                "    assert_ne!(gen_disc_{}, gen_disc_{}, \"{} should != {}\");\n",
+                idx_i, idx_j, name_i, name_j
+            ));
+        }
+    }
+
+    output.push_str("}\n");
 
     Ok(output)
 }

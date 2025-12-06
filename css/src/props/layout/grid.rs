@@ -34,7 +34,7 @@ impl core::fmt::Debug for GridMinMax {
 
 /// Represents a single track sizing function for grid
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum GridTrackSizing {
     /// Fixed pixel/percent size
     Fixed(PixelValue),

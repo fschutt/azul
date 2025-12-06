@@ -88,9 +88,17 @@ pub fn autofix_api(
     // Run the full diff analysis (returns both diff and type index)
     let (diff, index) = analyze_api_diff(project_root, api_data, verbose)?;
     
-    // Check FFI safety of all types in the workspace
-    let ffi_warnings = check_ffi_safety(&index);
+    // Check FFI safety only for types that exist in api.json
+    let ffi_warnings = check_ffi_safety(&index, api_data);
     print_ffi_safety_warnings(&ffi_warnings);
+    
+    // Fail if there are any FFI safety issues
+    if !ffi_warnings.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Found {} FFI safety issues in API types. Fix them before proceeding.",
+            ffi_warnings.len()
+        ));
+    }
 
     // Report results
     println!("\n{}", "Analysis Results:".white().bold());
@@ -798,14 +806,33 @@ pub enum FfiSafetyWarningKind {
     EnumWithDataMissingReprCU8 {
         current_repr: Option<String>,
     },
+    /// Enum uses non-C repr like repr(u16) with explicit discriminant values
+    /// This breaks FFI because discriminant values aren't portable
+    NonCReprEnum {
+        current_repr: String,
+    },
 }
 
-/// Check FFI safety of all types in the index
-pub fn check_ffi_safety(index: &type_index::TypeIndex) -> Vec<FfiSafetyWarning> {
+/// Check FFI safety of types that exist in api.json
+pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Vec<FfiSafetyWarning> {
+    use std::collections::HashSet;
+    
+    // Build a set of type names that exist in api.json
+    let api_types: HashSet<String> = api_data.0.values()
+        .flat_map(|version| version.api.values())
+        .flat_map(|module| module.classes.keys())
+        .cloned()
+        .collect();
+    
     let mut warnings = Vec::new();
     
-    // Iterate over all types
+    // Iterate over all types, but only check those in api.json
     for (type_name, defs) in index.iter_all() {
+        // Skip types that aren't in api.json
+        if !api_types.contains(type_name) {
+            continue;
+        }
+        
         for typedef in defs {
             // Only check enums
             if let type_index::TypeDefKind::Enum { variants, repr, .. } = &typedef.kind {
@@ -872,6 +899,25 @@ pub fn check_ffi_safety(index: &type_index::TypeIndex) -> Vec<FfiSafetyWarning> 
                         });
                     }
                 }
+                
+                // Check 4: Enums with repr(u16), repr(u8) without C are dangerous
+                // because explicit discriminant values (= 100, = 200) are not FFI-portable
+                if let Some(r) = repr {
+                    let r_lower = r.to_lowercase().replace(" ", "");
+                    // Check for bare repr(u16), repr(u8), repr(i32) etc. without C
+                    let is_bare_int_repr = (r_lower == "u8" || r_lower == "u16" || r_lower == "u32" ||
+                                            r_lower == "i8" || r_lower == "i16" || r_lower == "i32") &&
+                                           !r_lower.contains("c");
+                    if is_bare_int_repr {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: type_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::NonCReprEnum {
+                                current_repr: r.clone(),
+                            },
+                        });
+                    }
+                }
             }
         }
     }
@@ -913,6 +959,13 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 println!("  {} {}", "✗".red(), warning.type_name.white());
                 println!("    {} Enum with data has repr: {}", "→".dimmed(), repr_display.yellow());
                 println!("    {} Add #[repr(C, u8)] for enums with data variants.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::NonCReprEnum { current_repr } => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Enum uses non-C repr: #[repr({})]", "→".dimmed(), current_repr.yellow());
+                println!("    {} Explicit discriminant values (= 100, = 200) are not FFI-safe.", "REASON:".magenta());
+                println!("    {} Use #[repr(C)] for enums without data, remove explicit discriminant values.", "FIX:".cyan());
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
         }

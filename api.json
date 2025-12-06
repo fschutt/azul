@@ -917,7 +917,7 @@
                 "ScrollBeyondContent": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "InstantPtrCloneCallbackType": {
             "external": "azul_core::task::InstantPtrCloneCallbackType",
@@ -3446,7 +3446,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ListViewOnColumnClickCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClickCallback",
@@ -3886,7 +3886,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NodeHierarchyItem": {
             "external": "azul_core::styled_dom::NodeHierarchyItem",
@@ -10438,7 +10438,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LayoutJustifyItems": {
             "doc": "Represents `justify-items` for grid containers",
@@ -10806,7 +10806,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LayoutWritingMode": {
             "doc": "Represents a `writing-mode` attribute",
@@ -11060,7 +11060,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ShapeMargin": {
             "external": "azul_css::props::layout::shape::ShapeMargin",
@@ -11145,7 +11145,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CounterIncrement": {
             "external": "azul_css::props::style::content::CounterIncrement",
@@ -11565,15 +11565,13 @@
             ],
             "enum_fields": [
               {
-                "Auto": {}
-              },
-              {
+                "Auto": {},
                 "Custom": {
-                  "type": "ColorU, ColorU"
+                  "type": "ScrollbarColorCustom"
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleVerticalAlign": {
             "doc": "Vertical text alignment enum (top, center, bottom) - default: `Top`",
@@ -11863,7 +11861,7 @@
                 "Bolder": {}
               }
             ],
-            "repr": "u16"
+            "repr": "C"
           },
           "StyleFontWeightValue": {
             "doc": "Type alias for CssPropertyValue < StyleFontWeight >",
@@ -12517,7 +12515,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleHangingPunctuationValue": {
             "doc": "Type alias for CssPropertyValue < StyleHangingPunctuation >",
@@ -12572,7 +12570,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "PhysicalSizeU32": {
             "doc": "Physical size with u32 dimensions",
@@ -13564,6 +13562,30 @@
                 },
                 "span_count": {
                   "type": "i32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ScrollbarColorCustom": {
+            "external": "azul_css::props::style::scrollbar::ScrollbarColorCustom",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "thumb": {
+                  "type": "ColorU"
+                },
+                "track": {
+                  "type": "ColorU"
                 }
               }
             ],
@@ -36247,7 +36269,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "VirtualKeyCode": {
             "external": "azul_core::window::VirtualKeyCode",
@@ -36481,7 +36503,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "InterpolateResolver": {
             "external": "azul_css::props::basic::animation::InterpolateResolver",
@@ -36533,7 +36555,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "RefCount": {
             "external": "azul_core::refany::RefCount",

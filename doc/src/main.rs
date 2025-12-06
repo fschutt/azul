@@ -736,6 +736,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!();
     println!("  PATCHING:");
     println!("    patch <file>                  - Apply a patch file to api.json");
+    println!("    patch <dir>                   - Apply all patch files from a directory");
     println!("    patch safe <dir>              - Apply and delete safe (path-only) patches");
     println!();
     println!("  API MANAGEMENT:");

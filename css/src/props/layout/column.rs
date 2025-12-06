@@ -19,7 +19,7 @@ use crate::props::{
 // --- column-count ---
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum ColumnCount {
     Auto,
     Integer(u32),
@@ -43,7 +43,7 @@ impl PrintAsCssValue for ColumnCount {
 // --- column-width ---
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum ColumnWidth {
     Auto,
     Length(PixelValue),

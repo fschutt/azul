@@ -945,7 +945,7 @@ pub struct IFrameNode {
 }
 
 /// An enum that holds either a CSS ID or a class name as a string.
-#[repr(C)]
+#[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum IdOrClass {
     Id(AzString),
@@ -1559,7 +1559,7 @@ pub struct AccessibilityInfo {
 /// Actions that can be performed on an accessible element.
 /// This is a simplified version of accesskit::Action to avoid direct dependency in core.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum AccessibilityAction {
     /// The default action for the element (usually a click).
     Default,

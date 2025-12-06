@@ -704,7 +704,7 @@ impl Into<StyledDom> for DomXml {
 
 /// Represents a child of an XML node - either an element or text
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum XmlNodeChild {
     /// A text node
     Text(AzString),

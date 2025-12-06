@@ -42,12 +42,20 @@ impl PrintAsCssValue for LayoutScrollbarWidth {
     }
 }
 
-/// Represents the standard `scrollbar-color` property.
+/// Wrapper struct for custom scrollbar colors (thumb and track)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+pub struct ScrollbarColorCustom {
+    pub thumb: ColorU,
+    pub track: ColorU,
+}
+
+/// Represents the standard `scrollbar-color` property.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum StyleScrollbarColor {
     Auto,
-    Custom { thumb: ColorU, track: ColorU },
+    Custom(ScrollbarColorCustom),
 }
 
 impl Default for StyleScrollbarColor {
@@ -60,7 +68,7 @@ impl PrintAsCssValue for StyleScrollbarColor {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Auto => "auto".to_string(),
-            Self::Custom { thumb, track } => format!("{} {}", thumb.to_hash(), track.to_hash()),
+            Self::Custom(c) => format!("{} {}", c.thumb.to_hash(), c.track.to_hash()),
         }
     }
 }
@@ -169,10 +177,10 @@ impl crate::format_rust_code::FormatAsRustCode for StyleScrollbarColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             StyleScrollbarColor::Auto => String::from("StyleScrollbarColor::Auto"),
-            StyleScrollbarColor::Custom { thumb, track } => format!(
-                "StyleScrollbarColor::Custom {{ thumb: {}, track: {} }}",
-                crate::format_rust_code::format_color_value(thumb),
-                crate::format_rust_code::format_color_value(track)
+            StyleScrollbarColor::Custom(c) => format!(
+                "StyleScrollbarColor::Custom(ScrollbarColorCustom {{ thumb: {}, track: {} }})",
+                crate::format_rust_code::format_color_value(&c.thumb),
+                crate::format_rust_code::format_color_value(&c.track)
             ),
         }
     }
@@ -575,7 +583,7 @@ pub fn parse_style_scrollbar_color<'a>(
     let thumb = parse_css_color(thumb_str)?;
     let track = parse_css_color(track_str)?;
 
-    Ok(StyleScrollbarColor::Custom { thumb, track })
+    Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom { thumb, track }))
 }
 
 #[derive(Clone, PartialEq)]
@@ -656,7 +664,7 @@ pub fn resolve_scrollbar_style(
         };
 
         let (thumb_color, track_color) = match final_color {
-            StyleScrollbarColor::Custom { thumb, track } => (Some(thumb), Some(track)),
+            StyleScrollbarColor::Custom(c) => (Some(c.thumb), Some(c.track)),
             StyleScrollbarColor::Auto => (None, None), // UA default
         };
 
@@ -743,19 +751,19 @@ mod tests {
         let custom = parse_style_scrollbar_color("red blue").unwrap();
         assert_eq!(
             custom,
-            StyleScrollbarColor::Custom {
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
                 thumb: ColorU::RED,
                 track: ColorU::BLUE
-            }
+            })
         );
 
         let custom_hex = parse_style_scrollbar_color("#ff0000 #0000ff").unwrap();
         assert_eq!(
             custom_hex,
-            StyleScrollbarColor::Custom {
+            StyleScrollbarColor::Custom(ScrollbarColorCustom {
                 thumb: ColorU::RED,
                 track: ColorU::BLUE
-            }
+            })
         );
 
         assert!(parse_style_scrollbar_color("red").is_err());
@@ -779,10 +787,10 @@ mod tests {
     #[test]
     fn test_resolve_standard_overrides_webkit() {
         let width = LayoutScrollbarWidth::Thin;
-        let color = StyleScrollbarColor::Custom {
+        let color = StyleScrollbarColor::Custom(ScrollbarColorCustom {
             thumb: ColorU::RED,
             track: ColorU::BLUE,
-        };
+        });
         let webkit_style = get_webkit_style();
 
         let resolved = resolve_scrollbar_style(Some(&width), Some(&color), Some(&webkit_style));
@@ -832,10 +840,10 @@ mod tests {
 
     #[test]
     fn test_resolve_only_color_is_set() {
-        let color = StyleScrollbarColor::Custom {
+        let color = StyleScrollbarColor::Custom(ScrollbarColorCustom {
             thumb: ColorU::RED,
             track: ColorU::BLUE,
-        };
+        });
         let webkit_style = get_webkit_style();
 
         let resolved = resolve_scrollbar_style(None, Some(&color), Some(&webkit_style));

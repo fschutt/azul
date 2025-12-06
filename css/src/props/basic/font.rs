@@ -35,19 +35,19 @@ use crate::{
 
 /// Represents the `font-weight` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(u16)]
+#[repr(C)]
 pub enum StyleFontWeight {
-    Lighter = 0,
-    W100 = 100,
-    W200 = 200,
-    W300 = 300,
-    Normal = 400,
-    W500 = 500,
-    W600 = 600,
-    Bold = 700,
-    W800 = 800,
-    W900 = 900,
-    Bolder = 1000,
+    Lighter,
+    W100,
+    W200,
+    W300,
+    Normal,
+    W500,
+    W600,
+    Bold,
+    W800,
+    W900,
+    Bolder,
 }
 
 impl Default for StyleFontWeight {
@@ -60,10 +60,16 @@ impl PrintAsCssValue for StyleFontWeight {
     fn print_as_css_value(&self) -> String {
         match self {
             StyleFontWeight::Lighter => "lighter".to_string(),
+            StyleFontWeight::W100 => "100".to_string(),
+            StyleFontWeight::W200 => "200".to_string(),
+            StyleFontWeight::W300 => "300".to_string(),
             StyleFontWeight::Normal => "normal".to_string(),
+            StyleFontWeight::W500 => "500".to_string(),
+            StyleFontWeight::W600 => "600".to_string(),
             StyleFontWeight::Bold => "bold".to_string(),
+            StyleFontWeight::W800 => "800".to_string(),
+            StyleFontWeight::W900 => "900".to_string(),
             StyleFontWeight::Bolder => "bolder".to_string(),
-            _ => (*self as u16).to_string(),
         }
     }
 }

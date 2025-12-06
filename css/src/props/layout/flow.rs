@@ -7,7 +7,7 @@ use crate::{corety::AzString, props::formatter::PrintAsCssValue};
 // --- flow-into ---
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum FlowInto {
     None,
     Named(AzString),
@@ -31,7 +31,7 @@ impl PrintAsCssValue for FlowInto {
 // --- flow-from ---
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum FlowFrom {
     None,
     Named(AzString),
