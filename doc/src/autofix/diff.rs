@@ -83,8 +83,35 @@ pub struct CallbackArgInfo {
     pub ref_kind: super::type_index::RefKind,
 }
 
+/// A struct field with name, type, and reference kind (in declaration order)
+#[derive(Debug, Clone)]
+pub struct StructFieldInfo {
+    pub name: String,
+    pub ty: String,
+    pub ref_kind: crate::api::RefKind,
+}
+
+/// An enum variant with name and optional payload type (in declaration order)
+#[derive(Debug, Clone)]
+pub struct EnumVariantInfo {
+    pub name: String,
+    pub ty: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum ModificationKind {
+    /// Replace ALL struct fields with these fields in the correct order.
+    /// This is used instead of individual FieldAdded/FieldRemoved/FieldTypeChanged
+    /// because for repr(C) structs, field ORDER matters for memory layout.
+    StructFieldsReplaced { fields: Vec<StructFieldInfo> },
+    /// Replace ALL enum variants with these variants in the correct order.
+    /// Similar to StructFieldsReplaced - order matters for discriminant values.
+    EnumVariantsReplaced { variants: Vec<EnumVariantInfo> },
+    /// Remove struct_fields entirely (type changed from struct to enum/type_alias/callback)
+    StructFieldsRemoved,
+    /// Remove enum_fields entirely (type changed from enum to struct/type_alias/callback)
+    EnumFieldsRemoved,
+    // Legacy individual field operations (kept for backwards compatibility, but not generated)
     FieldAdded { field_name: String, field_type: String, ref_kind: crate::api::RefKind },
     FieldRemoved { field_name: String },
     FieldTypeChanged { field_name: String, old_type: String, new_type: String, ref_kind: crate::api::RefKind },
@@ -680,18 +707,10 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                         .collect()
                 });
                 
-                // Extract callback typedef
+                // Extract callback typedef - use RefKind directly, no string conversion
                 let (callback_args, callback_returns) = if let Some(ref callback_def) = class_data.callback_typedef {
-                    use crate::api::BorrowMode;
-                    let args: Vec<(String, Option<String>)> = callback_def.fn_args.iter()
-                        .map(|arg| {
-                            let ref_str = match arg.ref_kind {
-                                BorrowMode::Ref => Some("ref".to_string()),
-                                BorrowMode::RefMut => Some("refmut".to_string()),
-                                BorrowMode::Value => Some("value".to_string()),
-                            };
-                            (arg.r#type.clone(), ref_str)
-                        })
+                    let args: Vec<(String, crate::api::RefKind)> = callback_def.fn_args.iter()
+                        .map(|arg| (arg.r#type.clone(), arg.ref_kind))
                         .collect();
                     let returns = callback_def.returns.as_ref().map(|r| r.r#type.clone());
                     (Some(args), returns)
@@ -741,9 +760,8 @@ pub struct ApiTypeInfo {
     pub struct_fields: Option<Vec<(String, String, crate::api::RefKind)>>,
     /// Enum variants: (variant_name, variant_type)
     pub enum_variants: Option<Vec<(String, Option<String>)>>,
-    /// Callback typedef args: (arg_type, ref_kind_string)
-    /// ref_kind_string is "ref", "refmut", or "value"
-    pub callback_args: Option<Vec<(String, Option<String>)>>,
+    /// Callback typedef args: (arg_type, ref_kind) - uses RefKind directly, no string conversion
+    pub callback_args: Option<Vec<(String, crate::api::RefKind)>>,
     /// Callback typedef return type
     pub callback_returns: Option<String>,
     /// Type alias target
@@ -796,6 +814,11 @@ fn generate_diff_v2(
                 if let Some(typedef) = index.resolve(workspace_name, None) {
                     diff.modifications.extend(
                         compare_derives_and_impls(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for type kind mismatch (e.g., struct_fields in api.json but workspace has enum)
+                    diff.modifications.extend(
+                        check_type_kind_mismatch(matched_api_name, typedef, api_info)
                     );
                     
                     // Check for struct field differences
@@ -986,12 +1009,43 @@ fn compare_derives_and_impls(
     modifications
 }
 
-/// Field info for comparison including ref_kind
-#[derive(Debug, Clone)]
-struct FieldCompareInfo {
-    name: String,
-    ty: String,
-    ref_kind: crate::api::RefKind,
+/// Check if the type kind has changed (e.g., struct→enum)
+/// If api.json has struct_fields but workspace is an enum, we need to remove struct_fields
+/// If api.json has enum_fields but workspace is a struct, we need to remove enum_fields
+fn check_type_kind_mismatch(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    let mut modifications = Vec::new();
+    
+    let expanded = workspace_type.expand_macro_generated();
+    
+    // Determine what the workspace type IS
+    let ws_is_struct = matches!(expanded, TypeDefKind::Struct { .. });
+    let ws_is_enum = matches!(expanded, TypeDefKind::Enum { .. });
+    
+    // Determine what api.json THINKS it is (using enum_variants, not enum_fields)
+    let api_has_struct_fields = api_info.struct_fields.as_ref().map_or(false, |f| !f.is_empty());
+    let api_has_enum_variants = api_info.enum_variants.as_ref().map_or(false, |f| !f.is_empty());
+    
+    // If workspace is an enum but api.json has struct_fields → remove struct_fields
+    if ws_is_enum && api_has_struct_fields {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::StructFieldsRemoved,
+        });
+    }
+    
+    // If workspace is a struct but api.json has enum_variants → remove enum_fields
+    if ws_is_struct && api_has_enum_variants {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::EnumFieldsRemoved,
+        });
+    }
+    
+    modifications
 }
 
 /// Compare struct fields between workspace type and api.json type
@@ -1004,10 +1058,10 @@ fn compare_struct_fields(
     
     // Get workspace fields (expand MacroGenerated types)
     let expanded = workspace_type.expand_macro_generated();
-    let workspace_fields: Vec<FieldCompareInfo> = match expanded {
+    let workspace_fields: Vec<StructFieldInfo> = match expanded {
         TypeDefKind::Struct { fields, .. } => {
             fields.iter()
-                .map(|(name, field)| FieldCompareInfo {
+                .map(|(name, field)| StructFieldInfo {
                     name: name.clone(),
                     ty: field.ty.clone(),
                     ref_kind: field.ref_kind,
@@ -1018,82 +1072,32 @@ fn compare_struct_fields(
     };
     
     // Get api.json fields
-    let api_fields = match &api_info.struct_fields {
+    let api_fields: Vec<(String, String, crate::api::RefKind)> = match &api_info.struct_fields {
         Some(fields) => fields.clone(),
-        None => {
-            // api.json has no fields but workspace does - all fields need to be added
-            for field in workspace_fields {
-                modifications.push(TypeModification {
-                    type_name: type_name.to_string(),
-                    kind: ModificationKind::FieldAdded {
-                        field_name: field.name,
-                        field_type: field.ty,
-                        ref_kind: field.ref_kind,
-                    },
-                });
-            }
-            return modifications;
-        }
+        None => Vec::new(),
     };
     
-    // Create lookup maps - for api.json, we also need ref_kind
-    let workspace_map: HashMap<&str, &FieldCompareInfo> = workspace_fields.iter()
-        .map(|f| (f.name.as_str(), f))
-        .collect();
-    let api_map: HashMap<&str, (&str, crate::api::RefKind)> = api_fields.iter()
-        .map(|(n, t, rk)| (n.as_str(), (t.as_str(), *rk)))
-        .collect();
+    // Check if fields differ in any way: count, names, types, order, or ref_kind
+    let fields_differ = if workspace_fields.len() != api_fields.len() {
+        true
+    } else {
+        // Compare field by field in order
+        workspace_fields.iter().zip(api_fields.iter()).any(|(ws, (api_name, api_type, api_ref_kind))| {
+            let name_differs = ws.name != *api_name;
+            let type_differs = normalize_type_name(&ws.ty) != normalize_type_name(api_type);
+            let ref_differs = ws.ref_kind != *api_ref_kind;
+            name_differs || type_differs || ref_differs
+        })
+    };
     
-    // Check for added/changed fields (in workspace but not in api.json or different type)
-    for field in &workspace_fields {
-        match api_map.get(field.name.as_str()) {
-            None => {
-                // Field added in workspace
-                modifications.push(TypeModification {
-                    type_name: type_name.to_string(),
-                    kind: ModificationKind::FieldAdded {
-                        field_name: field.name.clone(),
-                        field_type: field.ty.clone(),
-                        ref_kind: field.ref_kind,
-                    },
-                });
-            }
-            Some((api_type, api_ref_kind)) => {
-                // Field exists - check if type or ref_kind matches
-                let type_changed = normalize_type_name(&field.ty) != normalize_type_name(api_type);
-                let ref_kind_changed = field.ref_kind != *api_ref_kind;
-                
-                // DEBUG: Log when ref_kind differs for c_void fields
-                if field.ty == "c_void" && ref_kind_changed {
-                    eprintln!("[DEBUG] {}.{}: workspace ref_kind={:?}, api ref_kind={:?}", 
-                        type_name, field.name, field.ref_kind, api_ref_kind);
-                }
-                
-                if type_changed || ref_kind_changed {
-                    modifications.push(TypeModification {
-                        type_name: type_name.to_string(),
-                        kind: ModificationKind::FieldTypeChanged {
-                            field_name: field.name.clone(),
-                            old_type: api_type.to_string(),
-                            new_type: field.ty.clone(),
-                            ref_kind: field.ref_kind,
-                        },
-                    });
-                }
-            }
-        }
-    }
-    
-    // Check for removed fields (in api.json but not in workspace)
-    for (field_name, _, _) in &api_fields {
-        if !workspace_map.contains_key(field_name.as_str()) {
-            modifications.push(TypeModification {
-                type_name: type_name.to_string(),
-                kind: ModificationKind::FieldRemoved {
-                    field_name: field_name.clone(),
-                },
-            });
-        }
+    // If any difference exists, replace ALL fields with the correct ones from workspace
+    if fields_differ && !workspace_fields.is_empty() {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::StructFieldsReplaced {
+                fields: workspace_fields,
+            },
+        });
     }
     
     modifications
@@ -1109,81 +1113,46 @@ fn compare_enum_variants(
     
     // Get workspace variants (expand MacroGenerated types)
     let expanded = workspace_type.expand_macro_generated();
-    let workspace_variants: Vec<(String, Option<String>)> = match expanded {
+    let workspace_variants: Vec<EnumVariantInfo> = match expanded {
         TypeDefKind::Enum { variants, .. } => {
             variants.iter()
-                .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                .map(|(name, variant)| EnumVariantInfo {
+                    name: name.clone(),
+                    ty: variant.ty.clone(),
+                })
                 .collect()
         }
         _ => return modifications, // Not an enum
     };
     
     // Get api.json variants
-    let api_variants = match &api_info.enum_variants {
+    let api_variants: Vec<(String, Option<String>)> = match &api_info.enum_variants {
         Some(variants) => variants.clone(),
-        None => {
-            // api.json has no variants but workspace does - all variants need to be added
-            for (variant_name, _) in workspace_variants {
-                modifications.push(TypeModification {
-                    type_name: type_name.to_string(),
-                    kind: ModificationKind::VariantAdded {
-                        variant_name,
-                    },
-                });
-            }
-            return modifications;
-        }
+        None => Vec::new(),
     };
     
-    // Create lookup maps
-    let workspace_map: HashMap<&str, &Option<String>> = workspace_variants.iter()
-        .map(|(n, t)| (n.as_str(), t))
-        .collect();
-    let api_map: HashMap<&str, &Option<String>> = api_variants.iter()
-        .map(|(n, t)| (n.as_str(), t))
-        .collect();
+    // Check if variants differ in any way: count, names, types, or order
+    let variants_differ = if workspace_variants.len() != api_variants.len() {
+        true
+    } else {
+        // Compare variant by variant in order
+        workspace_variants.iter().zip(api_variants.iter()).any(|(ws, (api_name, api_type))| {
+            let name_differs = ws.name != *api_name;
+            let workspace_normalized = ws.ty.as_ref().map(|t| normalize_type_name(t));
+            let api_normalized = api_type.as_ref().map(|t| normalize_type_name(t));
+            let type_differs = workspace_normalized != api_normalized;
+            name_differs || type_differs
+        })
+    };
     
-    // Check for added/changed variants (in workspace but not in api.json or different type)
-    for (variant_name, variant_type) in &workspace_variants {
-        match api_map.get(variant_name.as_str()) {
-            None => {
-                // Variant added in workspace
-                modifications.push(TypeModification {
-                    type_name: type_name.to_string(),
-                    kind: ModificationKind::VariantAdded {
-                        variant_name: variant_name.clone(),
-                    },
-                });
-            }
-            Some(api_type) => {
-                // Variant exists - check if type matches
-                let workspace_normalized = variant_type.as_ref().map(|t| normalize_type_name(t));
-                let api_normalized = api_type.as_ref().map(|t| normalize_type_name(t));
-                
-                if workspace_normalized != api_normalized {
-                    modifications.push(TypeModification {
-                        type_name: type_name.to_string(),
-                        kind: ModificationKind::VariantTypeChanged {
-                            variant_name: variant_name.clone(),
-                            old_type: (*api_type).clone(),
-                            new_type: variant_type.clone(),
-                        },
-                    });
-                }
-            }
-        }
-    }
-    
-    // Check for removed variants (in api.json but not in workspace)
-    for (variant_name, _) in &api_variants {
-        if !workspace_map.contains_key(variant_name.as_str()) {
-            modifications.push(TypeModification {
-                type_name: type_name.to_string(),
-                kind: ModificationKind::VariantRemoved {
-                    variant_name: variant_name.clone(),
-                },
-            });
-        }
+    // If any difference exists, replace ALL variants with the correct ones from workspace
+    if variants_differ && !workspace_variants.is_empty() {
+        modifications.push(TypeModification {
+            type_name: type_name.to_string(),
+            kind: ModificationKind::EnumVariantsReplaced {
+                variants: workspace_variants,
+            },
+        });
     }
     
     modifications
@@ -1195,8 +1164,6 @@ fn compare_callback_typedef(
     workspace_type: &TypeDefinition,
     api_info: &ApiTypeInfo,
 ) -> Vec<TypeModification> {
-    use super::type_index::RefKind;
-    
     let mut modifications = Vec::new();
     
     // Get workspace callback info (expand MacroGenerated types)
@@ -1215,7 +1182,7 @@ fn compare_callback_typedef(
         _ => return modifications, // Not a callback typedef
     };
     
-    // Get api.json callback info
+    // Get api.json callback info - now uses RefKind directly, no string conversion
     match (&api_info.callback_args, &api_info.callback_returns) {
         (None, _) => {
             // api.json has no callback_typedef but workspace does - needs to be added
@@ -1228,9 +1195,7 @@ fn compare_callback_typedef(
             });
         }
         (Some(api_args), api_returns) => {
-            // Compare args - check both type and ref_kind
-            // If ANY argument differs, we need to replace the entire callback_typedef
-            // because ChangeCallbackArg doesn't work correctly in the patch application
+            // Compare args - check both type and ref_kind (both are now typed, no strings)
             let mut any_arg_differs = false;
             
             // Check argument count
@@ -1238,21 +1203,13 @@ fn compare_callback_typedef(
                 any_arg_differs = true;
             } else {
                 for (i, workspace_arg) in workspace_args.iter().enumerate() {
-                    if let Some((api_arg_ty, api_arg_ref)) = api_args.get(i) {
+                    if let Some((api_arg_ty, api_arg_ref_kind)) = api_args.get(i) {
                         let workspace_normalized = normalize_type_name(&workspace_arg.ty);
                         let api_normalized = normalize_type_name(api_arg_ty);
                         
-                        // Convert api ref string to RefKind for comparison
-                        let api_ref_kind = match api_arg_ref.as_deref() {
-                            Some("ref") => Some(RefKind::Ref),
-                            Some("refmut") => Some(RefKind::RefMut),
-                            Some("value") | None => Some(RefKind::Value),
-                            _ => None,
-                        };
-                        
-                        // Check if type or ref_kind differs
+                        // Direct RefKind comparison - no string conversion needed
                         let type_differs = workspace_normalized != api_normalized;
-                        let ref_differs = api_ref_kind != Some(workspace_arg.ref_kind);
+                        let ref_differs = workspace_arg.ref_kind != *api_arg_ref_kind;
                         
                         if type_differs || ref_differs {
                             any_arg_differs = true;

@@ -126,9 +126,9 @@ pub enum ModifyChange {
         arg_index: usize,
         old_type: String,
         new_type: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        old_ref: Option<String>,
-        new_ref: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_ref: Option<crate::api::RefKind>,
+        new_ref: crate::api::RefKind,
     },
     /// Change callback return type
     ChangeCallbackReturn {
@@ -154,6 +154,36 @@ pub enum ModifyChange {
         old_params: Vec<String>,
         new_params: Vec<String>,
     },
+    /// Replace ALL struct fields (preserves correct field order for repr(C) structs)
+    ReplaceStructFields {
+        fields: Vec<StructFieldDef>,
+    },
+    /// Replace ALL enum variants (preserves correct variant order)
+    ReplaceEnumVariants {
+        variants: Vec<EnumVariantDef>,
+    },
+    /// Remove struct_fields entirely (type changed from struct to enum)
+    RemoveStructFields,
+    /// Remove enum_fields entirely (type changed from enum to struct)
+    RemoveEnumFields,
+}
+
+/// Struct field definition for complete field replacement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructFieldDef {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
+}
+
+/// Enum variant definition for complete variant replacement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumVariantDef {
+    pub name: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub variant_type: Option<String>,
 }
 
 /// Callback argument definition for patches
@@ -161,11 +191,15 @@ pub enum ModifyChange {
 pub struct CallbackArgDef {
     #[serde(rename = "type")]
     pub arg_type: String,
-    /// Reference kind: "ref", "refmut", or "value"
-    #[serde(rename = "ref")]
-    pub ref_kind: String,
+    /// Reference kind - uses RefKind directly for type safety
+    #[serde(default, skip_serializing_if = "is_ref_kind_default")]
+    pub ref_kind: crate::api::RefKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+fn is_ref_kind_default(rk: &crate::api::RefKind) -> bool {
+    rk.is_default()
 }
 
 /// Fix the external path of a type
@@ -399,26 +433,13 @@ fn explain_change(change: &ModifyChange) -> String {
         }
         ModifyChange::SetCallbackTypedef { args, returns } => {
             let args_str: Vec<String> = args.iter().map(|a| {
-                let ref_str = match a.ref_kind.as_str() {
-                    "ref" => "&",
-                    "refmut" => "&mut ",
-                    _ => "",
-                };
-                format!("{}{}", ref_str, a.arg_type)
+                format!("{}{}", a.ref_kind.as_prefix(), a.arg_type)
             }).collect();
             format!("+ callback_typedef({}) -> {:?}", args_str.join(", "), returns)
         }
         ModifyChange::ChangeCallbackArg { arg_index, old_type, new_type, old_ref, new_ref } => {
-            let old_ref_str = match old_ref.as_deref() {
-                Some("ref") => "&",
-                Some("refmut") => "&mut ",
-                _ => "",
-            };
-            let new_ref_str = match new_ref.as_str() {
-                "ref" => "&",
-                "refmut" => "&mut ",
-                _ => "",
-            };
+            let old_ref_str = old_ref.as_ref().map(|rk| rk.as_prefix()).unwrap_or("");
+            let new_ref_str = new_ref.as_prefix();
             format!("~ callback arg[{}]: {}{} → {}{}", arg_index, old_ref_str, old_type, new_ref_str, new_type)
         }
         ModifyChange::ChangeCallbackReturn { old_type, new_type } => {
@@ -450,6 +471,20 @@ fn explain_change(change: &ModifyChange) -> String {
                 format!("<{}>", new_params.join(", "))
             };
             format!("~ generic_params: {} → {}", old_display, new_display)
+        }
+        ModifyChange::ReplaceStructFields { fields } => {
+            let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+            format!("= struct_fields [{}]", field_names.join(", "))
+        }
+        ModifyChange::ReplaceEnumVariants { variants } => {
+            let variant_names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
+            format!("= enum_variants [{}]", variant_names.join(", "))
+        }
+        ModifyChange::RemoveStructFields => {
+            "- struct_fields (type changed to enum)".to_string()
+        }
+        ModifyChange::RemoveEnumFields => {
+            "- enum_fields (type changed to struct)".to_string()
         }
     }
 }
@@ -631,18 +666,13 @@ impl AutofixPatch {
                     });
                 }
                 ModifyChange::SetCallbackTypedef { args, returns } => {
-                    use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData, BorrowMode};
+                    use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData};
                     
                     let callback_args: Vec<CallbackArgData> = args.iter()
                         .map(|arg| {
-                            let ref_kind = match arg.ref_kind.as_str() {
-                                "ref" => BorrowMode::Ref,
-                                "refmut" => BorrowMode::RefMut,
-                                _ => BorrowMode::Value,
-                            };
                             CallbackArgData {
                                 r#type: arg.arg_type.clone(),
-                                ref_kind,
+                                ref_kind: arg.ref_kind.clone(),
                                 doc: None,
                             }
                         })
@@ -660,21 +690,14 @@ impl AutofixPatch {
                 }
                 ModifyChange::ChangeCallbackArg { arg_index, new_type, new_ref, .. } => {
                     // Update a specific callback argument
-                    // First, get the existing callback_typedef if any, or create a new one
-                    use crate::api::{CallbackDefinition, CallbackArgData, BorrowMode};
-                    
-                    let ref_kind = match new_ref.as_str() {
-                        "ref" => BorrowMode::Ref,
-                        "refmut" => BorrowMode::RefMut,
-                        _ => BorrowMode::Value,
-                    };
+                    use crate::api::CallbackDefinition;
                     
                     // We need to update just this argument, but for now we'll need the full callback
                     // This could be improved with more granular updates
                     if let Some(ref mut callback_def) = patch.callback_typedef {
                         if let Some(arg) = callback_def.fn_args.get_mut(*arg_index) {
                             arg.r#type = new_type.clone();
-                            arg.ref_kind = ref_kind;
+                            arg.ref_kind = new_ref.clone();
                         }
                     }
                 }
@@ -702,6 +725,45 @@ impl AutofixPatch {
                         patch.generic_params = Some(new_params.clone());
                     }
                 }
+                ModifyChange::ReplaceStructFields { fields } => {
+                    // Complete replacement - NOT a merge, preserves field order
+                    let mut ordered_fields: IndexMap<String, FieldData> = IndexMap::new();
+                    for field in fields {
+                        let rk = field.ref_kind.as_ref()
+                            .and_then(|s| crate::api::RefKind::parse(s))
+                            .unwrap_or_default();
+                        ordered_fields.insert(field.name.clone(), FieldData {
+                            r#type: field.field_type.clone(),
+                            ref_kind: rk,
+                            doc: None,
+                            derive: None,
+                        });
+                    }
+                    patch.struct_fields = Some(vec![ordered_fields]);
+                    patch.add_struct_fields = Some(false); // REPLACE, not merge
+                }
+                ModifyChange::ReplaceEnumVariants { variants } => {
+                    // Complete replacement - NOT a merge, preserves variant order
+                    let mut ordered_variants: IndexMap<String, EnumVariantData> = IndexMap::new();
+                    for variant in variants {
+                        ordered_variants.insert(variant.name.clone(), EnumVariantData {
+                            r#type: variant.variant_type.clone(),
+                            doc: None,
+                        });
+                    }
+                    patch.enum_fields = Some(vec![ordered_variants]);
+                    patch.add_enum_fields = Some(false); // REPLACE, not merge
+                }
+                ModifyChange::RemoveStructFields => {
+                    // Type changed from struct to enum - clear struct_fields
+                    patch.struct_fields = Some(vec![]); // Empty vec signals removal
+                    patch.add_struct_fields = Some(false);
+                }
+                ModifyChange::RemoveEnumFields => {
+                    // Type changed from enum to struct - clear enum_fields
+                    patch.enum_fields = Some(vec![]); // Empty vec signals removal
+                    patch.add_enum_fields = Some(false);
+                }
             }
         }
         
@@ -721,9 +783,11 @@ impl AutofixPatch {
         }
         if !struct_fields_to_add.is_empty() {
             patch.struct_fields = Some(vec![struct_fields_to_add]);
+            patch.add_struct_fields = Some(true); // Merge with existing struct_fields
         }
         if !enum_variants_to_add.is_empty() {
             patch.enum_fields = Some(vec![enum_variants_to_add]);
+            patch.add_enum_fields = Some(true); // Merge with existing enum_fields
         }
         
         patch

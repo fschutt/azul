@@ -1572,7 +1572,7 @@ fn generate_rust_callback_fn_type(
     callback_typedef: &crate::api::CallbackDefinition,
     prefix: &str,
 ) -> Result<String> {
-    use crate::api::BorrowMode;
+    use crate::api::RefKind;
     
     let mut fn_string = String::from("extern \"C\" fn(");
 
@@ -1595,9 +1595,13 @@ fn generate_rust_callback_fn_type(
                     search_for_class_by_class_name(version_data, &base_type)
                 {
                     match fn_arg_ref {
-                        BorrowMode::Ref => arg_string = format!("&{}{}", prefix, class_name),
-                        BorrowMode::RefMut => arg_string = format!("&mut {}{}", prefix, class_name),
-                        BorrowMode::Value => arg_string = format!("{}{}", prefix, class_name),
+                        RefKind::Ref => arg_string = format!("&{}{}", prefix, class_name),
+                        RefKind::RefMut => arg_string = format!("&mut {}{}", prefix, class_name),
+                        RefKind::ConstPtr => arg_string = format!("*const {}{}", prefix, class_name),
+                        RefKind::MutPtr => arg_string = format!("*mut {}{}", prefix, class_name),
+                        RefKind::Boxed => arg_string = format!("Box<{}{}>", prefix, class_name),
+                        RefKind::OptionBoxed => arg_string = format!("Option<Box<{}{}>>", prefix, class_name),
+                        RefKind::Value => arg_string = format!("{}{}", prefix, class_name),
                     }
                 } else {
                     // Type not found - use as-is with prefix
@@ -1606,17 +1610,25 @@ fn generate_rust_callback_fn_type(
                         base_type
                     );
                     match fn_arg_ref {
-                        BorrowMode::Ref => arg_string = format!("&{}{}", prefix, base_type),
-                        BorrowMode::RefMut => arg_string = format!("&mut {}{}", prefix, base_type),
-                        BorrowMode::Value => arg_string = format!("{}{}", prefix, base_type),
+                        RefKind::Ref => arg_string = format!("&{}{}", prefix, base_type),
+                        RefKind::RefMut => arg_string = format!("&mut {}{}", prefix, base_type),
+                        RefKind::ConstPtr => arg_string = format!("*const {}{}", prefix, base_type),
+                        RefKind::MutPtr => arg_string = format!("*mut {}{}", prefix, base_type),
+                        RefKind::Boxed => arg_string = format!("Box<{}{}>", prefix, base_type),
+                        RefKind::OptionBoxed => arg_string = format!("Option<Box<{}{}>>", prefix, base_type),
+                        RefKind::Value => arg_string = format!("{}{}", prefix, base_type),
                     }
                 }
             } else {
                 // Primitive type
                 match fn_arg_ref {
-                    BorrowMode::Ref => arg_string = format!("&{}", fn_arg_type),
-                    BorrowMode::RefMut => arg_string = format!("&mut {}", fn_arg_type),
-                    BorrowMode::Value => arg_string = fn_arg_type.clone(),
+                    RefKind::Ref => arg_string = format!("&{}", fn_arg_type),
+                    RefKind::RefMut => arg_string = format!("&mut {}", fn_arg_type),
+                    RefKind::ConstPtr => arg_string = format!("*const {}", fn_arg_type),
+                    RefKind::MutPtr => arg_string = format!("*mut {}", fn_arg_type),
+                    RefKind::Boxed => arg_string = format!("Box<{}>", fn_arg_type),
+                    RefKind::OptionBoxed => arg_string = format!("Option<Box<{}>>", fn_arg_type),
+                    RefKind::Value => arg_string = fn_arg_type.clone(),
                 }
             }
 

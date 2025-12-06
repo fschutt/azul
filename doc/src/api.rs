@@ -464,10 +464,10 @@ pub struct CallbackDefinition {
 pub struct CallbackArgData {
     #[serde(rename = "type")]
     pub r#type: String,
-    /// Borrow mode: ref (&T), refmut (&mut T), or value (T)
-    /// Strongly typed - fails at JSON parse time on invalid values
-    #[serde(rename = "ref")]
-    pub ref_kind: BorrowMode,
+    /// Reference kind for callback argument - supports full range including pointers
+    /// Uses same RefKind as struct fields for consistency
+    #[serde(default, skip_serializing_if = "is_ref_kind_value")]
+    pub ref_kind: RefKind,
     pub doc: Option<String>,
 }
 

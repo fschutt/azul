@@ -310,7 +310,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                         let (_, type_name, _) = analyze_type(arg_type);
                         let ref_kind = arg.ref_kind;
 
-                        let ref_prefix = ref_kind.to_rust_ref_prefix();
+                        let ref_prefix = ref_kind.to_rust_prefix();
 
                         if is_primitive_arg(&type_name) {
                             html.push_str(&format!(

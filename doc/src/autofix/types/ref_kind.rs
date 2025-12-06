@@ -71,6 +71,11 @@ impl RefKind {
         matches!(self, RefKind::Value)
     }
     
+    /// Alias for to_rust_prefix for convenience
+    pub fn as_prefix(&self) -> &'static str {
+        self.to_rust_prefix()
+    }
+    
     /// Convert to Rust syntax prefix
     pub fn to_rust_prefix(&self) -> &'static str {
         match self {

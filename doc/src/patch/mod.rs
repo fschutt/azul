@@ -94,9 +94,15 @@ pub struct ClassPatch {
     /// Patch or replace struct fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub struct_fields: Option<Vec<IndexMap<String, FieldData>>>,
+    /// If true, merge struct_fields instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_struct_fields: Option<bool>,
     /// Patch or replace enum fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_fields: Option<Vec<IndexMap<String, EnumVariantData>>>,
+    /// If true, merge enum_fields instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_enum_fields: Option<bool>,
     /// Generic type parameters (e.g., ["T"] for PhysicalPosition<T>)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generic_params: Option<Vec<String>>,
@@ -1186,17 +1192,82 @@ fn apply_class_patch(
     }
 
     if let Some(new_struct_fields) = &patch.struct_fields {
-        println!(
-            "  [NOTE] Patching {}.{}: struct_fields",
-            module_name, class_name
-        );
-        class_data.struct_fields = Some(new_struct_fields.clone());
+        // Check if this is a removal (empty vec)
+        if new_struct_fields.is_empty() || new_struct_fields.iter().all(|m| m.is_empty()) {
+            println!(
+                "  [NOTE] Patching {}.{}: struct_fields (remove - type changed to enum)",
+                module_name, class_name
+            );
+            class_data.struct_fields = None;
+        } else if patch.add_struct_fields.unwrap_or(false) {
+            println!(
+                "  [NOTE] Patching {}.{}: struct_fields (merge)",
+                module_name, class_name
+            );
+            // Merge new fields into existing fields
+            if let Some(ref mut existing_fields) = class_data.struct_fields {
+                // Flatten existing fields into a single IndexMap
+                let mut merged: IndexMap<String, FieldData> = IndexMap::new();
+                for field_map in existing_fields.iter() {
+                    for (name, data) in field_map {
+                        merged.insert(name.clone(), data.clone());
+                    }
+                }
+                // Add/update new fields
+                for field_map in new_struct_fields {
+                    for (name, data) in field_map {
+                        merged.insert(name.clone(), data.clone());
+                    }
+                }
+                *existing_fields = vec![merged];
+            } else {
+                // No existing fields, just set the new ones
+                class_data.struct_fields = Some(new_struct_fields.clone());
+            }
+        } else {
+            println!(
+                "  [NOTE] Patching {}.{}: struct_fields (replace)",
+                module_name, class_name
+            );
+            class_data.struct_fields = Some(new_struct_fields.clone());
+        }
         patches_applied += 1;
     }
 
     if let Some(new_enum_fields) = &patch.enum_fields {
-        println!("  [NOTE] Patching {}.{}: enum_fields", module_name, class_name);
-        class_data.enum_fields = Some(new_enum_fields.clone());
+        // Check if this is a removal (empty vec)
+        if new_enum_fields.is_empty() || new_enum_fields.iter().all(|m| m.is_empty()) {
+            println!(
+                "  [NOTE] Patching {}.{}: enum_fields (remove - type changed to struct)",
+                module_name, class_name
+            );
+            class_data.enum_fields = None;
+        } else if patch.add_enum_fields.unwrap_or(false) {
+            println!("  [NOTE] Patching {}.{}: enum_fields (merge)", module_name, class_name);
+            // Merge new variants into existing variants
+            if let Some(ref mut existing_fields) = class_data.enum_fields {
+                // Flatten existing variants into a single IndexMap
+                let mut merged: IndexMap<String, EnumVariantData> = IndexMap::new();
+                for field_map in existing_fields.iter() {
+                    for (name, data) in field_map {
+                        merged.insert(name.clone(), data.clone());
+                    }
+                }
+                // Add/update new variants
+                for field_map in new_enum_fields {
+                    for (name, data) in field_map {
+                        merged.insert(name.clone(), data.clone());
+                    }
+                }
+                *existing_fields = vec![merged];
+            } else {
+                // No existing fields, just set the new ones
+                class_data.enum_fields = Some(new_enum_fields.clone());
+            }
+        } else {
+            println!("  [NOTE] Patching {}.{}: enum_fields (replace)", module_name, class_name);
+            class_data.enum_fields = Some(new_enum_fields.clone());
+        }
         patches_applied += 1;
     }
 

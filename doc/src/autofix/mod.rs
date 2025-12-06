@@ -337,6 +337,34 @@ pub fn autofix_api(
                         new_display.green()
                     );
                 }
+                diff::ModificationKind::StructFieldsReplaced { fields } => {
+                    let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+                    println!("  {}: {} struct_fields [{}]", 
+                        modification.type_name.white(), 
+                        "=".cyan(),
+                        field_names.join(", ").cyan()
+                    );
+                }
+                diff::ModificationKind::EnumVariantsReplaced { variants } => {
+                    let variant_names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
+                    println!("  {}: {} enum_variants [{}]", 
+                        modification.type_name.white(), 
+                        "=".cyan(),
+                        variant_names.join(", ").cyan()
+                    );
+                }
+                diff::ModificationKind::StructFieldsRemoved => {
+                    println!("  {}: {} struct_fields (type changed to enum)", 
+                        modification.type_name.white(), 
+                        "-".red()
+                    );
+                }
+                diff::ModificationKind::EnumFieldsRemoved => {
+                    println!("  {}: {} enum_fields (type changed to struct)", 
+                        modification.type_name.white(), 
+                        "-".red()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -476,6 +504,40 @@ fn generate_combined_patch(
                     new: *new_repr_c,
                 });
             }
+            diff::ModificationKind::StructFieldsReplaced { fields } => {
+                // Convert to complete field replacement (preserves order for repr(C))
+                let field_defs: Vec<patch_format::StructFieldDef> = fields.iter()
+                    .map(|f| patch_format::StructFieldDef {
+                        name: f.name.clone(),
+                        field_type: f.ty.clone(),
+                        ref_kind: if f.ref_kind.is_default() {
+                            None
+                        } else {
+                            Some(f.ref_kind.to_string())
+                        },
+                    })
+                    .collect();
+                changes.push(ModifyChange::ReplaceStructFields { fields: field_defs });
+            }
+            diff::ModificationKind::EnumVariantsReplaced { variants } => {
+                // Convert to complete variant replacement (preserves order)
+                let variant_defs: Vec<patch_format::EnumVariantDef> = variants.iter()
+                    .map(|v| patch_format::EnumVariantDef {
+                        name: v.name.clone(),
+                        variant_type: v.ty.clone(),
+                    })
+                    .collect();
+                changes.push(ModifyChange::ReplaceEnumVariants { variants: variant_defs });
+            }
+            diff::ModificationKind::StructFieldsRemoved => {
+                // Type changed from struct to enum - remove struct_fields
+                changes.push(ModifyChange::RemoveStructFields);
+            }
+            diff::ModificationKind::EnumFieldsRemoved => {
+                // Type changed from enum to struct - remove enum_fields
+                changes.push(ModifyChange::RemoveEnumFields);
+            }
+            // Legacy individual field operations (kept for backwards compatibility)
             diff::ModificationKind::FieldAdded { field_name, field_type, ref_kind } => {
                 let ref_kind_str = if ref_kind.is_default() {
                     None
@@ -528,10 +590,9 @@ fn generate_combined_patch(
             diff::ModificationKind::CallbackTypedefAdded { args, returns } => {
                 changes.push(ModifyChange::SetCallbackTypedef {
                     args: args.iter().map(|arg| {
-                        let ref_str = arg.ref_kind.as_str();
                         patch_format::CallbackArgDef {
                             arg_type: arg.ty.clone(),
-                            ref_kind: ref_str.to_string(),
+                            ref_kind: arg.ref_kind.clone(),
                             name: arg.name.clone(),
                         }
                     }).collect(),
@@ -539,14 +600,12 @@ fn generate_combined_patch(
                 });
             }
             diff::ModificationKind::CallbackArgChanged { arg_index, old_type, new_type, old_ref_kind, new_ref_kind } => {
-                let old_ref_str = old_ref_kind.map(|rk| rk.as_str().to_string());
-                let new_ref_str = new_ref_kind.as_str();
                 changes.push(ModifyChange::ChangeCallbackArg {
                     arg_index: *arg_index,
                     old_type: old_type.clone(),
                     new_type: new_type.clone(),
-                    old_ref: old_ref_str,
-                    new_ref: new_ref_str.to_string(),
+                    old_ref: old_ref_kind.clone(),
+                    new_ref: new_ref_kind.clone(),
                 });
             }
             diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {

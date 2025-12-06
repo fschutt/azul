@@ -152,8 +152,8 @@ pub enum TypeKind {
 pub struct CallbackArgInfo {
     /// The type of the argument (e.g., "c_void", "RefAny")
     pub ty: String,
-    /// How the argument is passed: ref (&T), refmut (&mut T), or value (T)
-    pub ref_kind: crate::api::BorrowMode,
+    /// How the argument is passed - uses full RefKind for pointer support
+    pub ref_kind: crate::api::RefKind,
 }
 
 #[derive(Debug, Clone)]
@@ -1551,7 +1551,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 /// e.g., "CssPropertyValue<LayoutZIndex>" -> ("CssPropertyValue", ["LayoutZIndex"])
 /// Parse a callback function argument to extract type and ref_kind
 fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
-    use crate::api::BorrowMode;
+    use crate::api::RefKind;
     
     match ty {
         syn::Type::Ptr(ptr) => {
@@ -1560,9 +1560,9 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 &ptr.elem.to_token_stream().to_string()
             );
             let ref_kind = if ptr.mutability.is_some() {
-                BorrowMode::RefMut
+                RefKind::MutPtr
             } else {
-                BorrowMode::Ref
+                RefKind::ConstPtr
             };
             CallbackArgInfo {
                 ty: inner_type,
@@ -1575,9 +1575,9 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
                 &reference.elem.to_token_stream().to_string()
             );
             let ref_kind = if reference.mutability.is_some() {
-                BorrowMode::RefMut
+                RefKind::RefMut
             } else {
-                BorrowMode::Ref
+                RefKind::Ref
             };
             CallbackArgInfo {
                 ty: inner_type,
@@ -1591,7 +1591,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
             );
             CallbackArgInfo {
                 ty: type_str,
-                ref_kind: BorrowMode::Value,
+                ref_kind: RefKind::Value,
             }
         }
     }

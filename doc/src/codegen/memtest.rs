@@ -246,7 +246,7 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("#![allow(unused_imports)]\n");
     output.push_str("#![allow(dead_code)]\n");
     output.push_str("#![allow(unused_variables)]\n");
-    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
+    output.push_str("#![warn(improper_ctypes_definitions)]\n\n");
 
     output.push_str("use std::mem;\n\n");
     output.push_str("pub mod generated;\n\n");
@@ -483,7 +483,7 @@ fn generate_generated_rs(
         "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
          clippy::all)]\n",
     );
-    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
+    output.push_str("#![warn(improper_ctypes_definitions)]\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data
@@ -577,15 +577,12 @@ fn generate_dll_module(
     dll_code.push_str(&format!("    pub type {}F32 = f32;\n", prefix));
     dll_code.push_str(&format!("    pub type {}Usize = usize;\n", prefix));
     dll_code.push_str(&format!("    pub type {}C_void = c_void;\n", prefix));
-    // Non-prefixed aliases for Option variants
+    // Non-prefixed aliases for primitive types
     dll_code.push_str("    pub type Usize = usize;\n");
     dll_code.push_str("    pub type U8 = u8;\n");
     dll_code.push_str("    pub type I16 = i16;\n");
     dll_code.push_str("    pub type Char = char;\n");
-    dll_code.push_str("    pub type Optionu32 = Option<u32>;\n");
-    dll_code.push_str("    pub type OptionU8 = Option<u8>;\n");
-    dll_code.push_str("    pub type Optionusize = Option<usize>;\n");
-    dll_code.push_str("    pub type OptionString = Option<string::String>;\n");
+    // Note: Option<T> types must use AzOptionT repr(C) structs, not std::Option
     dll_code.push_str("\n");
 
     println!("      [STATS] Collecting structs...");

@@ -1027,13 +1027,13 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
 
 /// Generate standard VecDestructorType callback typedef
 fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
-    use crate::api::{CallbackArgData, CallbackDefinition, BorrowMode};
+    use crate::api::{CallbackArgData, CallbackDefinition, RefKind};
 
     ClassPatch {
         callback_typedef: Some(CallbackDefinition {
             fn_args: vec![CallbackArgData {
                 r#type: vec_type_name.to_string(),
-                ref_kind: BorrowMode::RefMut,
+                ref_kind: RefKind::MutPtr,  // *mut VecType
                 doc: None,
             }],
             returns: None,

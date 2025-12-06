@@ -413,19 +413,9 @@ impl TypeDefinition {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 TypeKind::CallbackTypedef {
                     fn_args: args.into_iter().map(|arg| {
-                        // Convert RefKind to BorrowMode
-                        // Pointers are value types where the pointer itself is passed by value
-                        // but we include the pointer prefix in the type name
-                        let (borrow_mode, ty) = match arg.ref_kind {
-                            RefKind::Ref => (BorrowMode::Ref, arg.ty),
-                            RefKind::RefMut => (BorrowMode::RefMut, arg.ty),
-                            RefKind::ConstPtr => (BorrowMode::Value, format!("*const {}", arg.ty)),
-                            RefKind::MutPtr => (BorrowMode::Value, format!("*mut {}", arg.ty)),
-                            RefKind::Boxed => (BorrowMode::Value, format!("Box<{}>", arg.ty)),
-                            RefKind::OptionBoxed => (BorrowMode::Value, format!("Option<Box<{}>>", arg.ty)),
-                            RefKind::Value => (BorrowMode::Value, arg.ty),
-                        };
-                        CallbackArgInfo { ty, ref_kind: borrow_mode }
+                        // Keep RefKind as-is - no conversion needed anymore
+                        // The api.json CallbackArgData now uses RefKind directly
+                        CallbackArgInfo { ty: arg.ty, ref_kind: arg.ref_kind }
                     }).collect(),
                     returns,
                     doc: None,
