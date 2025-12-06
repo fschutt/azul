@@ -137,16 +137,38 @@ pub type GridAutoTracks = GridTemplate;
 
 // --- grid-row / grid-column (grid line placement) ---
 
-/// Represents a grid line position (start or end)
+/// Named grid line with optional span count (FFI-safe wrapper)
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
+pub struct NamedGridLine {
+    pub name: String,
+    /// Span count, 0 means no span specified
+    pub span_count: i32,
+}
+
+impl NamedGridLine {
+    pub fn new(name: String, span: Option<i32>) -> Self {
+        Self {
+            name,
+            span_count: span.unwrap_or(0),
+        }
+    }
+    
+    pub fn span(&self) -> Option<i32> {
+        if self.span_count == 0 { None } else { Some(self.span_count) }
+    }
+}
+
+/// Represents a grid line position (start or end)
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum GridLine {
     /// auto
     Auto,
     /// Line number (1-based, negative for counting from end)
     Line(i32),
     /// Named line with optional span count
-    Named(String, Option<i32>),
+    Named(NamedGridLine),
     /// span N
     Span(i32),
 }
@@ -168,8 +190,13 @@ impl PrintAsCssValue for GridLine {
         match self {
             GridLine::Auto => "auto".to_string(),
             GridLine::Line(n) => n.to_string(),
-            GridLine::Named(name, None) => name.clone(),
-            GridLine::Named(name, Some(n)) => format!("{} {}", name, n),
+            GridLine::Named(named) => {
+                if named.span_count == 0 {
+                    named.name.clone()
+                } else {
+                    format!("{} {}", named.name, named.span_count)
+                }
+            }
             GridLine::Span(n) => format!("span {}", n),
         }
     }
@@ -727,7 +754,7 @@ fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     }
 
     // Otherwise treat as named line
-    Ok(GridLine::Named(input.to_string(), None))
+    Ok(GridLine::Named(NamedGridLine::new(input.to_string(), None)))
 }
 
 #[cfg(all(test, feature = "parser"))]

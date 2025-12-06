@@ -24,8 +24,8 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                 println!("      Kind: {}", kind_to_string(&def.kind));
                 
                 match &def.kind {
-                    TypeDefKind::Struct { fields, has_repr_c, derives, custom_impls, .. } => {
-                        println!("      repr(C): {}", has_repr_c);
+                    TypeDefKind::Struct { fields, repr, derives, custom_impls, .. } => {
+                        println!("      repr: {:?}", repr);
                         println!("      Derives: {:?}", derives);
                         if !custom_impls.is_empty() {
                             println!("      Custom impls: {:?}", custom_impls);
@@ -43,8 +43,8 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                             println!("        ... and {} more", fields.len() - 5);
                         }
                     }
-                    TypeDefKind::Enum { variants, has_repr_c, derives, custom_impls, .. } => {
-                        println!("      repr(C): {}", has_repr_c);
+                    TypeDefKind::Enum { variants, repr, derives, custom_impls, .. } => {
+                        println!("      repr: {:?}", repr);
                         println!("      Derives: {:?}", derives);
                         if !custom_impls.is_empty() {
                             println!("      Custom impls: {:?}", custom_impls);
@@ -69,9 +69,9 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                         // Show the expanded form
                         let expanded = def.expand_macro_generated();
                         match &expanded {
-                            TypeDefKind::Struct { fields, has_repr_c, derives, custom_impls, .. } => {
+                            TypeDefKind::Struct { fields, repr, derives, custom_impls, .. } => {
                                 println!("      [Expanded to Struct]");
-                                println!("        repr(C): {}", has_repr_c);
+                                println!("        repr: {:?}", repr);
                                 println!("        Fields ({}):", fields.len());
                                 for (name, field) in fields {
                                     let ref_kind_str = if field.ref_kind.is_default() {
@@ -88,9 +88,9 @@ pub fn debug_type_in_index(index: &TypeIndex, type_name: &str) {
                                     println!("        Custom impls: {:?}", custom_impls);
                                 }
                             }
-                            TypeDefKind::Enum { variants, has_repr_c, derives, custom_impls, .. } => {
+                            TypeDefKind::Enum { variants, repr, derives, custom_impls, .. } => {
                                 println!("      [Expanded to Enum]");
-                                println!("        repr(C): {}", has_repr_c);
+                                println!("        repr: {:?}", repr);
                                 println!("        Variants ({}):", variants.len());
                                 for (name, variant) in variants {
                                     if let Some(ty) = &variant.ty {
@@ -356,7 +356,7 @@ mod tests {
                         crate_name: crate_name.to_string(),
                         kind: TypeDefKind::Struct {
                             fields,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec![],
                         },
@@ -397,7 +397,7 @@ mod tests {
                         crate_name: crate_name.to_string(),
                         kind: TypeDefKind::Enum {
                             variants,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec![],
                         },

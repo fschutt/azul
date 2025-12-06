@@ -122,7 +122,8 @@ pub enum ModificationKind {
     DeriveRemoved { derive_name: String },
     CustomImplAdded { impl_name: String },
     CustomImplRemoved { impl_name: String },
-    ReprCChanged { old_repr_c: bool, new_repr_c: bool },
+    /// repr attribute changed (e.g., "C" -> "C, u8", or None -> Some("C"))
+    ReprChanged { old_repr: Option<String>, new_repr: Option<String> },
     /// Callback typedef needs to be added (type exists but has no callback_typedef)
     CallbackTypedefAdded { args: Vec<CallbackArgInfo>, returns: Option<String> },
     /// Callback typedef arg changed
@@ -497,11 +498,13 @@ pub fn generate_diff(
 /// 3. For each api.json function, resolve all types RECURSIVELY using WORKSPACE INDEX
 /// 4. This gives us "expected" state - all types the API needs with their current workspace paths
 /// 5. Compare expected vs current api.json → generate diff
+///
+/// Returns: (ApiDiff, TypeIndex) tuple for further analysis
 pub fn analyze_api_diff(
     workspace_root: &Path,
     api_data: &ApiData,
     verbose: bool,
-) -> Result<ApiDiff> {
+) -> Result<(ApiDiff, TypeIndex)> {
     use colored::Colorize;
     
     // Step 1: Build type index from workspace (source of truth for types)
@@ -559,7 +562,7 @@ pub fn analyze_api_diff(
         );
     }
 
-    Ok(diff)
+    Ok((diff, index))
 }
 
 /// Resolve all types referenced by api.json functions, using the WORKSPACE INDEX
@@ -683,7 +686,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 let path = class_data.external.clone().unwrap_or_default();
                 let derives = class_data.derive.clone().unwrap_or_default();
                 let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
-                let has_repr_c = class_data.repr.as_deref() == Some("C");
+                let repr = class_data.repr.clone();
                 
                 // Extract struct fields with ref_kind
                 let struct_fields = class_data.struct_fields.as_ref().map(|fields_vec| {
@@ -732,7 +735,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                     module: module_name.clone(),
                     derives,
                     custom_impls,
-                    has_repr_c,
+                    repr,
                     struct_fields,
                     enum_variants,
                     callback_args,
@@ -755,7 +758,7 @@ pub struct ApiTypeInfo {
     pub module: String,
     pub derives: Vec<String>,
     pub custom_impls: Vec<String>,
-    pub has_repr_c: bool,
+    pub repr: Option<String>,
     /// Struct fields: (field_name, field_type, ref_kind)
     pub struct_fields: Option<Vec<(String, String, crate::api::RefKind)>>,
     /// Enum variants: (variant_name, variant_type)
@@ -940,10 +943,10 @@ fn compare_derives_and_impls(
 ) -> Vec<TypeModification> {
     let mut modifications = Vec::new();
     
-    // Get workspace derives, custom_impls and repr_c
-    let (workspace_derives, workspace_custom_impls, workspace_repr_c) = match &workspace_type.kind {
-        TypeDefKind::Struct { derives, custom_impls, has_repr_c, .. } => (derives.clone(), custom_impls.clone(), *has_repr_c),
-        TypeDefKind::Enum { derives, custom_impls, has_repr_c, .. } => (derives.clone(), custom_impls.clone(), *has_repr_c),
+    // Get workspace derives, custom_impls and repr
+    let (workspace_derives, workspace_custom_impls, workspace_repr) = match &workspace_type.kind {
+        TypeDefKind::Struct { derives, custom_impls, repr, .. } => (derives.clone(), custom_impls.clone(), repr.clone()),
+        TypeDefKind::Enum { derives, custom_impls, repr, .. } => (derives.clone(), custom_impls.clone(), repr.clone()),
         _ => return modifications, // Skip non-struct/enum types
     };
     
@@ -995,13 +998,13 @@ fn compare_derives_and_impls(
         });
     }
     
-    // Compare repr(C)
-    if workspace_repr_c != api_info.has_repr_c {
+    // Compare repr - now using Option<String> for exact value comparison
+    if workspace_repr != api_info.repr {
         modifications.push(TypeModification {
             type_name: type_name.to_string(),
-            kind: ModificationKind::ReprCChanged {
-                old_repr_c: api_info.has_repr_c,
-                new_repr_c: workspace_repr_c,
+            kind: ModificationKind::ReprChanged {
+                old_repr: api_info.repr.clone(),
+                new_repr: workspace_repr,
             },
         });
     }

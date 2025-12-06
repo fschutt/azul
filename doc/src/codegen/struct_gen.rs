@@ -634,12 +634,9 @@ fn generate_struct_definition(
         String::new()
     };
 
-    // repr attribute
-    let repr = struct_meta
-        .repr
-        .as_ref()
-        .map(|r| format!("{}#[repr({})]\n", indent_str, r))
-        .unwrap_or_else(|| format!("{}#[repr(C)]\n", indent_str));
+    // repr attribute - always repr(C) for structs
+    // NOTE: We ignore api.json "repr" field - structs are always repr(C)
+    let repr = format!("{}#[repr(C)]\n", indent_str);
 
     // Write all attributes
     code.push_str(&repr);
@@ -1085,20 +1082,18 @@ fn generate_enum_definition(
 ) -> Result<String> {
     let mut code = String::new();
 
-    // Determine repr
-    let mut repr = format!("{}#[repr(C)]\n", indent_str);
-    for variant_map in enum_fields {
-        for (_variant_name, variant_data) in variant_map {
-            if variant_data.r#type.is_some() {
-                repr = format!("{}#[repr(C, u8)]\n", indent_str);
-                break;
-            }
-        }
-    }
-
-    if let Some(custom_repr) = &struct_meta.repr {
-        repr = format!("{}#[repr({})]\n", indent_str, custom_repr);
-    }
+    // Determine repr automatically based on enum structure
+    // - Enums without variant data: repr(C)
+    // - Enums with variant data (tagged unions): repr(C, u8) - tag is u8
+    // NOTE: We ignore api.json "repr" field - it's always implicitly calculable
+    let has_variant_data = enum_fields.iter().any(|variant_map| {
+        variant_map.values().any(|variant_data| variant_data.r#type.is_some())
+    });
+    let repr = if has_variant_data {
+        format!("{}#[repr(C, u8)]\n", indent_str)
+    } else {
+        format!("{}#[repr(C)]\n", indent_str)
+    };
 
     // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
     // All derive information is now explicit in api.json - no auto-computation

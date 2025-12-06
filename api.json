@@ -932,8 +932,7 @@
               "returns": {
                 "type": "InstantPtr"
               }
-            },
-            "repr": "C"
+            }
           },
           "InstantPtrDestructorCallbackType": {
             "external": "azul_core::task::InstantPtrDestructorCallbackType",
@@ -946,8 +945,7 @@
                 }
               ],
               "returns": null
-            },
-            "repr": "C"
+            }
           }
         }
       },
@@ -2750,7 +2748,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "AccessibilityInfo": {
             "doc": "Holds information about a UI element for accessibility purposes (e.g., screen readers). This is a wrapper for platform-specific accessibility APIs like MSAA.",
@@ -3273,7 +3271,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NodeDataInlineCssProperty": {
             "doc": "Represents an inline CSS property attached to a node for a specific interaction state. This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node.",
@@ -3339,7 +3337,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DomId": {
             "doc": "A unique, runtime-generated identifier for a single `Dom` instance.",
@@ -3624,7 +3622,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CoreMenuCallback": {
             "external": "azul_core::menu::CoreMenuCallback",
@@ -3865,7 +3863,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "XmlNodeChild": {
             "external": "azul_core::xml::XmlNodeChild",
@@ -4417,7 +4415,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StringMenuItem": {
             "doc": "A menu item with a text label and optional features. `StringMenuItem` represents a clickable menu entry that can have: - A text label - An optional keyboard accelerator (e.g., Ctrl+C) - An optional callback function - An optional icon (checkbox or image) - A state (normal, greyed, or disabled) - Child menu items (for sub-menus) # Examples ```rust,no_run use azul_core::menu::StringMenuItem; use azul_css::AzString; let item = StringMenuItem::new(AzString::from_const_str(\"Copy\")); ```",
@@ -4597,7 +4595,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "MenuItemState": {
             "doc": "Describes the interactive state of a menu item. Menu items can be in different states that affect their appearance and behavior: - Normal items are clickable and render normally - Greyed items are visually disabled (greyed out) and non-clickable - Disabled items are non-clickable but retain normal appearance",
@@ -5489,7 +5487,7 @@
                 "fn_body": "cssproperty.interpolate(&other, t, &context)"
               }
             },
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssNthChildSelector": {
             "external": "azul_css::css::CssNthChildSelector",
@@ -5524,7 +5522,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssNthChildPattern": {
             "external": "azul_css::css::CssNthChildPattern",
@@ -5636,7 +5634,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DynamicCssProperty": {
             "doc": "A `DynamicCssProperty` is a type of css property that can be changed on possibly every frame by the Rust code - for example to implement an `On::Hover` behaviour. The syntax for such a property looks like this: ```no_run,ignore #my_div { padding: var(--my_dynamic_property_id, 400px); } ``` Azul will register a dynamic property with the key \"my_dynamic_property_id\" and the default value of 400px. If the property gets overridden during one frame, the overridden property takes precedence. At runtime the style is immutable (which is a performance optimization - if we can assume that the property never changes at runtime), we can do some optimizations on it. Dynamic style properties can also be used for animations and conditional styles (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these special cases now use one single API.",
@@ -5697,7 +5695,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ColorU": {
             "doc": "u8-based color, range 0 to 255 (similar to webrenders ColorU)",
@@ -6095,7 +6093,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBlur": {
             "external": "azul_css::props::style::filter::StyleBlur",
@@ -6205,7 +6203,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LayoutAlignContent": {
             "doc": "Represents an `align-content` attribute, which aligns a flex container's lines within it when there is extra space in the cross-axis. Default: `Stretch`",
@@ -6553,7 +6551,7 @@
                 "MaxContent": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LayoutJustifyContent": {
             "doc": "Represents a `justify-content` attribute, which defines the alignment along the main axis. Default: `Start` (flex-start)",
@@ -7011,7 +7009,7 @@
                 "MaxContent": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LayoutFlexWrap": {
             "doc": "Represents a `flex-wrap` attribute, which determines whether flex items are forced onto one line or can wrap onto multiple lines. Default: `NoWrap`",
@@ -7365,7 +7363,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LinearGradient": {
             "external": "azul_css::props::style::background::LinearGradient",
@@ -7579,7 +7577,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "BackgroundPositionHorizontal": {
             "external": "azul_css::props::style::background::BackgroundPositionHorizontal",
@@ -7609,7 +7607,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "BackgroundPositionVertical": {
             "external": "azul_css::props::style::background::BackgroundPositionVertical",
@@ -7639,7 +7637,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundPosition": {
             "external": "azul_css::props::style::background::StyleBackgroundPosition",
@@ -7729,7 +7727,7 @@
                 "Cover": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBorderBottomColor": {
             "external": "azul_css::props::style::border::StyleBorderBottomColor",
@@ -8231,7 +8229,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleFontSize": {
             "doc": "Represents a `font-size` attribute",
@@ -8530,7 +8528,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleTransformMatrix2D": {
             "external": "azul_css::props::style::transform::StyleTransformMatrix2D",
@@ -10322,7 +10320,7 @@
                 }
               }
             ],
-            "repr": "C",
+            "repr": "C, u8",
             "generic_params": [
               "T"
             ]
@@ -10372,30 +10370,19 @@
             ],
             "enum_fields": [
               {
-                "Auto": {
-                  "doc": "auto"
-                }
-              },
-              {
+                "Auto": {},
                 "Line": {
-                  "type": "i32",
-                  "doc": "Line number (1-based, negative for counting from end)"
-                }
-              },
-              {
+                  "type": "i32"
+                },
                 "Named": {
-                  "type": "String, Option < i32 >",
-                  "doc": "Named line with optional span count"
-                }
-              },
-              {
+                  "type": "NamedGridLine"
+                },
                 "Span": {
-                  "type": "i32",
-                  "doc": "span N"
+                  "type": "i32"
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StylePerspectiveOrigin": {
             "doc": "Represents a `perspective-origin` attribute",
@@ -10792,7 +10779,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ColumnCount": {
             "external": "azul_css::props::layout::column::ColumnCount",
@@ -11684,7 +11671,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SelectionRadius": {
             "external": "azul_css::props::style::selection::SelectionRadius",
@@ -11876,7 +11863,7 @@
                 "Bolder": {}
               }
             ],
-            "repr": "C"
+            "repr": "u16"
           },
           "StyleFontWeightValue": {
             "doc": "Type alias for CssPropertyValue < StyleFontWeight >",
@@ -12066,7 +12053,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ShapeInsideValue": {
             "doc": "Type alias for CssPropertyValue < ShapeInside >",
@@ -12612,7 +12599,6 @@
                 }
               }
             ],
-            "repr": "C",
             "type_alias": {
               "target": "PhysicalSize",
               "generic_args": [
@@ -13074,7 +13060,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "PhysicalSize": {
             "external": "azul_core::geom::PhysicalSize",
@@ -13124,7 +13110,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "Indent": {
             "external": "azul_core::svg::Indent",
@@ -13143,7 +13129,7 @@
                 "Tabs": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "FontDatabase": {
             "external": "azul_core::svg::FontDatabase",
@@ -13455,7 +13441,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ComponentEventFilter": {
             "external": "azul_core::events::ComponentEventFilter",
@@ -13556,6 +13542,28 @@
                 "max": {
                   "type": "c_void",
                   "ref_kind": "boxed"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "NamedGridLine": {
+            "external": "azul_css::props::layout::grid::NamedGridLine",
+            "derive": [
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "span_count": {
+                  "type": "i32"
                 }
               }
             ],
@@ -14557,7 +14565,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "TextInputSelectionRange": {
             "external": "azul_layout::widgets::text_input::TextInputSelectionRange",
@@ -29135,7 +29143,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ImageRendering": {
             "external": "azul_core::svg::ImageRendering",
@@ -30253,7 +30261,7 @@
                 "fn_body": "svgnode.get_bounds()"
               }
             },
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgCircle": {
             "external": "azul_core::svg::SvgCircle",
@@ -30624,7 +30632,7 @@
                 "fn_body": "azul_layout::xml::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style)"
               }
             },
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgPoint": {
             "external": "azul_css::props::basic::animation::SvgPoint",
@@ -31482,7 +31490,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgFillRule": {
             "external": "azul_core::svg::SvgFillRule",
@@ -31680,7 +31688,7 @@
                 "Focus": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "LogicalRect": {
             "external": "azul_core::geom::LogicalRect",
@@ -31746,7 +31754,7 @@
                 "GeneralSibling": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssPath": {
             "external": "azul_css::css::CssPath",
@@ -31923,7 +31931,7 @@
                 "fn_body": "instant.linear_interpolate(start, end)"
               }
             },
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SystemTickDiff": {
             "external": "azul_core::task::SystemTickDiff",
@@ -31995,7 +32003,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SystemTimeDiff": {
             "external": "azul_core::task::SystemTimeDiff",
@@ -35394,8 +35402,7 @@
                   "type": "String"
                 }
               }
-            ],
-            "repr": "C"
+            ]
           }
         }
       },
@@ -35465,7 +35472,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "XmlError": {
             "external": "azul_core::xml::XmlError",
@@ -35633,7 +35640,7 @@
                 "UnexpectedEndOfStream": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DuplicatedNamespaceError": {
             "external": "azul_core::xml::DuplicatedNamespaceError",
@@ -35813,7 +35820,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "XmlTextError": {
             "external": "azul_core::xml::XmlTextError",
@@ -35901,7 +35908,7 @@
                 "InvalidCharacterData": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NonXmlCharError": {
             "external": "azul_core::xml::NonXmlCharError",

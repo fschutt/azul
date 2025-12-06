@@ -246,7 +246,7 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
     output.push_str("#![allow(unused_imports)]\n");
     output.push_str("#![allow(dead_code)]\n");
     output.push_str("#![allow(unused_variables)]\n");
-    output.push_str("#![warn(improper_ctypes_definitions)]\n\n");
+    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
 
     output.push_str("use std::mem;\n\n");
     output.push_str("pub mod generated;\n\n");
@@ -483,7 +483,7 @@ fn generate_generated_rs(
         "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
          clippy::all)]\n",
     );
-    output.push_str("#![warn(improper_ctypes_definitions)]\n\n");
+    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data

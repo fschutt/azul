@@ -1622,14 +1622,14 @@ pub fn virtual_patch_application<T: TypeLookup>(
                 }
 
                 // Check if type has repr(C) layout
-                let has_repr_c = match &type_info.kind {
-                    TypeKind::Struct { has_repr_c, .. } => *has_repr_c,
-                    TypeKind::Enum { has_repr_c, .. } => *has_repr_c,
+                let has_ffi_repr = match &type_info.kind {
+                    TypeKind::Struct { repr, .. } => repr.is_some(),
+                    TypeKind::Enum { repr, .. } => repr.is_some(),
                     TypeKind::TypeAlias { .. } => true, // Type aliases don't have layout
                     TypeKind::CallbackTypedef { .. } => true, // Callbacks are extern "C"
                 };
 
-                if !has_repr_c {
+                if !has_ffi_repr {
                     messages.push(AutofixMessage::TypeSkipped {
                         type_name: type_name.clone(),
                         reason: SkipReason::MissingReprC,

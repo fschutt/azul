@@ -49,7 +49,8 @@ pub struct TypeDefinition {
 pub enum TypeDefKind {
     Struct {
         fields: IndexMap<String, FieldDef>,
-        has_repr_c: bool,
+        /// The repr attribute value, e.g. Some("C") or None if missing
+        repr: Option<String>,
         generic_params: Vec<String>,
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
@@ -57,7 +58,8 @@ pub enum TypeDefKind {
     },
     Enum {
         variants: IndexMap<String, VariantDef>,
-        has_repr_c: bool,
+        /// The repr attribute value, e.g. Some("C"), Some("C, u8"), or None if missing
+        repr: Option<String>,
         generic_params: Vec<String>,
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
@@ -178,7 +180,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Struct {
                             fields,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
                             custom_impls: vec![],
@@ -205,7 +207,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Enum {
                             variants,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
                             custom_impls: vec![],
@@ -239,7 +241,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Enum {
                             variants,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
                             custom_impls: vec![],
@@ -263,7 +265,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Struct {
                             fields,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
                             custom_impls: vec![],
@@ -287,7 +289,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Enum {
                             variants,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string(), "Clone".to_string()],
                             custom_impls: vec![],
@@ -311,7 +313,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Struct {
                             fields,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
                             custom_impls: vec![],
@@ -328,7 +330,7 @@ impl TypeDefinition {
                         });
                         TypeDefKind::Struct {
                             fields,
-                            has_repr_c: true,
+                            repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec!["Debug".to_string()],
                             custom_impls: vec![],
@@ -369,7 +371,7 @@ impl TypeDefinition {
         
         // Convert TypeDefKind to TypeKind
         let kind = match expanded_kind {
-            TypeDefKind::Struct { fields, has_repr_c, generic_params, derives, custom_impls } => {
+            TypeDefKind::Struct { fields, repr, generic_params, derives, custom_impls } => {
                 TypeKind::Struct {
                     fields: fields.into_iter().map(|(name, field)| {
                         (name.clone(), FieldInfo {
@@ -379,14 +381,14 @@ impl TypeDefinition {
                             doc: if field.doc.is_empty() { None } else { Some(field.doc) },
                         })
                     }).collect(),
-                    has_repr_c,
+                    repr,
                     doc: None,
                     generic_params,
                     implemented_traits: custom_impls,
                     derives,
                 }
             }
-            TypeDefKind::Enum { variants, has_repr_c, generic_params, derives, custom_impls } => {
+            TypeDefKind::Enum { variants, repr, generic_params, derives, custom_impls } => {
                 TypeKind::Enum {
                     variants: variants.into_iter().map(|(name, variant)| {
                         (name.clone(), VariantInfo {
@@ -395,7 +397,7 @@ impl TypeDefinition {
                             doc: if variant.doc.is_empty() { None } else { Some(variant.doc) },
                         })
                     }).collect(),
-                    has_repr_c,
+                    repr,
                     doc: None,
                     generic_params,
                     implemented_traits: custom_impls,
@@ -425,7 +427,7 @@ impl TypeDefinition {
                 // This shouldn't happen after expand_macro_generated(), but handle it
                 TypeKind::Struct {
                     fields: IndexMap::new(),
-                    has_repr_c: true,
+                    repr: Some("C".to_string()),
                     doc: None,
                     generic_params: vec![],
                     implemented_traits: vec![],
@@ -610,13 +612,14 @@ impl TypeIndex {
                 score += 10;
             }
 
-            // Prefer types with repr(C)
-            match &candidate.kind {
-                TypeDefKind::Struct { has_repr_c: true, .. } |
-                TypeDefKind::Enum { has_repr_c: true, .. } => {
-                    score += 20;
-                }
-                _ => {}
+            // Prefer types with repr(C) or other FFI-safe repr
+            let has_ffi_repr = match &candidate.kind {
+                TypeDefKind::Struct { repr, .. } |
+                TypeDefKind::Enum { repr, .. } => is_ffi_safe_repr(repr),
+                _ => false,
+            };
+            if has_ffi_repr {
+                score += 20;
             }
 
             if score > best_score {
@@ -674,6 +677,11 @@ impl TypeIndex {
     /// Get all type names in the index
     pub fn all_type_names(&self) -> impl Iterator<Item = &String> {
         self.by_name.keys()
+    }
+    
+    /// Iterate over all types in the index, yielding (type_name, Vec<TypeDefinition>)
+    pub fn iter_all(&self) -> impl Iterator<Item = (&String, &Vec<Arc<TypeDefinition>>)> {
+        self.by_name.iter()
     }
 
     /// Get the number of unique type names
@@ -1127,7 +1135,7 @@ fn extract_struct(
         }
     }
 
-    let has_repr_c = has_repr_c_attr(&s.attrs);
+    let repr = extract_repr_attr(&s.attrs);
     let derives = extract_derives(&s.attrs);
 
     Some(TypeDefinition {
@@ -1138,7 +1146,7 @@ fn extract_struct(
         crate_name: crate_name.to_string(),
         kind: TypeDefKind::Struct {
             fields,
-            has_repr_c,
+            repr,
             generic_params,
             derives,
             custom_impls: vec![], // Will be filled in by second pass
@@ -1188,7 +1196,7 @@ fn extract_enum(
         );
     }
 
-    let has_repr_c = has_repr_c_attr(&e.attrs);
+    let repr = extract_repr_attr(&e.attrs);
     let derives = extract_derives(&e.attrs);
 
     Some(TypeDefinition {
@@ -1199,7 +1207,7 @@ fn extract_enum(
         crate_name: crate_name.to_string(),
         kind: TypeDefKind::Enum {
             variants,
-            has_repr_c,
+            repr,
             generic_params,
             derives,
             custom_impls: vec![], // Will be filled in by second pass
@@ -1581,7 +1589,7 @@ fn extract_macro_generated_types(
                             });
                             fields
                         },
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
                             "Debug".to_string(), "Copy".to_string(), "Clone".to_string(),
@@ -1617,7 +1625,7 @@ fn extract_macro_generated_types(
                             });
                             fields
                         },
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
                             "Default".to_string(), "Copy".to_string(), "Clone".to_string(),
@@ -1660,7 +1668,7 @@ fn extract_macro_generated_types(
                             });
                             fields
                         },
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
                             "Copy".to_string(), "Clone".to_string(),
@@ -1696,7 +1704,7 @@ fn extract_macro_generated_types(
                             });
                             fields
                         },
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
                             "Default".to_string(), "Copy".to_string(), "Clone".to_string(),
@@ -1720,26 +1728,41 @@ fn extract_macro_generated_types(
 // HELPERS
 // ============================================================================
 
-/// Check if a type has #[repr(C)] or similar
-fn has_repr_c_attr(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
+/// Extract the #[repr(...)] attribute value if present.
+/// Returns Some("C"), Some("C, u8"), Some("transparent"), etc. or None if no repr attribute.
+fn extract_repr_attr(attrs: &[syn::Attribute]) -> Option<String> {
+    for attr in attrs {
         if !attr.path().is_ident("repr") {
-            return false;
+            continue;
         }
-        let repr_str = attr.meta.to_token_stream().to_string();
-        repr_str.contains("C")
-            || repr_str.contains("transparent")
-            || repr_str.contains("u8")
-            || repr_str.contains("u16")
-            || repr_str.contains("u32")
-            || repr_str.contains("u64")
-            || repr_str.contains("i8")
-            || repr_str.contains("i16")
-            || repr_str.contains("i32")
-            || repr_str.contains("i64")
-            || repr_str.contains("usize")
-            || repr_str.contains("isize")
-    })
+        // Parse the repr content: #[repr(C)] -> "C", #[repr(C, u8)] -> "C, u8"
+        if let syn::Meta::List(list) = &attr.meta {
+            let tokens = list.tokens.to_string();
+            // Clean up whitespace
+            let repr_value = tokens.split(',')
+                .map(|s| s.trim())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !repr_value.is_empty() {
+                return Some(repr_value);
+            }
+        }
+    }
+    None
+}
+
+/// Check if a repr value indicates FFI-safe representation
+fn is_ffi_safe_repr(repr: &Option<String>) -> bool {
+    match repr {
+        Some(r) => {
+            r.contains("C")
+                || r.contains("transparent")
+                || r == "u8" || r == "u16" || r == "u32" || r == "u64"
+                || r == "i8" || r == "i16" || r == "i32" || r == "i64"
+                || r == "usize" || r == "isize"
+        }
+        None => false,
+    }
 }
 
 /// Extract #[derive(...)] traits
@@ -1927,8 +1950,8 @@ mod tests {
         assert_eq!(types[0].full_path, "test_crate::FontCache");
         
         match &types[0].kind {
-            TypeDefKind::Struct { has_repr_c, fields, .. } => {
-                assert!(has_repr_c);
+            TypeDefKind::Struct { repr, fields, .. } => {
+                assert!(repr.is_some());
                 assert!(fields.contains_key("fonts"));
             }
             _ => panic!("Expected Struct"),
@@ -1950,8 +1973,8 @@ mod tests {
         assert_eq!(types[0].type_name, "Color");
         
         match &types[0].kind {
-            TypeDefKind::Enum { variants, has_repr_c, .. } => {
-                assert!(has_repr_c);
+            TypeDefKind::Enum { variants, repr, .. } => {
+                assert!(repr.is_some());
                 assert_eq!(variants.len(), 3);
                 assert!(variants.contains_key("Red"));
             }

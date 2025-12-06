@@ -26,7 +26,7 @@ pub struct OracleTypeInfo {
     pub correct_path: Option<String>,
     pub fields: IndexMap<String, FieldData>,
     pub variants: IndexMap<String, EnumVariantData>,
-    pub has_repr_c: bool,
+    pub repr: Option<String>,
     pub is_enum: bool,
 }
 
@@ -109,7 +109,7 @@ pub struct ParsedTypeInfo {
 pub enum TypeKind {
     Struct {
         fields: IndexMap<String, FieldInfo>,
-        has_repr_c: bool,
+        repr: Option<String>,
         doc: Option<String>,
         /// Generic type parameters (e.g., ["T"] for PhysicalPosition<T>)
         generic_params: Vec<String>,
@@ -120,7 +120,7 @@ pub enum TypeKind {
     },
     Enum {
         variants: IndexMap<String, VariantInfo>,
-        has_repr_c: bool,
+        repr: Option<String>,
         doc: Option<String>,
         /// Generic type parameters (e.g., ["T"] for CssPropertyValue<T>)
         generic_params: Vec<String>,
@@ -698,13 +698,22 @@ impl WorkspaceIndex {
                 Ok(full_path) => {
                     // If type is from a macro like impl_vec! or define_spacing_property!,
                     // we know these macros generate #[repr(C)] types
-                    let has_repr_c = if is_from_macro {
-                        true
+                    let repr = if is_from_macro {
+                        Some("C".to_string())
                     } else {
+                        // Try to extract repr from source
                         self.file_sources
                             .get(file_path)
-                            .map(|s| s.contains("#[repr(C)]"))
-                            .unwrap_or(false)
+                            .and_then(|s| {
+                                // Simple extraction - look for #[repr(C)] or #[repr(C, u8)]
+                                if s.contains("#[repr(C, u8)]") {
+                                    Some("C, u8".to_string())
+                                } else if s.contains("#[repr(C)]") {
+                                    Some("C".to_string())
+                                } else {
+                                    None
+                                }
+                            })
                     };
                     
                     return Some(ParsedTypeInfo {
@@ -714,7 +723,7 @@ impl WorkspaceIndex {
                         module_path: vec![],
                         kind: TypeKind::Struct {
                             fields: IndexMap::new(),
-                            has_repr_c,
+                            repr,
                             doc: None,
                             generic_params: Vec::new(),
                             implemented_traits: Vec::new(),
@@ -904,7 +913,7 @@ impl WorkspaceIndex {
     ) -> OracleTypeInfo {
         match &type_info.kind {
             TypeKind::Struct {
-                fields, has_repr_c, derives, ..
+                fields, repr, derives, ..
             } => {
                 let mut api_fields = IndexMap::new();
                 for (name, field) in fields {
@@ -922,13 +931,13 @@ impl WorkspaceIndex {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: api_fields,
                     variants: IndexMap::new(),
-                    has_repr_c: *has_repr_c,
+                    repr: repr.clone(),
                     is_enum: false,
                 }
             }
             TypeKind::Enum {
                 variants,
-                has_repr_c,
+                repr,
                 ..
             } => {
                 let mut api_variants = IndexMap::new();
@@ -945,7 +954,7 @@ impl WorkspaceIndex {
                     correct_path: Some(type_info.full_path.clone()),
                     fields: IndexMap::new(),
                     variants: api_variants,
-                    has_repr_c: *has_repr_c,
+                    repr: repr.clone(),
                     is_enum: true,
                 }
             }
@@ -953,14 +962,14 @@ impl WorkspaceIndex {
                 correct_path: Some(type_info.full_path.clone()),
                 fields: IndexMap::new(),
                 variants: IndexMap::new(),
-                has_repr_c: false,
+                repr: None,
                 is_enum: false,
             },
             TypeKind::CallbackTypedef { .. } => OracleTypeInfo {
                 correct_path: Some(type_info.full_path.clone()),
                 fields: IndexMap::new(),
                 variants: IndexMap::new(),
-                has_repr_c: false,
+                repr: None,
                 is_enum: false,
             },
         }
@@ -1193,24 +1202,22 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     }
                 }
 
-                let has_repr_c = s.attrs.iter().any(|attr| {
+                // Extract repr attribute value
+                let repr = s.attrs.iter().find_map(|attr| {
                     if !attr.path().is_ident("repr") {
-                        return false;
+                        return None;
                     }
-                    let repr_str = attr.meta.to_token_stream().to_string();
-                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
-                    repr_str.contains("C")
-                        || repr_str.contains("transparent")
-                        || repr_str.contains("u8")
-                        || repr_str.contains("u16")
-                        || repr_str.contains("u32")
-                        || repr_str.contains("u64")
-                        || repr_str.contains("i8")
-                        || repr_str.contains("i16")
-                        || repr_str.contains("i32")
-                        || repr_str.contains("i64")
-                        || repr_str.contains("usize")
-                        || repr_str.contains("isize")
+                    if let syn::Meta::List(list) = &attr.meta {
+                        let tokens = list.tokens.to_string();
+                        let repr_value = tokens.split(',')
+                            .map(|s| s.trim())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if !repr_value.is_empty() {
+                            return Some(repr_value);
+                        }
+                    }
+                    None
                 });
 
                 // Extract derive traits from #[derive(...)] attributes
@@ -1226,7 +1233,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     module_path: module_path.clone(),
                     kind: TypeKind::Struct {
                         fields,
-                        has_repr_c,
+                        repr,
                         doc: crate::autofix::utils::extract_doc_comments(&s.attrs),
                         generic_params,
                         implemented_traits,
@@ -1283,24 +1290,22 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     );
                 }
 
-                let has_repr_c = e.attrs.iter().any(|attr| {
+                // Extract repr attribute value
+                let repr = e.attrs.iter().find_map(|attr| {
                     if !attr.path().is_ident("repr") {
-                        return false;
+                        return None;
                     }
-                    let repr_str = attr.meta.to_token_stream().to_string();
-                    // Accept #[repr(C)], #[repr(transparent)], or any fixed-size integer repr
-                    repr_str.contains("C")
-                        || repr_str.contains("transparent")
-                        || repr_str.contains("u8")
-                        || repr_str.contains("u16")
-                        || repr_str.contains("u32")
-                        || repr_str.contains("u64")
-                        || repr_str.contains("i8")
-                        || repr_str.contains("i16")
-                        || repr_str.contains("i32")
-                        || repr_str.contains("i64")
-                        || repr_str.contains("usize")
-                        || repr_str.contains("isize")
+                    if let syn::Meta::List(list) = &attr.meta {
+                        let tokens = list.tokens.to_string();
+                        let repr_value = tokens.split(',')
+                            .map(|s| s.trim())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if !repr_value.is_empty() {
+                            return Some(repr_value);
+                        }
+                    }
+                    None
                 });
 
                 // Extract derive traits from #[derive(...)] attributes
@@ -1316,7 +1321,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     module_path: module_path.clone(),
                     kind: TypeKind::Enum {
                         variants,
-                        has_repr_c,
+                        repr,
                         doc: crate::autofix::utils::extract_doc_comments(&e.attrs),
                         generic_params,
                         implemented_traits,
@@ -1461,7 +1466,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     module_path: module_path.clone(),
                     kind: TypeKind::Struct {
                         fields,
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         doc: Some(format!("Wrapper over a Rust-allocated `Vec<{}>", gen_type.element_type)),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),
@@ -1501,7 +1506,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                             module_path: module_path.clone(),
                             kind: TypeKind::Enum {
                                 variants,
-                                has_repr_c: true,
+                                repr: Some("C".to_string()),
                                 doc: Some(format!("Destructor for `{}`", gen_type.type_name)),
                                 generic_params: Vec::new(),
                                 implemented_traits: Vec::new(),
@@ -1532,7 +1537,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     module_path: module_path.clone(),
                     kind: TypeKind::Enum {
                         variants,
-                        has_repr_c: true,
+                        repr: Some("C".to_string()),
                         doc: Some(format!("Option<{}> but FFI-safe", gen_type.element_type)),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),

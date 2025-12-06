@@ -85,8 +85,12 @@ pub fn autofix_api(
     
     println!("\n{}\n", "Autofix: Starting analysis...".cyan().bold());
 
-    // Run the full diff analysis
-    let diff = analyze_api_diff(project_root, api_data, verbose)?;
+    // Run the full diff analysis (returns both diff and type index)
+    let (diff, index) = analyze_api_diff(project_root, api_data, verbose)?;
+    
+    // Check FFI safety of all types in the workspace
+    let ffi_warnings = check_ffi_safety(&index);
+    print_ffi_safety_warnings(&ffi_warnings);
 
     // Report results
     println!("\n{}", "Analysis Results:".white().bold());
@@ -168,12 +172,14 @@ pub fn autofix_api(
                 diff::ModificationKind::CustomImplRemoved { impl_name } => {
                     println!("  {}: {} custom_impl({})", modification.type_name.white(), "-".red(), impl_name.red());
                 }
-                diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
-                    println!("  {}: repr(C) {} {} {}", 
+                diff::ModificationKind::ReprChanged { old_repr, new_repr } => {
+                    let old_display = old_repr.as_deref().unwrap_or("none");
+                    let new_display = new_repr.as_deref().unwrap_or("none");
+                    println!("  {}: repr {} {} {}", 
                         modification.type_name.white(), 
-                        old_repr_c.to_string().red(),
+                        old_display.red(),
                         "->".dimmed(),
-                        new_repr_c.to_string().green()
+                        new_display.green()
                     );
                 }
                 diff::ModificationKind::FieldAdded { field_name, field_type, ref_kind } => {
@@ -498,10 +504,10 @@ fn generate_combined_patch(
             diff::ModificationKind::CustomImplRemoved { impl_name } => {
                 custom_impls_removed.push(impl_name.clone());
             }
-            diff::ModificationKind::ReprCChanged { old_repr_c, new_repr_c } => {
-                changes.push(ModifyChange::SetReprC {
-                    old: *old_repr_c,
-                    new: *new_repr_c,
+            diff::ModificationKind::ReprChanged { old_repr, new_repr } => {
+                changes.push(ModifyChange::SetRepr {
+                    old: old_repr.clone(),
+                    new: new_repr.clone(),
                 });
             }
             diff::ModificationKind::StructFieldsReplaced { fields } => {
@@ -760,4 +766,156 @@ fn generate_module_move_patch(module_move: &diff::ModuleMove) -> String {
     }));
     
     patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
+}
+
+// ============================================================================
+// FFI SAFETY CHECKS
+// ============================================================================
+
+/// An FFI safety warning for a type
+#[derive(Debug)]
+pub struct FfiSafetyWarning {
+    pub type_name: String,
+    pub file_path: String,
+    pub kind: FfiSafetyWarningKind,
+}
+
+/// The kind of FFI safety issue
+#[derive(Debug)]
+pub enum FfiSafetyWarningKind {
+    /// Enum variant has more than one field (not FFI-safe)
+    MultiFieldVariant {
+        variant_name: String,
+        field_count: usize,
+        field_types: String,
+    },
+    /// Enum variant uses std::Option (should use custom OptionXxx type)
+    StdOptionInVariant {
+        variant_name: String,
+        option_type: String,
+    },
+    /// Enum with data variants but missing repr(C, u8) or similar
+    EnumWithDataMissingReprCU8 {
+        current_repr: Option<String>,
+    },
+}
+
+/// Check FFI safety of all types in the index
+pub fn check_ffi_safety(index: &type_index::TypeIndex) -> Vec<FfiSafetyWarning> {
+    let mut warnings = Vec::new();
+    
+    // Iterate over all types
+    for (type_name, defs) in index.iter_all() {
+        for typedef in defs {
+            // Only check enums
+            if let type_index::TypeDefKind::Enum { variants, repr, .. } = &typedef.kind {
+                let file_path = typedef.file_path.display().to_string();
+                
+                // Check if any variant has data
+                let has_data_variants = variants.values().any(|v| v.ty.is_some());
+                
+                for (variant_name, variant_def) in variants {
+                    if let Some(ref ty) = variant_def.ty {
+                        // Check 1: Multiple fields per variant (contains comma)
+                        if ty.contains(',') {
+                            let field_count = ty.split(',').count();
+                            warnings.push(FfiSafetyWarning {
+                                type_name: type_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::MultiFieldVariant {
+                                    variant_name: variant_name.clone(),
+                                    field_count,
+                                    field_types: ty.clone(),
+                                },
+                            });
+                        }
+                        
+                        // Check 2: std::Option usage
+                        if ty.starts_with("Option<") || ty.starts_with("Option <") || ty == "Option" {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: type_name.clone(),
+                                file_path: file_path.clone(),
+                                kind: FfiSafetyWarningKind::StdOptionInVariant {
+                                    variant_name: variant_name.clone(),
+                                    option_type: ty.clone(),
+                                },
+                            });
+                        }
+                    }
+                }
+                
+                // Check 3: Enum with data needs repr(C, u8) or repr(C, i8) etc.
+                if has_data_variants {
+                    let repr_ok = match repr {
+                        Some(r) => {
+                            // Must have both C and a discriminant type
+                            let r_lower = r.to_lowercase();
+                            r_lower.contains("c") && (
+                                r_lower.contains("u8") || 
+                                r_lower.contains("u16") || 
+                                r_lower.contains("u32") || 
+                                r_lower.contains("i8") || 
+                                r_lower.contains("i16") || 
+                                r_lower.contains("i32")
+                            )
+                        }
+                        None => false,
+                    };
+                    
+                    if !repr_ok {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: type_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::EnumWithDataMissingReprCU8 {
+                                current_repr: repr.clone(),
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    warnings
+}
+
+/// Print FFI safety warnings
+pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
+    if warnings.is_empty() {
+        return;
+    }
+    
+    println!("\n{} {} FFI safety issues:", 
+        "⚠️  WARNING:".yellow().bold(),
+        warnings.len().to_string().red().bold()
+    );
+    
+    for warning in warnings {
+        match &warning.kind {
+            FfiSafetyWarningKind::MultiFieldVariant { variant_name, field_count, field_types } => {
+                println!("  {} {}", "✗".red(), format!("{}::{}", warning.type_name, variant_name).white());
+                println!("    {} Enum variant has {} fields: {}", 
+                    "→".dimmed(), 
+                    field_count.to_string().red(), 
+                    field_types.yellow()
+                );
+                println!("    {} FFI requires exactly ONE field per variant. Wrap in a struct.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::StdOptionInVariant { variant_name, option_type } => {
+                println!("  {} {}", "✗".red(), format!("{}::{}", warning.type_name, variant_name).white());
+                println!("    {} Uses std::Option: {}", "→".dimmed(), option_type.yellow());
+                println!("    {} Use custom OptionXxx type from impl_option! macro instead.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::EnumWithDataMissingReprCU8 { current_repr } => {
+                let repr_display = current_repr.as_deref().unwrap_or("none");
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Enum with data has repr: {}", "→".dimmed(), repr_display.yellow());
+                println!("    {} Add #[repr(C, u8)] for enums with data variants.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+        }
+        println!();
+    }
 }

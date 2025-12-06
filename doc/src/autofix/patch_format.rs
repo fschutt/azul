@@ -54,10 +54,10 @@ pub enum ModifyChange {
         old: String,
         new: String,
     },
-    /// Set repr(C)
-    SetReprC {
-        old: bool,
-        new: bool,
+    /// Set repr attribute (e.g., "C", "C, u8", None)
+    SetRepr {
+        old: Option<String>,
+        new: Option<String>,
     },
     /// Add derive attributes
     AddDerives {
@@ -386,8 +386,10 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::SetExternal { old, new } => {
             format!("external: {} → {}", old, new)
         }
-        ModifyChange::SetReprC { old, new } => {
-            format!("repr(C): {} → {}", old, new)
+        ModifyChange::SetRepr { old, new } => {
+            let old_str = old.as_deref().unwrap_or("none");
+            let new_str = new.as_deref().unwrap_or("none");
+            format!("repr: {} → {}", old_str, new_str)
         }
         ModifyChange::AddDerives { derives } => {
             format!("+ derive: {}", derives.join(", "))
@@ -610,8 +612,8 @@ impl AutofixPatch {
                 ModifyChange::SetExternal { new, .. } => {
                     patch.external = Some(new.clone());
                 }
-                ModifyChange::SetReprC { new, .. } => {
-                    patch.repr = Some(if *new { "C".to_string() } else { "Rust".to_string() });
+                ModifyChange::SetRepr { new, .. } => {
+                    patch.repr = new.clone();
                 }
                 ModifyChange::AddDerives { derives } => {
                     derives_to_add.extend(derives.clone());
@@ -830,7 +832,7 @@ mod tests {
             type_name: "AppTerminationBehavior".to_string(),
             module: None,
             changes: vec![
-                ModifyChange::SetReprC { old: false, new: true },
+                ModifyChange::SetRepr { old: None, new: Some("C".to_string()) },
                 ModifyChange::AddDerives {
                     derives: vec!["Clone".to_string(), "Copy".to_string(), "Debug".to_string()],
                 },
@@ -903,7 +905,7 @@ mod tests {
                     old: "old::path::AppTerminationBehavior".to_string(),
                     new: "azul_core::window::AppTerminationBehavior".to_string(),
                 },
-                ModifyChange::SetReprC { old: false, new: true },
+                ModifyChange::SetRepr { old: None, new: Some("C".to_string()) },
                 ModifyChange::AddDerives {
                     derives: vec!["Clone".to_string(), "Copy".to_string()],
                 },
