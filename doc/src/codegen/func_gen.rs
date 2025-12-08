@@ -30,6 +30,24 @@ pub type FunctionSignature = (String, String);
 /// e.g., "AzPoint_new" -> ("x: f32, y: f32", "AzPoint")
 pub type FunctionsMap = HashMap<String, FunctionSignature>;
 
+/// Extended function info including fn_body for DLL generation
+#[derive(Debug, Clone)]
+pub struct FunctionInfo {
+    /// Function arguments as a formatted string
+    pub fn_args: String,
+    /// Return type (empty string for void)
+    pub return_type: String,
+    /// Function body from api.json (if present)
+    pub fn_body: Option<String>,
+    /// Whether this is a constructor
+    pub is_constructor: bool,
+    /// The class name this function belongs to (without prefix)
+    pub class_name: String,
+}
+
+/// Extended map of function name to FunctionInfo
+pub type FunctionsMapExt = HashMap<String, FunctionInfo>;
+
 /// Generate the complete DLL bindings module
 /// Returns the generated Rust code as a string
 pub fn generate_rust_dll_bindings(
@@ -199,6 +217,111 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
                 functions_map.insert(copy_fn_name, (copy_args, class_ptr_name.clone()));
+            }
+        }
+    }
+
+    Ok(functions_map)
+}
+
+/// Build an extended FunctionsMap that includes fn_body from api.json
+/// This is used for generating the DLL and memtest with real implementations
+pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Result<FunctionsMapExt> {
+    let mut functions_map = HashMap::new();
+
+    for (_module_name, module_data) in &version_data.api {
+        for (class_name, class_data) in &module_data.classes {
+            let class_ptr_name = format!("{}{}", prefix, class_name);
+
+            // Process constructors
+            if let Some(constructors) = &class_data.constructors {
+                for (fn_name, constructor) in constructors {
+                    let c_fn_name =
+                        format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
+
+                    let fn_args = build_fn_args_c_api(
+                        Some(&constructor.fn_args),
+                        class_name,
+                        &class_ptr_name,
+                        false, // is_member_function
+                        version_data,
+                        prefix,
+                    )?;
+
+                    let return_type =
+                        build_return_type(constructor.returns.as_ref(), version_data, prefix)?;
+
+                    functions_map.insert(c_fn_name, FunctionInfo {
+                        fn_args,
+                        return_type,
+                        fn_body: constructor.fn_body.clone(),
+                        is_constructor: true,
+                        class_name: class_name.clone(),
+                    });
+                }
+            }
+
+            // Process member functions
+            if let Some(functions) = &class_data.functions {
+                for (fn_name, function) in functions {
+                    let c_fn_name =
+                        format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
+
+                    let fn_args = build_fn_args_c_api(
+                        Some(&function.fn_args),
+                        class_name,
+                        &class_ptr_name,
+                        true, // is_member_function
+                        version_data,
+                        prefix,
+                    )?;
+
+                    let return_type =
+                        build_return_type(function.returns.as_ref(), version_data, prefix)?;
+
+                    functions_map.insert(c_fn_name, FunctionInfo {
+                        fn_args,
+                        return_type,
+                        fn_body: function.fn_body.clone(),
+                        is_constructor: false,
+                        class_name: class_name.clone(),
+                    });
+                }
+            }
+
+            // Add delete function if needed
+            let class_can_be_copied = class_data
+                .derive
+                .as_ref()
+                .map_or(false, |d| d.contains(&"Copy".to_string()));
+            let class_has_custom_drop = class_data.has_custom_drop();
+            let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
+
+            if !class_can_be_copied && (class_has_custom_drop || treat_external_as_ptr) {
+                let delete_fn_name = format!("{}_delete", class_ptr_name);
+                let delete_args = format!("object: &mut {}", class_ptr_name);
+                functions_map.insert(delete_fn_name, FunctionInfo {
+                    fn_args: delete_args,
+                    return_type: String::new(),
+                    fn_body: None, // Generated specially
+                    is_constructor: false,
+                    class_name: class_name.clone(),
+                });
+            }
+
+            // Add deepCopy function if needed
+            let class_has_custom_clone = class_data.has_custom_clone() 
+                || class_data.has_custom_impl("Clone");
+            if treat_external_as_ptr && class_has_custom_clone {
+                let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
+                let copy_args = format!("object: &{}", class_ptr_name);
+                functions_map.insert(copy_fn_name, FunctionInfo {
+                    fn_args: copy_args,
+                    return_type: class_ptr_name.clone(),
+                    fn_body: None, // Generated specially
+                    is_constructor: false,
+                    class_name: class_name.clone(),
+                });
             }
         }
     }

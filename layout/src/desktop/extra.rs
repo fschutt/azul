@@ -25,8 +25,8 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
 
 #[cfg(feature = "xml")]
 pub fn styled_dom_from_file(path: &str) -> StyledDom {
-    use azul_layout::xml::XmlComponentMap;
-    azul_layout::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
+    use crate::xml::XmlComponentMap;
+    crate::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
 }
 
 #[cfg(not(feature = "xml"))]
@@ -46,6 +46,6 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
 
 #[cfg(feature = "xml")]
 pub fn styled_dom_from_str(s: &str) -> StyledDom {
-    use azul_layout::xml::XmlComponentMap;
-    azul_layout::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
+    use crate::xml::XmlComponentMap;
+    crate::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
 }

@@ -385,6 +385,13 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
+        ["memtest", "dll"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[DLL] Generating DLL API definitions...\n");
+            codegen::memtest::generate_dll_api(&api_data, &project_root)
+                .map_err(|e| anyhow::anyhow!(e))?;
+            return Ok(());
+        }
         ["reftest", "headless", test_name] => {
             println!("Running headless reftest for: {}", test_name);
 
@@ -748,6 +755,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  CODE GENERATION:");
     println!("    codegen [rust|c|cpp|python|all] - Generate language bindings");
     println!("    memtest [run]                 - Generate and optionally run memory layout tests");
+    println!("    memtest dll                   - Generate DLL API definitions for include!()");
     println!();
     println!("  TESTING:");
     println!("    reftest [open]                - Run reftests and optionally open report");

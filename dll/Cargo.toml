@@ -110,6 +110,9 @@ css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
 a11y = ["accesskit", "azul-layout/a11y", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
 desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "x11-clipboard", "clipboard-win", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
+# c-api: Include the auto-generated C API functions from target/memtest/dll_api.rs
+# To regenerate: cd doc && cargo run --release -- memtest dll
+c-api = ["desktop", "azul-css", "azul-layout"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]

@@ -6,7 +6,7 @@ use std::{collections::HashMap, collections::HashSet, fs, path::Path};
 use indexmap::IndexMap;
 
 use super::{
-    func_gen::build_functions_map,
+    func_gen::{build_functions_map, build_functions_map_ext},
     struct_gen::{generate_structs, GenerateConfig, StructMetadata},
 };
 use crate::api::*;
@@ -139,6 +139,10 @@ pub struct MemtestConfig {
     pub remove_serde: bool,
     /// Remove other optional features
     pub remove_optional_features: Vec<String>,
+    /// Generate actual fn_body from api.json instead of unimplemented!() stubs
+    /// When true, functions will contain the implementation from api.json
+    /// When false, functions will have unimplemented!() stubs (for quick testing)
+    pub generate_fn_bodies: bool,
 }
 
 impl Default for MemtestConfig {
@@ -146,8 +150,50 @@ impl Default for MemtestConfig {
         Self {
             remove_serde: false, // Keep serde lines, we add serde deps to Cargo.toml
             remove_optional_features: vec![],
+            generate_fn_bodies: false, // Disabled by default - api.json fn_body needs cleanup
         }
     }
+}
+
+/// Generate ONLY the API definitions (structs, enums, functions) without tests
+/// This is used for the DLL include!() macro
+pub fn generate_dll_api(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    println!("  [DLL] Generating API definitions for DLL...");
+
+    let mut config = MemtestConfig::default();
+    config.generate_fn_bodies = true; // Enable real function bodies for DLL
+    
+    let output_path = project_root.join("target").join("memtest").join("dll_api.rs");
+
+    // Get version data
+    let version_name = api_data
+        .0
+        .keys()
+        .next()
+        .ok_or_else(|| "No version name found".to_string())?;
+    let version_data = api_data
+        .get_version(version_name)
+        .ok_or_else(|| "No API version found".to_string())?;
+
+    // Collect type names for replacement
+    let replacements = TypeReplacements::new(version_data)?;
+
+    // Create output directory
+    fs::create_dir_all(output_path.parent().unwrap())
+        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+
+    // Generate only the dll module content (without the test lib.rs)
+    let dll_content = generate_generated_rs(api_data, &config, &replacements)?;
+    
+    println!("  [SAVE] Writing dll_api.rs ({} bytes)...", dll_content.len());
+    fs::write(&output_path, dll_content)
+        .map_err(|e| format!("Failed to write dll_api.rs: {}", e))?;
+
+    println!("[OK] Generated DLL API at: {}", output_path.display());
+    println!("\nTo use in dll/src/lib.rs:");
+    println!("  include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/memtest/dll_api.rs\"));");
+
+    Ok(())
 }
 
 /// Generate a test crate that validates memory layouts
@@ -967,20 +1013,20 @@ fn generate_dll_module(
     }
 
     println!("      [TARGET] Generating function stubs...");
-    // Generate unimplemented!() stubs for all exported C functions
-    // EXCEPT for _deepCopy and _delete which get real implementations that cast to external types
-    let functions_map = build_functions_map(version_data, prefix).map_err(|e| e.to_string())?;
-    println!("      [LINK] Found {} functions", functions_map.len());
-    dll_code.push_str("\n    // --- C-ABI Function Stubs ---\n");
-    for (fn_name, (fn_args, fn_return)) in &functions_map {
-        let return_str = if fn_return.is_empty() {
+    // Generate function implementations from api.json fn_body
+    // If generate_fn_bodies is false, use unimplemented!() stubs instead
+    let functions_map_ext = build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
+    println!("      [LINK] Found {} functions", functions_map_ext.len());
+    dll_code.push_str("\n    // --- C-ABI Functions ---\n");
+    
+    for (fn_name, fn_info) in &functions_map_ext {
+        let return_str = if fn_info.return_type.is_empty() {
             "".to_string()
         } else {
-            format!(" -> {}", fn_return)
+            format!(" -> {}", fn_info.return_type)
         };
 
-        // Generate real implementations for _deepCopy and _delete functions
-        // These need to cast to the external type, call the trait method, and cast back
+        // Determine the function body
         let fn_body = if fn_name.ends_with("_deepCopy") {
             // Extract type name from function name: AzTypeName_deepCopy -> AzTypeName
             let type_name = fn_name.strip_suffix("_deepCopy").unwrap_or(fn_name);
@@ -1009,17 +1055,34 @@ fn generate_dll_module(
                 // Fallback: just drop directly
                 "core::ptr::drop_in_place(object)".to_string()
             }
+        } else if config.generate_fn_bodies {
+            // Use fn_body from api.json if available
+            if let Some(body) = &fn_info.fn_body {
+                // Transform the fn_body to use transmute for type conversion
+                // The fn_body uses types without Az prefix, we need to add transmutes
+                generate_transmuted_fn_body(
+                    body,
+                    &fn_info.class_name,
+                    fn_info.is_constructor,
+                    &fn_info.return_type,
+                    prefix,
+                    &type_to_external,
+                )
+            } else {
+                // No fn_body in api.json - use unimplemented
+                format!("unimplemented!(\"{}\")", fn_name)
+            }
         } else {
-            // All other functions get unimplemented!() stubs
+            // generate_fn_bodies is false - use stubs
             format!("unimplemented!(\"{}\")", fn_name)
         };
 
         dll_code.push_str(&format!(
-            "    #[allow(unused_variables)]\n    pub unsafe extern \"C\" fn {}({}){} {{ {} }}\n",
-            fn_name, fn_args, return_str, fn_body
+            "    #[allow(unused_variables)]\n    #[no_mangle]\n    pub unsafe extern \"C\" fn {}({}){} {{ {} }}\n",
+            fn_name, fn_info.fn_args, return_str, fn_body
         ));
     }
-    dll_code.push_str("    // --- End C-ABI Function Stubs ---\n\n");
+    dll_code.push_str("    // --- End C-ABI Functions ---\n\n");
 
     // NOTE: dll.rs patch is excluded for memtest - we only need struct definitions for memory layout tests
     // The patch contains impl blocks that reference missing functions/types
@@ -1092,6 +1155,65 @@ fn generate_public_api_modules(
     }
 
     Ok(output)
+}
+
+/// Generate a function body that transmutes between local (Az-prefixed) and external types
+/// 
+/// The fn_body in api.json uses unprefixed types like "Dom::new(node_type)"
+/// We need to:
+/// 1. Convert arguments from Az-prefixed local types to external types (transmute in)
+/// 2. Call the actual function on the external type
+/// 3. Convert the result back to Az-prefixed local type (transmute out)
+fn generate_transmuted_fn_body(
+    fn_body: &str,
+    class_name: &str,
+    is_constructor: bool,
+    return_type: &str,
+    prefix: &str,
+    type_to_external: &std::collections::HashMap<String, String>,
+) -> String {
+    // Get the external path for this class
+    let prefixed_class = format!("{}{}", prefix, class_name);
+    let _external_path = type_to_external.get(&prefixed_class)
+        .map(|s| s.as_str())
+        .unwrap_or(&prefixed_class);
+    
+    // Check if fn_body contains statements (has `;` before the last expression)
+    // If it does, we need to wrap it in a block and transmute the final result
+    let has_statements = fn_body.contains(';');
+    
+    if return_type.is_empty() {
+        // Void return - just call the function (side effects only)
+        if has_statements {
+            format!("{{ {} }}", fn_body)
+        } else {
+            format!("{{ let _: () = {}; }}", fn_body)
+        }
+    } else {
+        // Has return type - need to transmute the result
+        let return_external = type_to_external.get(return_type)
+            .map(|s| s.as_str())
+            .unwrap_or(return_type);
+        
+        if has_statements {
+            // fn_body has statements - wrap in block and transmute the final result
+            // The fn_body should end with the expression to return
+            format!(
+                "{{ let __result: {ext} = {{ {body} }}; core::mem::transmute::<{ext}, {local}>(__result) }}",
+                ext = return_external,
+                local = return_type,
+                body = fn_body
+            )
+        } else {
+            // Simple expression - just wrap in transmute
+            format!(
+                "core::mem::transmute::<{ext}, {local}>({body})",
+                ext = return_external,
+                local = return_type,
+                body = fn_body
+            )
+        }
+    }
 }
 
 /// Primitive types that should never get an Az prefix

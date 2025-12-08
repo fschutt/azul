@@ -177,9 +177,9 @@ fn supports_extension(extensions: &[String], extension: &str) -> bool {
 }
 
 fn get_shader_version(gl: &GenericGlContext) -> ShaderVersion {
-    match gl.get_type() {
+    match gl.get_type().into() {
         gl::GlType::Gl => ShaderVersion::Gl,
-        gl::GlType::GlEs => ShaderVersion::GlEs,
+        gl::GlType::Gles => ShaderVersion::GlEs,
     }
 }
 
@@ -1522,8 +1522,8 @@ impl Device {
         }
         info!(
             "GL context {} {}.{}",
-            match gl.get_type() {
-                gl::GlType::GlEs => "GlEs",
+            match Into::<gl::GlType>::into(gl.get_type()) {
+                gl::GlType::Gles => "GlEs",
                 gl::GlType::Gl => "Gl",
             },
             gl_version[0],
@@ -1533,9 +1533,9 @@ impl Device {
         // We block texture storage on mac because it doesn't support BGRA
         let supports_texture_storage = allow_texture_storage_support
             && !cfg!(target_os = "macos")
-            && match gl.get_type() {
+            && match Into::<gl::GlType>::into(gl.get_type()) {
                 gl::GlType::Gl => supports_extension(&extensions, "GL_ARB_texture_storage"),
-                gl::GlType::GlEs => true,
+                gl::GlType::Gles => true,
             };
 
         // The GL_EXT_texture_format_BGRA8888 extension allows us to use BGRA as an internal format

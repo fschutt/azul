@@ -574,7 +574,9 @@ pub mod dialogs;
 /// Display/Monitor management for menu positioning
 pub mod display;
 /// Extra functions for file IO (for C / C++ developers)
-pub mod file;
+pub mod file {
+    pub use azul_layout::desktop::file::*;
+}
 /// OpenGL texture cache for external image support
 pub mod gl_texture_cache;
 /// Integration layer for OpenGL texture management
