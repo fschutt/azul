@@ -340,11 +340,24 @@ fn build_fn_args_c_api(
 ) -> Result<String> {
     let mut args = Vec::new();
 
+    // Check if there's a self parameter and what type it is (ref or refmut)
+    let self_type = fn_args.and_then(|args| {
+        args.iter().find_map(|arg_map| {
+            arg_map.get("self").map(|s| s.as_str())
+        })
+    });
+
     // Add self parameter for member functions
     // Use lowercased class name to match fn_body in api.json (e.g., "rawimage", "gl", "dom")
     if is_member_function {
         let self_param_name = class_name.to_lowercase();
-        args.push(format!("{}: &{}", self_param_name, class_ptr_name));
+        let ref_type = match self_type {
+            Some("refmut") => "&mut ",
+            Some("ref") => "&",
+            Some("value") => "", // by value
+            _ => "&", // default to immutable reference
+        };
+        args.push(format!("{}: {}{}", self_param_name, ref_type, class_ptr_name));
     }
 
     // Add other arguments

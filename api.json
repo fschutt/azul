@@ -373,7 +373,7 @@
           },
           "IFrameCallbackReturn": {
             "doc": [
-              "Return value for an IFrame rendering callback. # Dual Size Model IFrame callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the IFrame **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The IFrame callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the IFrame appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and IFrame bounds exceed `scroll_size` - ✅ Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - ✅ Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: IFrame bounds = 800×600, scroll_size = 800×600 (perfectly covered) Frame 1: Window resizes to 1000×700 (larger) -> IFrame bounds = 1000×700 -> Bounds no longer fully covered by scroll_size (800×600) -> ✅ RE-INVOKE callback once Frame 2: Window resizes to 1100×800 (even larger) -> If callback returned scroll_size = 1100×800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000×700, not fully covered -> ✅ RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900×650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000×2000 (width × height) Container = 800×600 Threshold = 200px Current scroll_offset = 0×0 User scrolls to scroll_offset = 0×1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> ✅ RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000×4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionStyledDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return IFrameCallbackReturn { dom: OptionStyledDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); IFrameCallbackReturn { dom: OptionStyledDom::Some(new_dom), ... } } ``` # Example: Basic IFrame ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from IFrame!\")); let styled_dom = dom.style(Css::empty()); IFrameCallbackReturn { // The rendered content dom: OptionStyledDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_iframe_callback(data: &mut TableData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); IFrameCallbackReturn { dom: OptionStyledDom::Some(dom.style(Css::empty())), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the IFrame's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
+              "Return value for an IFrame rendering callback. # Dual Size Model IFrame callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the IFrame **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The IFrame callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the IFrame appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and IFrame bounds exceed `scroll_size` - \u2705 Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - \u2705 Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: IFrame bounds = 800\u00d7600, scroll_size = 800\u00d7600 (perfectly covered) Frame 1: Window resizes to 1000\u00d7700 (larger) -> IFrame bounds = 1000\u00d7700 -> Bounds no longer fully covered by scroll_size (800\u00d7600) -> \u2705 RE-INVOKE callback once Frame 2: Window resizes to 1100\u00d7800 (even larger) -> If callback returned scroll_size = 1100\u00d7800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000\u00d7700, not fully covered -> \u2705 RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900\u00d7650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000\u00d72000 (width \u00d7 height) Container = 800\u00d7600 Threshold = 200px Current scroll_offset = 0\u00d70 User scrolls to scroll_offset = 0\u00d71500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> \u2705 RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000\u00d74000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionStyledDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return IFrameCallbackReturn { dom: OptionStyledDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); IFrameCallbackReturn { dom: OptionStyledDom::Some(new_dom), ... } } ``` # Example: Basic IFrame ```rust,ignore fn my_iframe_callback(data: &mut MyData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from IFrame!\")); let styled_dom = dom.style(Css::empty()); IFrameCallbackReturn { // The rendered content dom: OptionStyledDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_iframe_callback(data: &mut TableData, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); IFrameCallbackReturn { dom: OptionStyledDom::Some(dom.style(Css::empty())), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the IFrame's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
             ],
             "external": "azul_core::callbacks::IFrameCallbackReturn",
             "custom_impls": [
@@ -397,7 +397,7 @@
                 "scroll_size": {
                   "type": "LogicalSize",
                   "doc": [
-                    "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows × 30px each)."
+                    "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows \u00d7 30px each)."
                   ]
                 }
               },
@@ -413,7 +413,7 @@
                 "virtual_scroll_size": {
                   "type": "LogicalSize",
                   "doc": [
-                    "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows × 30px each), even though only 20 rows are actually rendered."
+                    "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows \u00d7 30px each), even though only 20 rows are actually rendered."
                   ]
                 }
               },
@@ -1733,7 +1733,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "dom.style(AzCss::empty().into()).get_html_string(\"\", \"\", false).into()"
+                "fn_body": "dom.style(azul_css::Css::empty().into()).get_html_string(\"\", \"\", false).into()"
               },
               "get_html_string_test": {
                 "doc": [
@@ -1747,7 +1747,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "dom.style(AzCss::empty().into()).get_html_string(\"\", \"\", true).into()"
+                "fn_body": "dom.style(azul_css::Css::empty().into()).get_html_string(\"\", \"\", true).into()"
               },
               "style": {
                 "doc": [
@@ -5062,7 +5062,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } });"
+                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionMenuCallback::Some(azul_core::menu::MenuCallback { data, callback: azul_core::callbacks::Callback { cb: callback } });"
               },
               "with_callback": {
                 "doc": [
@@ -5082,7 +5082,7 @@
                 "returns": {
                   "type": "StringMenuItem"
                 },
-                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); stringmenuitem"
+                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = azul_core::menu::OptionMenuCallback::Some(azul_core::menu::MenuCallback { data, callback: azul_core::callbacks::Callback { cb: callback } }); stringmenuitem"
               },
               "add_child": {
                 "doc": [
@@ -6214,7 +6214,7 @@
                   "Returns an empty CSS style"
                 ],
                 "fn_args": [],
-                "fn_body": "AzCss::empty()"
+                "fn_body": "azul_css::Css::empty()"
               },
               "from_string": {
                 "doc": [
@@ -6382,7 +6382,7 @@
                     "string": "String"
                   }
                 ],
-                "fn_body": "azul_css::parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK)"
+                "fn_body": "azul_css::parse_css_color(string.as_str()).ok().unwrap_or(azul_css::ColorU::BLACK)"
               },
               "transparent": {
                 "fn_args": [],
@@ -6394,7 +6394,7 @@
               },
               "black": {
                 "fn_args": [],
-                "fn_body": "AzColorU::BLACK"
+                "fn_body": "azul_css::ColorU::BLACK"
               }
             },
             "functions": {
@@ -14415,7 +14415,7 @@
                     "xml_string": "String"
                   }
                 ],
-                "fn_body": "crate::extra::styled_dom_from_str(xml_string.as_str())"
+                "fn_body": "azul_layout::extra::styled_dom_from_str(xml_string.as_str())"
               },
               "from_file": {
                 "doc": [
@@ -14426,7 +14426,7 @@
                     "xml_file_path": "String"
                   }
                 ],
-                "fn_body": "crate::extra::styled_dom_from_file(xml_file_path.as_str())"
+                "fn_body": "azul_layout::extra::styled_dom_from_file(xml_file_path.as_str())"
               }
             },
             "functions": {
@@ -26021,7 +26021,7 @@
                 "returns": {
                   "type": "GlType"
                 },
-                "fn_body": "gl.get_type()"
+                "fn_body": "glcontextptr.get_type()"
               },
               "buffer_data_untyped": {
                 "fn_args": [
@@ -26041,7 +26041,7 @@
                     "usage": "u32"
                   }
                 ],
-                "fn_body": "gl.buffer_data_untyped(target, size, data, usage)"
+                "fn_body": "glcontextptr.buffer_data_untyped(target, size, data, usage)"
               },
               "buffer_sub_data_untyped": {
                 "fn_args": [
@@ -26061,7 +26061,7 @@
                     "data": "GlVoidPtrConst"
                   }
                 ],
-                "fn_body": "gl.buffer_sub_data_untyped(target, offset, size, data)"
+                "fn_body": "glcontextptr.buffer_sub_data_untyped(target, offset, size, data)"
               },
               "map_buffer": {
                 "fn_args": [
@@ -26078,7 +26078,7 @@
                 "returns": {
                   "type": "GlVoidPtrMut"
                 },
-                "fn_body": "gl.map_buffer(target, access)"
+                "fn_body": "glcontextptr.map_buffer(target, access)"
               },
               "map_buffer_range": {
                 "fn_args": [
@@ -26101,7 +26101,7 @@
                 "returns": {
                   "type": "GlVoidPtrMut"
                 },
-                "fn_body": "gl.map_buffer_range(target, offset, length, access)"
+                "fn_body": "glcontextptr.map_buffer_range(target, offset, length, access)"
               },
               "unmap_buffer": {
                 "fn_args": [
@@ -26115,7 +26115,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.unmap_buffer(target)"
+                "fn_body": "glcontextptr.unmap_buffer(target)"
               },
               "tex_buffer": {
                 "fn_args": [
@@ -26132,7 +26132,7 @@
                     "buffer": "u32"
                   }
                 ],
-                "fn_body": "gl.tex_buffer(target, internal_format, buffer)"
+                "fn_body": "glcontextptr.tex_buffer(target, internal_format, buffer)"
               },
               "shader_source": {
                 "fn_args": [
@@ -26146,7 +26146,7 @@
                     "strings": "StringVec"
                   }
                 ],
-                "fn_body": "gl.shader_source(shader, strings)"
+                "fn_body": "glcontextptr.shader_source(shader, strings)"
               },
               "read_buffer": {
                 "fn_args": [
@@ -26157,7 +26157,7 @@
                     "mode": "u32"
                   }
                 ],
-                "fn_body": "gl.read_buffer(mode)"
+                "fn_body": "glcontextptr.read_buffer(mode)"
               },
               "read_pixels_into_buffer": {
                 "fn_args": [
@@ -26186,7 +26186,7 @@
                     "dst_buffer": "U8VecRefMut"
                   }
                 ],
-                "fn_body": "gl.read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer)"
+                "fn_body": "glcontextptr.read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer)"
               },
               "read_pixels": {
                 "fn_args": [
@@ -26215,7 +26215,7 @@
                 "returns": {
                   "type": "U8Vec"
                 },
-                "fn_body": "gl.read_pixels(x, y, width, height, format, pixel_type)"
+                "fn_body": "glcontextptr.read_pixels(x, y, width, height, format, pixel_type)"
               },
               "read_pixels_into_pbo": {
                 "fn_args": [
@@ -26241,7 +26241,7 @@
                     "pixel_type": "u32"
                   }
                 ],
-                "fn_body": "gl.read_pixels_into_pbo(x, y, width, height, format, pixel_type)"
+                "fn_body": "glcontextptr.read_pixels_into_pbo(x, y, width, height, format, pixel_type)"
               },
               "sample_coverage": {
                 "fn_args": [
@@ -26255,7 +26255,7 @@
                     "invert": "bool"
                   }
                 ],
-                "fn_body": "gl.sample_coverage(value, invert)"
+                "fn_body": "glcontextptr.sample_coverage(value, invert)"
               },
               "polygon_offset": {
                 "fn_args": [
@@ -26269,7 +26269,7 @@
                     "units": "f32"
                   }
                 ],
-                "fn_body": "gl.polygon_offset(factor, units)"
+                "fn_body": "glcontextptr.polygon_offset(factor, units)"
               },
               "pixel_store_i": {
                 "fn_args": [
@@ -26283,7 +26283,7 @@
                     "param": "i32"
                   }
                 ],
-                "fn_body": "gl.pixel_store_i(name, param)"
+                "fn_body": "glcontextptr.pixel_store_i(name, param)"
               },
               "gen_buffers": {
                 "fn_args": [
@@ -26297,7 +26297,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_buffers(n)"
+                "fn_body": "glcontextptr.gen_buffers(n)"
               },
               "gen_renderbuffers": {
                 "fn_args": [
@@ -26311,7 +26311,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_renderbuffers(n)"
+                "fn_body": "glcontextptr.gen_renderbuffers(n)"
               },
               "gen_framebuffers": {
                 "fn_args": [
@@ -26325,7 +26325,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_framebuffers(n)"
+                "fn_body": "glcontextptr.gen_framebuffers(n)"
               },
               "gen_textures": {
                 "fn_args": [
@@ -26339,7 +26339,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_textures(n)"
+                "fn_body": "glcontextptr.gen_textures(n)"
               },
               "gen_vertex_arrays": {
                 "fn_args": [
@@ -26353,7 +26353,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_vertex_arrays(n)"
+                "fn_body": "glcontextptr.gen_vertex_arrays(n)"
               },
               "gen_queries": {
                 "fn_args": [
@@ -26367,7 +26367,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_queries(n)"
+                "fn_body": "glcontextptr.gen_queries(n)"
               },
               "begin_query": {
                 "fn_args": [
@@ -26381,7 +26381,7 @@
                     "id": "u32"
                   }
                 ],
-                "fn_body": "gl.begin_query(target, id)"
+                "fn_body": "glcontextptr.begin_query(target, id)"
               },
               "end_query": {
                 "fn_args": [
@@ -26392,7 +26392,7 @@
                     "target": "u32"
                   }
                 ],
-                "fn_body": "gl.end_query(target)"
+                "fn_body": "glcontextptr.end_query(target)"
               },
               "query_counter": {
                 "fn_args": [
@@ -26406,7 +26406,7 @@
                     "target": "u32"
                   }
                 ],
-                "fn_body": "gl.query_counter(id, target)"
+                "fn_body": "glcontextptr.query_counter(id, target)"
               },
               "get_query_object_iv": {
                 "fn_args": [
@@ -26423,7 +26423,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_query_object_iv(id, pname)"
+                "fn_body": "glcontextptr.get_query_object_iv(id, pname)"
               },
               "get_query_object_uiv": {
                 "fn_args": [
@@ -26440,7 +26440,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.get_query_object_uiv(id, pname)"
+                "fn_body": "glcontextptr.get_query_object_uiv(id, pname)"
               },
               "get_query_object_i64v": {
                 "fn_args": [
@@ -26457,7 +26457,7 @@
                 "returns": {
                   "type": "i64"
                 },
-                "fn_body": "gl.get_query_object_i64v(id, pname)"
+                "fn_body": "glcontextptr.get_query_object_i64v(id, pname)"
               },
               "get_query_object_ui64v": {
                 "fn_args": [
@@ -26474,7 +26474,7 @@
                 "returns": {
                   "type": "u64"
                 },
-                "fn_body": "gl.get_query_object_ui64v(id, pname)"
+                "fn_body": "glcontextptr.get_query_object_ui64v(id, pname)"
               },
               "delete_queries": {
                 "fn_args": [
@@ -26485,7 +26485,7 @@
                     "queries": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_queries(queries)"
+                "fn_body": "glcontextptr.delete_queries(queries)"
               },
               "delete_vertex_arrays": {
                 "fn_args": [
@@ -26496,7 +26496,7 @@
                     "vertex_arrays": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_vertex_arrays(vertex_arrays)"
+                "fn_body": "glcontextptr.delete_vertex_arrays(vertex_arrays)"
               },
               "delete_buffers": {
                 "fn_args": [
@@ -26507,7 +26507,7 @@
                     "buffers": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_buffers(buffers)"
+                "fn_body": "glcontextptr.delete_buffers(buffers)"
               },
               "delete_renderbuffers": {
                 "fn_args": [
@@ -26518,7 +26518,7 @@
                     "renderbuffers": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_renderbuffers(renderbuffers)"
+                "fn_body": "glcontextptr.delete_renderbuffers(renderbuffers)"
               },
               "delete_framebuffers": {
                 "fn_args": [
@@ -26529,7 +26529,7 @@
                     "framebuffers": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_framebuffers(framebuffers)"
+                "fn_body": "glcontextptr.delete_framebuffers(framebuffers)"
               },
               "delete_textures": {
                 "fn_args": [
@@ -26540,7 +26540,7 @@
                     "textures": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_textures(textures)"
+                "fn_body": "glcontextptr.delete_textures(textures)"
               },
               "framebuffer_renderbuffer": {
                 "fn_args": [
@@ -26560,7 +26560,7 @@
                     "renderbuffer": "u32"
                   }
                 ],
-                "fn_body": "gl.framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer)"
+                "fn_body": "glcontextptr.framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer)"
               },
               "renderbuffer_storage": {
                 "fn_args": [
@@ -26580,7 +26580,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.renderbuffer_storage(target, internalformat, width, height)"
+                "fn_body": "glcontextptr.renderbuffer_storage(target, internalformat, width, height)"
               },
               "depth_func": {
                 "fn_args": [
@@ -26591,7 +26591,7 @@
                     "func": "u32"
                   }
                 ],
-                "fn_body": "gl.depth_func(func)"
+                "fn_body": "glcontextptr.depth_func(func)"
               },
               "active_texture": {
                 "fn_args": [
@@ -26602,7 +26602,7 @@
                     "texture": "u32"
                   }
                 ],
-                "fn_body": "gl.active_texture(texture)"
+                "fn_body": "glcontextptr.active_texture(texture)"
               },
               "attach_shader": {
                 "fn_args": [
@@ -26616,7 +26616,7 @@
                     "shader": "u32"
                   }
                 ],
-                "fn_body": "gl.attach_shader(program, shader)"
+                "fn_body": "glcontextptr.attach_shader(program, shader)"
               },
               "bind_attrib_location": {
                 "fn_args": [
@@ -26633,7 +26633,7 @@
                     "name": "Refstr"
                   }
                 ],
-                "fn_body": "gl.bind_attrib_location(program, index, name)"
+                "fn_body": "glcontextptr.bind_attrib_location(program, index, name)"
               },
               "get_uniform_iv": {
                 "fn_args": [
@@ -26650,7 +26650,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_uniform_iv(program, location, result)"
+                "fn_body": "glcontextptr.get_uniform_iv(program, location, result)"
               },
               "get_uniform_fv": {
                 "fn_args": [
@@ -26667,7 +26667,7 @@
                     "result": "GLfloatVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_uniform_fv(program, location, result)"
+                "fn_body": "glcontextptr.get_uniform_fv(program, location, result)"
               },
               "get_uniform_block_index": {
                 "fn_args": [
@@ -26684,7 +26684,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.get_uniform_block_index(program, name)"
+                "fn_body": "glcontextptr.get_uniform_block_index(program, name)"
               },
               "get_uniform_indices": {
                 "fn_args": [
@@ -26701,7 +26701,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.get_uniform_indices(program, names)"
+                "fn_body": "glcontextptr.get_uniform_indices(program, names)"
               },
               "bind_buffer_base": {
                 "fn_args": [
@@ -26718,7 +26718,7 @@
                     "buffer": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_buffer_base(target, index, buffer)"
+                "fn_body": "glcontextptr.bind_buffer_base(target, index, buffer)"
               },
               "bind_buffer_range": {
                 "fn_args": [
@@ -26741,7 +26741,7 @@
                     "size": "isize"
                   }
                 ],
-                "fn_body": "gl.bind_buffer_range(target, index, buffer, offset, size)"
+                "fn_body": "glcontextptr.bind_buffer_range(target, index, buffer, offset, size)"
               },
               "uniform_block_binding": {
                 "fn_args": [
@@ -26758,7 +26758,7 @@
                     "uniform_block_binding": "u32"
                   }
                 ],
-                "fn_body": "gl.uniform_block_binding(program, uniform_block_index, uniform_block_binding)"
+                "fn_body": "glcontextptr.uniform_block_binding(program, uniform_block_index, uniform_block_binding)"
               },
               "bind_buffer": {
                 "fn_args": [
@@ -26772,7 +26772,7 @@
                     "buffer": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_buffer(target, buffer)"
+                "fn_body": "glcontextptr.bind_buffer(target, buffer)"
               },
               "bind_vertex_array": {
                 "fn_args": [
@@ -26783,7 +26783,7 @@
                     "vao": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_vertex_array(vao)"
+                "fn_body": "glcontextptr.bind_vertex_array(vao)"
               },
               "bind_renderbuffer": {
                 "fn_args": [
@@ -26797,7 +26797,7 @@
                     "renderbuffer": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_renderbuffer(target, renderbuffer)"
+                "fn_body": "glcontextptr.bind_renderbuffer(target, renderbuffer)"
               },
               "bind_framebuffer": {
                 "fn_args": [
@@ -26811,7 +26811,7 @@
                     "framebuffer": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_framebuffer(target, framebuffer)"
+                "fn_body": "glcontextptr.bind_framebuffer(target, framebuffer)"
               },
               "bind_texture": {
                 "fn_args": [
@@ -26825,7 +26825,7 @@
                     "texture": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_texture(target, texture)"
+                "fn_body": "glcontextptr.bind_texture(target, texture)"
               },
               "draw_buffers": {
                 "fn_args": [
@@ -26836,7 +26836,7 @@
                     "bufs": "GLenumVecRef"
                   }
                 ],
-                "fn_body": "gl.draw_buffers(bufs)"
+                "fn_body": "glcontextptr.draw_buffers(bufs)"
               },
               "tex_image_2d": {
                 "fn_args": [
@@ -26871,7 +26871,7 @@
                     "opt_data": "OptionU8VecRef"
                   }
                 ],
-                "fn_body": "gl.tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data)"
+                "fn_body": "glcontextptr.tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data)"
               },
               "compressed_tex_image_2d": {
                 "fn_args": [
@@ -26900,7 +26900,7 @@
                     "data": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.compressed_tex_image_2d(target, level, internal_format, width, height, border, data)"
+                "fn_body": "glcontextptr.compressed_tex_image_2d(target, level, internal_format, width, height, border, data)"
               },
               "compressed_tex_sub_image_2d": {
                 "fn_args": [
@@ -26932,7 +26932,7 @@
                     "data": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.compressed_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, data)"
+                "fn_body": "glcontextptr.compressed_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, data)"
               },
               "tex_image_3d": {
                 "fn_args": [
@@ -26970,7 +26970,7 @@
                     "opt_data": "OptionU8VecRef"
                   }
                 ],
-                "fn_body": "gl.tex_image_3d(target, level, internal_format, width, height, depth, border, format, ty, opt_data)"
+                "fn_body": "glcontextptr.tex_image_3d(target, level, internal_format, width, height, depth, border, format, ty, opt_data)"
               },
               "copy_tex_image_2d": {
                 "fn_args": [
@@ -27002,7 +27002,7 @@
                     "border": "i32"
                   }
                 ],
-                "fn_body": "gl.copy_tex_image_2d(target, level, internal_format, x, y, width, height, border)"
+                "fn_body": "glcontextptr.copy_tex_image_2d(target, level, internal_format, x, y, width, height, border)"
               },
               "copy_tex_sub_image_2d": {
                 "fn_args": [
@@ -27034,7 +27034,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height)"
+                "fn_body": "glcontextptr.copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height)"
               },
               "copy_tex_sub_image_3d": {
                 "fn_args": [
@@ -27069,7 +27069,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.copy_tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, x, y, width, height)"
+                "fn_body": "glcontextptr.copy_tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, x, y, width, height)"
               },
               "tex_sub_image_2d": {
                 "fn_args": [
@@ -27104,7 +27104,7 @@
                     "data": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, ty, data)"
+                "fn_body": "glcontextptr.tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, ty, data)"
               },
               "tex_sub_image_2d_pbo": {
                 "fn_args": [
@@ -27139,7 +27139,7 @@
                     "offset": "usize"
                   }
                 ],
-                "fn_body": "gl.tex_sub_image_2d_pbo(target, level, xoffset, yoffset, width, height, format, ty, offset)"
+                "fn_body": "glcontextptr.tex_sub_image_2d_pbo(target, level, xoffset, yoffset, width, height, format, ty, offset)"
               },
               "tex_sub_image_3d": {
                 "fn_args": [
@@ -27180,7 +27180,7 @@
                     "data": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data)"
+                "fn_body": "glcontextptr.tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data)"
               },
               "tex_sub_image_3d_pbo": {
                 "fn_args": [
@@ -27221,7 +27221,7 @@
                     "offset": "usize"
                   }
                 ],
-                "fn_body": "gl.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset)"
+                "fn_body": "glcontextptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset)"
               },
               "tex_storage_2d": {
                 "fn_args": [
@@ -27244,7 +27244,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.tex_storage_2d(target, levels, internal_format, width, height)"
+                "fn_body": "glcontextptr.tex_storage_2d(target, levels, internal_format, width, height)"
               },
               "tex_storage_3d": {
                 "fn_args": [
@@ -27270,7 +27270,7 @@
                     "depth": "i32"
                   }
                 ],
-                "fn_body": "gl.tex_storage_3d(target, levels, internal_format, width, height, depth)"
+                "fn_body": "glcontextptr.tex_storage_3d(target, levels, internal_format, width, height, depth)"
               },
               "get_tex_image_into_buffer": {
                 "fn_args": [
@@ -27293,7 +27293,7 @@
                     "output": "U8VecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_tex_image_into_buffer(target, level, format, ty, output)"
+                "fn_body": "glcontextptr.get_tex_image_into_buffer(target, level, format, ty, output)"
               },
               "copy_image_sub_data": {
                 "fn_args": [
@@ -27346,7 +27346,7 @@
                     "src_depth": "i32"
                   }
                 ],
-                "fn_body": "gl.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)"
+                "fn_body": "glcontextptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)"
               },
               "invalidate_framebuffer": {
                 "fn_args": [
@@ -27360,7 +27360,7 @@
                     "attachments": "GLenumVecRef"
                   }
                 ],
-                "fn_body": "gl.invalidate_framebuffer(target, attachments)"
+                "fn_body": "glcontextptr.invalidate_framebuffer(target, attachments)"
               },
               "invalidate_sub_framebuffer": {
                 "fn_args": [
@@ -27386,7 +27386,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height)"
+                "fn_body": "glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height)"
               },
               "get_integer_v": {
                 "fn_args": [
@@ -27400,7 +27400,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_integer_v(name, result)"
+                "fn_body": "glcontextptr.get_integer_v(name, result)"
               },
               "get_integer_64v": {
                 "fn_args": [
@@ -27414,7 +27414,7 @@
                     "result": "GLint64VecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_integer_64v(name, result)"
+                "fn_body": "glcontextptr.get_integer_64v(name, result)"
               },
               "get_integer_iv": {
                 "fn_args": [
@@ -27431,7 +27431,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_integer_iv(name, index, result)"
+                "fn_body": "glcontextptr.get_integer_iv(name, index, result)"
               },
               "get_integer_64iv": {
                 "fn_args": [
@@ -27448,7 +27448,7 @@
                     "result": "GLint64VecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_integer_64iv(name, index, result)"
+                "fn_body": "glcontextptr.get_integer_64iv(name, index, result)"
               },
               "get_boolean_v": {
                 "fn_args": [
@@ -27462,7 +27462,7 @@
                     "result": "GLbooleanVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_boolean_v(name, result)"
+                "fn_body": "glcontextptr.get_boolean_v(name, result)"
               },
               "get_float_v": {
                 "fn_args": [
@@ -27476,7 +27476,7 @@
                     "result": "GLfloatVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_float_v(name, result)"
+                "fn_body": "glcontextptr.get_float_v(name, result)"
               },
               "get_framebuffer_attachment_parameter_iv": {
                 "fn_args": [
@@ -27496,7 +27496,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_framebuffer_attachment_parameter_iv(target, attachment, pname)"
+                "fn_body": "glcontextptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname)"
               },
               "get_renderbuffer_parameter_iv": {
                 "fn_args": [
@@ -27513,7 +27513,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_renderbuffer_parameter_iv(target, pname)"
+                "fn_body": "glcontextptr.get_renderbuffer_parameter_iv(target, pname)"
               },
               "get_tex_parameter_iv": {
                 "fn_args": [
@@ -27530,7 +27530,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_tex_parameter_iv(target, name)"
+                "fn_body": "glcontextptr.get_tex_parameter_iv(target, name)"
               },
               "get_tex_parameter_fv": {
                 "fn_args": [
@@ -27547,7 +27547,7 @@
                 "returns": {
                   "type": "f32"
                 },
-                "fn_body": "gl.get_tex_parameter_fv(target, name)"
+                "fn_body": "glcontextptr.get_tex_parameter_fv(target, name)"
               },
               "tex_parameter_i": {
                 "fn_args": [
@@ -27564,7 +27564,7 @@
                     "param": "i32"
                   }
                 ],
-                "fn_body": "gl.tex_parameter_i(target, pname, param)"
+                "fn_body": "glcontextptr.tex_parameter_i(target, pname, param)"
               },
               "tex_parameter_f": {
                 "fn_args": [
@@ -27581,7 +27581,7 @@
                     "param": "f32"
                   }
                 ],
-                "fn_body": "gl.tex_parameter_f(target, pname, param)"
+                "fn_body": "glcontextptr.tex_parameter_f(target, pname, param)"
               },
               "framebuffer_texture_2d": {
                 "fn_args": [
@@ -27604,7 +27604,7 @@
                     "level": "i32"
                   }
                 ],
-                "fn_body": "gl.framebuffer_texture_2d(target, attachment, textarget, texture, level)"
+                "fn_body": "glcontextptr.framebuffer_texture_2d(target, attachment, textarget, texture, level)"
               },
               "framebuffer_texture_layer": {
                 "fn_args": [
@@ -27627,7 +27627,7 @@
                     "layer": "i32"
                   }
                 ],
-                "fn_body": "gl.framebuffer_texture_layer(target, attachment, texture, level, layer)"
+                "fn_body": "glcontextptr.framebuffer_texture_layer(target, attachment, texture, level, layer)"
               },
               "blit_framebuffer": {
                 "fn_args": [
@@ -27665,7 +27665,7 @@
                     "filter": "u32"
                   }
                 ],
-                "fn_body": "gl.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter)"
+                "fn_body": "glcontextptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter)"
               },
               "vertex_attrib_4f": {
                 "fn_args": [
@@ -27688,7 +27688,7 @@
                     "w": "f32"
                   }
                 ],
-                "fn_body": "gl.vertex_attrib_4f(index, x, y, z, w)"
+                "fn_body": "glcontextptr.vertex_attrib_4f(index, x, y, z, w)"
               },
               "vertex_attrib_pointer_f32": {
                 "fn_args": [
@@ -27711,7 +27711,7 @@
                     "offset": "u32"
                   }
                 ],
-                "fn_body": "gl.vertex_attrib_pointer_f32(index, size, normalized, stride, offset)"
+                "fn_body": "glcontextptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset)"
               },
               "vertex_attrib_pointer": {
                 "fn_args": [
@@ -27737,7 +27737,7 @@
                     "offset": "u32"
                   }
                 ],
-                "fn_body": "gl.vertex_attrib_pointer(index, size, type_, normalized, stride, offset)"
+                "fn_body": "glcontextptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset)"
               },
               "vertex_attrib_i_pointer": {
                 "fn_args": [
@@ -27760,7 +27760,7 @@
                     "offset": "u32"
                   }
                 ],
-                "fn_body": "gl.vertex_attrib_i_pointer(index, size, type_, stride, offset)"
+                "fn_body": "glcontextptr.vertex_attrib_i_pointer(index, size, type_, stride, offset)"
               },
               "vertex_attrib_divisor": {
                 "fn_args": [
@@ -27774,7 +27774,7 @@
                     "divisor": "u32"
                   }
                 ],
-                "fn_body": "gl.vertex_attrib_divisor(index, divisor)"
+                "fn_body": "glcontextptr.vertex_attrib_divisor(index, divisor)"
               },
               "viewport": {
                 "fn_args": [
@@ -27794,7 +27794,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.viewport(x, y, width, height)"
+                "fn_body": "glcontextptr.viewport(x, y, width, height)"
               },
               "scissor": {
                 "fn_args": [
@@ -27814,7 +27814,7 @@
                     "height": "i32"
                   }
                 ],
-                "fn_body": "gl.scissor(x, y, width, height)"
+                "fn_body": "glcontextptr.scissor(x, y, width, height)"
               },
               "line_width": {
                 "fn_args": [
@@ -27825,7 +27825,7 @@
                     "width": "f32"
                   }
                 ],
-                "fn_body": "gl.line_width(width)"
+                "fn_body": "glcontextptr.line_width(width)"
               },
               "use_program": {
                 "fn_args": [
@@ -27836,7 +27836,7 @@
                     "program": "u32"
                   }
                 ],
-                "fn_body": "gl.use_program(program)"
+                "fn_body": "glcontextptr.use_program(program)"
               },
               "validate_program": {
                 "fn_args": [
@@ -27847,7 +27847,7 @@
                     "program": "u32"
                   }
                 ],
-                "fn_body": "gl.validate_program(program)"
+                "fn_body": "glcontextptr.validate_program(program)"
               },
               "draw_arrays": {
                 "fn_args": [
@@ -27864,7 +27864,7 @@
                     "count": "i32"
                   }
                 ],
-                "fn_body": "gl.draw_arrays(mode, first, count)"
+                "fn_body": "glcontextptr.draw_arrays(mode, first, count)"
               },
               "draw_arrays_instanced": {
                 "fn_args": [
@@ -27884,7 +27884,7 @@
                     "primcount": "i32"
                   }
                 ],
-                "fn_body": "gl.draw_arrays_instanced(mode, first, count, primcount)"
+                "fn_body": "glcontextptr.draw_arrays_instanced(mode, first, count, primcount)"
               },
               "draw_elements": {
                 "fn_args": [
@@ -27904,7 +27904,7 @@
                     "indices_offset": "u32"
                   }
                 ],
-                "fn_body": "gl.draw_elements(mode, count, element_type, indices_offset)"
+                "fn_body": "glcontextptr.draw_elements(mode, count, element_type, indices_offset)"
               },
               "draw_elements_instanced": {
                 "fn_args": [
@@ -27927,7 +27927,7 @@
                     "primcount": "i32"
                   }
                 ],
-                "fn_body": "gl.draw_elements_instanced(mode, count, element_type, indices_offset, primcount)"
+                "fn_body": "glcontextptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount)"
               },
               "blend_color": {
                 "fn_args": [
@@ -27947,7 +27947,7 @@
                     "a": "f32"
                   }
                 ],
-                "fn_body": "gl.blend_color(r, g, b, a)"
+                "fn_body": "glcontextptr.blend_color(r, g, b, a)"
               },
               "blend_func": {
                 "fn_args": [
@@ -27961,7 +27961,7 @@
                     "dfactor": "u32"
                   }
                 ],
-                "fn_body": "gl.blend_func(sfactor, dfactor)"
+                "fn_body": "glcontextptr.blend_func(sfactor, dfactor)"
               },
               "blend_func_separate": {
                 "fn_args": [
@@ -27981,7 +27981,7 @@
                     "dest_alpha": "u32"
                   }
                 ],
-                "fn_body": "gl.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha)"
+                "fn_body": "glcontextptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha)"
               },
               "blend_equation": {
                 "fn_args": [
@@ -27992,7 +27992,7 @@
                     "mode": "u32"
                   }
                 ],
-                "fn_body": "gl.blend_equation(mode)"
+                "fn_body": "glcontextptr.blend_equation(mode)"
               },
               "blend_equation_separate": {
                 "fn_args": [
@@ -28006,7 +28006,7 @@
                     "mode_alpha": "u32"
                   }
                 ],
-                "fn_body": "gl.blend_equation_separate(mode_rgb, mode_alpha)"
+                "fn_body": "glcontextptr.blend_equation_separate(mode_rgb, mode_alpha)"
               },
               "color_mask": {
                 "fn_args": [
@@ -28026,7 +28026,7 @@
                     "a": "bool"
                   }
                 ],
-                "fn_body": "gl.color_mask(r, g, b, a)"
+                "fn_body": "glcontextptr.color_mask(r, g, b, a)"
               },
               "cull_face": {
                 "fn_args": [
@@ -28037,7 +28037,7 @@
                     "mode": "u32"
                   }
                 ],
-                "fn_body": "gl.cull_face(mode)"
+                "fn_body": "glcontextptr.cull_face(mode)"
               },
               "front_face": {
                 "fn_args": [
@@ -28048,7 +28048,7 @@
                     "mode": "u32"
                   }
                 ],
-                "fn_body": "gl.front_face(mode)"
+                "fn_body": "glcontextptr.front_face(mode)"
               },
               "enable": {
                 "fn_args": [
@@ -28059,7 +28059,7 @@
                     "cap": "u32"
                   }
                 ],
-                "fn_body": "gl.enable(cap)"
+                "fn_body": "glcontextptr.enable(cap)"
               },
               "disable": {
                 "fn_args": [
@@ -28070,7 +28070,7 @@
                     "cap": "u32"
                   }
                 ],
-                "fn_body": "gl.disable(cap)"
+                "fn_body": "glcontextptr.disable(cap)"
               },
               "hint": {
                 "fn_args": [
@@ -28084,7 +28084,7 @@
                     "param_val": "u32"
                   }
                 ],
-                "fn_body": "gl.hint(param_name, param_val)"
+                "fn_body": "glcontextptr.hint(param_name, param_val)"
               },
               "is_enabled": {
                 "fn_args": [
@@ -28098,7 +28098,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.is_enabled(cap)"
+                "fn_body": "glcontextptr.is_enabled(cap)"
               },
               "is_shader": {
                 "fn_args": [
@@ -28112,7 +28112,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.is_shader(shader)"
+                "fn_body": "glcontextptr.is_shader(shader)"
               },
               "is_texture": {
                 "fn_args": [
@@ -28126,7 +28126,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.is_texture(texture)"
+                "fn_body": "glcontextptr.is_texture(texture)"
               },
               "is_framebuffer": {
                 "fn_args": [
@@ -28140,7 +28140,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.is_framebuffer(framebuffer)"
+                "fn_body": "glcontextptr.is_framebuffer(framebuffer)"
               },
               "is_renderbuffer": {
                 "fn_args": [
@@ -28154,7 +28154,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.is_renderbuffer(renderbuffer)"
+                "fn_body": "glcontextptr.is_renderbuffer(renderbuffer)"
               },
               "check_frame_buffer_status": {
                 "fn_args": [
@@ -28168,7 +28168,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.check_frame_buffer_status(target)"
+                "fn_body": "glcontextptr.check_frame_buffer_status(target)"
               },
               "enable_vertex_attrib_array": {
                 "fn_args": [
@@ -28179,7 +28179,7 @@
                     "index": "u32"
                   }
                 ],
-                "fn_body": "gl.enable_vertex_attrib_array(index)"
+                "fn_body": "glcontextptr.enable_vertex_attrib_array(index)"
               },
               "disable_vertex_attrib_array": {
                 "fn_args": [
@@ -28190,7 +28190,7 @@
                     "index": "u32"
                   }
                 ],
-                "fn_body": "gl.disable_vertex_attrib_array(index)"
+                "fn_body": "glcontextptr.disable_vertex_attrib_array(index)"
               },
               "uniform_1f": {
                 "fn_args": [
@@ -28204,7 +28204,7 @@
                     "v0": "f32"
                   }
                 ],
-                "fn_body": "gl.uniform_1f(location, v0)"
+                "fn_body": "glcontextptr.uniform_1f(location, v0)"
               },
               "uniform_1fv": {
                 "fn_args": [
@@ -28218,7 +28218,7 @@
                     "values": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_1fv(location, values)"
+                "fn_body": "glcontextptr.uniform_1fv(location, values)"
               },
               "uniform_1i": {
                 "fn_args": [
@@ -28232,7 +28232,7 @@
                     "v0": "i32"
                   }
                 ],
-                "fn_body": "gl.uniform_1i(location, v0)"
+                "fn_body": "glcontextptr.uniform_1i(location, v0)"
               },
               "uniform_1iv": {
                 "fn_args": [
@@ -28246,7 +28246,7 @@
                     "values": "I32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_1iv(location, values)"
+                "fn_body": "glcontextptr.uniform_1iv(location, values)"
               },
               "uniform_1ui": {
                 "fn_args": [
@@ -28260,7 +28260,7 @@
                     "v0": "u32"
                   }
                 ],
-                "fn_body": "gl.uniform_1ui(location, v0)"
+                "fn_body": "glcontextptr.uniform_1ui(location, v0)"
               },
               "uniform_2f": {
                 "fn_args": [
@@ -28277,7 +28277,7 @@
                     "v1": "f32"
                   }
                 ],
-                "fn_body": "gl.uniform_2f(location, v0, v1)"
+                "fn_body": "glcontextptr.uniform_2f(location, v0, v1)"
               },
               "uniform_2fv": {
                 "fn_args": [
@@ -28291,7 +28291,7 @@
                     "values": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_2fv(location, values)"
+                "fn_body": "glcontextptr.uniform_2fv(location, values)"
               },
               "uniform_2i": {
                 "fn_args": [
@@ -28308,7 +28308,7 @@
                     "v1": "i32"
                   }
                 ],
-                "fn_body": "gl.uniform_2i(location, v0, v1)"
+                "fn_body": "glcontextptr.uniform_2i(location, v0, v1)"
               },
               "uniform_2iv": {
                 "fn_args": [
@@ -28322,7 +28322,7 @@
                     "values": "I32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_2iv(location, values)"
+                "fn_body": "glcontextptr.uniform_2iv(location, values)"
               },
               "uniform_2ui": {
                 "fn_args": [
@@ -28339,7 +28339,7 @@
                     "v1": "u32"
                   }
                 ],
-                "fn_body": "gl.uniform_2ui(location, v0, v1)"
+                "fn_body": "glcontextptr.uniform_2ui(location, v0, v1)"
               },
               "uniform_3f": {
                 "fn_args": [
@@ -28359,7 +28359,7 @@
                     "v2": "f32"
                   }
                 ],
-                "fn_body": "gl.uniform_3f(location, v0, v1, v2)"
+                "fn_body": "glcontextptr.uniform_3f(location, v0, v1, v2)"
               },
               "uniform_3fv": {
                 "fn_args": [
@@ -28373,7 +28373,7 @@
                     "values": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_3fv(location, values)"
+                "fn_body": "glcontextptr.uniform_3fv(location, values)"
               },
               "uniform_3i": {
                 "fn_args": [
@@ -28393,7 +28393,7 @@
                     "v2": "i32"
                   }
                 ],
-                "fn_body": "gl.uniform_3i(location, v0, v1, v2)"
+                "fn_body": "glcontextptr.uniform_3i(location, v0, v1, v2)"
               },
               "uniform_3iv": {
                 "fn_args": [
@@ -28407,7 +28407,7 @@
                     "values": "I32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_3iv(location, values)"
+                "fn_body": "glcontextptr.uniform_3iv(location, values)"
               },
               "uniform_3ui": {
                 "fn_args": [
@@ -28427,7 +28427,7 @@
                     "v2": "u32"
                   }
                 ],
-                "fn_body": "gl.uniform_3ui(location, v0, v1, v2)"
+                "fn_body": "glcontextptr.uniform_3ui(location, v0, v1, v2)"
               },
               "uniform_4f": {
                 "fn_args": [
@@ -28450,7 +28450,7 @@
                     "w": "f32"
                   }
                 ],
-                "fn_body": "gl.uniform_4f(location, x, y, z, w)"
+                "fn_body": "glcontextptr.uniform_4f(location, x, y, z, w)"
               },
               "uniform_4i": {
                 "fn_args": [
@@ -28473,7 +28473,7 @@
                     "w": "i32"
                   }
                 ],
-                "fn_body": "gl.uniform_4i(location, x, y, z, w)"
+                "fn_body": "glcontextptr.uniform_4i(location, x, y, z, w)"
               },
               "uniform_4iv": {
                 "fn_args": [
@@ -28487,7 +28487,7 @@
                     "values": "I32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_4iv(location, values)"
+                "fn_body": "glcontextptr.uniform_4iv(location, values)"
               },
               "uniform_4ui": {
                 "fn_args": [
@@ -28510,7 +28510,7 @@
                     "w": "u32"
                   }
                 ],
-                "fn_body": "gl.uniform_4ui(location, x, y, z, w)"
+                "fn_body": "glcontextptr.uniform_4ui(location, x, y, z, w)"
               },
               "uniform_4fv": {
                 "fn_args": [
@@ -28524,7 +28524,7 @@
                     "values": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_4fv(location, values)"
+                "fn_body": "glcontextptr.uniform_4fv(location, values)"
               },
               "uniform_matrix_2fv": {
                 "fn_args": [
@@ -28541,7 +28541,7 @@
                     "value": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_matrix_2fv(location, transpose, value)"
+                "fn_body": "glcontextptr.uniform_matrix_2fv(location, transpose, value)"
               },
               "uniform_matrix_3fv": {
                 "fn_args": [
@@ -28558,7 +28558,7 @@
                     "value": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_matrix_3fv(location, transpose, value)"
+                "fn_body": "glcontextptr.uniform_matrix_3fv(location, transpose, value)"
               },
               "uniform_matrix_4fv": {
                 "fn_args": [
@@ -28575,7 +28575,7 @@
                     "value": "F32VecRef"
                   }
                 ],
-                "fn_body": "gl.uniform_matrix_4fv(location, transpose, value)"
+                "fn_body": "glcontextptr.uniform_matrix_4fv(location, transpose, value)"
               },
               "depth_mask": {
                 "fn_args": [
@@ -28586,7 +28586,7 @@
                     "flag": "bool"
                   }
                 ],
-                "fn_body": "gl.depth_mask(flag)"
+                "fn_body": "glcontextptr.depth_mask(flag)"
               },
               "depth_range": {
                 "fn_args": [
@@ -28600,7 +28600,7 @@
                     "far": "f64"
                   }
                 ],
-                "fn_body": "gl.depth_range(near, far)"
+                "fn_body": "glcontextptr.depth_range(near, far)"
               },
               "get_active_attrib": {
                 "fn_args": [
@@ -28617,7 +28617,7 @@
                 "returns": {
                   "type": "GetActiveAttribReturn"
                 },
-                "fn_body": "gl.get_active_attrib(program, index)"
+                "fn_body": "glcontextptr.get_active_attrib(program, index)"
               },
               "get_active_uniform": {
                 "fn_args": [
@@ -28634,7 +28634,7 @@
                 "returns": {
                   "type": "GetActiveUniformReturn"
                 },
-                "fn_body": "gl.get_active_uniform(program, index)"
+                "fn_body": "glcontextptr.get_active_uniform(program, index)"
               },
               "get_active_uniforms_iv": {
                 "fn_args": [
@@ -28654,7 +28654,7 @@
                 "returns": {
                   "type": "GLintVec"
                 },
-                "fn_body": "gl.get_active_uniforms_iv(program, indices, pname)"
+                "fn_body": "glcontextptr.get_active_uniforms_iv(program, indices, pname)"
               },
               "get_active_uniform_block_i": {
                 "fn_args": [
@@ -28674,7 +28674,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_active_uniform_block_i(program, index, pname)"
+                "fn_body": "glcontextptr.get_active_uniform_block_i(program, index, pname)"
               },
               "get_active_uniform_block_iv": {
                 "fn_args": [
@@ -28694,7 +28694,7 @@
                 "returns": {
                   "type": "GLintVec"
                 },
-                "fn_body": "gl.get_active_uniform_block_iv(program, index, pname)"
+                "fn_body": "glcontextptr.get_active_uniform_block_iv(program, index, pname)"
               },
               "get_active_uniform_block_name": {
                 "fn_args": [
@@ -28711,7 +28711,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "gl.get_active_uniform_block_name(program, index)"
+                "fn_body": "glcontextptr.get_active_uniform_block_name(program, index)"
               },
               "get_attrib_location": {
                 "fn_args": [
@@ -28728,7 +28728,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_attrib_location(program, name)"
+                "fn_body": "glcontextptr.get_attrib_location(program, name)"
               },
               "get_frag_data_location": {
                 "fn_args": [
@@ -28745,7 +28745,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_frag_data_location(program, name)"
+                "fn_body": "glcontextptr.get_frag_data_location(program, name)"
               },
               "get_uniform_location": {
                 "fn_args": [
@@ -28762,7 +28762,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_uniform_location(program, name)"
+                "fn_body": "glcontextptr.get_uniform_location(program, name)"
               },
               "get_program_info_log": {
                 "fn_args": [
@@ -28776,7 +28776,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "gl.get_program_info_log(program)"
+                "fn_body": "glcontextptr.get_program_info_log(program)"
               },
               "get_program_iv": {
                 "fn_args": [
@@ -28793,7 +28793,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_program_iv(program, pname, result)"
+                "fn_body": "glcontextptr.get_program_iv(program, pname, result)"
               },
               "get_program_binary": {
                 "fn_args": [
@@ -28807,7 +28807,7 @@
                 "returns": {
                   "type": "GetProgramBinaryReturn"
                 },
-                "fn_body": "gl.get_program_binary(program)"
+                "fn_body": "glcontextptr.get_program_binary(program)"
               },
               "program_binary": {
                 "fn_args": [
@@ -28824,7 +28824,7 @@
                     "binary": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.program_binary(program, format, binary)"
+                "fn_body": "glcontextptr.program_binary(program, format, binary)"
               },
               "program_parameter_i": {
                 "fn_args": [
@@ -28841,7 +28841,7 @@
                     "value": "i32"
                   }
                 ],
-                "fn_body": "gl.program_parameter_i(program, pname, value)"
+                "fn_body": "glcontextptr.program_parameter_i(program, pname, value)"
               },
               "get_vertex_attrib_iv": {
                 "fn_args": [
@@ -28858,7 +28858,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_vertex_attrib_iv(index, pname, result)"
+                "fn_body": "glcontextptr.get_vertex_attrib_iv(index, pname, result)"
               },
               "get_vertex_attrib_fv": {
                 "fn_args": [
@@ -28875,7 +28875,7 @@
                     "result": "GLfloatVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_vertex_attrib_fv(index, pname, result)"
+                "fn_body": "glcontextptr.get_vertex_attrib_fv(index, pname, result)"
               },
               "get_vertex_attrib_pointer_v": {
                 "fn_args": [
@@ -28892,7 +28892,7 @@
                 "returns": {
                   "type": "isize"
                 },
-                "fn_body": "gl.get_vertex_attrib_pointer_v(index, pname)"
+                "fn_body": "glcontextptr.get_vertex_attrib_pointer_v(index, pname)"
               },
               "get_buffer_parameter_iv": {
                 "fn_args": [
@@ -28909,7 +28909,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_buffer_parameter_iv(target, pname)"
+                "fn_body": "glcontextptr.get_buffer_parameter_iv(target, pname)"
               },
               "get_shader_info_log": {
                 "fn_args": [
@@ -28923,7 +28923,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "gl.get_shader_info_log(shader)"
+                "fn_body": "glcontextptr.get_shader_info_log(shader)"
               },
               "get_string": {
                 "fn_args": [
@@ -28937,7 +28937,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "gl.get_string(which)"
+                "fn_body": "glcontextptr.get_string(which)"
               },
               "get_string_i": {
                 "fn_args": [
@@ -28954,7 +28954,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "gl.get_string_i(which, index)"
+                "fn_body": "glcontextptr.get_string_i(which, index)"
               },
               "get_shader_iv": {
                 "fn_args": [
@@ -28971,7 +28971,7 @@
                     "result": "GLintVecRefMut"
                   }
                 ],
-                "fn_body": "gl.get_shader_iv(shader, pname, result)"
+                "fn_body": "glcontextptr.get_shader_iv(shader, pname, result)"
               },
               "get_shader_precision_format": {
                 "fn_args": [
@@ -28988,7 +28988,7 @@
                 "returns": {
                   "type": "GlShaderPrecisionFormatReturn"
                 },
-                "fn_body": "gl.get_shader_precision_format(shader_type, precision_type)"
+                "fn_body": "glcontextptr.get_shader_precision_format(shader_type, precision_type)"
               },
               "compile_shader": {
                 "fn_args": [
@@ -28999,7 +28999,7 @@
                     "shader": "u32"
                   }
                 ],
-                "fn_body": "gl.compile_shader(shader)"
+                "fn_body": "glcontextptr.compile_shader(shader)"
               },
               "create_program": {
                 "fn_args": [
@@ -29010,7 +29010,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.create_program()"
+                "fn_body": "glcontextptr.create_program()"
               },
               "delete_program": {
                 "fn_args": [
@@ -29021,7 +29021,7 @@
                     "program": "u32"
                   }
                 ],
-                "fn_body": "gl.delete_program(program)"
+                "fn_body": "glcontextptr.delete_program(program)"
               },
               "create_shader": {
                 "fn_args": [
@@ -29035,7 +29035,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.create_shader(shader_type)"
+                "fn_body": "glcontextptr.create_shader(shader_type)"
               },
               "delete_shader": {
                 "fn_args": [
@@ -29046,7 +29046,7 @@
                     "shader": "u32"
                   }
                 ],
-                "fn_body": "gl.delete_shader(shader)"
+                "fn_body": "glcontextptr.delete_shader(shader)"
               },
               "detach_shader": {
                 "fn_args": [
@@ -29060,7 +29060,7 @@
                     "shader": "u32"
                   }
                 ],
-                "fn_body": "gl.detach_shader(program, shader)"
+                "fn_body": "glcontextptr.detach_shader(program, shader)"
               },
               "link_program": {
                 "fn_args": [
@@ -29071,7 +29071,7 @@
                     "program": "u32"
                   }
                 ],
-                "fn_body": "gl.link_program(program)"
+                "fn_body": "glcontextptr.link_program(program)"
               },
               "clear_color": {
                 "fn_args": [
@@ -29091,7 +29091,7 @@
                     "a": "f32"
                   }
                 ],
-                "fn_body": "gl.clear_color(r, g, b, a)"
+                "fn_body": "glcontextptr.clear_color(r, g, b, a)"
               },
               "clear": {
                 "fn_args": [
@@ -29102,7 +29102,7 @@
                     "buffer_mask": "u32"
                   }
                 ],
-                "fn_body": "gl.clear(buffer_mask)"
+                "fn_body": "glcontextptr.clear(buffer_mask)"
               },
               "clear_depth": {
                 "fn_args": [
@@ -29113,7 +29113,7 @@
                     "depth": "f64"
                   }
                 ],
-                "fn_body": "gl.clear_depth(depth)"
+                "fn_body": "glcontextptr.clear_depth(depth)"
               },
               "clear_stencil": {
                 "fn_args": [
@@ -29124,7 +29124,7 @@
                     "s": "i32"
                   }
                 ],
-                "fn_body": "gl.clear_stencil(s)"
+                "fn_body": "glcontextptr.clear_stencil(s)"
               },
               "flush": {
                 "fn_args": [
@@ -29132,7 +29132,7 @@
                     "self": "ref"
                   }
                 ],
-                "fn_body": "gl.flush()"
+                "fn_body": "glcontextptr.flush()"
               },
               "finish": {
                 "fn_args": [
@@ -29140,7 +29140,7 @@
                     "self": "ref"
                   }
                 ],
-                "fn_body": "gl.finish()"
+                "fn_body": "glcontextptr.finish()"
               },
               "get_error": {
                 "fn_args": [
@@ -29151,7 +29151,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.get_error()"
+                "fn_body": "glcontextptr.get_error()"
               },
               "stencil_mask": {
                 "fn_args": [
@@ -29162,7 +29162,7 @@
                     "mask": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_mask(mask)"
+                "fn_body": "glcontextptr.stencil_mask(mask)"
               },
               "stencil_mask_separate": {
                 "fn_args": [
@@ -29176,7 +29176,7 @@
                     "mask": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_mask_separate(face, mask)"
+                "fn_body": "glcontextptr.stencil_mask_separate(face, mask)"
               },
               "stencil_func": {
                 "fn_args": [
@@ -29193,7 +29193,7 @@
                     "mask": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_func(func, ref_, mask)"
+                "fn_body": "glcontextptr.stencil_func(func, ref_, mask)"
               },
               "stencil_func_separate": {
                 "fn_args": [
@@ -29213,7 +29213,7 @@
                     "mask": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_func_separate(face, func, ref_, mask)"
+                "fn_body": "glcontextptr.stencil_func_separate(face, func, ref_, mask)"
               },
               "stencil_op": {
                 "fn_args": [
@@ -29230,7 +29230,7 @@
                     "dppass": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_op(sfail, dpfail, dppass)"
+                "fn_body": "glcontextptr.stencil_op(sfail, dpfail, dppass)"
               },
               "stencil_op_separate": {
                 "fn_args": [
@@ -29250,7 +29250,7 @@
                     "dppass": "u32"
                   }
                 ],
-                "fn_body": "gl.stencil_op_separate(face, sfail, dpfail, dppass)"
+                "fn_body": "glcontextptr.stencil_op_separate(face, sfail, dpfail, dppass)"
               },
               "egl_image_target_texture2d_oes": {
                 "fn_args": [
@@ -29264,7 +29264,7 @@
                     "image": "GlVoidPtrConst"
                   }
                 ],
-                "fn_body": "gl.egl_image_target_texture2d_oes(target, image)"
+                "fn_body": "glcontextptr.egl_image_target_texture2d_oes(target, image)"
               },
               "generate_mipmap": {
                 "fn_args": [
@@ -29275,7 +29275,7 @@
                     "target": "u32"
                   }
                 ],
-                "fn_body": "gl.generate_mipmap(target)"
+                "fn_body": "glcontextptr.generate_mipmap(target)"
               },
               "insert_event_marker_ext": {
                 "fn_args": [
@@ -29286,7 +29286,7 @@
                     "message": "Refstr"
                   }
                 ],
-                "fn_body": "gl.insert_event_marker_ext(message)"
+                "fn_body": "glcontextptr.insert_event_marker_ext(message)"
               },
               "push_group_marker_ext": {
                 "fn_args": [
@@ -29297,7 +29297,7 @@
                     "message": "Refstr"
                   }
                 ],
-                "fn_body": "gl.push_group_marker_ext(message)"
+                "fn_body": "glcontextptr.push_group_marker_ext(message)"
               },
               "pop_group_marker_ext": {
                 "fn_args": [
@@ -29305,7 +29305,7 @@
                     "self": "ref"
                   }
                 ],
-                "fn_body": "gl.pop_group_marker_ext()"
+                "fn_body": "glcontextptr.pop_group_marker_ext()"
               },
               "debug_message_insert_khr": {
                 "fn_args": [
@@ -29328,7 +29328,7 @@
                     "message": "Refstr"
                   }
                 ],
-                "fn_body": "gl.debug_message_insert_khr(source, type_, id, severity, message)"
+                "fn_body": "glcontextptr.debug_message_insert_khr(source, type_, id, severity, message)"
               },
               "push_debug_group_khr": {
                 "fn_args": [
@@ -29345,7 +29345,7 @@
                     "message": "Refstr"
                   }
                 ],
-                "fn_body": "gl.push_debug_group_khr(source, id, message)"
+                "fn_body": "glcontextptr.push_debug_group_khr(source, id, message)"
               },
               "pop_debug_group_khr": {
                 "fn_args": [
@@ -29353,7 +29353,7 @@
                     "self": "ref"
                   }
                 ],
-                "fn_body": "gl.pop_debug_group_khr()"
+                "fn_body": "glcontextptr.pop_debug_group_khr()"
               },
               "fence_sync": {
                 "fn_args": [
@@ -29370,7 +29370,7 @@
                 "returns": {
                   "type": "GLsyncPtr"
                 },
-                "fn_body": "gl.fence_sync(condition, flags)"
+                "fn_body": "glcontextptr.fence_sync(condition, flags)"
               },
               "client_wait_sync": {
                 "fn_args": [
@@ -29390,7 +29390,7 @@
                 "returns": {
                   "type": "u32"
                 },
-                "fn_body": "gl.client_wait_sync(sync, flags, timeout)"
+                "fn_body": "glcontextptr.client_wait_sync(sync, flags, timeout)"
               },
               "wait_sync": {
                 "fn_args": [
@@ -29407,7 +29407,7 @@
                     "timeout": "u64"
                   }
                 ],
-                "fn_body": "gl.wait_sync(sync, flags, timeout)"
+                "fn_body": "glcontextptr.wait_sync(sync, flags, timeout)"
               },
               "delete_sync": {
                 "fn_args": [
@@ -29418,7 +29418,7 @@
                     "sync": "GLsyncPtr"
                   }
                 ],
-                "fn_body": "gl.delete_sync(sync)"
+                "fn_body": "glcontextptr.delete_sync(sync)"
               },
               "texture_range_apple": {
                 "fn_args": [
@@ -29432,7 +29432,7 @@
                     "data": "U8VecRef"
                   }
                 ],
-                "fn_body": "gl.texture_range_apple(target, data)"
+                "fn_body": "glcontextptr.texture_range_apple(target, data)"
               },
               "gen_fences_apple": {
                 "fn_args": [
@@ -29446,7 +29446,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_fences_apple(n)"
+                "fn_body": "glcontextptr.gen_fences_apple(n)"
               },
               "delete_fences_apple": {
                 "fn_args": [
@@ -29457,7 +29457,7 @@
                     "fences": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_fences_apple(fences)"
+                "fn_body": "glcontextptr.delete_fences_apple(fences)"
               },
               "set_fence_apple": {
                 "fn_args": [
@@ -29468,7 +29468,7 @@
                     "fence": "u32"
                   }
                 ],
-                "fn_body": "gl.set_fence_apple(fence)"
+                "fn_body": "glcontextptr.set_fence_apple(fence)"
               },
               "finish_fence_apple": {
                 "fn_args": [
@@ -29479,7 +29479,7 @@
                     "fence": "u32"
                   }
                 ],
-                "fn_body": "gl.finish_fence_apple(fence)"
+                "fn_body": "glcontextptr.finish_fence_apple(fence)"
               },
               "test_fence_apple": {
                 "fn_args": [
@@ -29490,7 +29490,7 @@
                     "fence": "u32"
                   }
                 ],
-                "fn_body": "gl.test_fence_apple(fence)"
+                "fn_body": "glcontextptr.test_fence_apple(fence)"
               },
               "test_object_apple": {
                 "fn_args": [
@@ -29507,7 +29507,7 @@
                 "returns": {
                   "type": "u8"
                 },
-                "fn_body": "gl.test_object_apple(object, name)"
+                "fn_body": "glcontextptr.test_object_apple(object, name)"
               },
               "finish_object_apple": {
                 "fn_args": [
@@ -29521,7 +29521,7 @@
                     "name": "u32"
                   }
                 ],
-                "fn_body": "gl.finish_object_apple(object, name)"
+                "fn_body": "glcontextptr.finish_object_apple(object, name)"
               },
               "get_frag_data_index": {
                 "fn_args": [
@@ -29538,7 +29538,7 @@
                 "returns": {
                   "type": "i32"
                 },
-                "fn_body": "gl.get_frag_data_index(program, name)"
+                "fn_body": "glcontextptr.get_frag_data_index(program, name)"
               },
               "blend_barrier_khr": {
                 "fn_args": [
@@ -29546,7 +29546,7 @@
                     "self": "ref"
                   }
                 ],
-                "fn_body": "gl.blend_barrier_khr()"
+                "fn_body": "glcontextptr.blend_barrier_khr()"
               },
               "bind_frag_data_location_indexed": {
                 "fn_args": [
@@ -29566,7 +29566,7 @@
                     "name": "Refstr"
                   }
                 ],
-                "fn_body": "gl.bind_frag_data_location_indexed(program, color_number, index, name)"
+                "fn_body": "glcontextptr.bind_frag_data_location_indexed(program, color_number, index, name)"
               },
               "get_debug_messages": {
                 "fn_args": [
@@ -29577,7 +29577,7 @@
                 "returns": {
                   "type": "DebugMessageVec"
                 },
-                "fn_body": "gl.get_debug_messages()"
+                "fn_body": "glcontextptr.get_debug_messages()"
               },
               "provoking_vertex_angle": {
                 "fn_args": [
@@ -29588,7 +29588,7 @@
                     "mode": "u32"
                   }
                 ],
-                "fn_body": "gl.provoking_vertex_angle(mode)"
+                "fn_body": "glcontextptr.provoking_vertex_angle(mode)"
               },
               "gen_vertex_arrays_apple": {
                 "fn_args": [
@@ -29602,7 +29602,7 @@
                 "returns": {
                   "type": "GLuintVec"
                 },
-                "fn_body": "gl.gen_vertex_arrays_apple(n)"
+                "fn_body": "glcontextptr.gen_vertex_arrays_apple(n)"
               },
               "bind_vertex_array_apple": {
                 "fn_args": [
@@ -29613,7 +29613,7 @@
                     "vao": "u32"
                   }
                 ],
-                "fn_body": "gl.bind_vertex_array_apple(vao)"
+                "fn_body": "glcontextptr.bind_vertex_array_apple(vao)"
               },
               "delete_vertex_arrays_apple": {
                 "fn_args": [
@@ -29624,7 +29624,7 @@
                     "vertex_arrays": "GLuintVecRef"
                   }
                 ],
-                "fn_body": "gl.delete_vertex_arrays_apple(vertex_arrays)"
+                "fn_body": "glcontextptr.delete_vertex_arrays_apple(vertex_arrays)"
               },
               "copy_texture_chromium": {
                 "fn_args": [
@@ -29662,7 +29662,7 @@
                     "unpack_unmultiply_alpha": "u8"
                   }
                 ],
-                "fn_body": "gl.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+                "fn_body": "glcontextptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
               },
               "copy_sub_texture_chromium": {
                 "fn_args": [
@@ -29712,7 +29712,7 @@
                     "unpack_unmultiply_alpha": "u8"
                   }
                 ],
-                "fn_body": "gl.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+                "fn_body": "glcontextptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
               },
               "egl_image_target_renderbuffer_storage_oes": {
                 "fn_args": [
@@ -29726,7 +29726,7 @@
                     "image": "GlVoidPtrConst"
                   }
                 ],
-                "fn_body": "gl.egl_image_target_renderbuffer_storage_oes(target, image)"
+                "fn_body": "glcontextptr.egl_image_target_renderbuffer_storage_oes(target, image)"
               },
               "copy_texture_3d_angle": {
                 "fn_args": [
@@ -29764,7 +29764,7 @@
                     "unpack_unmultiply_alpha": "u8"
                   }
                 ],
-                "fn_body": "gl.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+                "fn_body": "glcontextptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
               },
               "copy_sub_texture_3d_angle": {
                 "fn_args": [
@@ -29823,7 +29823,7 @@
                     "unpack_unmultiply_alpha": "u8"
                   }
                 ],
-                "fn_body": "gl.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+                "fn_body": "glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
               },
               "buffer_storage": {
                 "fn_args": [
@@ -29843,7 +29843,7 @@
                     "flags": "u32"
                   }
                 ],
-                "fn_body": "gl.buffer_storage(target, size, data, flags)"
+                "fn_body": "glcontextptr.buffer_storage(target, size, data, flags)"
               },
               "flush_mapped_buffer_range": {
                 "fn_args": [
@@ -29860,7 +29860,7 @@
                     "length": "isize"
                   }
                 ],
-                "fn_body": "gl.flush_mapped_buffer_range(target, offset, length)"
+                "fn_body": "glcontextptr.flush_mapped_buffer_range(target, offset, length)"
               }
             },
             "repr": "C"
@@ -31382,7 +31382,7 @@
                 "returns": {
                   "type": "FontMetrics"
                 },
-                "fn_body": "azul_layout::text2::get_font_metrics_fontref(fontref)"
+                "fn_body": "azul_layout::text::get_font_metrics_fontref(fontref)"
               },
               "get_hash": {
                 "doc": [

@@ -1,5 +1,6 @@
 pub mod c_api;
 pub mod cpp_api;
+pub mod fn_body_gen;
 pub mod func_gen;
 pub mod memtest;
 pub mod python_api;

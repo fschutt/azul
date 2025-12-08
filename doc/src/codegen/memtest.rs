@@ -1063,6 +1063,7 @@ fn generate_dll_module(
             if let Some(body) = &fn_info.fn_body {
                 // Transform the fn_body to use transmute for type conversion
                 // The fn_body uses types without Az prefix, we need to add transmutes
+                // Now all arguments are transmuted, not just self
                 generate_transmuted_fn_body(
                     body,
                     &fn_info.class_name,
@@ -1070,6 +1071,7 @@ fn generate_dll_module(
                     &fn_info.return_type,
                     prefix,
                     &type_to_external,
+                    &fn_info.fn_args,
                 )
             } else {
                 // No fn_body in api.json - use unimplemented
@@ -1160,13 +1162,63 @@ fn generate_public_api_modules(
     Ok(output)
 }
 
+/// Parse function arguments string into individual (name, type) pairs
+/// 
+/// Input: "dom: &mut AzDom, children: AzDomVec"
+/// Output: [("dom", "&mut AzDom"), ("children", "AzDomVec")]
+fn parse_fn_args(fn_args: &str) -> Vec<(String, String)> {
+    if fn_args.trim().is_empty() {
+        return Vec::new();
+    }
+    
+    let mut result = Vec::new();
+    let mut depth = 0;
+    let mut current = String::new();
+    
+    // Handle nested generics like Option<Vec<T>>
+    for ch in fn_args.chars() {
+        match ch {
+            '<' => { depth += 1; current.push(ch); }
+            '>' => { depth -= 1; current.push(ch); }
+            ',' if depth == 0 => {
+                if !current.trim().is_empty() {
+                    if let Some((name, ty)) = parse_single_arg(&current) {
+                        result.push((name, ty));
+                    }
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    
+    // Don't forget the last argument
+    if !current.trim().is_empty() {
+        if let Some((name, ty)) = parse_single_arg(&current) {
+            result.push((name, ty));
+        }
+    }
+    
+    result
+}
+
+/// Parse a single argument like "dom: &mut AzDom" into ("dom", "&mut AzDom")
+fn parse_single_arg(arg: &str) -> Option<(String, String)> {
+    let trimmed = arg.trim();
+    let colon_pos = trimmed.find(':')?;
+    let name = trimmed[..colon_pos].trim().to_string();
+    let ty = trimmed[colon_pos + 1..].trim().to_string();
+    Some((name, ty))
+}
+
 /// Generate a function body that transmutes between local (Az-prefixed) and external types
 /// 
 /// The fn_body in api.json uses unprefixed types like "Dom::new(node_type)"
 /// We need to:
-/// 1. Convert arguments from Az-prefixed local types to external types (transmute in)
-/// 2. Call the actual function on the external type
-/// 3. Convert the result back to Az-prefixed local type (transmute out)
+/// 1. Convert the self parameter from Az-prefixed local type to external type (transmute in)
+/// 2. Convert ALL arguments from Az-prefixed local types to external types (transmute in)
+/// 3. Call the actual function on the external type
+/// 4. Convert the result back to Az-prefixed local type (transmute out)
 fn generate_transmuted_fn_body(
     fn_body: &str,
     class_name: &str,
@@ -1174,23 +1226,62 @@ fn generate_transmuted_fn_body(
     return_type: &str,
     prefix: &str,
     type_to_external: &std::collections::HashMap<String, String>,
+    fn_args: &str,
 ) -> String {
-    // Get the external path for this class
-    let prefixed_class = format!("{}{}", prefix, class_name);
-    let _external_path = type_to_external.get(&prefixed_class)
-        .map(|s| s.as_str())
-        .unwrap_or(&prefixed_class);
+    let self_var = class_name.to_lowercase();
+    let parsed_args = parse_fn_args(fn_args);
+    
+    let mut transmute_lines = Vec::new();
+    
+    // Generate transmutations for ALL arguments
+    for (arg_name, arg_type) in &parsed_args {
+        let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
+        
+        // Get the external type for this argument
+        let external_type = type_to_external.get(&base_type)
+            .map(|s| s.as_str())
+            .unwrap_or(&base_type);
+        
+        // Generate transmute line based on reference type
+        let transmute_line = if is_mut {
+            format!(
+                "let {name}: &mut {ext} = core::mem::transmute({name});",
+                name = arg_name,
+                ext = external_type
+            )
+        } else if is_ref {
+            format!(
+                "let {name}: &{ext} = core::mem::transmute({name});",
+                name = arg_name,
+                ext = external_type
+            )
+        } else {
+            format!(
+                "let {name}: {ext} = core::mem::transmute({name});",
+                name = arg_name,
+                ext = external_type
+            )
+        };
+        
+        transmute_lines.push(transmute_line);
+    }
+    
+    let transmutes = transmute_lines.join(" ");
+    let transmutes_block = if transmutes.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", transmutes)
+    };
     
     // Check if fn_body contains statements (has `;` before the last expression)
-    // If it does, we need to wrap it in a block and transmute the final result
     let has_statements = fn_body.contains(';');
-    
+
     if return_type.is_empty() {
         // Void return - just call the function (side effects only)
         if has_statements {
-            format!("{{ {} }}", fn_body)
+            format!("{{ {}{} }}", transmutes_block, fn_body)
         } else {
-            format!("{{ let _: () = {}; }}", fn_body)
+            format!("{{ {}let _: () = {}; }}", transmutes_block, fn_body)
         }
     } else {
         // Has return type - need to transmute the result
@@ -1200,9 +1291,9 @@ fn generate_transmuted_fn_body(
         
         if has_statements {
             // fn_body has statements - wrap in block and transmute the final result
-            // The fn_body should end with the expression to return
             format!(
-                "{{ let __result: {ext} = {{ {body} }}; core::mem::transmute::<{ext}, {local}>(__result) }}",
+                "{{ {}let __result: {ext} = {{ {body} }}; core::mem::transmute::<{ext}, {local}>(__result) }}",
+                transmutes_block,
                 ext = return_external,
                 local = return_type,
                 body = fn_body
@@ -1210,12 +1301,30 @@ fn generate_transmuted_fn_body(
         } else {
             // Simple expression - just wrap in transmute
             format!(
-                "core::mem::transmute::<{ext}, {local}>({body})",
+                "{{ {}core::mem::transmute::<{ext}, {local}>({body}) }}",
+                transmutes_block,
                 ext = return_external,
                 local = return_type,
                 body = fn_body
             )
         }
+    }
+}
+
+/// Parse a type string to extract reference/mut info and base type
+/// 
+/// "&mut AzDom" -> (true, true, "AzDom")
+/// "&AzDom" -> (true, false, "AzDom")
+/// "AzDom" -> (false, false, "AzDom")
+fn parse_arg_type(ty: &str) -> (bool, bool, String) {
+    let trimmed = ty.trim();
+    
+    if trimmed.starts_with("&mut ") {
+        (true, true, trimmed[5..].trim().to_string())
+    } else if trimmed.starts_with("&") {
+        (true, false, trimmed[1..].trim().to_string())
+    } else {
+        (false, false, trimmed.to_string())
     }
 }
 
