@@ -920,6 +920,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         FieldData {
             r#type: element_type.to_string(),
             ref_kind: RefKind::ConstPtr,
+            arraysize: None,
             doc: None,
             derive: None,
         },
@@ -931,6 +932,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         FieldData {
             r#type: "usize".to_string(),
             ref_kind: RefKind::Value,
+            arraysize: None,
             doc: None,
             derive: None,
         },
@@ -942,6 +944,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         FieldData {
             r#type: "usize".to_string(),
             ref_kind: RefKind::Value,
+            arraysize: None,
             doc: None,
             derive: None,
         },
@@ -953,6 +956,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         FieldData {
             r#type: destructor_type,
             ref_kind: RefKind::Value,
+            arraysize: None,
             doc: None,
             derive: None,
         },
@@ -1422,6 +1426,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                         FieldData {
                             r#type: normalized_type,
                             ref_kind: field_info.ref_kind,
+                            arraysize: None,
                             doc: field_info.doc.clone(),
                             derive: None,
                         },

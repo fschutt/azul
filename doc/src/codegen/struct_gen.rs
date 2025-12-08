@@ -1677,16 +1677,14 @@ mod tests {
             "x".to_string(),
             FieldData {
                 r#type: "f32".to_string(),
-                doc: None,
-                derive: None,
+                ..Default::default()
             },
         );
         field_map.insert(
             "y".to_string(),
             FieldData {
                 r#type: "f32".to_string(),
-                doc: None,
-                derive: None,
+                ..Default::default()
             },
         );
         struct_fields.push(field_map);

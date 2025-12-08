@@ -1437,7 +1437,7 @@ mod tests {
                                     FieldData {
                                         r#type: "String".to_string(),
                                         doc: Some("Field documentation".to_string()),
-                                        derive: None,
+                                        ..Default::default()
                                     },
                                 )])]),
                                 enum_fields: None,
@@ -1478,15 +1478,14 @@ mod tests {
                                             FieldData {
                                                 r#type: "UpdatedType".to_string(),
                                                 doc: Some("Field documentation".to_string()),
-                                                derive: None,
+                                                ..Default::default()
                                             },
                                         ),
                                         (
                                             "field2".to_string(),
                                             FieldData {
                                                 r#type: "NewField".to_string(),
-                                                doc: None,
-                                                derive: None,
+                                                ..Default::default()
                                             },
                                         ),
                                     ])]),

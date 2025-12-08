@@ -35,7 +35,14 @@ fn main() -> anyhow::Result<()> {
         }
         ["normalize"] => {
             println!("[REFRESH] Normalizing api.json...\n");
-            let api_data = load_api_json(&api_path)?;
+            let mut api_data = load_api_json(&api_path)?;
+            
+            // Normalize array types: [T; N] -> type: T, arraysize: N
+            let array_count = api::normalize_array_types(&mut api_data);
+            if array_count > 0 {
+                println!("[ARRAY] Normalized {} array type fields", array_count);
+            }
+            
             let api_json = serde_json::to_string_pretty(&api_data)?;
             fs::write(&api_path, api_json)?;
             println!("[SAVE] Saved normalized api.json\n");

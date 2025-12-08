@@ -922,6 +922,7 @@ impl WorkspaceIndex {
                         FieldData {
                             r#type: field.ty.clone(),
                             ref_kind: field.ref_kind,
+                            arraysize: None,
                             doc: field.doc.clone(),
                             derive: None,
                         },

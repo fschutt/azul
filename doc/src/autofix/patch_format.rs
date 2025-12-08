@@ -585,6 +585,7 @@ impl AutofixPatch {
                                 (f.name.clone(), FieldData {
                                     r#type: f.field_type.clone(),
                                     ref_kind,
+                                    arraysize: None,
                                     doc: f.doc.clone().map(|s| vec![s]),
                                     derive: None,
                                 })
@@ -671,6 +672,7 @@ impl AutofixPatch {
                     struct_fields_to_add.insert(name.clone(), FieldData {
                         r#type: field_type.clone(),
                         ref_kind: rk,
+                        arraysize: None,
                         doc: doc.clone().map(|s| vec![s]),
                         derive: None,
                     });
@@ -685,6 +687,7 @@ impl AutofixPatch {
                     struct_fields_to_add.insert(name.clone(), FieldData {
                         r#type: new_type.clone(),
                         ref_kind: rk,
+                        arraysize: None,
                         doc: None,
                         derive: None,
                     });
@@ -774,6 +777,7 @@ impl AutofixPatch {
                         ordered_fields.insert(field.name.clone(), FieldData {
                             r#type: field.field_type.clone(),
                             ref_kind: rk,
+                            arraysize: None,
                             doc: None,
                             derive: None,
                         });

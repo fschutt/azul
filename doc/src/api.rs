@@ -483,6 +483,9 @@ pub struct FieldData {
     /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
+    /// Array size for fixed-size arrays. If Some(N), the type is [T; N] where T is in `type` field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arraysize: Option<usize>,
     #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
     pub doc: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1556,6 +1559,68 @@ pub struct UnusedTypeInfo {
     pub type_name: String,
     pub module_name: String,
     pub version_name: String,
+}
+
+/// Extract array size from a type string like "[T; N]" and normalize it.
+/// Returns (base_type, array_size) where array_size is Some(N) if it's an array.
+/// 
+/// Examples:
+/// - "[f32; 20]" -> ("f32", Some(20))
+/// - "[FloatValue; 4]" -> ("FloatValue", Some(4))
+/// - "String" -> ("String", None)
+fn extract_array_info(type_str: &str) -> (String, Option<usize>) {
+    let trimmed = type_str.trim();
+    
+    // Check if it's an array type: [T; N]
+    if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        if let Some(semicolon_pos) = inner.rfind(';') {
+            let base_type = inner[..semicolon_pos].trim().to_string();
+            let size_str = inner[semicolon_pos + 1..].trim();
+            if let Ok(size) = size_str.parse::<usize>() {
+                return (base_type, Some(size));
+            }
+        }
+    }
+    
+    (trimmed.to_string(), None)
+}
+
+/// Normalize array types in api.json by extracting `[T; N]` into separate fields.
+/// 
+/// Before: `{ "type": "[f32; 20]" }`
+/// After:  `{ "type": "f32", "arraysize": 20 }`
+/// 
+/// This should be run after syn parsing to simplify downstream code generation.
+pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
+    let mut count = 0;
+    
+    for (_version_name, version_data) in &mut api_data.0 {
+        for (_module_name, module_data) in &mut version_data.api {
+            for (_class_name, class_data) in &mut module_data.classes {
+                // Process struct fields
+                if let Some(struct_fields) = &mut class_data.struct_fields {
+                    for field_map in struct_fields {
+                        for (_field_name, field_data) in field_map {
+                            if field_data.arraysize.is_none() {
+                                let (base_type, array_size) = extract_array_info(&field_data.r#type);
+                                if let Some(size) = array_size {
+                                    field_data.r#type = base_type;
+                                    field_data.arraysize = Some(size);
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Process enum variant types (keep type as-is for now since no arraysize field)
+                // Arrays in enum variants are rare and can be handled manually if needed
+            }
+        }
+    }
+    
+    count
 }
 
 #[cfg(test)]
