@@ -1552,13 +1552,13 @@ impl Device {
             && !renderer_name.starts_with("Intel(R) HD Graphics for Atom(TM) x5/x7");
 
         let supports_texture_swizzle = allow_texture_swizzling
-            && match gl.get_type() {
+            && match Into::<gl::GlType>::into(gl.get_type()) {
                 // see https://www.g-truc.net/post-0734.html
                 gl::GlType::Gl => {
                     gl_version >= [3, 3]
                         || supports_extension(&extensions, "GL_ARB_texture_swizzle")
                 }
-                gl::GlType::GlEs => true,
+                gl::GlType::Gles => true,
             };
 
         let (
@@ -1567,7 +1567,7 @@ impl Device {
             bgra_pixel_type,
             bgra8_sampling_swizzle,
             texture_storage_usage,
-        ) = match gl.get_type() {
+        ) = match Into::<gl::GlType>::into(gl.get_type()) {
             // There is `glTexStorage`, use it and expect RGBA on the input.
             gl::GlType::Gl if supports_texture_storage && supports_texture_swizzle => (
                 TextureFormatPair::from(ImageFormat::RGBA8),
@@ -1596,7 +1596,7 @@ impl Device {
             // glTexStorage is always supported in GLES 3, but because the GL_EXT_texture_storage
             // extension is supported we can use glTexStorage with BGRA8 as the internal format.
             // Prefer BGRA textures over RGBA.
-            gl::GlType::GlEs if supports_texture_storage_with_gles_bgra => (
+            gl::GlType::Gles if supports_texture_storage_with_gles_bgra => (
                 TextureFormatPair::from(ImageFormat::BGRA8),
                 TextureFormatPair {
                     internal: gl::BGRA8_EXT,
@@ -1609,7 +1609,7 @@ impl Device {
             // BGRA is not supported as an internal format with glTexStorage, therefore we will
             // use RGBA textures instead and pretend BGRA data is RGBA when uploading.
             // The swizzling will happen at the texture unit.
-            gl::GlType::GlEs if supports_texture_swizzle => (
+            gl::GlType::Gles if supports_texture_swizzle => (
                 TextureFormatPair::from(ImageFormat::RGBA8),
                 TextureFormatPair {
                     internal: gl::RGBA8,
@@ -1622,7 +1622,7 @@ impl Device {
             // BGRA is not supported as an internal format with glTexStorage, and we cannot use
             // swizzling either. Therefore prefer BGRA textures over RGBA, but use glTexImage
             // to initialize BGRA textures. glTexStorage can still be used for other formats.
-            gl::GlType::GlEs if supports_gles_bgra && !avoid_tex_image => (
+            gl::GlType::Gles if supports_gles_bgra && !avoid_tex_image => (
                 TextureFormatPair::from(ImageFormat::BGRA8),
                 TextureFormatPair::from(gl::BGRA_EXT),
                 gl::UNSIGNED_BYTE,
@@ -1632,7 +1632,7 @@ impl Device {
             // Neither BGRA or swizzling are supported. GLES does not allow format conversion
             // during upload so we must use RGBA textures and pretend BGRA data is RGBA when
             // uploading. Images may be rendered incorrectly as a result.
-            gl::GlType::GlEs => {
+            gl::GlType::Gles => {
                 warn!(
                     "Neither BGRA or texture swizzling are supported. Images may be rendered \
                      incorrectly."
@@ -1687,10 +1687,10 @@ impl Device {
         // is broken. See bug 1709408.
         let is_x86_powervr_rogue_g6430 =
             renderer_name.starts_with("PowerVR Rogue G6430") && cfg!(target_arch = "x86");
-        let supports_color_buffer_float = match gl.get_type() {
+        let supports_color_buffer_float = match Into::<gl::GlType>::into(gl.get_type()) {
             gl::GlType::Gl => true,
-            gl::GlType::GlEs if is_x86_powervr_rogue_g6430 => false,
-            gl::GlType::GlEs => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
+            gl::GlType::Gles if is_x86_powervr_rogue_g6430 => false,
+            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
         };
 
         let is_adreno = renderer_name.starts_with("Adreno");
@@ -1712,12 +1712,12 @@ impl Device {
         let supports_advanced_blend_equation =
             supports_extension(&extensions, "GL_KHR_blend_equation_advanced") && !is_adreno;
 
-        let supports_dual_source_blending = match gl.get_type() {
+        let supports_dual_source_blending = match Into::<gl::GlType>::into(gl.get_type()) {
             gl::GlType::Gl => {
                 supports_extension(&extensions, "GL_ARB_blend_func_extended")
                     && supports_extension(&extensions, "GL_ARB_explicit_attrib_location")
             }
-            gl::GlType::GlEs => supports_extension(&extensions, "GL_EXT_blend_func_extended"),
+            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_blend_func_extended"),
         };
 
         // Software webrender relies on the unoptimized shader source.
@@ -1779,12 +1779,12 @@ impl Device {
         let supports_render_target_partial_update =
             !is_mali_midgard(&renderer_name) && !is_mali_bifrost(&renderer_name);
 
-        let supports_shader_storage_object = match gl.get_type() {
+        let supports_shader_storage_object = match Into::<gl::GlType>::into(gl.get_type()) {
             // see https://www.g-truc.net/post-0734.html
             gl::GlType::Gl => {
                 supports_extension(&extensions, "GL_ARB_shader_storage_buffer_object")
             }
-            gl::GlType::GlEs => gl_version >= [3, 1],
+            gl::GlType::Gles => gl_version >= [3, 1],
         };
 
         // SWGL uses swgl_clipMask() instead of implementing clip-masking in shaders.
@@ -3209,10 +3209,10 @@ impl Device {
     pub fn map_pbo_for_readback<'a>(&'a mut self, pbo: &'a PBO) -> Option<BoundPBO<'a>> {
         self.gl.bind_buffer(gl::PIXEL_PACK_BUFFER, pbo.id);
 
-        let buf_ptr = match self.gl.get_type() {
+        let buf_ptr = match Into::<gl::GlType>::into(self.gl.get_type()) {
             gl::GlType::Gl => self.gl.map_buffer(gl::PIXEL_PACK_BUFFER, gl::READ_ONLY),
 
-            gl::GlType::GlEs => self.gl.map_buffer_range(
+            gl::GlType::Gles => self.gl.map_buffer_range(
                 gl::PIXEL_PACK_BUFFER,
                 0,
                 pbo.reserved_size as _,
@@ -3576,9 +3576,9 @@ impl Device {
                 self.gl
                     .buffer_data_untyped(target, size as _, ptr::null(), usage_hint.to_gl());
 
-                let ptr = match self.gl.get_type() {
+                let ptr = match Into::<gl::GlType>::into(self.gl.get_type()) {
                     gl::GlType::Gl => self.gl.map_buffer(target, gl::WRITE_ONLY),
-                    gl::GlType::GlEs => {
+                    gl::GlType::Gles => {
                         self.gl
                             .map_buffer_range(target, 0, size as _, gl::MAP_WRITE_BIT)
                     }

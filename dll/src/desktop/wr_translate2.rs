@@ -604,9 +604,9 @@ pub fn fullhittest_new_webrender(
                         pipeline_id,
                     ),
                     parent_dom_hash: azul_core::dom::DomNodeHash(node_id.index() as u64),
-                    scroll_tag_id: azul_core::dom::ScrollTagId(azul_core::dom::TagId(
-                        node_id.index() as u64,
-                    )),
+                    scroll_tag_id: azul_core::dom::ScrollTagId {
+                        inner: azul_core::dom::TagId { inner: node_id.index() as u64 },
+                    },
                 };
 
                 ret.hovered_nodes

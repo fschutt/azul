@@ -341,8 +341,10 @@ fn build_fn_args_c_api(
     let mut args = Vec::new();
 
     // Add self parameter for member functions
+    // Use lowercased class name to match fn_body in api.json (e.g., "rawimage", "gl", "dom")
     if is_member_function {
-        args.push(format!("self_: &{}", class_ptr_name));
+        let self_param_name = class_name.to_lowercase();
+        args.push(format!("{}: &{}", self_param_name, class_ptr_name));
     }
 
     // Add other arguments

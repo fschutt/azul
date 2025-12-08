@@ -559,11 +559,10 @@ fn generate_generated_rs(
     let mut output = String::new();
 
     output.push_str("// Auto-generated API definitions from api.json for memtest\n");
-    output.push_str(
-        "#![allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
-         clippy::all)]\n",
-    );
-    output.push_str("#![deny(improper_ctypes_definitions)]\n\n");
+    // Note: Using #[allow] instead of #![allow] for include!() compatibility
+    output.push_str("#[allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, clippy::all)]\n");
+    output.push_str("#[deny(improper_ctypes_definitions)]\n");
+    output.push_str("mod __dll_api_inner {\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data
@@ -595,6 +594,10 @@ fn generate_generated_rs(
         config,
         replacements,
     )?);
+
+    // Close the __dll_api_inner module
+    output.push_str("}\n\n");
+    output.push_str("pub use __dll_api_inner::*;\n");
 
     println!("    [OK] Generated.rs creation complete");
     Ok(output)

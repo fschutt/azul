@@ -48,13 +48,13 @@ fn get_feature_string(
 }
 
 fn has_platform_support(kind: ImageBufferKind, device: &Device) -> bool {
-    match (kind, device.gl().get_type()) {
+    match (kind, Into::<GlType>::into(device.gl().get_type())) {
         (ImageBufferKind::Texture2D, _) => true,
-        (ImageBufferKind::TextureRect, GlType::GlEs) => false,
+        (ImageBufferKind::TextureRect, GlType::Gles) => false,
         (ImageBufferKind::TextureRect, GlType::Gl) => true,
-        (ImageBufferKind::TextureExternal, GlType::GlEs) => true,
+        (ImageBufferKind::TextureExternal, GlType::Gles) => true,
         (ImageBufferKind::TextureExternal, GlType::Gl) => false,
-        (ImageBufferKind::TextureExternalBT709, GlType::GlEs) => {
+        (ImageBufferKind::TextureExternalBT709, GlType::Gles) => {
             device.supports_extension("GL_EXT_YUV_target")
         }
         (ImageBufferKind::TextureExternalBT709, GlType::Gl) => false,
@@ -1500,7 +1500,7 @@ fn get_shader_feature_flags(
 ) -> ShaderFeatureFlags {
     match gl_type {
         GlType::Gl => ShaderFeatureFlags::GL,
-        GlType::GlEs => {
+        GlType::Gles => {
             let mut flags = ShaderFeatureFlags::GLES;
             flags |= match texture_external_version {
                 TextureExternalVersion::ESSL3 => ShaderFeatureFlags::TEXTURE_EXTERNAL,

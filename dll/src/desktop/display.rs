@@ -9,7 +9,7 @@ use azul_core::{
 };
 use azul_css::{
     props::basic::{LayoutPoint, LayoutRect, LayoutSize},
-    AzString, OptionAzString,
+    AzString, OptionString,
 };
 
 /// Information about a display/monitor
@@ -95,7 +95,7 @@ impl DisplayInfo {
 
         Monitor {
             id: monitor_id,
-            name: OptionAzString::Some(self.name.as_str().into()),
+            name: OptionString::Some(self.name.as_str().into()),
             size: LayoutSize::new(
                 self.bounds.size.width as isize,
                 self.bounds.size.height as isize,

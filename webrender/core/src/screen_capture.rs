@@ -333,7 +333,7 @@ impl AsyncScreenshotGrabber {
             None => return false,
         };
 
-        let gl_type = device.gl().get_type();
+        let gl_type = device.gl().get_type().into();
 
         let success = if let Some(bound_pbo) = device.map_pbo_for_readback(&pbo) {
             let src_buffer = &bound_pbo.data;
@@ -370,7 +370,7 @@ impl AsyncScreenshotGrabber {
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         use AsyncScreenshotGrabberMode::*;
 
-        let is_angle = cfg!(windows) && matches!(gl_type, GlType::GlEs);
+        let is_angle = cfg!(windows) && matches!(gl_type, GlType::Gles);
 
         if self.mode == CompositionRecorder && !is_angle {
             // This is a non-ANGLE configuration. in this case, the recorded frames were captured

@@ -382,7 +382,7 @@ pub fn create_webrender_instance(
 
     let shaders = match shaders {
         Some(shaders) => Rc::clone(shaders),
-        None => Rc::new(RefCell::new(Shaders::new(&mut device, gl_type, &options)?)),
+        None => Rc::new(RefCell::new(Shaders::new(&mut device, gl_type.into(), &options)?)),
     };
 
     let dither_matrix_texture = if options.enable_dithering {
