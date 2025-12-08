@@ -1711,11 +1711,11 @@ impl ShapeBoundary {
     /// # Returns
     /// A ShapeBoundary ready for use in the text layout engine
     pub fn from_css_shape(
-        css_shape: &azul_css::shape::Shape,
+        css_shape: &azul_css::shape::CssShape,
         reference_box: Rect,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Self {
-        use azul_css::shape::Shape as CssShape;
+        use azul_css::shape::CssShape;
 
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(

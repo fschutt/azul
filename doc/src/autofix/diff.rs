@@ -48,13 +48,24 @@ pub struct PathFix {
 pub struct TypeAddition {
     pub type_name: String,
     pub full_path: String,
-    pub kind: String, // "struct", "enum", "callback", etc.
+    pub kind: String, // "struct", "enum", "callback_typedef", etc.
     /// Struct fields (for struct types): (field_name, field_type, ref_kind)
     pub struct_fields: Option<Vec<(String, String, String)>>, // (field_name, field_type, ref_kind)
     /// Enum variants (for enum types)
     pub enum_variants: Option<Vec<(String, Option<String>)>>, // (variant_name, variant_type)
     /// Derives from source code
     pub derives: Vec<String>,
+    /// Callback typedef definition (for function pointer types)
+    pub callback_typedef: Option<CallbackTypedefInfo>,
+}
+
+/// Information about a callback typedef (function pointer type)
+#[derive(Debug, Clone)]
+pub struct CallbackTypedefInfo {
+    /// Arguments to the callback function: (arg_type, ref_kind)
+    pub fn_args: Vec<(String, String)>,
+    /// Return type (None = void)
+    pub returns: Option<String>,
 }
 
 /// A type that should be moved to a different module
@@ -413,7 +424,7 @@ pub fn generate_diff(
         // This type is used by workspace functions but not in api.json - should be added
         if seen_additions.insert(type_name.clone()) {
             // Look up the type to get its kind and fields
-            let (kind, struct_fields, enum_variants, derives) = if let Some(typedef) = index.resolve(type_name, None) {
+            let (kind, struct_fields, enum_variants, derives, callback_typedef) = if let Some(typedef) = index.resolve(type_name, None) {
                 // Get the expanded kind (handles MacroGenerated types)
                 let expanded = typedef.expand_macro_generated();
                 
@@ -421,7 +432,7 @@ pub fn generate_diff(
                     super::type_index::TypeDefKind::Struct { .. } => "struct",
                     super::type_index::TypeDefKind::Enum { .. } => "enum",
                     super::type_index::TypeDefKind::TypeAlias { .. } => "type_alias",
-                    super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback",
+                    super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback_typedef",
                     super::type_index::TypeDefKind::MacroGenerated { kind, .. } => {
                         match kind {
                             super::type_index::MacroGeneratedKind::Vec => "struct",
@@ -437,34 +448,38 @@ pub fn generate_diff(
                 };
                 
                 // Extract fields/variants from the EXPANDED kind
-                let (fields, variants, derives) = match expanded {
+                let (fields, variants, derives, callback_typedef) = match expanded {
                     super::type_index::TypeDefKind::Struct { fields, derives, .. } => {
                         let field_vec: Vec<(String, String, String)> = fields.iter()
                             .map(|(name, field)| (name.clone(), field.ty.clone(), field.ref_kind.as_str().to_string()))
                             .collect();
-                        (Some(field_vec), None, derives)
+                        (Some(field_vec), None, derives, None)
                     }
                     super::type_index::TypeDefKind::Enum { variants, derives, .. } => {
                         let variant_vec: Vec<(String, Option<String>)> = variants.iter()
                             .map(|(name, variant)| (name.clone(), variant.ty.clone()))
                             .collect();
-                        (None, Some(variant_vec), derives)
+                        (None, Some(variant_vec), derives, None)
                     }
-                    super::type_index::TypeDefKind::CallbackTypedef { .. } => {
-                        (None, None, vec![])
+                    super::type_index::TypeDefKind::CallbackTypedef { args, returns, .. } => {
+                        let callback_info = CallbackTypedefInfo {
+                            fn_args: args.iter().map(|arg| (arg.ty.clone(), arg.ref_kind.as_str().to_string())).collect(),
+                            returns: returns.clone(),
+                        };
+                        (None, None, vec![], Some(callback_info))
                     }
                     super::type_index::TypeDefKind::TypeAlias { .. } => {
-                        (None, None, vec![])
+                        (None, None, vec![], None)
                     }
                     super::type_index::TypeDefKind::MacroGenerated { .. } => {
                         // This shouldn't happen after expand_macro_generated()
-                        (None, None, vec![])
+                        (None, None, vec![], None)
                     }
                 };
                 
-                (kind_str, fields, variants, derives)
+                (kind_str, fields, variants, derives, callback_typedef)
             } else {
-                ("unknown", None, None, vec![])
+                ("unknown", None, None, vec![], None)
             };
             
             diff.additions.push(TypeAddition {
@@ -474,6 +489,7 @@ pub fn generate_diff(
                 struct_fields,
                 enum_variants,
                 derives,
+                callback_typedef,
             });
         }
     }
@@ -863,7 +879,7 @@ fn generate_diff_v2(
             // Type is in workspace but not in api.json - should be added
             // Use the api_lookup_name (without Az prefix) as the type_name for api.json
             if seen_additions.insert(api_lookup_name.to_string()) {
-                let (kind, struct_fields, enum_variants, derives) = get_type_kind_with_fields(index, workspace_name);
+                let (kind, struct_fields, enum_variants, derives, callback_typedef) = get_type_kind_with_fields(index, workspace_name);
                 diff.additions.push(TypeAddition {
                     type_name: api_lookup_name.to_string(),
                     full_path: resolved.full_path.clone(),
@@ -871,6 +887,7 @@ fn generate_diff_v2(
                     struct_fields,
                     enum_variants,
                     derives,
+                    callback_typedef,
                 });
             }
         }
@@ -1364,7 +1381,7 @@ fn get_type_kind(index: &TypeIndex, type_name: &str) -> String {
 fn get_type_kind_with_fields(
     index: &TypeIndex, 
     type_name: &str
-) -> (String, Option<Vec<(String, String, String)>>, Option<Vec<(String, Option<String>)>>, Vec<String>) {
+) -> (String, Option<Vec<(String, String, String)>>, Option<Vec<(String, Option<String>)>>, Vec<String>, Option<CallbackTypedefInfo>) {
     if let Some(typedef) = index.resolve(type_name, None) {
         // Get the expanded kind (handles MacroGenerated types)
         let expanded = typedef.expand_macro_generated();
@@ -1373,7 +1390,7 @@ fn get_type_kind_with_fields(
             super::type_index::TypeDefKind::Struct { .. } => "struct",
             super::type_index::TypeDefKind::Enum { .. } => "enum",
             super::type_index::TypeDefKind::TypeAlias { .. } => "type_alias",
-            super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback",
+            super::type_index::TypeDefKind::CallbackTypedef { .. } => "callback_typedef",
             super::type_index::TypeDefKind::MacroGenerated { kind, .. } => {
                 match kind {
                     super::type_index::MacroGeneratedKind::Vec => "struct",
@@ -1394,18 +1411,25 @@ fn get_type_kind_with_fields(
                 let field_vec: Vec<(String, String, String)> = fields.iter()
                     .map(|(name, field)| (name.clone(), field.ty.clone(), field.ref_kind.as_str().to_string()))
                     .collect();
-                (kind_str.to_string(), Some(field_vec), None, derives)
+                (kind_str.to_string(), Some(field_vec), None, derives, None)
             }
             super::type_index::TypeDefKind::Enum { variants, derives, .. } => {
                 let variant_vec: Vec<(String, Option<String>)> = variants.iter()
                     .map(|(name, variant)| (name.clone(), variant.ty.clone()))
                     .collect();
-                (kind_str.to_string(), None, Some(variant_vec), derives)
+                (kind_str.to_string(), None, Some(variant_vec), derives, None)
             }
-            _ => (kind_str.to_string(), None, None, vec![])
+            super::type_index::TypeDefKind::CallbackTypedef { args, returns, .. } => {
+                let callback_info = CallbackTypedefInfo {
+                    fn_args: args.iter().map(|arg| (arg.ty.clone(), arg.ref_kind.as_str().to_string())).collect(),
+                    returns: returns.clone(),
+                };
+                (kind_str.to_string(), None, None, vec![], Some(callback_info))
+            }
+            _ => (kind_str.to_string(), None, None, vec![], None)
         }
     } else {
-        ("unknown".to_string(), None, None, vec![])
+        ("unknown".to_string(), None, None, vec![], None)
     }
 }
 

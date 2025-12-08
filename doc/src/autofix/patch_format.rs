@@ -237,6 +237,42 @@ pub struct AddOperation {
     /// Enum variants (for enums)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_variants: Option<Vec<VariantDef>>,
+    /// Callback typedef definition (for callback function pointer types)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callback_typedef: Option<CallbackTypedefDef>,
+}
+
+/// Definition for a callback typedef (function pointer type)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallbackTypedefDef {
+    /// Arguments to the callback function
+    #[serde(default)]
+    pub fn_args: Vec<CallbackArg>,
+    /// Return type (None = void)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub returns: Option<CallbackReturn>,
+}
+
+/// Argument definition for callback typedef (simple version for add patches)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallbackArg {
+    /// The type of the argument
+    #[serde(rename = "type")]
+    pub arg_type: String,
+    /// Reference kind (value, constptr, mutptr)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
+}
+
+/// Return type definition for callback typedef
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallbackReturn {
+    /// The return type
+    #[serde(rename = "type")]
+    pub return_type: String,
+    /// Reference kind (value, constptr, mutptr)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
 }
 
 /// Remove a type from api.json
@@ -272,6 +308,7 @@ pub enum TypeKind {
     TypeAlias,
     Callback,
     CallbackValue,
+    CallbackTypedef,
 }
 
 /// Field definition for struct types
@@ -548,7 +585,7 @@ impl AutofixPatch {
                                 (f.name.clone(), FieldData {
                                     r#type: f.field_type.clone(),
                                     ref_kind,
-                                    doc: Some(f.doc.clone().unwrap_or_default()),
+                                    doc: f.doc.clone().map(|s| vec![s]),
                                     derive: None,
                                 })
                             }).collect()]
@@ -634,7 +671,7 @@ impl AutofixPatch {
                     struct_fields_to_add.insert(name.clone(), FieldData {
                         r#type: field_type.clone(),
                         ref_kind: rk,
-                        doc: Some(doc.clone().unwrap_or_default()),
+                        doc: doc.clone().map(|s| vec![s]),
                         derive: None,
                     });
                 }

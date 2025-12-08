@@ -48,7 +48,7 @@ impl Default for GenerateConfig {
 #[derive(Debug, Clone)]
 pub struct StructMetadata {
     pub name: String,
-    pub doc: Option<String>,
+    pub doc: Option<Vec<String>>,
     pub external: Option<String>,
     pub derive: Vec<String>,
     /// True if derive was explicitly set (even if empty), false if defaulted
@@ -234,7 +234,9 @@ fn generate_single_type(
 
     // Add documentation
     if let Some(doc) = &struct_meta.doc {
-        code.push_str(&format!("{}/// {}\n", indent_str, doc));
+        for line in doc {
+            code.push_str(&format!("{}/// {}\n", indent_str, line));
+        }
     } else {
         code.push_str(&format!("{}/// `{}` struct\n", indent_str, struct_name));
     }
@@ -948,7 +950,9 @@ fn generate_struct_definition(
         }
         
         // Generate impl Debug for memtest
-        if all_manual_traits.contains("Debug") {
+        // Skip VecDestructor types - these get detailed Debug impls in memtest.rs
+        let is_vec_destructor = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+        if all_manual_traits.contains("Debug") && !is_vec_destructor {
             code.push_str(&format!(
                 "{}impl{} core::fmt::Debug for {} {{\n",
                 indent_str, impl_generics, type_with_generics
@@ -1376,7 +1380,9 @@ fn generate_enum_definition(
         }
         
         // Generate impl Debug for memtest
-        if all_manual_traits.contains("Debug") {
+        // Skip VecDestructor types - these get detailed Debug impls in memtest.rs
+        let is_vec_destructor = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+        if all_manual_traits.contains("Debug") && !is_vec_destructor {
             code.push_str(&format!(
                 "{}impl{} core::fmt::Debug for {} {{\n",
                 indent_str, impl_generics, type_with_generics

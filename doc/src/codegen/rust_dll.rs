@@ -86,7 +86,9 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
                 // Add documentation
                 if let Some(doc) = &class_data.doc {
-                    code.push_str(&format!("/// {}\r\n", doc));
+                    for line in doc {
+                        code.push_str(&format!("/// {}\r\n", line));
+                    }
                 }
 
                 // Generate type alias: pub type Az1LayoutZIndexValue =
@@ -137,7 +139,9 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
             // Add class documentation
             if let Some(doc) = &class_data.doc {
-                code.push_str(&format!("/// {}\r\n", doc));
+                for line in doc {
+                    code.push_str(&format!("/// {}\r\n", line));
+                }
             } else {
                 if c_is_stack_allocated {
                     code.push_str(&format!(
@@ -228,7 +232,9 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
                         // Add constructor documentation
                         if let Some(doc) = &constructor.doc {
-                            code.push_str(&format!("/// {}\r\n", doc));
+                            for line in doc {
+                                code.push_str(&format!("/// {}\r\n", line));
+                            }
                         } else {
                             code.push_str(&format!(
                                 "/// Creates a new `{}` instance whose memory is owned by the \
@@ -290,7 +296,9 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                     if let Some(fn_body) = &function.fn_body {
                         // Add function documentation
                         if let Some(doc) = &function.doc {
-                            code.push_str(&format!("/// {}\r\n", doc));
+                            for line in doc {
+                                code.push_str(&format!("/// {}\r\n", line));
+                            }
                         } else {
                             code.push_str(&format!(
                                 "/// Equivalent to the Rust `{}::{}()` function.\r\n",

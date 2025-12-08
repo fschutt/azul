@@ -7,26 +7,26 @@ use crate::props::formatter::PrintAsCssValue;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct Duration {
+pub struct CssDuration {
     /// Duration in milliseconds.
     pub inner: u32,
 }
 
-impl Default for Duration {
+impl Default for CssDuration {
     fn default() -> Self {
         Self { inner: 0 }
     }
 }
 
-impl PrintAsCssValue for Duration {
+impl PrintAsCssValue for CssDuration {
     fn print_as_css_value(&self) -> String {
         format!("{}ms", self.inner)
     }
 }
 
-impl crate::format_rust_code::FormatAsRustCode for Duration {
+impl crate::format_rust_code::FormatAsRustCode for CssDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("Duration {{ inner: {} }}", self.inner)
+        format!("CssDuration {{ inner: {} }}", self.inner)
     }
 }
 
@@ -73,20 +73,20 @@ impl DurationParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_duration<'a>(input: &'a str) -> Result<Duration, DurationParseError<'a>> {
+pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseError<'a>> {
     let trimmed = input.trim().to_lowercase();
     if trimmed.ends_with("ms") {
         let num_str = &trimmed[..trimmed.len() - 2];
         let ms = num_str
             .parse::<f32>()
             .map_err(|e| DurationParseError::ParseFloat(e))?;
-        Ok(Duration { inner: ms as u32 })
+        Ok(CssDuration { inner: ms as u32 })
     } else if trimmed.ends_with('s') {
         let num_str = &trimmed[..trimmed.len() - 1];
         let s = num_str
             .parse::<f32>()
             .map_err(|e| DurationParseError::ParseFloat(e))?;
-        Ok(Duration {
+        Ok(CssDuration {
             inner: (s * 1000.0) as u32,
         })
     } else {

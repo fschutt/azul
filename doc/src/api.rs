@@ -29,9 +29,89 @@ fn is_none_or_empty(opt: &Option<String>) -> bool {
     }
 }
 
+// Helper function to check if an Option<Vec<String>> is None or empty
+fn is_none_or_empty_vec(opt: &Option<Vec<String>>) -> bool {
+    match opt {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
+
 // Helper function to check if RefKind is Value (default)
 fn is_ref_kind_value(kind: &RefKind) -> bool {
     kind.is_default()
+}
+
+/// Deserializes a doc field that can be either a String or Vec<String>.
+/// This enables backwards compatibility with old api.json files that use String.
+fn deserialize_doc<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor, SeqAccess};
+    
+    struct DocVisitor;
+    
+    impl<'de> Visitor<'de> for DocVisitor {
+        type Value = Option<Vec<String>>;
+        
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("null, a string, or an array of strings")
+        }
+        
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+        
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+        
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(vec![v.to_string()]))
+            }
+        }
+        
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if v.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(vec![v]))
+            }
+        }
+        
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(item) = seq.next_element::<String>()? {
+                vec.push(item);
+            }
+            if vec.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(vec))
+            }
+        }
+    }
+    
+    deserializer.deserialize_any(DocVisitor)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -259,7 +339,8 @@ impl VersionData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModuleData {
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
     // Using IndexMap to preserve class order within a module
     pub classes: IndexMap<String, ClassData>,
 }
@@ -277,8 +358,8 @@ impl ModuleData {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassData {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")] // Skip if false
@@ -402,8 +483,8 @@ pub struct FieldData {
     /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
-    #[serde(default, skip_serializing_if = "is_none_or_empty")]
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>, // For field-level derives like #[pyo3(get, set)]
 }
@@ -413,14 +494,14 @@ pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
-    #[serde(default, skip_serializing_if = "is_none_or_empty")]
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FunctionData {
-    #[serde(default, skip_serializing_if = "is_none_or_empty")]
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.
     #[serde(default, rename = "fn_args")]
@@ -449,8 +530,8 @@ pub struct FunctionData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReturnTypeData {
     pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -468,7 +549,8 @@ pub struct CallbackArgData {
     /// Uses same RefKind as struct fields for consistency
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
-    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    pub doc: Option<Vec<String>>,
 }
 
 // --- HELPER FUNCTIONS BELOW ---

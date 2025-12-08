@@ -7,7 +7,7 @@
 //! - `inset(top right bottom left [round radius])`
 //! - `path(svg-path-data)`
 
-use crate::shape::{LayoutPoint, CssShape};
+use crate::shape::{ShapePoint, CssShape};
 
 /// Error type for shape parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,9 +118,9 @@ fn parse_circle(args: &str) -> Result<CssShape, ShapeParseError> {
     let center = if parts.len() >= 4 && parts[1] == "at" {
         let x = parse_length(parts[2])?;
         let y = parse_length(parts[3])?;
-        LayoutPoint::new(x, y)
+        ShapePoint::new(x, y)
     } else {
-        LayoutPoint::zero() // Default to origin
+        ShapePoint::zero() // Default to origin
     };
 
     Ok(CssShape::circle(center, radius))
@@ -146,9 +146,9 @@ fn parse_ellipse(args: &str) -> Result<CssShape, ShapeParseError> {
     let center = if parts.len() >= 5 && parts[2] == "at" {
         let x = parse_length(parts[3])?;
         let y = parse_length(parts[4])?;
-        LayoutPoint::new(x, y)
+        ShapePoint::new(x, y)
     } else {
-        LayoutPoint::zero()
+        ShapePoint::zero()
     };
 
     Ok(CssShape::ellipse(center, radius_x, radius_y))
@@ -196,7 +196,7 @@ fn parse_polygon(args: &str) -> Result<CssShape, ShapeParseError> {
         let x = parse_length(coords[0])?;
         let y = parse_length(coords[1])?;
 
-        points.push(LayoutPoint::new(x, y));
+        points.push(ShapePoint::new(x, y));
     }
 
     if points.len() < 3 {

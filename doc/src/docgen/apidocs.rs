@@ -6,7 +6,7 @@ use crate::{
             analyze_type, enum_is_union, has_recursive_destructor, is_primitive_arg,
             search_for_class_by_class_name,
         },
-        string::format_doc,
+        string::format_doc_lines,
     },
 };
 
@@ -155,7 +155,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
         // Add module documentation if available
         if let Some(doc) = &module.doc {
-            html.push_str(&format!("<p class=\"m doc\">{}</p>", format_doc(doc)));
+            html.push_str(&format!("<p class=\"m doc\">{}</p>", format_doc_lines(doc)));
         }
 
         html.push_str(&format!(
@@ -186,7 +186,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 // Add class documentation if available
                 if let Some(doc) = &class_data.doc {
-                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc(doc)));
+                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc_lines(doc)));
                 }
 
                 let enum_type = if enum_is_union(enum_fields) {
@@ -205,7 +205,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                     for (variant_name, variant_data) in variant_map {
                         // Add variant documentation if available
                         if let Some(doc) = &variant_data.doc {
-                            html.push_str(&format!("<p class=\"v doc\">{}</p>", format_doc(doc)));
+                            html.push_str(&format!("<p class=\"v doc\">{}</p>", format_doc_lines(doc)));
                         }
 
                         // Handle variant with or without type
@@ -242,7 +242,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 // Add class documentation if available
                 if let Some(doc) = &class_data.doc {
-                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc(doc)));
+                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc_lines(doc)));
                 }
 
                 html.push_str(&format!(
@@ -258,7 +258,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                         // Add field documentation if available
                         if let Some(doc) = &field_data.doc {
-                            html.push_str(&format!("<p class=\"f doc\">{}</p>", format_doc(doc)));
+                            html.push_str(&format!("<p class=\"f doc\">{}</p>", format_doc_lines(doc)));
                         }
 
                         if is_primitive_arg(&type_name) {
@@ -288,7 +288,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 // Add class documentation if available
                 if let Some(doc) = &class_data.doc {
-                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc(doc)));
+                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc_lines(doc)));
                 }
 
                 html.push_str(&format!(
@@ -303,7 +303,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                     for arg in &callback_typedef.fn_args {
                         // Add argument documentation if available
                         if let Some(doc) = &arg.doc {
-                            html.push_str(&format!("<p class=\"arg doc\">{}</p>", format_doc(doc)));
+                            html.push_str(&format!("<p class=\"arg doc\">{}</p>", format_doc_lines(doc)));
                         }
 
                         let arg_type = &arg.r#type;
@@ -336,7 +336,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                 // Process callback return type
                 if let Some(returns) = &callback_typedef.returns {
                     if let Some(doc) = &returns.doc {
-                        html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc(doc)));
+                        html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc_lines(doc)));
                     }
 
                     let return_type = &returns.r#type;
@@ -365,7 +365,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 // Add class documentation if available
                 if let Some(doc) = &class_data.doc {
-                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc(doc)));
+                    html.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc_lines(doc)));
                 }
 
                 html.push_str(&format!(
@@ -380,7 +380,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 for (constructor_name, constructor) in constructors {
                     if let Some(doc) = &constructor.doc {
-                        html.push_str(&format!("<p class=\"cn doc\">{}</p>", format_doc(doc)));
+                        html.push_str(&format!("<p class=\"cn doc\">{}</p>", format_doc_lines(doc)));
                     }
 
                     html.push_str(&format!(
@@ -429,7 +429,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                         html.push_str("<li>");
 
                         if let Some(doc) = &returns.doc {
-                            html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc(doc)));
+                            html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc_lines(doc)));
                         }
 
                         let return_type = &returns.r#type;
@@ -475,7 +475,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
 
                 for (function_name, function) in functions {
                     if let Some(doc) = &function.doc {
-                        html.push_str(&format!("<p class=\"fn doc\">{}</p>", format_doc(doc)));
+                        html.push_str(&format!("<p class=\"fn doc\">{}</p>", format_doc_lines(doc)));
                     }
 
                     html.push_str(&format!(
@@ -544,7 +544,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
                         html.push_str("<li>");
 
                         if let Some(doc) = &returns.doc {
-                            html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc(doc)));
+                            html.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc_lines(doc)));
                         }
 
                         let return_type = &returns.r#type;

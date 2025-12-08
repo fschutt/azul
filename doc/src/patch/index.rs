@@ -110,7 +110,7 @@ pub enum TypeKind {
     Struct {
         fields: IndexMap<String, FieldInfo>,
         repr: Option<String>,
-        doc: Option<String>,
+        doc: Option<Vec<String>>,
         /// Generic type parameters (e.g., ["T"] for PhysicalPosition<T>)
         generic_params: Vec<String>,
         /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
@@ -121,7 +121,7 @@ pub enum TypeKind {
     Enum {
         variants: IndexMap<String, VariantInfo>,
         repr: Option<String>,
-        doc: Option<String>,
+        doc: Option<Vec<String>>,
         /// Generic type parameters (e.g., ["T"] for CssPropertyValue<T>)
         generic_params: Vec<String>,
         /// Traits implemented via `impl Trait for Type` (e.g., ["Clone", "Drop"])
@@ -135,7 +135,7 @@ pub enum TypeKind {
         generic_base: Option<String>,
         /// Generic arguments (e.g., ["LayoutZIndex"]) for instantiation
         generic_args: Vec<String>,
-        doc: Option<String>,
+        doc: Option<Vec<String>>,
     },
     /// Callback function pointer type: `extern "C" fn(...) -> ReturnType`
     CallbackTypedef {
@@ -143,7 +143,7 @@ pub enum TypeKind {
         fn_args: Vec<CallbackArgInfo>,
         /// Return type of the callback (None = void)
         returns: Option<String>,
-        doc: Option<String>,
+        doc: Option<Vec<String>>,
     },
 }
 
@@ -162,14 +162,14 @@ pub struct FieldInfo {
     pub ty: String,
     /// Reference kind: constptr (*const T), mutptr (*mut T), or value (T)
     pub ref_kind: crate::api::RefKind,
-    pub doc: Option<String>,
+    pub doc: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct VariantInfo {
     pub name: String,
     pub ty: Option<String>,
-    pub doc: Option<String>,
+    pub doc: Option<Vec<String>>,
 }
 
 /// Extract derive traits from #[derive(...)] attributes
@@ -1467,7 +1467,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Struct {
                         fields,
                         repr: Some("C".to_string()),
-                        doc: Some(format!("Wrapper over a Rust-allocated `Vec<{}>", gen_type.element_type)),
+                        doc: Some(vec![format!("Wrapper over a Rust-allocated `Vec<{}>", gen_type.element_type)]),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),
                         derives: gen_type.derives,
@@ -1507,7 +1507,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                             kind: TypeKind::Enum {
                                 variants,
                                 repr: Some("C".to_string()),
-                                doc: Some(format!("Destructor for `{}`", gen_type.type_name)),
+                                doc: Some(vec![format!("Destructor for `{}`", gen_type.type_name)]),
                                 generic_params: Vec::new(),
                                 implemented_traits: Vec::new(),
                                 derives: vec!["Debug".to_string(), "Copy".to_string(), "Clone".to_string()],
@@ -1538,7 +1538,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Enum {
                         variants,
                         repr: Some("C".to_string()),
-                        doc: Some(format!("Option<{}> but FFI-safe", gen_type.element_type)),
+                        doc: Some(vec![format!("Option<{}> but FFI-safe", gen_type.element_type)]),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),
                         derives: gen_type.derives,

@@ -60,8 +60,8 @@ pub fn print_all_modules(api_data: &ApiData) -> Result<()> {
             let doc = module_data
                 .doc
                 .as_ref()
-                .map(|d| d.as_str())
-                .unwrap_or("(no documentation)");
+                .map(|d| d.join(" "))
+                .unwrap_or_else(|| "(no documentation)".to_string());
 
             println!("  [DIR] {} - {} classes", module_name, class_count);
             println!("     {}", doc);
@@ -104,7 +104,7 @@ pub fn print_module(api_data: &ApiData, module_name: &str) -> Result<()> {
             println!("Version: {}", version_name);
 
             if let Some(doc) = &module_data.doc {
-                println!("Documentation: {}\n", doc);
+                println!("Documentation: {}\n", doc.join(" "));
             }
 
             println!("Classes ({}):", module_data.classes.len());
@@ -329,7 +329,7 @@ pub fn print_class_summary(class_name: &str, class_data: &ClassData) {
 
 pub fn print_class_detail(class_data: &ClassData) {
     if let Some(doc) = &class_data.doc {
-        println!("  Documentation: {}", doc);
+        println!("  Documentation: {}", doc.join(" "));
     }
 
     if let Some(derive) = &class_data.derive {
@@ -382,7 +382,7 @@ pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
     println!("{}", separator);
 
     if let Some(doc) = &func_data.doc {
-        println!("\n📄 Documentation: {}", doc);
+        println!("\n📄 Documentation: {}", doc.join(" "));
     }
 
     println!("\n[FIX] Signature:");

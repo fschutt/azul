@@ -698,6 +698,7 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         "enum" => TypeKind::Enum,
         "type_alias" => TypeKind::TypeAlias,
         "callback" => TypeKind::Callback,
+        "callback_typedef" => TypeKind::CallbackTypedef,
         "callback_value" => TypeKind::CallbackValue,
         _ => TypeKind::Struct,
     };
@@ -725,6 +726,28 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
     } else { 
         Some(addition.derives.clone()) 
     };
+    
+    // Convert callback_typedef info to CallbackTypedefDef
+    let callback_typedef = addition.callback_typedef.as_ref().map(|info| {
+        let fn_args: Vec<CallbackArg> = info.fn_args.iter().map(|(ty, ref_kind)| {
+            CallbackArg {
+                arg_type: ty.clone(),
+                ref_kind: if ref_kind == "value" { None } else { Some(ref_kind.clone()) },
+            }
+        }).collect();
+        
+        let returns = info.returns.as_ref().map(|ret| {
+            CallbackReturn {
+                return_type: ret.clone(),
+                ref_kind: None,
+            }
+        });
+        
+        CallbackTypedefDef {
+            fn_args,
+            returns,
+        }
+    });
 
     let mut patch = AutofixPatch::new(format!("Add new type {}", addition.type_name));
     patch.add_operation(PatchOperation::Add(AddOperation {
@@ -736,6 +759,7 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         repr_c: Some(true), // All API types should have repr(C)
         struct_fields,
         enum_variants,
+        callback_typedef,
     }));
     
     patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))

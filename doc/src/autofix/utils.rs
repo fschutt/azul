@@ -401,8 +401,9 @@ pub fn normalize_spacing(s: &str) -> String {
     result
 }
 
-/// Extract doc comments from attributes
-pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
+/// Extract doc comments from attributes as a multi-line array
+/// Each line of documentation becomes a separate element in the vector
+pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<Vec<String>> {
     let doc_lines: Vec<String> = attrs
         .iter()
         .filter(|attr| attr.path().is_ident("doc"))
@@ -416,22 +417,13 @@ pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<String> {
             }
             None
         })
+        // Filter out empty lines
+        .filter(|s| !s.is_empty())
         .collect();
 
     if doc_lines.is_empty() {
         None
     } else {
-        // Join with newlines first, then normalize to spaces
-        let joined = doc_lines.join("\n");
-
-        // Normalize newlines, tabs, and multiple spaces to single spaces
-        let normalized = joined
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        Some(normalized)
+        Some(doc_lines)
     }
 }

@@ -101,3 +101,22 @@ pub fn format_doc(docstring: &str) -> String {
 
     final_doc.replace("\r\n", "<br/>")
 }
+
+/// Format multi-line documentation for HTML output
+/// Each line becomes a separate paragraph with proper HTML escaping
+pub fn format_doc_lines(doc_lines: &[String]) -> String {
+    if doc_lines.is_empty() {
+        return String::new();
+    }
+    
+    doc_lines
+        .iter()
+        .map(|line| format_doc(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Join documentation lines into a single string for display
+pub fn join_doc_lines(doc_lines: &[String]) -> String {
+    doc_lines.join(" ")
+}

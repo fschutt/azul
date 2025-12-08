@@ -116,7 +116,7 @@ pub struct FieldDef {
     pub ty: String,
     /// The reference kind (Value, ConstPtr, MutPtr, or Boxed)
     pub ref_kind: RefKind,
-    pub doc: String,
+    pub doc: Vec<String>,
 }
 
 /// Variant definition in an enum
@@ -124,7 +124,7 @@ pub struct FieldDef {
 pub struct VariantDef {
     pub name: String,
     pub ty: Option<String>,
-    pub doc: String,
+    pub doc: Vec<String>,
 }
 
 /// Argument in a callback typedef
@@ -158,25 +158,25 @@ impl TypeDefinition {
                             name: "ptr".to_string(),
                             ty: "c_void".to_string(),
                             ref_kind: RefKind::ConstPtr,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         fields.insert("len".to_string(), FieldDef {
                             name: "len".to_string(),
                             ty: "usize".to_string(),
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         fields.insert("cap".to_string(), FieldDef {
                             name: "cap".to_string(),
                             ty: "usize".to_string(),
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         fields.insert("destructor".to_string(), FieldDef {
                             name: "destructor".to_string(),
                             ty: destructor_type,
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Struct {
                             fields,
@@ -193,17 +193,17 @@ impl TypeDefinition {
                         variants.insert("DefaultRust".to_string(), VariantDef {
                             name: "DefaultRust".to_string(),
                             ty: None,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         variants.insert("NoDestructor".to_string(), VariantDef {
                             name: "NoDestructor".to_string(),
                             ty: None,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         variants.insert("External".to_string(), VariantDef {
                             name: "External".to_string(),
                             ty: Some(destructor_type_type),
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Enum {
                             variants,
@@ -232,12 +232,12 @@ impl TypeDefinition {
                         variants.insert("None".to_string(), VariantDef {
                             name: "None".to_string(),
                             ty: None,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         variants.insert("Some".to_string(), VariantDef {
                             name: "Some".to_string(),
                             ty: Some(base_type.clone()),
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Enum {
                             variants,
@@ -255,13 +255,13 @@ impl TypeDefinition {
                             name: "tag".to_string(),
                             ty: "u8".to_string(),
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         fields.insert("payload".to_string(), FieldDef {
                             name: "payload".to_string(),
                             ty: base_type.clone(),
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Struct {
                             fields,
@@ -280,12 +280,12 @@ impl TypeDefinition {
                         variants.insert("Ok".to_string(), VariantDef {
                             name: "Ok".to_string(),
                             ty: Some(ok_type),
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         variants.insert("Err".to_string(), VariantDef {
                             name: "Err".to_string(),
                             ty: Some(err_type),
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Enum {
                             variants,
@@ -303,13 +303,13 @@ impl TypeDefinition {
                             name: "cb".to_string(),
                             ty: base_type.clone(), // CallbackValue
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         fields.insert("data".to_string(), FieldDef {
                             name: "data".to_string(),
                             ty: "RefAny".to_string(),
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Struct {
                             fields,
@@ -326,7 +326,7 @@ impl TypeDefinition {
                             name: "cb".to_string(),
                             ty: base_type.clone(), // CallbackType
                             ref_kind: RefKind::Value,
-                            doc: String::new(),
+                            doc: Vec::new(),
                         });
                         TypeDefKind::Struct {
                             fields,
@@ -1585,7 +1585,7 @@ fn extract_macro_generated_types(
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
                                 ref_kind: RefKind::Value,
-                                doc: String::new(),
+                                doc: Vec::new(),
                             });
                             fields
                         },
@@ -1621,7 +1621,7 @@ fn extract_macro_generated_types(
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
                                 ref_kind: RefKind::Value,
-                                doc: String::new(),
+                                doc: Vec::new(),
                             });
                             fields
                         },
@@ -1664,7 +1664,7 @@ fn extract_macro_generated_types(
                                 name: "inner".to_string(),
                                 ty: inner_type,
                                 ref_kind: RefKind::Value,
-                                doc: String::new(),
+                                doc: Vec::new(),
                             });
                             fields
                         },
@@ -1700,7 +1700,7 @@ fn extract_macro_generated_types(
                                 name: "inner".to_string(),
                                 ty: "PixelValue".to_string(),
                                 ref_kind: RefKind::Value,
-                                doc: String::new(),
+                                doc: Vec::new(),
                             });
                             fields
                         },
@@ -1857,19 +1857,22 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
     }
 }
 
-/// Extract doc comments from attributes
-fn extract_doc_comments(attrs: &[syn::Attribute]) -> String {
+/// Extract doc comments from attributes as a multi-line vector
+fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<String> {
     let mut docs = Vec::new();
     for attr in attrs {
         if attr.path().is_ident("doc") {
             if let syn::Meta::NameValue(nv) = &attr.meta {
                 if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
-                    docs.push(s.value().trim().to_string());
+                    let line = s.value().trim().to_string();
+                    if !line.is_empty() {
+                        docs.push(line);
+                    }
                 }
             }
         }
     }
-    docs.join("\n")
+    docs
 }
 
 /// Clean up a type string (remove extra whitespace, normalize)

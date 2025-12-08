@@ -62,7 +62,9 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     for (struct_name, class_data) in &struct_map {
         // Add class documentation
         if let Some(doc) = &class_data.doc {
-            code.push_str(&format!("/// {}\r\n", doc));
+            for line in doc {
+                code.push_str(&format!("/// {}\r\n", line));
+            }
         } else {
             code.push_str(&format!("/// `{}` struct\r\n", struct_name));
         }
@@ -106,7 +108,9 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     for (enum_name, class_data) in &enum_map {
         // Add class documentation
         if let Some(doc) = &class_data.doc {
-            code.push_str(&format!("/// {}\r\n", doc));
+            for line in doc {
+                code.push_str(&format!("/// {}\r\n", line));
+            }
         } else {
             code.push_str(&format!("/// `{}` enum\r\n", enum_name));
         }

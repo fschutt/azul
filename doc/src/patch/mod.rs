@@ -49,9 +49,9 @@ pub struct ClassPatch {
     /// Update external import path
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
-    /// Update documentation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc: Option<String>,
+    /// Update documentation (multi-line array)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc: Option<Vec<String>>,
     /// Update derive attributes (replaces existing if add_derive is false/None)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>,

@@ -7,6 +7,7 @@ use alloc::{
 };
 
 use crate::{
+    corety::AzString,
     format_rust_code::FormatAsRustCode,
     props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
     impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash,
@@ -141,13 +142,13 @@ pub type GridAutoTracks = GridTemplate;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NamedGridLine {
-    pub name: String,
+    pub name: AzString,
     /// Span count, 0 means no span specified
     pub span_count: i32,
 }
 
 impl NamedGridLine {
-    pub fn new(name: String, span: Option<i32>) -> Self {
+    pub fn new(name: AzString, span: Option<i32>) -> Self {
         Self {
             name,
             span_count: span.unwrap_or(0),
@@ -192,9 +193,9 @@ impl PrintAsCssValue for GridLine {
             GridLine::Line(n) => n.to_string(),
             GridLine::Named(named) => {
                 if named.span_count == 0 {
-                    named.name.clone()
+                    named.name.as_str().to_string()
                 } else {
-                    format!("{} {}", named.name, named.span_count)
+                    format!("{} {}", named.name.as_str(), named.span_count)
                 }
             }
             GridLine::Span(n) => format!("span {}", n),
@@ -754,7 +755,7 @@ fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     }
 
     // Otherwise treat as named line
-    Ok(GridLine::Named(NamedGridLine::new(input.to_string(), None)))
+    Ok(GridLine::Named(NamedGridLine::new(input.to_string().into(), None)))
 }
 
 #[cfg(all(test, feature = "parser"))]

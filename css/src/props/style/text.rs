@@ -10,7 +10,7 @@ use crate::{
             error::{InvalidValueErr, InvalidValueErrOwned},
             length::{PercentageParseError, PercentageParseErrorOwned, PercentageValue},
             pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-            ColorU, Duration,
+            ColorU, CssDuration,
         },
         formatter::PrintAsCssValue,
         macros::PixelValueTaker,
@@ -1579,13 +1579,13 @@ pub fn parse_caret_color(input: &str) -> Result<CaretColor, CssColorParseError> 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CaretAnimationDuration {
-    pub inner: Duration,
+    pub inner: CssDuration,
 }
 
 impl Default for CaretAnimationDuration {
     fn default() -> Self {
         Self {
-            inner: Duration { inner: 500 },
+            inner: CssDuration { inner: 500 },
         } // Default 500ms blink time
     }
 }

@@ -960,10 +960,10 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
 
     ClassPatch {
         external: Some(external_path.to_string()),
-        doc: Some(format!(
+        doc: Some(vec![format!(
             "Wrapper over a Rust-allocated `Vec<{}>",
             element_type
-        )),
+        )]),
         custom_destructor: Some(true),
         // Empty derive list = don't generate any #[derive(...)] attributes
         // The impl_vec! macro provides Debug, Clone, PartialEq, PartialOrd, Drop
@@ -1017,10 +1017,12 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
 
     // VecDestructor needs Copy AND Clone (Copy requires Clone in Rust)
     // Function pointers are Copy, so this works
+    // IMPORTANT: VecDestructor enums have repr(C, u8) in the workspace macro
     ClassPatch {
         external: Some(external_path.to_string()),
         derive: Some(vec!["Clone".to_string(), "Copy".to_string()]),
         enum_fields: Some(vec![default_rust, no_destructor, external]),
+        repr: Some("C, u8".to_string()),
         ..Default::default()
     }
 }
@@ -1149,6 +1151,8 @@ fn generate_synthetic_vec_types(
             let full_patch = generate_vec_destructor(&destructor_name, &destructor_external);
             // Always update derives for VecDestructor (needs Clone + Copy)
             existing.derive = full_patch.derive;
+            // Always update repr for VecDestructor (needs C, u8)
+            existing.repr = full_patch.repr;
             // If existing patch doesn't have enum_fields, add them
             if existing.enum_fields.is_none() {
                 existing.enum_fields = full_patch.enum_fields;
@@ -1187,6 +1191,8 @@ fn ensure_vec_destructor_enum_fields(
         .and_modify(|existing| {
             // Always replace enum_fields to fix inline extern signatures
             existing.enum_fields = full_patch.enum_fields.clone();
+            // Always set repr for VecDestructor (needs C, u8)
+            existing.repr = full_patch.repr.clone();
             if existing.derive.is_none() {
                 existing.derive = full_patch.derive.clone();
             }
@@ -1230,6 +1236,8 @@ fn ensure_vec_destructor_enum_fields_in_module(
         .and_modify(|existing| {
             // Always replace enum_fields to fix inline extern signatures
             existing.enum_fields = full_patch.enum_fields.clone();
+            // Always set repr for VecDestructor (needs C, u8)
+            existing.repr = full_patch.repr.clone();
             if existing.derive.is_none() {
                 existing.derive = full_patch.derive.clone();
             }
@@ -1480,7 +1488,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             // For type aliases, use existing doc or create one
             class_patch.doc = doc
                 .clone()
-                .or_else(|| Some(format!("Type alias for {}", target)));
+                .or_else(|| Some(vec![format!("Type alias for {}", target)]));
 
             // Store type alias information
             // For generic instantiations: CssPropertyValue<LayoutZIndex>
@@ -1535,7 +1543,7 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             class_patch.doc = doc.clone().or_else(|| {
                 let args_str = fn_args.iter().map(|a| format!("{} {}", a.ref_kind, a.ty)).collect::<Vec<_>>().join(", ");
                 let ret_str = returns.as_ref().map(|r| format!(" -> {}", r)).unwrap_or_default();
-                Some(format!("Callback function: fn({}){}", args_str, ret_str))
+                Some(vec![format!("Callback function: fn({}){}", args_str, ret_str)])
             });
         }
     }

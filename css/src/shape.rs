@@ -4,15 +4,15 @@
 
 use crate::corety::{AzString, OptionF32};
 
-/// A 2D point for shape coordinates
+/// A 2D point for shape coordinates (using f32 for precision)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct LayoutPoint {
+pub struct ShapePoint {
     pub x: f32,
     pub y: f32,
 }
 
-impl LayoutPoint {
+impl ShapePoint {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
@@ -22,9 +22,9 @@ impl LayoutPoint {
     }
 }
 
-impl Eq for LayoutPoint {}
+impl Eq for ShapePoint {}
 
-impl Ord for LayoutPoint {
+impl Ord for ShapePoint {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.x.partial_cmp(&other.x) {
             Some(core::cmp::Ordering::Equal) => self
@@ -36,27 +36,27 @@ impl Ord for LayoutPoint {
     }
 }
 
-impl core::hash::Hash for LayoutPoint {
+impl core::hash::Hash for ShapePoint {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.x.to_bits().hash(state);
         self.y.to_bits().hash(state);
     }
 }
 
-impl_vec!(LayoutPoint, LayoutPointVec, LayoutPointVecDestructor);
-impl_vec_debug!(LayoutPoint, LayoutPointVec);
-impl_vec_partialord!(LayoutPoint, LayoutPointVec);
-impl_vec_ord!(LayoutPoint, LayoutPointVec);
-impl_vec_clone!(LayoutPoint, LayoutPointVec, LayoutPointVecDestructor);
-impl_vec_partialeq!(LayoutPoint, LayoutPointVec);
-impl_vec_eq!(LayoutPoint, LayoutPointVec);
-impl_vec_hash!(LayoutPoint, LayoutPointVec);
+impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor);
+impl_vec_debug!(ShapePoint, ShapePointVec);
+impl_vec_partialord!(ShapePoint, ShapePointVec);
+impl_vec_ord!(ShapePoint, ShapePointVec);
+impl_vec_clone!(ShapePoint, ShapePointVec, ShapePointVecDestructor);
+impl_vec_partialeq!(ShapePoint, ShapePointVec);
+impl_vec_eq!(ShapePoint, ShapePointVec);
+impl_vec_hash!(ShapePoint, ShapePointVec);
 
 /// A circle shape defined by center point and radius
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeCircle {
-    pub center: LayoutPoint,
+    pub center: ShapePoint,
     pub radius: f32,
 }
 
@@ -88,7 +88,7 @@ impl Ord for ShapeCircle {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeEllipse {
-    pub center: LayoutPoint,
+    pub center: ShapePoint,
     pub radius_x: f32,
     pub radius_y: f32,
 }
@@ -125,7 +125,7 @@ impl Ord for ShapeEllipse {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct ShapePolygon {
-    pub points: LayoutPointVec,
+    pub points: ShapePointVec,
 }
 
 /// An inset rectangle with optional border radius
@@ -242,12 +242,12 @@ impl Ord for CssShape {
 
 impl CssShape {
     /// Creates a circle shape at the given position with the given radius
-    pub fn circle(center: LayoutPoint, radius: f32) -> Self {
+    pub fn circle(center: ShapePoint, radius: f32) -> Self {
         CssShape::Circle(ShapeCircle { center, radius })
     }
 
     /// Creates an ellipse shape
-    pub fn ellipse(center: LayoutPoint, radius_x: f32, radius_y: f32) -> Self {
+    pub fn ellipse(center: ShapePoint, radius_x: f32, radius_y: f32) -> Self {
         CssShape::Ellipse(ShapeEllipse {
             center,
             radius_x,
@@ -256,7 +256,7 @@ impl CssShape {
     }
 
     /// Creates a polygon from a list of points
-    pub fn polygon(points: LayoutPointVec) -> Self {
+    pub fn polygon(points: ShapePointVec) -> Self {
         CssShape::Polygon(ShapePolygon { points })
     }
 
@@ -347,13 +347,13 @@ impl_vec_partialeq!(LineSegment, LineSegmentVec);
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct LayoutRect {
-    pub origin: LayoutPoint,
+    pub origin: ShapePoint,
     pub width: f32,
     pub height: f32,
 }
 
 impl LayoutRect {
-    pub const fn new(origin: LayoutPoint, width: f32, height: f32) -> Self {
+    pub const fn new(origin: ShapePoint, width: f32, height: f32) -> Self {
         Self {
             origin,
             width,
@@ -363,7 +363,7 @@ impl LayoutRect {
 
     pub const fn zero() -> Self {
         Self {
-            origin: LayoutPoint::zero(),
+            origin: ShapePoint::zero(),
             width: 0.0,
             height: 0.0,
         }
@@ -381,7 +381,7 @@ impl CssShape {
     pub fn bounding_box(&self) -> LayoutRect {
         match self {
             CssShape::Circle(ShapeCircle { center, radius }) => LayoutRect {
-                origin: LayoutPoint::new(center.x - radius, center.y - radius),
+                origin: ShapePoint::new(center.x - radius, center.y - radius),
                 width: radius * 2.0,
                 height: radius * 2.0,
             },
@@ -391,7 +391,7 @@ impl CssShape {
                 radius_x,
                 radius_y,
             }) => LayoutRect {
-                origin: LayoutPoint::new(center.x - radius_x, center.y - radius_y),
+                origin: ShapePoint::new(center.x - radius_x, center.y - radius_y),
                 width: radius_x * 2.0,
                 height: radius_y * 2.0,
             },
@@ -415,7 +415,7 @@ impl CssShape {
                 }
 
                 LayoutRect {
-                    origin: LayoutPoint::new(min_x, min_y),
+                    origin: ShapePoint::new(min_x, min_y),
                     width: max_x - min_x,
                     height: max_y - min_y,
                 }
@@ -431,7 +431,7 @@ impl CssShape {
                 // For inset, we need the reference box to compute actual bounds
                 // For now, return a placeholder that indicates the insets
                 LayoutRect {
-                    origin: LayoutPoint::new(*left, *top),
+                    origin: ShapePoint::new(*left, *top),
                     width: 0.0, // Will be computed relative to container
                     height: 0.0,
                 }
@@ -555,7 +555,7 @@ impl CssShape {
 /// Computes line segments for a polygon at a given y-position.
 /// Uses a scanline algorithm to find intersections with polygon edges.
 fn compute_polygon_line_segments(
-    points: &[LayoutPoint],
+    points: &[ShapePoint],
     y: f32,
     margin: f32,
 ) -> alloc::vec::Vec<LineSegment> {

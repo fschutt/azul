@@ -93,7 +93,9 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
         // Add module documentation
         if let Some(doc) = &module.doc {
-            code.push_str(&format!("    //! {}\r\n", doc));
+            for line in doc {
+                code.push_str(&format!("    //! {}\r\n", line));
+            }
         }
 
         code.push_str("    use crate::dll::*;\r\n");
@@ -158,7 +160,9 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
             // Add class documentation
             if let Some(doc) = &class_data.doc {
-                code.push_str(&format!("    /// {}\r\n    ", doc));
+                for line in doc {
+                    code.push_str(&format!("    /// {}\r\n    ", line));
+                }
             } else {
                 code.push_str(&format!("    /// `{}` struct\r\n    ", class_name));
             }
@@ -230,7 +234,9 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
                         // Add constructor documentation
                         if let Some(doc) = &constructor.doc {
-                            class_impl_block.push_str(&format!("        /// {}\r\n", doc));
+                            for line in doc {
+                                class_impl_block.push_str(&format!("        /// {}\r\n", line));
+                            }
                         } else {
                             class_impl_block.push_str(&format!(
                                 "        /// Creates a new `{}` instance.\r\n",
@@ -289,7 +295,9 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
                         // Add method documentation
                         if let Some(doc) = &function.doc {
-                            class_impl_block.push_str(&format!("        /// {}\r\n", doc));
+                            for line in doc {
+                                class_impl_block.push_str(&format!("        /// {}\r\n", line));
+                            }
                         } else {
                             class_impl_block.push_str(&format!(
                                 "        /// Calls the `{}::{}` function.\r\n",
