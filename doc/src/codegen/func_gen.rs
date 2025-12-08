@@ -211,13 +211,11 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
             }
 
             // Add deepCopy function if needed
+            // Generate deepCopy if the type has custom Clone impl (custom_impls: ["Clone"])
+            // This generates AzTypeName_deepCopy which calls .clone() internally
             let class_has_custom_clone = class_data.has_custom_clone() 
                 || class_data.has_custom_impl("Clone");
-            // Generate deepCopy ONLY if: boxed object AND has explicit custom Clone impl
-            // Note: can_derive_clone() is NOT sufficient because treat_external_as_ptr
-            // disables auto-derive Clone in struct_gen.rs, so we'd generate a _deepCopy
-            // function that calls object.clone() on a type without Clone
-            if treat_external_as_ptr && class_has_custom_clone {
+            if class_has_custom_clone {
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
                 functions_map.insert(copy_fn_name, (copy_args, class_ptr_name.clone()));
@@ -319,9 +317,10 @@ pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Resu
             }
 
             // Add deepCopy function if needed
+            // Generate deepCopy if the type has custom Clone impl (custom_impls: ["Clone"])
             let class_has_custom_clone = class_data.has_custom_clone() 
                 || class_data.has_custom_impl("Clone");
-            if treat_external_as_ptr && class_has_custom_clone {
+            if class_has_custom_clone {
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
                 functions_map.insert(copy_fn_name, FunctionInfo {

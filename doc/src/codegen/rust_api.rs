@@ -336,8 +336,8 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
                 code.push_str("    }\r\n\r\n"); // end of class impl
             }
 
-            // Add Clone implementation if needed
-            if treat_external_as_ptr && class_can_be_cloned {
+            // Add Clone implementation if type has custom Clone
+            if class_can_be_cloned {
                 code.push_str(&format!(
                     "    impl Clone for {} {{ fn clone(&self) -> Self {{ unsafe {{ \
                      crate::dll::{}_deepCopy(self) }} }} }}\r\n",

@@ -387,7 +387,8 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                     code.push_str("}\r\n");
                 }
 
-                if treat_external_as_ptr && class_can_be_cloned {
+                // Generate deepCopy if the type has custom Clone impl
+                if class_can_be_cloned {
                     // Generate deep copy method
                     code.push_str("/// Clones the object\r\n");
 

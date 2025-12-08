@@ -315,6 +315,20 @@
           "Callback type definitions + struct definitions of `CallbackInfo`s"
         ],
         "classes": {
+          "RefAnyDestructorType": {
+            "doc": [
+              "Destructor callback for RefAny - called when the last reference is dropped"
+            ],
+            "external": "azul_core::refany::RefAnyDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "c_void",
+                  "ref_kind": "refmut"
+                }
+              ]
+            }
+          },
           "CallbackType": {
             "doc": [
               "Main callback type for UI event handling"
@@ -38410,6 +38424,40 @@
                 }
               }
             ],
+            "functions": {
+              "can_be_shared": {
+                "doc": "Returns true if this RefCount can be shared (no mutable borrows active)",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.can_be_shared()",
+                "returns": { "type": "bool" }
+              },
+              "can_be_shared_mut": {
+                "doc": "Returns true if this RefCount can be mutably shared (no borrows active)",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.can_be_shared_mut()",
+                "returns": { "type": "bool" }
+              },
+              "increase_ref": {
+                "doc": "Increases the shared reference count",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.increase_ref()"
+              },
+              "decrease_ref": {
+                "doc": "Decreases the shared reference count",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.decrease_ref()"
+              },
+              "increase_refmut": {
+                "doc": "Increases the mutable reference count",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.increase_refmut()"
+              },
+              "decrease_refmut": {
+                "doc": "Decreases the mutable reference count",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.decrease_refmut()"
+              }
+            },
             "repr": "C"
           },
           "Update": {
@@ -38464,6 +38512,35 @@
                 }
               }
             ],
+            "constructors": {
+              "new_c": {
+                "doc": "Creates a new RefAny from a raw pointer wrapper, size, alignment, type_id, type_name and destructor",
+                "fn_args": [
+                  { "ptr": "GlVoidPtrConst" },
+                  { "len": "usize" },
+                  { "align": "usize" },
+                  { "type_id": "u64" },
+                  { "type_name": "String" },
+                  { "destructor": "RefAnyDestructorType" }
+                ],
+                "fn_body": "RefAny::new_c(ptr.ptr, len, align, type_id, type_name, destructor)",
+                "returns": { "type": "RefAny" }
+              }
+            },
+            "functions": {
+              "get_type_id": {
+                "doc": "Returns the type ID of this RefAny",
+                "fn_args": [{ "self": "ref" }],
+                "fn_body": "self.get_type_id()",
+                "returns": { "type": "u64" }
+              },
+              "is_type": {
+                "doc": "Returns true if this RefAny is of the given type ID",
+                "fn_args": [{ "self": "ref" }, { "type_id": "u64" }],
+                "fn_body": "self.get_type_id() == type_id",
+                "returns": { "type": "bool" }
+              }
+            },
             "repr": "C"
           },
           "FlowIntoValue": {

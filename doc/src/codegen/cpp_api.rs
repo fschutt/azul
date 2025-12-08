@@ -251,7 +251,8 @@ pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
                     ));
                 }
 
-                if treat_external_as_ptr && class_can_be_cloned {
+                // Generate deepCopy if the type has custom Clone impl
+                if class_can_be_cloned {
                     code.push_str(&format!(
                         "        {} {}_deepCopy(const {}* instance);\r\n",
                         class_name, class_name, class_name

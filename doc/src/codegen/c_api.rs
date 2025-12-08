@@ -615,7 +615,16 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
             let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
             let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
-            let class_can_be_cloned = class_data.clone.unwrap_or(true);
+            // Check if Clone is available (from custom_impls, derive, or deprecated clone field)
+            let class_has_clone = class_data
+                .custom_impls
+                .as_ref()
+                .map_or(false, |impls| impls.contains(&"Clone".to_string()))
+                || class_data
+                    .derive
+                    .as_ref()
+                    .map_or(false, |d| d.contains(&"Clone".to_string()))
+                || class_data.clone.unwrap_or(false);
 
             // Generate constructors
             if let Some(constructors) = &class_data.constructors {
@@ -694,25 +703,32 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 }
             }
 
-            // Generate destructor and deep copy methods
-            if c_is_stack_allocated {
-                if !class_can_be_copied
-                    && (class_has_custom_destructor
-                        || treat_external_as_ptr
-                        || class_has_recursive_destructor)
-                {
-                    code.push_str(&format!(
-                        "extern DLLIMPORT void {}_delete({}* restrict instance);\r\n",
-                        class_ptr_name, class_ptr_name
-                    ));
-                }
+            // Check if custom Drop is needed
+            let class_has_custom_drop = class_data
+                .custom_impls
+                .as_ref()
+                .map_or(false, |impls| impls.contains(&"Drop".to_string()));
 
-                if treat_external_as_ptr && class_can_be_cloned {
-                    code.push_str(&format!(
-                        "extern DLLIMPORT {} {}_deepCopy({}* const instance);\r\n",
-                        class_ptr_name, class_ptr_name, class_ptr_name
-                    ));
-                }
+            // Generate destructor for types with custom Drop impl or stack-allocated types
+            let needs_delete = !class_can_be_copied
+                && (class_has_custom_destructor
+                    || treat_external_as_ptr
+                    || class_has_recursive_destructor
+                    || class_has_custom_drop);
+            
+            if needs_delete {
+                code.push_str(&format!(
+                    "extern DLLIMPORT void {}_delete({}* restrict instance);\r\n",
+                    class_ptr_name, class_ptr_name
+                ));
+            }
+
+            // Generate deepCopy if the type has Clone impl (regardless of allocation)
+            if class_has_clone {
+                code.push_str(&format!(
+                    "extern DLLIMPORT {} {}_deepCopy({}* const instance);\r\n",
+                    class_ptr_name, class_ptr_name, class_ptr_name
+                ));
             }
 
             code.push_str("\r\n");

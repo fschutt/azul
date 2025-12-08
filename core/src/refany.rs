@@ -39,6 +39,10 @@ use core::{
 
 use azul_css::AzString;
 
+/// C-compatible destructor function type for RefAny.
+/// Called when the last reference to a RefAny is dropped.
+pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
+
 /// Internal reference counting metadata for `RefAny`.
 ///
 /// This struct tracks:

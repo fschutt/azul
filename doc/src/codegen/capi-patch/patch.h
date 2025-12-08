@@ -8,7 +8,7 @@
         .ptr = s, \
         .len = sizeof(s) - 1, \
         .cap = sizeof(s) - 1, \
-        .destructor = AzU8VecDestructor_NoDestructor, \
+        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor } }, \
     } \
 }
 
@@ -91,7 +91,8 @@
     static AzString const structName##_Type_RttiString = AzString_fromConstStr(#structName); \
     \
     AzRefAny structName##_upcast(structName const s) { \
-        return AzRefAny_newC(&s, sizeof(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
+        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \
+        return AzRefAny_newC(ptr_wrapper, sizeof(structName), _Alignof(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
     } \
     \
     /* generate structNameRef and structNameRefMut structs*/ \
