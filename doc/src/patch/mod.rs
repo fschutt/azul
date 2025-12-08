@@ -115,9 +115,21 @@ pub struct ClassPatch {
     /// Patch or replace constructors
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constructors: Option<IndexMap<String, FunctionData>>,
+    /// If true, merge constructors instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_constructors: Option<bool>,
     /// Patch or replace functions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub functions: Option<IndexMap<String, FunctionData>>,
+    /// If true, merge functions instead of replacing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add_functions: Option<bool>,
+    /// Functions to remove by name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_functions: Option<Vec<String>>,
+    /// Constructors to remove by name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remove_constructors: Option<Vec<String>>,
     /// For Vec types: the element type (e.g., "StringPair" for StringPairVec)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vec_element_type: Option<String>,

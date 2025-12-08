@@ -24,6 +24,49 @@ pub use crate::autofix::types::RefKind;
 // DATA STRUCTURES
 // ============================================================================
 
+/// How `self` is passed to a method
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelfKind {
+    /// `self` - takes ownership
+    Value,
+    /// `&self` - immutable borrow
+    Ref,
+    /// `&mut self` - mutable borrow
+    RefMut,
+}
+
+/// A method argument (non-self)
+#[derive(Debug, Clone)]
+pub struct MethodArg {
+    /// Argument name
+    pub name: String,
+    /// The base type (without ref modifiers)
+    pub ty: String,
+    /// Reference kind (Value, Ref, RefMut, ConstPtr, MutPtr)
+    pub ref_kind: RefKind,
+}
+
+/// A method extracted from an impl block
+#[derive(Debug, Clone)]
+pub struct MethodDef {
+    /// Method name (e.g., "add_callback")
+    pub name: String,
+    /// How self is passed, None for static methods/constructors without self
+    pub self_kind: Option<SelfKind>,
+    /// Non-self arguments
+    pub args: Vec<MethodArg>,
+    /// Return type (None for -> ())
+    pub return_type: Option<String>,
+    /// Return type reference kind
+    pub return_ref_kind: RefKind,
+    /// True if this looks like a constructor (returns Self or the type name)
+    pub is_constructor: bool,
+    /// Doc comments
+    pub doc: Vec<String>,
+    /// Is this method public
+    pub is_public: bool,
+}
+
 /// A type definition discovered from parsing source files.
 /// This is NOT created for `use` re-exports - only actual definitions.
 #[derive(Debug, Clone)]
@@ -42,6 +85,8 @@ pub struct TypeDefinition {
     pub kind: TypeDefKind,
     /// Source code of the definition
     pub source_code: String,
+    /// Methods from impl blocks (non-trait impls only)
+    pub methods: Vec<MethodDef>,
 }
 
 /// The kind of type definition
@@ -871,6 +916,14 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
         }
     }
 
+    // Third pass: extract inherent methods from impl blocks
+    let methods_map = extract_inherent_methods_from_items(&syntax_tree.items);
+    for typedef in &mut types {
+        if let Some(methods) = methods_map.get(&typedef.type_name) {
+            attach_methods(typedef, methods.clone());
+        }
+    }
+
     Ok(types)
 }
 
@@ -929,6 +982,14 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
     for typedef in &mut types {
         if let Some(impls) = custom_impls_map.get(&typedef.type_name) {
             attach_custom_impls(typedef, impls.clone());
+        }
+    }
+    
+    // Third pass: extract inherent methods and attach to types
+    let methods_map = extract_inherent_methods_from_items(items);
+    for typedef in &mut types {
+        if let Some(methods) = methods_map.get(&typedef.type_name) {
+            attach_methods(typedef, methods.clone());
         }
     }
     
@@ -1152,6 +1213,7 @@ fn extract_struct(
             custom_impls: vec![], // Will be filled in by second pass
         },
         source_code: s.to_token_stream().to_string(),
+        methods: Vec::new(), // Will be filled in by second pass
     })
 }
 
@@ -1213,6 +1275,7 @@ fn extract_enum(
             custom_impls: vec![], // Will be filled in by second pass
         },
         source_code: e.to_token_stream().to_string(),
+        methods: Vec::new(), // Will be filled in by second pass
     })
 }
 
@@ -1290,6 +1353,7 @@ fn extract_type_alias(
             crate_name: crate_name.to_string(),
             kind: TypeDefKind::CallbackTypedef { args, returns },
             source_code: t.to_token_stream().to_string(),
+            methods: Vec::new(),
         });
     }
 
@@ -1311,6 +1375,7 @@ fn extract_type_alias(
             generic_args,
         },
         source_code: t.to_token_stream().to_string(),
+        methods: Vec::new(),
     })
 }
 
@@ -1394,6 +1459,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::Vec,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
 
                 // DestructorType (enum)
@@ -1409,6 +1475,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::VecDestructor,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
 
                 // DestructorTypeType (callback_typedef for the External variant's fn pointer)
@@ -1425,6 +1492,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::VecDestructorType,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1460,6 +1528,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::Option,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
 
                 // EnumWrapperType (only if 3rd arg is a type name)
@@ -1477,6 +1546,7 @@ fn extract_macro_generated_types(
                             kind: MacroGeneratedKind::OptionEnumWrapper,
                         },
                         source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                     });
                 }
             }
@@ -1502,6 +1572,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::Result,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1529,6 +1600,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::CallbackWrapper,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
 
                 // OptionCallbackWrapper (via nested impl_option!)
@@ -1544,6 +1616,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::Option,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
 
                 // CallbackValue struct - has field: cb (CallbackType)
@@ -1559,6 +1632,7 @@ fn extract_macro_generated_types(
                         kind: MacroGeneratedKind::CallbackValue,
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1599,6 +1673,7 @@ fn extract_macro_generated_types(
                         custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1635,6 +1710,7 @@ fn extract_macro_generated_types(
                         custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1678,6 +1754,7 @@ fn extract_macro_generated_types(
                         custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1714,6 +1791,7 @@ fn extract_macro_generated_types(
                         custom_impls: vec![],
                     },
                     source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
                 });
             }
         }
@@ -1857,6 +1935,151 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
     }
 }
 
+/// Extract inherent methods from impl blocks (not trait impls)
+/// Returns a map from type name to list of methods
+fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<MethodDef>> {
+    let mut methods_map: HashMap<String, Vec<MethodDef>> = HashMap::new();
+    
+    for item in items {
+        if let Item::Impl(impl_item) = item {
+            // Only interested in inherent impls (no trait)
+            if impl_item.trait_.is_some() {
+                continue;
+            }
+            
+            // Get the type name that this impl block is for
+            let type_name = if let syn::Type::Path(type_path) = impl_item.self_ty.as_ref() {
+                type_path.path.segments.last()
+                    .map(|seg| seg.ident.to_string())
+                    .unwrap_or_default()
+            } else {
+                continue;
+            };
+            
+            if type_name.is_empty() {
+                continue;
+            }
+            
+            // Extract methods from this impl block
+            for impl_item_fn in &impl_item.items {
+                if let syn::ImplItem::Fn(method) = impl_item_fn {
+                    if let Some(method_def) = extract_method_def(method, &type_name) {
+                        methods_map
+                            .entry(type_name.clone())
+                            .or_default()
+                            .push(method_def);
+                    }
+                }
+            }
+        }
+        
+        // Recursively handle inline modules
+        if let Item::Mod(m) = item {
+            if let Some((_, nested_items)) = &m.content {
+                let nested_methods = extract_inherent_methods_from_items(nested_items);
+                for (type_name, methods) in nested_methods {
+                    methods_map
+                        .entry(type_name)
+                        .or_default()
+                        .extend(methods);
+                }
+            }
+        }
+    }
+    
+    methods_map
+}
+
+/// Extract a single method definition from an ImplItemFn
+fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
+    let method_name = method.sig.ident.to_string();
+    
+    // Check visibility (pub or not) - vis is on the method, not the sig
+    let is_public = matches!(&method.vis, syn::Visibility::Public(_));
+    
+    // Determine self kind
+    let self_kind: Option<SelfKind> = match method.sig.receiver() {
+        None => None,
+        Some(receiver) => {
+            if receiver.reference.is_some() {
+                if receiver.mutability.is_some() {
+                    Some(SelfKind::RefMut)
+                } else {
+                    Some(SelfKind::Ref)
+                }
+            } else {
+                Some(SelfKind::Value)
+            }
+        }
+    };
+    
+    // Determine if this is a constructor
+    // Heuristics: no self parameter AND (returns Self or returns the type name)
+    let is_constructor = self_kind.is_none() && {
+        match &method.sig.output {
+            syn::ReturnType::Default => false,
+            syn::ReturnType::Type(_, ty) => {
+                let ret_str = extract_type_name(ty);
+                ret_str == "Self" || ret_str == type_name
+            }
+        }
+    };
+    
+    // Extract arguments (skip self)
+    let mut args = Vec::new();
+    for arg in &method.sig.inputs {
+        if let syn::FnArg::Typed(pat_type) = arg {
+            // Get argument name
+            let arg_name = if let syn::Pat::Ident(pat_ident) = pat_type.pat.as_ref() {
+                pat_ident.ident.to_string()
+            } else {
+                continue;
+            };
+            
+            // Get type and ref kind
+            let (ty, ref_kind) = extract_ref_kind_from_syn_type(&pat_type.ty);
+            
+            args.push(MethodArg {
+                name: arg_name,
+                ty,
+                ref_kind,
+            });
+        }
+    }
+    
+    // Extract return type and ref kind
+    let (return_type, return_ref_kind) = match &method.sig.output {
+        syn::ReturnType::Default => (None, RefKind::Value),
+        syn::ReturnType::Type(_, ty) => {
+            let (ret_str, ref_kind) = extract_ref_kind_from_syn_type(ty);
+            if ret_str.is_empty() || ret_str == "()" {
+                (None, RefKind::Value)
+            } else {
+                (Some(ret_str), ref_kind)
+            }
+        }
+    };
+    
+    // Extract doc comments
+    let doc = extract_doc_comments(&method.attrs);
+    
+    Some(MethodDef {
+        name: method_name,
+        self_kind,
+        args,
+        return_type,
+        return_ref_kind,
+        is_constructor,
+        doc,
+        is_public,
+    })
+}
+
+/// Attach methods to a TypeDefinition
+fn attach_methods(typedef: &mut TypeDefinition, methods: Vec<MethodDef>) {
+    typedef.methods.extend(methods);
+}
+
 /// Extract doc comments from attributes as a multi-line vector
 fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<String> {
     let mut docs = Vec::new();
@@ -1864,10 +2087,16 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<String> {
         if attr.path().is_ident("doc") {
             if let syn::Meta::NameValue(nv) = &attr.meta {
                 if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
-                    let line = s.value().trim().to_string();
-                    if !line.is_empty() {
-                        docs.push(line);
-                    }
+                    // Preserve the line as-is, including empty lines for paragraph breaks
+                    // Only trim leading space that rustdoc adds after ///
+                    let line = s.value();
+                    // Trim exactly one leading space if present (rustdoc convention)
+                    let trimmed = if line.starts_with(' ') {
+                        &line[1..]
+                    } else {
+                        &line[..]
+                    };
+                    docs.push(trimmed.to_string());
                 }
             }
         }

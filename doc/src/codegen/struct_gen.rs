@@ -115,11 +115,6 @@ impl StructMetadata {
             eprintln!("  has_custom_clone: {}", has_custom_destructor);
             eprintln!("  can_be_cloned: {}", can_be_cloned);
         }
-        
-        // DEBUG: Print custom_impls for types that have them
-        if !custom_impls.is_empty() {
-            eprintln!("[DEBUG] Type '{}' has custom_impls: {:?}", name, custom_impls);
-        }
 
         Self {
             name,

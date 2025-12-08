@@ -13,6 +13,7 @@ use crate::api::ApiData;
 pub mod type_index;
 pub mod type_resolver;
 pub mod diff;
+pub mod function_diff;
 pub mod debug;
 pub mod patch_format;
 pub mod module_map;
