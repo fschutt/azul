@@ -163,8 +163,12 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
                         prefix,
                     )?;
 
-                    let returns =
-                        build_return_type(constructor.returns.as_ref(), version_data, prefix)?;
+                    // Constructors return the class type if not explicitly specified
+                    let returns = if constructor.returns.is_some() {
+                        build_return_type(constructor.returns.as_ref(), version_data, prefix)?
+                    } else {
+                        class_ptr_name.clone()
+                    };
 
                     functions_map.insert(c_fn_name, (fn_args, returns));
                 }
@@ -248,8 +252,13 @@ pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Resu
                         prefix,
                     )?;
 
-                    let return_type =
-                        build_return_type(constructor.returns.as_ref(), version_data, prefix)?;
+                    // Constructors return the class type if not explicitly specified
+                    let return_type = if constructor.returns.is_some() {
+                        build_return_type(constructor.returns.as_ref(), version_data, prefix)?
+                    } else {
+                        // Default: constructor returns the class type
+                        class_ptr_name.clone()
+                    };
 
                     functions_map.insert(c_fn_name, FunctionInfo {
                         fn_args,

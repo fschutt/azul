@@ -979,19 +979,19 @@
                     "node_type": "NodeType"
                   }
                 ],
-                "fn_body": "AzDom::new(node_type)"
+                "fn_body": "azul_core::dom::Dom::new(node_type)"
               },
               "body": {
                 "fn_args": [],
-                "fn_body": "AzDom::body()"
+                "fn_body": "azul_core::dom::Dom::body()"
               },
               "div": {
                 "fn_args": [],
-                "fn_body": "AzDom::div()"
+                "fn_body": "azul_core::dom::Dom::div()"
               },
               "br": {
                 "fn_args": [],
-                "fn_body": "AzDom::br()"
+                "fn_body": "azul_core::dom::Dom::br()"
               },
               "text": {
                 "fn_args": [
@@ -999,7 +999,7 @@
                     "string": "String"
                   }
                 ],
-                "fn_body": "AzDom::text(string)"
+                "fn_body": "azul_core::dom::Dom::text(string)"
               },
               "image": {
                 "fn_args": [
@@ -1007,7 +1007,7 @@
                     "image": "ImageRef"
                   }
                 ],
-                "fn_body": "AzDom::image(image)"
+                "fn_body": "azul_core::dom::Dom::image(image)"
               },
               "iframe": {
                 "fn_args": [
@@ -1018,7 +1018,7 @@
                     "callback": "IFrameCallbackType"
                   }
                 ],
-                "fn_body": "AzDom::iframe(data, callback)"
+                "fn_body": "azul_core::dom::Dom::iframe(data, callback)"
               }
             },
             "functions": {
@@ -1165,7 +1165,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "dom.root.add_callback(event, data, callback)"
+                "fn_body": "dom.root.add_callback(event, data, callback as usize)"
               },
               "with_callback": {
                 "doc": [
@@ -1188,7 +1188,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_callback(event, data, callback); dom"
+                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_callback(event, data, callback as usize); dom"
               },
               "add_child": {
                 "doc": [
@@ -1446,8 +1446,7 @@
                   {
                     "style": "String"
                   }
-                ],
-                "fn_body": "AzNodeData_setInlineStyle(&mut dom.root, style);"
+                ]
               },
               "with_inline_style": {
                 "fn_args": [
@@ -1460,8 +1459,7 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                },
-                "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineStyle(&mut dom.root, style); dom"
+                }
               },
               "set_inline_hover_style": {
                 "fn_args": [
@@ -1471,8 +1469,7 @@
                   {
                     "style": "String"
                   }
-                ],
-                "fn_body": "AzNodeData_setInlineHoverStyle(&mut dom.root, style);"
+                ]
               },
               "with_inline_hover_style": {
                 "fn_args": [
@@ -1485,8 +1482,7 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                },
-                "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut dom.root, style); dom"
+                }
               },
               "set_inline_active_style": {
                 "fn_args": [
@@ -1496,8 +1492,7 @@
                   {
                     "style": "String"
                   }
-                ],
-                "fn_body": "AzNodeData_setInlineActiveStyle(&mut dom.root, style);"
+                ]
               },
               "with_inline_active_style": {
                 "fn_args": [
@@ -1510,8 +1505,7 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                },
-                "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut dom.root, style); dom"
+                }
               },
               "set_inline_focus_style": {
                 "fn_args": [
@@ -1521,8 +1515,7 @@
                   {
                     "style": "String"
                   }
-                ],
-                "fn_body": "AzNodeData_setInlineFocusStyle(&mut dom.root, style);"
+                ]
               },
               "with_inline_focus_style": {
                 "fn_args": [
@@ -1535,8 +1528,7 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                },
-                "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut dom.root, style); dom"
+                }
               },
               "set_clip_mask": {
                 "doc": [
@@ -1733,7 +1725,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "dom.style(azul_css::Css::empty().into()).get_html_string(\"\", \"\", false).into()"
+                "fn_body": "dom.style(azul_css::css::Css::empty().into()).get_html_string(\"\", \"\", false).into()"
               },
               "get_html_string_test": {
                 "doc": [
@@ -1747,7 +1739,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "dom.style(azul_css::Css::empty().into()).get_html_string(\"\", \"\", true).into()"
+                "fn_body": "dom.style(azul_css::css::Css::empty().into()).get_html_string(\"\", \"\", true).into()"
               },
               "style": {
                 "doc": [
@@ -1826,19 +1818,19 @@
                     "node_type": "NodeType"
                   }
                 ],
-                "fn_body": "AzNodeData::new(node_type)"
+                "fn_body": "azul_core::dom::NodeData::new(node_type)"
               },
               "body": {
                 "fn_args": [],
-                "fn_body": "AzNodeData::body()"
+                "fn_body": "azul_core::dom::NodeData::body()"
               },
               "div": {
                 "fn_args": [],
-                "fn_body": "AzNodeData::div()"
+                "fn_body": "azul_core::dom::NodeData::div()"
               },
               "br": {
                 "fn_args": [],
-                "fn_body": "AzNodeData::br()"
+                "fn_body": "azul_core::dom::NodeData::br()"
               },
               "text": {
                 "fn_args": [
@@ -1846,7 +1838,7 @@
                     "string": "String"
                   }
                 ],
-                "fn_body": "AzNodeData::text(string)"
+                "fn_body": "azul_core::dom::NodeData::text(string)"
               },
               "image": {
                 "fn_args": [
@@ -1854,7 +1846,7 @@
                     "image": "ImageRef"
                   }
                 ],
-                "fn_body": "AzNodeData::image(image)"
+                "fn_body": "azul_core::dom::NodeData::image(image)"
               },
               "iframe": {
                 "fn_args": [
@@ -1865,7 +1857,7 @@
                     "callback": "IFrameCallbackType"
                   }
                 ],
-                "fn_body": "AzNodeData::iframe(data, callback)"
+                "fn_body": "azul_core::dom::NodeData::iframe(data, callback)"
               }
             },
             "functions": {
@@ -1962,7 +1954,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "nodedata.add_callback(event, data, callback)"
+                "fn_body": "nodedata.add_callback(event, data, callback as usize)"
               },
               "with_callback": {
                 "doc": [
@@ -1985,7 +1977,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.add_callback(event, data, callback); nodedata"
+                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.add_callback(event, data, callback as usize); nodedata"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -2046,7 +2038,7 @@
                     "style": "String"
                   }
                 ],
-                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_normal(style.as_str())))"
+                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_normal(style.as_str())))"
               },
               "with_inline_style": {
                 "fn_args": [
@@ -2059,8 +2051,7 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineStyle(&mut nodedata, style); nodedata"
+                }
               },
               "set_inline_hover_style": {
                 "fn_args": [
@@ -2071,7 +2062,7 @@
                     "style": "String"
                   }
                 ],
-                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_hover(style.as_str())))"
+                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_hover(style.as_str())))"
               },
               "with_inline_hover_style": {
                 "fn_args": [
@@ -2084,8 +2075,7 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut nodedata, style); nodedata"
+                }
               },
               "set_inline_active_style": {
                 "fn_args": [
@@ -2096,7 +2086,7 @@
                     "style": "String"
                   }
                 ],
-                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_active(style.as_str())))"
+                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_active(style.as_str())))"
               },
               "with_inline_active_style": {
                 "fn_args": [
@@ -2109,8 +2099,7 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut nodedata, style); nodedata"
+                }
               },
               "set_inline_focus_style": {
                 "fn_args": [
@@ -2121,7 +2110,7 @@
                     "style": "String"
                   }
                 ],
-                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_focus(style.as_str())))"
+                "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_focus(style.as_str())))"
               },
               "with_inline_focus_style": {
                 "fn_args": [
@@ -2134,8 +2123,7 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut nodedata, style); nodedata"
+                }
               },
               "set_clip_mask": {
                 "doc": [
@@ -4768,7 +4756,7 @@
                     "items": "MenuItemVec"
                   }
                 ],
-                "fn_body": "AzMenu::new(items)"
+                "fn_body": "azul_core::menu::Menu::new(items)"
               }
             },
             "functions": {
@@ -5043,7 +5031,7 @@
                     "label": "String"
                   }
                 ],
-                "fn_body": "StringMenuItem::new(label)"
+                "fn_body": "azul_core::menu::StringMenuItem::new(label)"
               }
             },
             "functions": {
@@ -5062,7 +5050,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionMenuCallback::Some(azul_core::menu::MenuCallback { data, callback: azul_core::callbacks::Callback { cb: callback } });"
+                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize } });"
               },
               "with_callback": {
                 "doc": [
@@ -5082,7 +5070,7 @@
                 "returns": {
                   "type": "StringMenuItem"
                 },
-                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = azul_core::menu::OptionMenuCallback::Some(azul_core::menu::MenuCallback { data, callback: azul_core::callbacks::Callback { cb: callback } }); stringmenuitem"
+                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize } }); stringmenuitem"
               },
               "add_child": {
                 "doc": [
@@ -6214,7 +6202,7 @@
                   "Returns an empty CSS style"
                 ],
                 "fn_args": [],
-                "fn_body": "azul_css::Css::empty()"
+                "fn_body": "azul_css::css::Css::empty()"
               },
               "from_string": {
                 "doc": [
@@ -6225,7 +6213,7 @@
                     "s": "String"
                   }
                 ],
-                "fn_body": "AzCss::from_string(s)"
+                "fn_body": "azul_css::css::Css::from_string(s)"
               }
             },
             "repr": "C"
@@ -6382,19 +6370,19 @@
                     "string": "String"
                   }
                 ],
-                "fn_body": "azul_css::parse_css_color(string.as_str()).ok().unwrap_or(azul_css::ColorU::BLACK)"
+                "fn_body": "azul_css::props::basic::color::parse_css_color(string.as_str()).ok().unwrap_or(azul_css::props::basic::color::ColorU::BLACK)"
               },
               "transparent": {
                 "fn_args": [],
-                "fn_body": "AzColorU::TRANSPARENT"
+                "fn_body": "azul_css::props::basic::color::ColorU::TRANSPARENT"
               },
               "white": {
                 "fn_args": [],
-                "fn_body": "AzColorU::WHITE"
+                "fn_body": "azul_css::props::basic::color::ColorU::WHITE"
               },
               "black": {
                 "fn_args": [],
-                "fn_body": "azul_css::ColorU::BLACK"
+                "fn_body": "azul_css::props::basic::color::ColorU::BLACK"
               }
             },
             "functions": {
@@ -14397,14 +14385,14 @@
                     "css": "Css"
                   }
                 ],
-                "fn_body": "let mut dom = dom; AzStyledDom::new(&mut dom, css.into())"
+                "fn_body": "let mut dom = dom; azul_core::styled_dom::StyledDom::new(&mut dom, css.into())"
               },
               "default": {
                 "doc": [
                   "Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case."
                 ],
                 "fn_args": [],
-                "fn_body": "AzStyledDom::default()"
+                "fn_body": "azul_core::styled_dom::StyledDom::default()"
               },
               "from_xml": {
                 "doc": [
@@ -14528,8 +14516,7 @@
                   {
                     "menu": "Menu"
                   }
-                ],
-                "fn_body": "styleddom.set_menu_bar(menu)"
+                ]
               },
               "with_menu_bar": {
                 "doc": [
@@ -14545,8 +14532,7 @@
                 ],
                 "returns": {
                   "type": "StyledDom"
-                },
-                "fn_body": "let mut styleddom = styleddom.swap_with_default(); styleddom.set_menu_bar(menu); styleddom"
+                }
               },
               "set_context_menu": {
                 "doc": [
@@ -14559,8 +14545,7 @@
                   {
                     "menu": "Menu"
                   }
-                ],
-                "fn_body": "styleddom.set_context_menu(menu)"
+                ]
               },
               "with_context_menu": {
                 "doc": [
@@ -14576,8 +14561,7 @@
                 ],
                 "returns": {
                   "type": "StyledDom"
-                },
-                "fn_body": "let mut styleddom = styleddom.swap_with_default(); styleddom.set_context_menu(menu); styleddom"
+                }
               }
             },
             "repr": "C"
@@ -15002,7 +14986,7 @@
                     "label": "String"
                   }
                 ],
-                "fn_body": "AzButton::new(label)"
+                "fn_body": "azul_layout::widgets::button::Button::new(label)"
               }
             },
             "functions": {
@@ -15134,7 +15118,7 @@
                     "path": "OptionString"
                   }
                 ],
-                "fn_body": "AzFileInput::new(path)"
+                "fn_body": "azul_layout::widgets::file_input::FileInput::new(path)"
               }
             },
             "functions": {
@@ -15321,7 +15305,7 @@
                     "checked": "bool"
                   }
                 ],
-                "fn_body": "AzCheckBox::new(checked)"
+                "fn_body": "azul_layout::widgets::check_box::CheckBox::new(checked)"
               }
             },
             "functions": {
@@ -15455,7 +15439,7 @@
                     "color": "ColorU"
                   }
                 ],
-                "fn_body": "AzColorInput::new(color)"
+                "fn_body": "azul_layout::widgets::color_input::ColorInput::new(color)"
               }
             },
             "functions": {
@@ -15615,7 +15599,7 @@
             "constructors": {
               "new": {
                 "fn_args": [],
-                "fn_body": "AzTextInput::new()"
+                "fn_body": "azul_layout::widgets::text_input::TextInput::new()"
               }
             },
             "functions": {
@@ -16124,7 +16108,7 @@
                     "number": "f32"
                   }
                 ],
-                "fn_body": "AzNumberInput::new(number)"
+                "fn_body": "azul_layout::widgets::number_input::NumberInput::new(number)"
               }
             },
             "functions": {
@@ -16483,7 +16467,7 @@
                     "percent_done": "f32"
                   }
                 ],
-                "fn_body": "AzProgressBar::new(percent_done)"
+                "fn_body": "azul_layout::widgets::progressbar::ProgressBar::new(percent_done)"
               }
             },
             "functions": {
@@ -16629,7 +16613,7 @@
                     "tabs": "StringVec"
                   }
                 ],
-                "fn_body": "AzTabHeader::new(tabs)"
+                "fn_body": "azul_layout::widgets::tabs::TabHeader::new(tabs)"
               }
             },
             "functions": {
@@ -16749,7 +16733,7 @@
                     "dom": "Dom"
                   }
                 ],
-                "fn_body": "AzFrame::new(title, dom)"
+                "fn_body": "azul_layout::widgets::frame::Frame::new(title, dom)"
               }
             },
             "functions": {
@@ -16885,7 +16869,7 @@
                     "columns": "StringVec"
                   }
                 ],
-                "fn_body": "AzListView::new(columns)"
+                "fn_body": "azul_layout::widgets::list_view::ListView::new(columns)"
               }
             },
             "functions": {
@@ -17118,7 +17102,7 @@
                     "format": "RawImageFormat"
                   }
                 ],
-                "fn_body": "AzTexture::new(texture_id, flags, size, background_color, gl_context, format)"
+                "fn_body": "azul_core::gl::Texture::new(texture_id, flags, size, background_color, gl_context, format)"
               },
               "allocate_rgba8": {
                 "doc": [
@@ -17135,7 +17119,7 @@
                     "background": "ColorU"
                   }
                 ],
-                "fn_body": "AzTexture::allocate_rgba8(gl, size, background)"
+                "fn_body": "azul_core::gl::Texture::allocate_rgba8(gl, size, background)"
               },
               "allocate_clip_mask": {
                 "doc": [
@@ -17207,8 +17191,7 @@
                 ],
                 "returns": {
                   "type": "bool"
-                },
-                "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, color, transforms)"
+                }
               },
               "draw_tesselated_colored_svg_gpu_node": {
                 "doc": [
@@ -17230,8 +17213,7 @@
                 ],
                 "returns": {
                   "type": "bool"
-                },
-                "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, transforms)"
+                }
               },
               "apply_fxaa": {
                 "doc": [
@@ -17331,7 +17313,7 @@
                   "Default texture flags (not opaque, not a video texture)"
                 ],
                 "fn_args": [],
-                "fn_body": "AzTextureFlags::default()"
+                "fn_body": "azul_core::gl::TextureFlags::default()"
               }
             },
             "repr": "C"
@@ -30199,7 +30181,7 @@
                     "tag": "U8Vec"
                   }
                 ],
-                "fn_body": "AzImageRef::null_image(width, height, format, tag.as_ref().to_vec())"
+                "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.as_ref().to_vec())"
               },
               "raw_image": {
                 "doc": [
@@ -30213,7 +30195,7 @@
                 "returns": {
                   "type": "OptionImageRef"
                 },
-                "fn_body": "AzImageRef::new_rawimage(data).into()"
+                "fn_body": "azul_core::resources::ImageRef::new_rawimage(data).into()"
               },
               "gl_texture": {
                 "doc": [
@@ -30224,7 +30206,7 @@
                     "texture": "Texture"
                   }
                 ],
-                "fn_body": "AzImageRef::new_gltexture(texture)"
+                "fn_body": "azul_core::resources::ImageRef::new_gltexture(texture)"
               },
               "callback": {
                 "doc": [
@@ -30237,8 +30219,7 @@
                   {
                     "callback": "RenderImageCallbackType"
                   }
-                ],
-                "fn_body": "AzImageRef::callback(callback, data)"
+                ]
               }
             },
             "functions": {
@@ -30389,7 +30370,7 @@
                   "Returns a zero-sized image"
                 ],
                 "fn_args": [],
-                "fn_body": "AzRawImage::null_image()"
+                "fn_body": "azul_core::resources::RawImage::null_image()"
               },
               "allocate_clip_mask": {
                 "doc": [
@@ -30400,7 +30381,7 @@
                     "size": "LayoutSize"
                   }
                 ],
-                "fn_body": "AzRawImage::allocate_mask(size)"
+                "fn_body": "azul_core::resources::RawImage::allocate_mask(size)"
               },
               "decode_image_bytes_any": {
                 "doc": [
@@ -30976,7 +30957,7 @@
                   "Returns a FontMetrics struct with all fields set to 0"
                 ],
                 "fn_args": [],
-                "fn_body": "AzFontMetrics::zero()"
+                "fn_body": "azul_css::props::basic::FontMetrics::zero()"
               }
             },
             "functions": {
@@ -30991,8 +30972,7 @@
                 ],
                 "returns": {
                   "type": "bool"
-                },
-                "fn_body": "fontmetrics.use_typo_metrics()"
+                }
               },
               "get_ascender": {
                 "fn_args": [
@@ -31005,8 +30985,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_ascender(target_font_size)"
+                }
               },
               "get_descender": {
                 "fn_args": [
@@ -31019,8 +30998,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_descender(target_font_size)"
+                }
               },
               "get_line_gap": {
                 "fn_args": [
@@ -31033,8 +31011,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_line_gap(target_font_size)"
+                }
               },
               "get_x_min": {
                 "fn_args": [
@@ -31047,8 +31024,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_x_min(target_font_size)"
+                }
               },
               "get_y_min": {
                 "fn_args": [
@@ -31061,8 +31037,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_min(target_font_size)"
+                }
               },
               "get_x_max": {
                 "fn_args": [
@@ -31075,8 +31050,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_x_max(target_font_size)"
+                }
               },
               "get_y_max": {
                 "fn_args": [
@@ -31089,8 +31063,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_max(target_font_size)"
+                }
               },
               "get_advance_width_max": {
                 "fn_args": [
@@ -31103,8 +31076,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_advance_width_max(target_font_size)"
+                }
               },
               "get_min_left_side_bearing": {
                 "fn_args": [
@@ -31117,8 +31089,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_min_left_side_bearing(target_font_size)"
+                }
               },
               "get_min_right_side_bearing": {
                 "fn_args": [
@@ -31131,8 +31102,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_min_right_side_bearing(target_font_size)"
+                }
               },
               "get_x_max_extent": {
                 "fn_args": [
@@ -31145,8 +31115,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_x_max_extent(target_font_size)"
+                }
               },
               "get_x_avg_char_width": {
                 "fn_args": [
@@ -31159,8 +31128,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_x_avg_char_width(target_font_size)"
+                }
               },
               "get_y_subscript_x_size": {
                 "fn_args": [
@@ -31173,8 +31141,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_subscript_x_size(target_font_size)"
+                }
               },
               "get_y_subscript_y_size": {
                 "fn_args": [
@@ -31187,8 +31154,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_subscript_y_size(target_font_size)"
+                }
               },
               "get_y_subscript_x_offset": {
                 "fn_args": [
@@ -31201,8 +31167,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_subscript_x_offset(target_font_size)"
+                }
               },
               "get_y_subscript_y_offset": {
                 "fn_args": [
@@ -31215,8 +31180,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_subscript_y_offset(target_font_size)"
+                }
               },
               "get_y_superscript_x_size": {
                 "fn_args": [
@@ -31229,8 +31193,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_superscript_x_size(target_font_size)"
+                }
               },
               "get_y_superscript_y_size": {
                 "fn_args": [
@@ -31243,8 +31206,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_superscript_y_size(target_font_size)"
+                }
               },
               "get_y_superscript_x_offset": {
                 "fn_args": [
@@ -31257,8 +31219,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_superscript_x_offset(target_font_size)"
+                }
               },
               "get_y_superscript_y_offset": {
                 "fn_args": [
@@ -31271,8 +31232,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_superscript_y_offset(target_font_size)"
+                }
               },
               "get_y_strikeout_size": {
                 "fn_args": [
@@ -31285,8 +31245,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_strikeout_size(target_font_size)"
+                }
               },
               "get_y_strikeout_position": {
                 "fn_args": [
@@ -31299,8 +31258,7 @@
                 ],
                 "returns": {
                   "type": "f32"
-                },
-                "fn_body": "fontmetrics.get_y_strikeout_position(target_font_size)"
+                }
               }
             },
             "repr": "C"
@@ -31367,8 +31325,7 @@
                 ],
                 "returns": {
                   "type": "U8Vec"
-                },
-                "fn_body": "fontref.get_bytes()"
+                }
               },
               "get_font_metrics": {
                 "doc": [
@@ -31381,8 +31338,7 @@
                 ],
                 "returns": {
                   "type": "FontMetrics"
-                },
-                "fn_body": "azul_layout::text::get_font_metrics_fontref(fontref)"
+                }
               },
               "get_hash": {
                 "doc": [
@@ -31496,8 +31452,7 @@
                 ],
                 "returns": {
                   "type": "SvgXmlNode"
-                },
-                "fn_body": "azul_layout::xml::svg::svg_root(svg)"
+                }
               },
               "render": {
                 "fn_args": [
@@ -31510,8 +31465,7 @@
                 ],
                 "returns": {
                   "type": "OptionRawImage"
-                },
-                "fn_body": "azul_layout::xml::svg::svg_render(svg, options).into()"
+                }
               },
               "to_string": {
                 "fn_args": [
@@ -31524,8 +31478,7 @@
                 ],
                 "returns": {
                   "type": "String"
-                },
-                "fn_body": "azul_layout::xml::svg::svg_to_string(svg, options).into()"
+                }
               }
             },
             "repr": "C"
@@ -33050,7 +33003,7 @@
                   "Returns an empty buffer vertices / indices"
                 ],
                 "fn_args": [],
-                "fn_body": "AzTessellatedSvgNode::empty()"
+                "fn_body": "azul_core::svg::TessellatedSvgNode::empty()"
               },
               "from_nodes": {
                 "doc": [
@@ -33275,7 +33228,7 @@
             "constructors": {
               "default": {
                 "fn_args": [],
-                "fn_body": "AzSvgStrokeStyle::default()"
+                "fn_body": "azul_core::svg::SvgStrokeStyle::default()"
               }
             },
             "repr": "C"

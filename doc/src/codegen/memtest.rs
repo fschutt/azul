@@ -1219,6 +1219,8 @@ fn parse_single_arg(arg: &str) -> Option<(String, String)> {
 /// 2. Convert ALL arguments from Az-prefixed local types to external types (transmute in)
 /// 3. Call the actual function on the external type
 /// 4. Convert the result back to Az-prefixed local type (transmute out)
+/// 
+/// Now generates multi-line readable code instead of one giant line.
 fn generate_transmuted_fn_body(
     fn_body: &str,
     class_name: &str,
@@ -1231,9 +1233,9 @@ fn generate_transmuted_fn_body(
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
     
-    let mut transmute_lines = Vec::new();
+    let mut lines = Vec::new();
     
-    // Generate transmutations for ALL arguments
+    // Generate transmutations for ALL arguments on separate lines
     for (arg_name, arg_type) in &parsed_args {
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
         
@@ -1245,33 +1247,26 @@ fn generate_transmuted_fn_body(
         // Generate transmute line based on reference type
         let transmute_line = if is_mut {
             format!(
-                "let {name}: &mut {ext} = core::mem::transmute({name});",
+                "    let {name}: &mut {ext} = core::mem::transmute({name});",
                 name = arg_name,
                 ext = external_type
             )
         } else if is_ref {
             format!(
-                "let {name}: &{ext} = core::mem::transmute({name});",
+                "    let {name}: &{ext} = core::mem::transmute({name});",
                 name = arg_name,
                 ext = external_type
             )
         } else {
             format!(
-                "let {name}: {ext} = core::mem::transmute({name});",
+                "    let {name}: {ext} = core::mem::transmute({name});",
                 name = arg_name,
                 ext = external_type
             )
         };
         
-        transmute_lines.push(transmute_line);
+        lines.push(transmute_line);
     }
-    
-    let transmutes = transmute_lines.join(" ");
-    let transmutes_block = if transmutes.is_empty() {
-        String::new()
-    } else {
-        format!("{} ", transmutes)
-    };
     
     // Check if fn_body contains statements (has `;` before the last expression)
     let has_statements = fn_body.contains(';');
@@ -1279,9 +1274,9 @@ fn generate_transmuted_fn_body(
     if return_type.is_empty() {
         // Void return - just call the function (side effects only)
         if has_statements {
-            format!("{{ {}{} }}", transmutes_block, fn_body)
+            lines.push(format!("    {}", fn_body));
         } else {
-            format!("{{ {}let _: () = {}; }}", transmutes_block, fn_body)
+            lines.push(format!("    let _: () = {};", fn_body));
         }
     } else {
         // Has return type - need to transmute the result
@@ -1291,24 +1286,21 @@ fn generate_transmuted_fn_body(
         
         if has_statements {
             // fn_body has statements - wrap in block and transmute the final result
-            format!(
-                "{{ {}let __result: {ext} = {{ {body} }}; core::mem::transmute::<{ext}, {local}>(__result) }}",
-                transmutes_block,
-                ext = return_external,
-                local = return_type,
-                body = fn_body
-            )
+            lines.push(format!("    let __result: {} = {{ {} }};", return_external, fn_body));
         } else {
-            // Simple expression - just wrap in transmute
-            format!(
-                "{{ {}core::mem::transmute::<{ext}, {local}>({body}) }}",
-                transmutes_block,
-                ext = return_external,
-                local = return_type,
-                body = fn_body
-            )
+            // Simple expression - assign to __result
+            lines.push(format!("    let __result: {} = {};", return_external, fn_body));
         }
+        
+        lines.push(format!(
+            "    core::mem::transmute::<{ext}, {local}>(__result)",
+            ext = return_external,
+            local = return_type
+        ));
     }
+    
+    // Join with newlines and wrap in block
+    format!("{{\n{}\n}}", lines.join("\n"))
 }
 
 /// Parse a type string to extract reference/mut info and base type

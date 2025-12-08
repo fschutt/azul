@@ -57,6 +57,7 @@ use objc2_foundation::{
     ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
     NSSize, NSString, NSTimer, NSUndoManager,
 };
+use azul_css::corety::OptionU32;
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::{
@@ -1700,7 +1701,7 @@ impl MacOSWindow {
                     hash,
                 };
 
-                self.current_window_state.monitor_id = Some(monitor_id.index as u32);
+                self.current_window_state.monitor_id = OptionU32::Some(monitor_id.index as u32);
 
                 eprintln!(
                     "[MacOSWindow] Monitor detected: display_id={}, index={}, hash={:x}",
@@ -1709,12 +1710,12 @@ impl MacOSWindow {
             } else {
                 eprintln!("[MacOSWindow] Failed to get CGDirectDisplayID from screen");
                 // Fallback: Use index 0 (main display)
-                self.current_window_state.monitor_id = Some(0);
+                self.current_window_state.monitor_id = OptionU32::Some(0);
             }
         } else {
             eprintln!("[MacOSWindow] No screen associated with window");
             // Fallback: Use index 0 (main display)
-            self.current_window_state.monitor_id = Some(0);
+            self.current_window_state.monitor_id = OptionU32::Some(0);
         }
     }
 
@@ -2105,7 +2106,7 @@ impl MacOSWindow {
             background_color: options.state.background_color,
             layout_callback: options.state.layout_callback,
             close_callback: options.state.close_callback.clone(),
-            monitor_id: None, // Monitor ID will be set when we detect the actual monitor
+            monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
         };
 
