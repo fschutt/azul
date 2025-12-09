@@ -17,8 +17,10 @@ mod static_impl {
         refany::RefAny,
         resources::AppConfig,
         styled_dom::StyledDom,
+        dom::Dom,
         callbacks::{LayoutCallbackInfo, LayoutCallbackType},
     };
+    use azul_css::{css::Css, parser2::CssApiWrapper};
     use azul_dll::desktop::app::App;
     use azul_layout::window_state::WindowCreateOptions;
 
@@ -32,7 +34,15 @@ mod static_impl {
         if let Some(model) = data.downcast_ref::<MyDataModel>() {
             eprintln!("[my_layout_func] counter = {}", model.counter);
         }
-        StyledDom::default()
+        
+        // Create a simple red rectangle
+        let mut dom = Dom::div()
+            .with_inline_style("width: 200px; height: 200px; background-color: red;");
+        
+        eprintln!("[my_layout_func] Created DOM with red rectangle");
+        let styled = dom.style(CssApiWrapper { css: Css::empty() });
+        eprintln!("[my_layout_func] StyledDom has {} nodes", styled.styled_nodes.len());
+        styled
     }
 
     pub fn run() {

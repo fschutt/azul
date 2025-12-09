@@ -760,7 +760,7 @@ pub fn translate_displaylist_to_wr(
     // Finalize and return display list
     eprintln!("[compositor2] >>>>> CALLING builder.end() <<<<<");
     let (_, dl) = builder.end();
-    eprintln!("[compositor2] >>>>> builder.end() RETURNED <<<<<");
+    eprintln!("[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<", dl.size_in_bytes());
 
     eprintln!(
         "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \

@@ -298,6 +298,7 @@ impl TileCacheBuilder {
         prim_instances: &mut Vec<PrimitiveInstance>,
         clip_tree_builder: &ClipTreeBuilder,
     ) {
+        eprintln!("[TileCacheBuilder::add_prim] Called with prim_rect={:?}, spatial_node_index={:?}", prim_rect, spatial_node_index);
         let primary_slice = self.primary_slices.last_mut().unwrap();
 
         match primary_slice.kind {
@@ -450,17 +451,20 @@ impl TileCacheBuilder {
         prim_instances: &[PrimitiveInstance],
         clip_tree_builder: &mut ClipTreeBuilder,
     ) -> (TileCacheConfig, Vec<PictureIndex>) {
+        eprintln!("[TileCacheBuilder::build] Starting with {} primary_slices", self.primary_slices.len());
         let mut result = TileCacheConfig::new(self.primary_slices.len());
         let mut tile_cache_pictures = Vec::new();
         let primary_slices = std::mem::replace(&mut self.primary_slices, Vec::new());
 
-        for mut primary_slice in primary_slices {
+        for (idx, mut primary_slice) in primary_slices.into_iter().enumerate() {
+            eprintln!("[TileCacheBuilder::build] Processing primary_slice #{}", idx);
             if primary_slice.has_too_many_slices() {
                 primary_slice.merge();
             }
 
             match primary_slice.kind {
                 SliceKind::Atomic { prim_list } => {
+                    eprintln!("[TileCacheBuilder::build] SliceKind::Atomic - prim_list.is_empty()={}", prim_list.is_empty());
                     if let Some(descriptor) = self.build_tile_cache(
                         prim_list,
                         spatial_tree,
@@ -484,7 +488,9 @@ impl TileCacheBuilder {
                     }
                 }
                 SliceKind::Default { secondary_slices } => {
-                    for descriptor in secondary_slices {
+                    eprintln!("[TileCacheBuilder::build] SliceKind::Default - {} secondary_slices", secondary_slices.len());
+                    for (slice_idx, descriptor) in secondary_slices.into_iter().enumerate() {
+                        eprintln!("[TileCacheBuilder::build] Processing secondary_slice #{} - prim_list.is_empty()={}", slice_idx, descriptor.prim_list.is_empty());
                         create_tile_cache(
                             self.debug_flags,
                             primary_slice.slice_flags,

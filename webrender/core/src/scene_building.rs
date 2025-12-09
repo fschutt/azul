@@ -606,7 +606,9 @@ impl<'a> SceneBuilder<'a> {
 
         builder.clip_tree_builder.begin();
 
+        eprintln!("[SceneBuilder::build] Calling build_all for pipeline {:?}", root_pipeline_id);
         builder.build_all(root_pipeline_id, &root_pipeline);
+        eprintln!("[SceneBuilder::build] build_all completed, prim_instances.len()={}", builder.prim_instances.len());
 
         // Construct the picture cache primitive instance(s) from the tile cache builder
         let (tile_cache_config, tile_cache_pictures) = builder.tile_cache_builder.build(
@@ -886,16 +888,25 @@ impl<'a> SceneBuilder<'a> {
             kind: ContextKind::Root,
         }];
         let mut traversal = root_pipeline.display_list.iter();
+        eprintln!("[build_all] Starting traversal, display_list.size_in_bytes()={}", root_pipeline.display_list.display_list.size_in_bytes());
 
         'outer: while let Some(bc) = stack.pop() {
+            eprintln!("[build_all] Processing context, stack.len()={}", stack.len());
             loop {
                 let item = match traversal.next() {
-                    Some(item) => item,
-                    None => break,
+                    Some(item) => {
+                        eprintln!("[build_all] Got item from traversal");
+                        item
+                    }
+                    None => {
+                        eprintln!("[build_all] No more items in traversal");
+                        break;
+                    }
                 };
 
                 match item.item() {
                     DisplayItem::PushStackingContext(ref info) => {
+                        eprintln!("[build_all] DisplayItem::PushStackingContext - spatial_id={:?}", info.spatial_id);
                         let spatial_node_index = self.get_space(info.spatial_id);
                         let mut subtraversal = item.sub_iter();
                         // Avoid doing unnecessary work for empty stacking contexts.
@@ -903,9 +914,12 @@ impl<'a> SceneBuilder<'a> {
                         // may be things like SVGFEFlood or various specific
                         // ways to use ComponentTransfer, ColorMatrix, Composite
                         // which are still visible on an empty stacking context
-                        if subtraversal.current_stacking_context_empty()
-                            && item.filters().is_empty()
+                        let is_empty = subtraversal.current_stacking_context_empty();
+                        let has_no_filters = item.filters().is_empty();
+                        eprintln!("[build_all] SC check: is_empty={}, has_no_filters={}", is_empty, has_no_filters);
+                        if is_empty && has_no_filters
                         {
+                            eprintln!("[build_all] SKIPPING empty stacking context!");
                             subtraversal.skip_current_stacking_context();
                             traversal = subtraversal;
                             continue;
@@ -973,6 +987,7 @@ impl<'a> SceneBuilder<'a> {
                         continue 'outer;
                     }
                     _ => {
+                        eprintln!("[build_all] Processing item: {:?}", item.item());
                         self.build_item(item);
                     }
                 };
@@ -1827,8 +1842,11 @@ impl<'a> SceneBuilder<'a> {
         // If we have a valid stacking context, the primitive gets added to that.
         // Otherwise, it gets added to a top-level picture cache slice.
 
+        eprintln!("[scene_building::add_primitive_to_draw_list] sc_stack.len()={}, prim_rect={:?}", self.sc_stack.len(), prim_rect);
+
         match self.sc_stack.last_mut() {
             Some(stacking_context) => {
+                eprintln!("[scene_building::add_primitive_to_draw_list] Adding to stacking_context");
                 stacking_context.prim_list.add_prim(
                     prim_instance,
                     prim_rect,
@@ -1839,6 +1857,7 @@ impl<'a> SceneBuilder<'a> {
                 );
             }
             None => {
+                eprintln!("[scene_building::add_primitive_to_draw_list] Adding to tile_cache_builder (no SC)");
                 self.tile_cache_builder.add_prim(
                     prim_instance,
                     prim_rect,
@@ -2188,6 +2207,7 @@ impl<'a> SceneBuilder<'a> {
     }
 
     fn pop_stacking_context(&mut self, info: StackingContextInfo) {
+        eprintln!("[scene_building::pop_stacking_context] START - pop_stacking_context={}, pop_containing_block={}", info.pop_stacking_context, info.pop_containing_block);
         self.clip_tree_builder.pop_clip();
 
         // Pop off current raster space (pushed unconditionally in push_stacking_context)

@@ -111,14 +111,20 @@ pub struct TempFilterData<'a> {
 
 #[derive(Default, Clone)]
 pub struct DisplayListPayload {
-    /// Serde encoded bytes. Mostly DisplayItems, but some mixed in slices.
+    /// Legacy: Serde encoded bytes (kept for compatibility, but unused)
     pub items_data: Vec<u8>,
 
-    /// Serde encoded DisplayItemCache structs
+    /// Legacy: Serde encoded DisplayItemCache structs (kept for compatibility)
     pub cache_data: Vec<u8>,
 
-    /// Serde encoded SpatialTreeItem structs
+    /// Legacy: Serde encoded SpatialTreeItem structs (kept for compatibility)
     pub spatial_tree: Vec<u8>,
+
+    /// Direct storage of display items (no serialization needed)
+    pub items: Vec<di::DisplayItem>,
+
+    /// Direct storage of spatial tree items (no serialization needed)
+    pub spatial_items: Vec<di::SpatialTreeItem>,
 }
 
 impl DisplayListPayload {
@@ -127,6 +133,8 @@ impl DisplayListPayload {
             items_data: Vec::new(),
             cache_data: Vec::new(),
             spatial_tree: Vec::new(),
+            items: Vec::new(),
+            spatial_items: Vec::new(),
         }
     }
 
@@ -152,21 +160,23 @@ impl DisplayListPayload {
         self.items_data.clear();
         self.cache_data.clear();
         self.spatial_tree.clear();
+        self.items.clear();
+        self.spatial_items.clear();
     }
 
     fn size_in_bytes(&self) -> usize {
-        self.items_data.len() + self.cache_data.len() + self.spatial_tree.len()
+        // Return actual size based on direct item storage
+        self.items.len() * std::mem::size_of::<di::DisplayItem>()
+            + self.spatial_items.len() * std::mem::size_of::<di::SpatialTreeItem>()
+            + self.items_data.len() 
+            + self.cache_data.len() 
+            + self.spatial_tree.len()
     }
 
     #[cfg(feature = "serialize")]
     fn create_debug_spatial_tree_items(&self) -> Vec<di::SpatialTreeItem> {
-        let mut items = Vec::new();
-
-        iter_spatial_tree(&self.spatial_tree, |item| {
-            items.push(*item);
-        });
-
-        items
+        // Spatial items are now stored directly in Vec
+        self.spatial_items.clone()
     }
 }
 
@@ -381,6 +391,8 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
 
 pub struct BuiltDisplayListIter<'a> {
     data: &'a [u8],
+    items: &'a [di::DisplayItem],
+    item_index: usize,
     cache: Option<&'a DisplayItemCache>,
     pending_items: std::slice::Iter<'a, CachedDisplayItem>,
     cur_cached_item: Option<&'a CachedDisplayItem>,
@@ -533,6 +545,14 @@ impl BuiltDisplayList {
         &self.payload.items_data
     }
 
+    pub fn items(&self) -> &[di::DisplayItem] {
+        &self.payload.items
+    }
+
+    pub fn spatial_items(&self) -> &[di::SpatialTreeItem] {
+        &self.payload.spatial_items
+    }
+
     pub fn cache_data(&self) -> &[u8] {
         &self.payload.cache_data
     }
@@ -570,15 +590,15 @@ impl BuiltDisplayList {
     }
 
     pub fn iter(&self) -> BuiltDisplayListIter {
-        BuiltDisplayListIter::new(self.items_data(), None)
+        BuiltDisplayListIter::new(self.items_data(), self.items(), None)
     }
 
     pub fn cache_data_iter(&self) -> BuiltDisplayListIter {
-        BuiltDisplayListIter::new(self.cache_data(), None)
+        BuiltDisplayListIter::new(self.cache_data(), &[], None)
     }
 
     pub fn iter_with_cache<'a>(&'a self, cache: &'a DisplayItemCache) -> BuiltDisplayListIter<'a> {
-        BuiltDisplayListIter::new(self.items_data(), Some(cache))
+        BuiltDisplayListIter::new(self.items_data(), self.items(), Some(cache))
     }
 
     pub fn cache_size(&self) -> usize {
@@ -589,11 +609,14 @@ impl BuiltDisplayList {
         self.payload.size_in_bytes()
     }
 
-    pub fn iter_spatial_tree<F>(&self, f: F)
+    pub fn iter_spatial_tree<F>(&self, mut f: F)
     where
         F: FnMut(&di::SpatialTreeItem),
     {
-        iter_spatial_tree(&self.payload.spatial_tree, f)
+        // Iterate over spatial items stored directly in the Vec
+        for item in &self.payload.spatial_items {
+            f(item);
+        }
     }
 
     #[cfg(feature = "serialize")]
@@ -685,9 +708,11 @@ fn skip_slice<'a, T>(data: &mut &'a [u8]) -> ItemRange<'a, T> {
 }
 
 impl<'a> BuiltDisplayListIter<'a> {
-    pub fn new(data: &'a [u8], cache: Option<&'a DisplayItemCache>) -> Self {
+    pub fn new(data: &'a [u8], items: &'a [di::DisplayItem], cache: Option<&'a DisplayItemCache>) -> Self {
         Self {
             data,
+            items,
+            item_index: 0,
             cache,
             pending_items: [].iter(),
             cur_cached_item: None,
@@ -708,8 +733,9 @@ impl<'a> BuiltDisplayListIter<'a> {
     }
 
     pub fn sub_iter(&self) -> Self {
-        let mut iter = BuiltDisplayListIter::new(self.data, self.cache);
+        let mut iter = BuiltDisplayListIter::new(self.data, self.items, self.cache);
         iter.pending_items = self.pending_items.clone();
+        iter.item_index = self.item_index;
         iter
     }
 
@@ -789,12 +815,15 @@ impl<'a> BuiltDisplayListIter<'a> {
             return Some(self.as_ref());
         }
 
-        // Serialization removed - no red zone check needed
-        if self.data.is_empty() {
+        // Check if we have more items to iterate
+        if self.item_index >= self.items.len() {
             return None;
         }
 
-        // Serialization removed - no deserialization needed
+        // Get the next item from the items Vec
+        self.cur_item = self.items[self.item_index];
+        self.item_index += 1;
+
         self.log_item_stats();
 
         match self.cur_item {
@@ -1169,7 +1198,8 @@ impl DisplayListBuilder {
     #[inline]
     pub fn push_item_to_section(&mut self, item: &di::DisplayItem, section: DisplayListSection) {
         debug_assert_eq!(self.state, BuildState::Build);
-        // Serialization removed - items not serialized for in-process rendering
+        // Store item directly in Vec instead of serializing
+        self.payload.items.push(*item);
         self.add_to_display_list_dump(item);
     }
 
@@ -1186,7 +1216,8 @@ impl DisplayListBuilder {
     #[inline]
     pub fn push_spatial_tree_item(&mut self, item: &di::SpatialTreeItem) {
         debug_assert_eq!(self.state, BuildState::Build);
-        // Serialization removed - spatial tree items not serialized
+        // Store spatial tree item directly in Vec instead of serializing
+        self.payload.spatial_items.push(*item);
     }
 
     fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
@@ -2144,12 +2175,8 @@ impl DisplayListBuilder {
     }
 }
 
-fn iter_spatial_tree<F>(spatial_tree: &[u8], mut f: F)
-where
-    F: FnMut(&di::SpatialTreeItem),
-{
-    // Serialization removed - no deserialization needed
-}
+// Note: iter_spatial_tree function removed - spatial items are now stored directly in Vec
+// and iterated via BuiltDisplayList::iter_spatial_tree method
 
 /// The offset stack for a given reference frame.
 #[derive(Clone)]

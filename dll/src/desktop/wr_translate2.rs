@@ -1330,9 +1330,10 @@ pub fn generate_frame(
                 Ok((_, built_display_list, nested_pipelines)) => {
                     eprintln!(
                         "[generate_frame] Adding display list for DOM {} to transaction (with {} \
-                         nested pipelines)",
+                         nested pipelines), display_list_size_in_bytes={}",
                         dom_id.inner,
-                        nested_pipelines.len()
+                        nested_pipelines.len(),
+                        built_display_list.size_in_bytes(),
                     );
 
                     // Add main pipeline
