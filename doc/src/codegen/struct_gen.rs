@@ -294,8 +294,21 @@ fn generate_single_type(
                 // but handle them for completeness
                 RefKind::Ref => format!("&{}", target_name),
                 RefKind::RefMut => format!("&mut {}", target_name),
-                RefKind::Boxed => format!("Box<{}>", target_name),
-                RefKind::OptionBoxed => format!("Option<Box<{}>>", target_name),
+                // Special case: Box<c_void> is UB (c_void is !Sized), use *mut c_void instead
+                RefKind::Boxed => {
+                    if target_name == "c_void" {
+                        "*mut c_void".to_string()
+                    } else {
+                        format!("Box<{}>", target_name)
+                    }
+                },
+                RefKind::OptionBoxed => {
+                    if target_name == "c_void" {
+                        "Option<*mut c_void>".to_string()
+                    } else {
+                        format!("Option<Box<{}>>", target_name)
+                    }
+                },
             };
             code.push_str(&format!(
                 "{}pub type {} = {};\n\n",

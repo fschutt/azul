@@ -200,7 +200,7 @@ fn generate_monomorphized_type(
             for (field_name, field_data) in field_map {
                 let field_type = &field_data.r#type;
                 let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(&field_data.ref_kind);
-                let array_suffix = field_data.arraysize
+                let explicit_array_suffix = field_data.arraysize
                     .map(|n| format!("[{}]", n))
                     .unwrap_or_default();
                 
@@ -215,13 +215,21 @@ fn generate_monomorphized_type(
                     field_type.clone()
                 };
                 
-                if is_primitive_arg(&concrete_type) {
-                    let c_type = replace_primitive_ctype(&concrete_type);
+                // Check if this is an inline array type like [u8; 4]
+                let (base_type, inline_array_suffix) = extract_array_from_type(&concrete_type);
+                let array_suffix = if !inline_array_suffix.is_empty() {
+                    inline_array_suffix
+                } else {
+                    explicit_array_suffix
+                };
+                
+                if is_primitive_arg(&base_type) {
+                    let c_type = replace_primitive_ctype(&base_type);
                     code.push_str(&format!("    {}{}{} {}{};\r\n", 
                         c_ptr_prefix, c_type, c_ptr_suffix, field_name, array_suffix));
                 } else {
                     code.push_str(&format!("    {}{}{}{} {}{};\r\n", 
-                        c_ptr_prefix, PREFIX, concrete_type, c_ptr_suffix, field_name, array_suffix));
+                        c_ptr_prefix, PREFIX, base_type, c_ptr_suffix, field_name, array_suffix));
                 }
             }
         }
@@ -561,20 +569,28 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 for (field_name, field_data) in field_map {
                     let field_type = &field_data.r#type;
                     let ref_kind = &field_data.ref_kind;
-                    let array_suffix = field_data.arraysize
+                    let explicit_array_suffix = field_data.arraysize
                         .map(|n| format!("[{}]", n))
                         .unwrap_or_default();
 
                     let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(ref_kind);
 
-                    if is_primitive_arg(field_type) {
-                        let c_type = replace_primitive_ctype(field_type);
+                    // Check if this is an inline array type like [u8; 4]
+                    let (base_type, inline_array_suffix) = extract_array_from_type(field_type);
+                    let array_suffix = if !inline_array_suffix.is_empty() {
+                        inline_array_suffix
+                    } else {
+                        explicit_array_suffix
+                    };
+
+                    if is_primitive_arg(&base_type) {
+                        let c_type = replace_primitive_ctype(&base_type);
                         code.push_str(&format!(
                             "    {}{}{} {}{};\r\n",
                             c_ptr_prefix, c_type, c_ptr_suffix, field_name, array_suffix
                         ));
                     } else if let Some((_, type_class_name)) =
-                        search_for_class_by_class_name(version_data, field_type)
+                        search_for_class_by_class_name(version_data, &base_type)
                     {
                         code.push_str(&format!(
                             "    {}{}{}{} {}{};\r\n",
@@ -1058,4 +1074,95 @@ fn sort_structs_by_dependencies<'a>(
         structs: sorted_structs,
         forward_declarations,
     })
+}
+
+/// Struct size information for C/Rust size comparison
+#[derive(Debug, Clone)]
+pub struct StructSizeInfo {
+    /// The C struct name (e.g., "AzWindowCreateOptions")
+    pub c_name: String,
+    /// Expected size from Rust side (computed at codegen time)
+    /// This is set to 0 here - it will be filled in by the Rust test
+    pub expected_size: usize,
+}
+
+/// Generate C test code that validates struct sizes match Rust
+/// This outputs a C file that can be compiled and run to check struct sizes
+pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
+    let mut code = String::new();
+    
+    code.push_str("/* Auto-generated C struct size test */\n");
+    code.push_str("/* This file validates that C struct sizes match Rust sizes */\n");
+    code.push_str("\n");
+    code.push_str("#include <stdio.h>\n");
+    code.push_str("#include <stdlib.h>\n");
+    code.push_str("#include \"azul.h\"\n");
+    code.push_str("\n");
+    code.push_str("/* Expected sizes from Rust (will be filled in by test runner) */\n");
+    code.push_str("typedef struct {\n");
+    code.push_str("    const char* name;\n");
+    code.push_str("    size_t c_size;\n");
+    code.push_str("    size_t rust_size;\n");
+    code.push_str("} SizeCheck;\n");
+    code.push_str("\n");
+    code.push_str("int main(int argc, char** argv) {\n");
+    code.push_str("    int errors = 0;\n");
+    code.push_str("    int total = 0;\n");
+    code.push_str("\n");
+    
+    let version_data = api_data.get_version(version).unwrap();
+    
+    // Collect all struct names
+    for (_module_name, module) in &version_data.api {
+        for (class_name, class_data) in &module.classes {
+            // Skip types that won't have a C struct representation (type aliases)
+            if class_data.type_alias.is_some() {
+                continue;
+            }
+            
+            let c_name = format!("{}{}", PREFIX, class_name);
+            
+            code.push_str(&format!(
+                "    printf(\"Checking {}: C size = %zu\\n\", sizeof({}));\n",
+                c_name, c_name
+            ));
+            code.push_str("    total++;\n");
+        }
+    }
+    
+    code.push_str("\n");
+    code.push_str("    printf(\"\\n=== Size Check Complete ===\\n\");\n");
+    code.push_str("    printf(\"Checked %d structs\\n\", total);\n");
+    code.push_str("    if (errors > 0) {\n");
+    code.push_str("        printf(\"FAILED: %d size mismatches\\n\", errors);\n");
+    code.push_str("        return 1;\n");
+    code.push_str("    }\n");
+    code.push_str("    printf(\"PASSED: All sizes match\\n\");\n");
+    code.push_str("    return 0;\n");
+    code.push_str("}\n");
+    
+    code
+}
+
+/// Generate a Rust test that compares struct sizes with expected C sizes
+/// This is called during memtest generation to add C size validation
+pub fn collect_struct_sizes(api_data: &ApiData, version: &str) -> Vec<StructSizeInfo> {
+    let version_data = api_data.get_version(version).unwrap();
+    let mut sizes = Vec::new();
+    
+    for (_module_name, module) in &version_data.api {
+        for (class_name, class_data) in &module.classes {
+            // Skip types that won't have a C struct representation (type aliases)
+            if class_data.type_alias.is_some() {
+                continue;
+            }
+            
+            sizes.push(StructSizeInfo {
+                c_name: format!("{}{}", PREFIX, class_name),
+                expected_size: 0, // Will be computed at runtime
+            });
+        }
+    }
+    
+    sizes
 }

@@ -131,13 +131,26 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                     match type_alias_info.ref_kind {
                         RefKind::MutPtr => format!("*mut {}", target_with_prefix),
                         RefKind::ConstPtr => format!("*const {}", target_with_prefix),
-                        RefKind::Value => target_with_prefix,
+                        RefKind::Value => target_with_prefix.clone(),
                         // Ref, RefMut, Boxed, OptionBoxed are not typically used for type_alias
                         // but handle them for completeness
                         RefKind::Ref => format!("&{}", target_with_prefix),
                         RefKind::RefMut => format!("&mut {}", target_with_prefix),
-                        RefKind::Boxed => format!("Box<{}>", target_with_prefix),
-                        RefKind::OptionBoxed => format!("Option<Box<{}>>", target_with_prefix),
+                        // Special case: Box<c_void> is UB (c_void is !Sized), use *mut c_void instead
+                        RefKind::Boxed => {
+                            if target_with_prefix.ends_with("c_void") {
+                                "*mut c_void".to_string()
+                            } else {
+                                format!("Box<{}>", target_with_prefix)
+                            }
+                        },
+                        RefKind::OptionBoxed => {
+                            if target_with_prefix.ends_with("c_void") {
+                                "Option<*mut c_void>".to_string()
+                            } else {
+                                format!("Option<Box<{}>>", target_with_prefix)
+                            }
+                        },
                     }
                 };
 

@@ -93,12 +93,21 @@ pub fn autofix_api(
     let ffi_warnings = check_ffi_safety(&index, api_data);
     print_ffi_safety_warnings(&ffi_warnings);
     
-    // Fail if there are any FFI safety issues
-    if !ffi_warnings.is_empty() {
+    // Count only critical errors (not informational warnings)
+    let critical_errors: Vec<_> = ffi_warnings.iter().filter(|w| w.is_critical()).collect();
+    
+    // Fail if there are any critical FFI safety issues
+    if !critical_errors.is_empty() {
         return Err(anyhow::anyhow!(
-            "Found {} FFI safety issues in API types. Fix them before proceeding.",
-            ffi_warnings.len()
+            "Found {} critical FFI safety issues in API types. Fix them before proceeding.",
+            critical_errors.len()
         ));
+    }
+    
+    // Print info about non-critical warnings
+    let info_warnings = ffi_warnings.len() - critical_errors.len();
+    if info_warnings > 0 {
+        println!("\n{} {} informational warnings (non-blocking)", "ℹ".blue(), info_warnings);
     }
 
     // Report results
@@ -844,6 +853,14 @@ pub struct FfiSafetyWarning {
     pub kind: FfiSafetyWarningKind,
 }
 
+impl FfiSafetyWarning {
+    /// Returns true if this is a critical error that should fail the build
+    /// Returns false if this is just a warning/info message
+    pub fn is_critical(&self) -> bool {
+        self.kind.is_critical()
+    }
+}
+
 /// The kind of FFI safety issue
 #[derive(Debug)]
 pub enum FfiSafetyWarningKind {
@@ -875,6 +892,35 @@ pub enum FfiSafetyWarningKind {
     DuplicateTypeName {
         other_files: Vec<String>,
     },
+    /// Field uses Box<c_void> which is undefined behavior in Rust
+    /// Box requires a valid sized type, c_void is unsized
+    BoxCVoidField {
+        field_name: String,
+    },
+    /// Field uses an array type like [u8; 4] that may not be handled by C codegen
+    ArrayTypeField {
+        field_name: String,
+        array_type: String,
+    },
+}
+
+impl FfiSafetyWarningKind {
+    /// Returns true if this is a critical error that should fail the build
+    /// ArrayTypeField is just informational - it's now handled correctly by codegen
+    pub fn is_critical(&self) -> bool {
+        match self {
+            // Critical errors that must be fixed
+            FfiSafetyWarningKind::StructMissingReprC { .. } => true,
+            FfiSafetyWarningKind::MultiFieldVariant { .. } => true,
+            FfiSafetyWarningKind::StdOptionInVariant { .. } => true,
+            FfiSafetyWarningKind::EnumWithDataMissingReprCU8 { .. } => true,
+            FfiSafetyWarningKind::NonCReprEnum { .. } => true,
+            FfiSafetyWarningKind::DuplicateTypeName { .. } => true,
+            FfiSafetyWarningKind::BoxCVoidField { .. } => true,
+            // Informational only - array types are now handled correctly
+            FfiSafetyWarningKind::ArrayTypeField { .. } => false,
+        }
+    }
 }
 
 /// Check FFI safety of types that exist in api.json
@@ -948,8 +994,8 @@ pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Ve
         for typedef in defs {
             let file_path = typedef.file_path.display().to_string();
             
-            // Check structs for repr(C)
-            if let type_index::TypeDefKind::Struct { repr, .. } = &typedef.kind {
+            // Check structs for repr(C) and field issues
+            if let type_index::TypeDefKind::Struct { repr, fields, .. } = &typedef.kind {
                 // Structs in api.json must have repr(C)
                 let has_repr_c = match repr {
                     Some(r) => r.to_lowercase().contains("c"),
@@ -964,6 +1010,32 @@ pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Ve
                             current_repr: repr.clone(),
                         },
                     });
+                }
+                
+                // Check each field for FFI issues
+                for (field_name, field_def) in fields {
+                    // Check 1: Box<c_void> is UB - Box requires sized type
+                    if field_def.ty == "c_void" && field_def.ref_kind == type_index::RefKind::Boxed {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: type_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::BoxCVoidField {
+                                field_name: field_name.clone(),
+                            },
+                        });
+                    }
+                    
+                    // Check 2: Array types like [u8; 4] - warn if not handled
+                    if field_def.ty.starts_with('[') && field_def.ty.contains(';') {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: type_name.clone(),
+                            file_path: file_path.clone(),
+                            kind: FfiSafetyWarningKind::ArrayTypeField {
+                                field_name: field_name.clone(),
+                                array_type: field_def.ty.clone(),
+                            },
+                        });
+                    }
                 }
             }
             
@@ -1115,6 +1187,22 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                     println!("       - {}", other.yellow());
                 }
                 println!("    {} Rename one of the types to avoid name collision in C API.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::BoxCVoidField { field_name } => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Field '{}' uses Box<c_void> which is undefined behavior!", 
+                    "→".dimmed(), field_name.yellow());
+                println!("    {} Box<T> requires T to be Sized, but c_void is not.", "REASON:".magenta());
+                println!("    {} Use *mut c_void instead of Box<c_void>.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::ArrayTypeField { field_name, array_type } => {
+                println!("  {} {}", "⚠".yellow(), warning.type_name.white());
+                println!("    {} Field '{}' uses array type: {}", 
+                    "→".dimmed(), field_name.yellow(), array_type.cyan());
+                println!("    {} Array types require special handling in C codegen.", "NOTE:".magenta());
+                println!("    {} Verify that extract_array_from_type() handles this type.", "CHECK:".cyan());
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
         }
