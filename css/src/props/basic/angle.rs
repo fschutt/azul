@@ -140,6 +140,9 @@ impl AngleValue {
         }
     }
 
+    /// Convert to degrees, normalized to [0, 360) range.
+    /// Note: 360.0 becomes 0.0 due to modulo operation.
+    /// For conic gradients where 360.0 is meaningful, use `to_degrees_raw()`.
     #[inline]
     pub fn to_degrees(&self) -> f32 {
         let val = match self.metric {
@@ -155,6 +158,19 @@ impl AngleValue {
             val = 360.0 + val;
         }
         val
+    }
+    
+    /// Convert to degrees without normalization (raw value).
+    /// Use this for conic gradients where 360.0 is a meaningful distinct value from 0.0.
+    #[inline]
+    pub fn to_degrees_raw(&self) -> f32 {
+        match self.metric {
+            AngleMetric::Degree => self.number.get(),
+            AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
+            AngleMetric::Radians => self.number.get() * 180.0 / core::f32::consts::PI,
+            AngleMetric::Turn => self.number.get() * 360.0,
+            AngleMetric::Percent => self.number.get() / 100.0 * 360.0,
+        }
     }
 }
 

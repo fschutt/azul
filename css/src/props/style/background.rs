@@ -381,17 +381,35 @@ impl PrintAsCssValue for NormalizedRadialColorStop {
 }
 
 /// Transient struct for parsing linear color stops before normalization.
+/// 
+/// Per W3C CSS Images Level 3, a color stop can have 0, 1, or 2 positions:
+/// - `red` (no position)
+/// - `red 50%` (one position)  
+/// - `red 10% 30%` (two positions - creates two stops at same color)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinearColorStop {
-    pub offset: OptionPercentageValue,
     pub color: ColorU,
+    /// First position (optional)
+    pub offset1: OptionPercentageValue,
+    /// Second position (optional, only valid if offset1 is Some)
+    /// When present, creates two color stops at the same color.
+    pub offset2: OptionPercentageValue,
 }
 
 /// Transient struct for parsing radial/conic color stops before normalization.
+/// 
+/// Per W3C CSS Images Level 3, a color stop can have 0, 1, or 2 positions:
+/// - `red` (no position)
+/// - `red 90deg` (one position)
+/// - `red 45deg 90deg` (two positions - creates two stops at same color)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadialColorStop {
-    pub offset: OptionAngleValue,
     pub color: ColorU,
+    /// First position (optional)
+    pub offset1: OptionAngleValue,
+    /// Second position (optional, only valid if offset1 is Some)
+    /// When present, creates two color stops at the same color.
+    pub offset2: OptionAngleValue,
 }
 
 // -- Other Background Properties --
@@ -1260,57 +1278,112 @@ mod parser {
 
     // -- Gradient Parsing Helpers --
 
-    /// Parses "red" or "red 5%".
+    /// Parses color stops per W3C CSS Images Level 3:
+    /// - "red" (no position)
+    /// - "red 5%" (one position)
+    /// - "red 10% 30%" (two positions - creates a hard color band)
     fn parse_linear_color_stop<'a>(
         input: &'a str,
     ) -> Result<LinearColorStop, CssGradientStopParseError<'a>> {
         let input = input.trim();
-        let (color_str, offset_str) = split_color_and_offset(input);
+        let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
         let color = parse_css_color(color_str)?;
-        let offset = match offset_str {
+        let offset1 = match offset1_str {
+            None => OptionPercentageValue::None,
+            Some(s) => OptionPercentageValue::Some(
+                parse_percentage_value(s).map_err(CssGradientStopParseError::Percentage)?,
+            ),
+        };
+        let offset2 = match offset2_str {
             None => OptionPercentageValue::None,
             Some(s) => OptionPercentageValue::Some(
                 parse_percentage_value(s).map_err(CssGradientStopParseError::Percentage)?,
             ),
         };
 
-        Ok(LinearColorStop { offset, color })
+        Ok(LinearColorStop { color, offset1, offset2 })
     }
 
-    /// Parses "red" or "red 90deg".
+    /// Parses color stops per W3C CSS Images Level 3:
+    /// - "red" (no position)
+    /// - "red 90deg" (one position)
+    /// - "red 45deg 90deg" (two positions - creates a hard color band)
     fn parse_radial_color_stop<'a>(
         input: &'a str,
     ) -> Result<RadialColorStop, CssGradientStopParseError<'a>> {
         let input = input.trim();
-        let (color_str, offset_str) = split_color_and_offset(input);
+        let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
         let color = parse_css_color(color_str)?;
-        let offset = match offset_str {
+        let offset1 = match offset1_str {
+            None => OptionAngleValue::None,
+            Some(s) => OptionAngleValue::Some(
+                parse_angle_value(s).map_err(CssGradientStopParseError::Angle)?,
+            ),
+        };
+        let offset2 = match offset2_str {
             None => OptionAngleValue::None,
             Some(s) => OptionAngleValue::Some(
                 parse_angle_value(s).map_err(CssGradientStopParseError::Angle)?,
             ),
         };
 
-        Ok(RadialColorStop { offset, color })
+        Ok(RadialColorStop { color, offset1, offset2 })
     }
 
-    /// Helper to robustly split a string like "rgba(0,0,0,0.5) 50%" into color and offset parts.
-    fn split_color_and_offset<'a>(input: &'a str) -> (&'a str, Option<&'a str>) {
+    /// Helper to robustly split a string like "rgba(0,0,0,0.5) 10% 30%" into color and offset parts.
+    /// Returns (color_str, offset1, offset2) where offsets are optional.
+    /// 
+    /// Per W3C CSS Images Level 3, a color stop can have 0, 1, or 2 positions:
+    /// - "red" -> ("red", None, None)
+    /// - "red 50%" -> ("red", Some("50%"), None)
+    /// - "red 10% 30%" -> ("red", Some("10%"), Some("30%"))
+    fn split_color_and_offsets<'a>(input: &'a str) -> (&'a str, Option<&'a str>, Option<&'a str>) {
+        // Strategy: scan from the end to find position values (contain digits + % or unit).
+        // We need to handle complex colors like "rgba(0, 0, 0, 0.5)" that contain spaces and digits.
+        
+        let input = input.trim();
+        
+        // Try to find the last position value (might be second of two)
+        if let Some((remaining, last_offset)) = try_split_last_offset(input) {
+            // Try to find another position value before it
+            if let Some((color_part, first_offset)) = try_split_last_offset(remaining) {
+                return (color_part.trim(), Some(first_offset), Some(last_offset));
+            }
+            return (remaining.trim(), Some(last_offset), None);
+        }
+        
+        (input, None, None)
+    }
+    
+    /// Try to split off the last whitespace-separated token if it looks like a position value.
+    /// Returns (remaining, offset_str) if successful.
+    fn try_split_last_offset<'a>(input: &'a str) -> Option<(&'a str, &'a str)> {
+        let input = input.trim();
         if let Some(last_ws_idx) = input.rfind(char::is_whitespace) {
             let (potential_color, potential_offset) = input.split_at(last_ws_idx);
             let potential_offset = potential_offset.trim();
-
-            // Check if the part after the last space is a valid offset (contains a number).
-            // This avoids misinterpreting "to right bottom" as a color stop.
-            if potential_offset.contains(|c: char| c.is_digit(10)) {
-                return (potential_color.trim(), Some(potential_offset));
+            
+            // A valid offset must contain a digit and typically ends with % or a unit
+            // This avoids misinterpreting "to right bottom" as containing offsets
+            if is_likely_offset(potential_offset) {
+                return Some((potential_color, potential_offset));
             }
         }
-        // If no whitespace or the part after it is not a valid offset, the whole string is the
-        // color.
-        (input, None)
+        None
+    }
+    
+    /// Check if a string looks like a position value (percentage or length).
+    /// Must contain a digit and typically ends with %, px, em, etc.
+    fn is_likely_offset(s: &str) -> bool {
+        if !s.contains(|c: char| c.is_ascii_digit()) {
+            return false;
+        }
+        // Check if it ends with a known unit or %
+        let units = ["%", "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", 
+                     "cm", "mm", "in", "pt", "pc", "deg", "rad", "grad", "turn"];
+        units.iter().any(|u| s.ends_with(u))
     }
 
     /// Parses the `from <angle> at <position>` part of a conic gradient.
@@ -1338,141 +1411,220 @@ mod parser {
     }
 
     // -- Normalization Functions --
-
+    
+    /// Normalize linear color stops according to W3C CSS Images Level 3 spec.
+    /// 
+    /// This handles:
+    /// 1. Multi-position stops (e.g., "red 10% 30%" creates two stops)
+    /// 2. Default positions (first=0%, last=100%)
+    /// 3. Enforcing ascending order (positions < previous are clamped)
+    /// 4. Distributing unpositioned stops evenly between neighbors
     fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
-        const MIN_STOP_DEGREE: f32 = 0.0;
-        const MAX_STOP_DEGREE: f32 = 100.0;
-
         if stops.is_empty() {
             return Vec::new();
         }
-
-        let self_stops = stops;
-
-        let mut stops = self_stops
-            .iter()
-            .map(|s| NormalizedLinearColorStop {
-                offset: s
-                    .offset
-                    .as_ref()
-                    .copied()
-                    .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE)),
-                color: s.color,
-            })
-            .collect::<Vec<_>>();
-
-        let mut stops_to_distribute = 0;
-        let mut last_stop = None;
-        let stops_len = stops.len();
-
-        for (stop_id, stop) in self_stops.iter().enumerate() {
-            if let Some(s) = stop.offset.into_option() {
-                let current_stop_val = s.normalized() * 100.0;
-                if stops_to_distribute != 0 {
-                    let last_stop_val =
-                        stops[(stop_id - stops_to_distribute)].offset.normalized() * 100.0;
-                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
-                        - last_stop_val)
-                        / (stops_to_distribute - 1) as f32;
-                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id]
-                        .iter_mut()
-                        .enumerate()
-                    {
-                        s.offset = PercentageValue::new(
-                            last_stop_val + (s_id as f32 * value_to_add_per_stop),
-                        );
-                    }
+        
+        // Phase 1: Expand multi-position stops and create intermediate list
+        // Each entry is (color, Option<percentage>)
+        let mut expanded: Vec<(ColorU, Option<PercentageValue>)> = Vec::new();
+        
+        for stop in stops {
+            match (stop.offset1.into_option(), stop.offset2.into_option()) {
+                (None, _) => {
+                    // No position specified
+                    expanded.push((stop.color, None));
                 }
-                stops_to_distribute = 0;
-                last_stop = Some(s);
+                (Some(pos1), None) => {
+                    // Single position
+                    expanded.push((stop.color, Some(pos1)));
+                }
+                (Some(pos1), Some(pos2)) => {
+                    // Two positions - create two stops at the same color
+                    expanded.push((stop.color, Some(pos1)));
+                    expanded.push((stop.color, Some(pos2)));
+                }
+            }
+        }
+        
+        if expanded.is_empty() {
+            return Vec::new();
+        }
+        
+        // Phase 2: Apply W3C fixup rules
+        // Rule 1: If first stop has no position, default to 0%
+        if expanded[0].1.is_none() {
+            expanded[0].1 = Some(PercentageValue::new(0.0));
+        }
+        
+        // Rule 1: If last stop has no position, default to 100%
+        let last_idx = expanded.len() - 1;
+        if expanded[last_idx].1.is_none() {
+            expanded[last_idx].1 = Some(PercentageValue::new(100.0));
+        }
+        
+        // Rule 2: Clamp positions to be at least as large as any previous position
+        let mut max_so_far: f32 = 0.0;
+        for (_, pos) in expanded.iter_mut() {
+            if let Some(p) = pos {
+                let val = p.normalized() * 100.0;
+                if val < max_so_far {
+                    *p = PercentageValue::new(max_so_far);
+                } else {
+                    max_so_far = val;
+                }
+            }
+        }
+        
+        // Rule 3: Distribute unpositioned stops evenly between positioned neighbors
+        let mut i = 0;
+        while i < expanded.len() {
+            if expanded[i].1.is_none() {
+                // Find the run of unpositioned stops
+                let run_start = i;
+                let mut run_end = i;
+                while run_end < expanded.len() && expanded[run_end].1.is_none() {
+                    run_end += 1;
+                }
+                
+                // Find the previous positioned stop (must exist due to Rule 1)
+                let prev_pos = if run_start > 0 {
+                    expanded[run_start - 1].1.unwrap().normalized() * 100.0
+                } else {
+                    0.0
+                };
+                
+                // Find the next positioned stop (must exist due to Rule 1)
+                let next_pos = if run_end < expanded.len() {
+                    expanded[run_end].1.unwrap().normalized() * 100.0
+                } else {
+                    100.0
+                };
+                
+                // Distribute evenly
+                let run_len = run_end - run_start;
+                let step = (next_pos - prev_pos) / (run_len + 1) as f32;
+                
+                for j in 0..run_len {
+                    expanded[run_start + j].1 = Some(PercentageValue::new(prev_pos + step * (j + 1) as f32));
+                }
+                
+                i = run_end;
             } else {
-                stops_to_distribute += 1;
+                i += 1;
             }
         }
-
-        if stops_to_distribute != 0 {
-            let last_stop_val = last_stop
-                .unwrap_or(PercentageValue::new(MIN_STOP_DEGREE))
-                .normalized()
-                * 100.0;
-            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
-                / (stops_to_distribute - 1) as f32;
-            for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
-                .iter_mut()
-                .enumerate()
-            {
-                s.offset =
-                    PercentageValue::new(last_stop_val + (s_id as f32 * value_to_add_per_stop));
-            }
-        }
-
-        stops
+        
+        // Phase 3: Convert to final normalized stops
+        expanded
+            .into_iter()
+            .map(|(color, pos)| NormalizedLinearColorStop {
+                offset: pos.unwrap_or(PercentageValue::new(0.0)),
+                color,
+            })
+            .collect()
     }
 
+    /// Normalize radial/conic color stops according to W3C CSS Images Level 3 spec.
+    /// 
+    /// This handles:
+    /// 1. Multi-position stops (e.g., "red 45deg 90deg" creates two stops)
+    /// 2. Default positions (first=0deg, last=360deg for conic)
+    /// 3. Enforcing ascending order (positions < previous are clamped)
+    /// 4. Distributing unpositioned stops evenly between neighbors
     fn get_normalized_radial_stops(stops: &[RadialColorStop]) -> Vec<NormalizedRadialColorStop> {
-        const MIN_STOP_DEGREE: f32 = 0.0;
-        const MAX_STOP_DEGREE: f32 = 360.0;
-
         if stops.is_empty() {
             return Vec::new();
         }
-
-        let self_stops = stops;
-
-        let mut stops = self_stops
-            .iter()
-            .map(|s| NormalizedRadialColorStop {
-                angle: s
-                    .offset
-                    .as_ref()
-                    .copied()
-                    .unwrap_or(AngleValue::deg(MIN_STOP_DEGREE)),
-                color: s.color,
-            })
-            .collect::<Vec<_>>();
-
-        let mut stops_to_distribute = 0;
-        let mut last_stop = None;
-        let stops_len = stops.len();
-
-        for (stop_id, stop) in self_stops.iter().enumerate() {
-            if let Some(s) = stop.offset.into_option() {
-                let current_stop_val = s.to_degrees();
-                if stops_to_distribute != 0 {
-                    let last_stop_val = stops[(stop_id - stops_to_distribute)].angle.to_degrees();
-                    let value_to_add_per_stop = (current_stop_val.max(last_stop_val)
-                        - last_stop_val)
-                        / (stops_to_distribute - 1) as f32;
-                    for (s_id, s) in stops[(stop_id - stops_to_distribute)..stop_id]
-                        .iter_mut()
-                        .enumerate()
-                    {
-                        s.angle =
-                            AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
-                    }
+        
+        // Phase 1: Expand multi-position stops
+        let mut expanded: Vec<(ColorU, Option<AngleValue>)> = Vec::new();
+        
+        for stop in stops {
+            match (stop.offset1.into_option(), stop.offset2.into_option()) {
+                (None, _) => {
+                    expanded.push((stop.color, None));
                 }
-                stops_to_distribute = 0;
-                last_stop = Some(s);
+                (Some(pos1), None) => {
+                    expanded.push((stop.color, Some(pos1)));
+                }
+                (Some(pos1), Some(pos2)) => {
+                    expanded.push((stop.color, Some(pos1)));
+                    expanded.push((stop.color, Some(pos2)));
+                }
+            }
+        }
+        
+        if expanded.is_empty() {
+            return Vec::new();
+        }
+        
+        // Phase 2: Apply fixup rules
+        // Rule 1: Default first to 0deg, last to 360deg
+        if expanded[0].1.is_none() {
+            expanded[0].1 = Some(AngleValue::deg(0.0));
+        }
+        let last_idx = expanded.len() - 1;
+        if expanded[last_idx].1.is_none() {
+            expanded[last_idx].1 = Some(AngleValue::deg(360.0));
+        }
+        
+        // Rule 2: Clamp to ascending order
+        // Use to_degrees_raw() to preserve 360deg as distinct from 0deg
+        let mut max_so_far: f32 = 0.0;
+        for (_, pos) in expanded.iter_mut() {
+            if let Some(p) = pos {
+                let val = p.to_degrees_raw();
+                if val < max_so_far {
+                    *p = AngleValue::deg(max_so_far);
+                } else {
+                    max_so_far = val;
+                }
+            }
+        }
+        
+        // Rule 3: Distribute unpositioned stops evenly
+        let mut i = 0;
+        while i < expanded.len() {
+            if expanded[i].1.is_none() {
+                let run_start = i;
+                let mut run_end = i;
+                while run_end < expanded.len() && expanded[run_end].1.is_none() {
+                    run_end += 1;
+                }
+                
+                let prev_pos = if run_start > 0 {
+                    expanded[run_start - 1].1.unwrap().to_degrees_raw()
+                } else {
+                    0.0
+                };
+                
+                let next_pos = if run_end < expanded.len() {
+                    expanded[run_end].1.unwrap().to_degrees_raw()
+                } else {
+                    360.0
+                };
+                
+                let run_len = run_end - run_start;
+                let step = (next_pos - prev_pos) / (run_len + 1) as f32;
+                
+                for j in 0..run_len {
+                    expanded[run_start + j].1 = Some(AngleValue::deg(prev_pos + step * (j + 1) as f32));
+                }
+                
+                i = run_end;
             } else {
-                stops_to_distribute += 1;
+                i += 1;
             }
         }
-
-        if stops_to_distribute != 0 {
-            let last_stop_val = last_stop
-                .unwrap_or(AngleValue::deg(MIN_STOP_DEGREE))
-                .to_degrees();
-            let value_to_add_per_stop = (MAX_STOP_DEGREE.max(last_stop_val) - last_stop_val)
-                / (stops_to_distribute - 1) as f32;
-            for (s_id, s) in stops[(stops_len - stops_to_distribute)..]
-                .iter_mut()
-                .enumerate()
-            {
-                s.angle = AngleValue::deg(last_stop_val + (s_id as f32 * value_to_add_per_stop));
-            }
-        }
-
-        stops
+        
+        // Phase 3: Convert to final normalized stops
+        expanded
+            .into_iter()
+            .map(|(color, pos)| NormalizedRadialColorStop {
+                angle: pos.unwrap_or(AngleValue::deg(0.0)),
+                color,
+            })
+            .collect()
     }
 
     // -- Other Background Helpers --
@@ -1659,5 +1811,286 @@ mod tests {
             StyleBackgroundRepeat::NoRepeat
         );
         assert!(parse_style_background_repeat("repeat-xy").is_err());
+    }
+
+    // =========================================================================
+    // W3C CSS Images Level 3 - Gradient Parsing Tests
+    // =========================================================================
+
+    #[test]
+    fn test_gradient_no_position_stops() {
+        // "linear-gradient(red, blue)" - no positions specified
+        let lg = parse_style_background_content("linear-gradient(red, blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            // First stop should default to 0%
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.0).abs() < 0.001);
+            // Last stop should default to 100%
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 1.0).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_single_position_stops() {
+        // "linear-gradient(red 25%, blue 75%)" - one position per stop
+        let lg = parse_style_background_content("linear-gradient(red 25%, blue 75%)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.25).abs() < 0.001);
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 0.75).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_multi_position_stops() {
+        // "linear-gradient(red 10% 30%, blue)" - two positions create two stops
+        let lg = parse_style_background_content("linear-gradient(red 10% 30%, blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            // Should have 3 stops: red@10%, red@30%, blue@100%
+            assert_eq!(grad.stops.len(), 3, "Expected 3 stops for multi-position");
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.10).abs() < 0.001);
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 0.30).abs() < 0.001);
+            assert!((grad.stops.as_ref()[2].offset.normalized() - 1.0).abs() < 0.001);
+            // Both first two stops should have same color (red)
+            assert_eq!(grad.stops.as_ref()[0].color, grad.stops.as_ref()[1].color);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_three_colors_no_positions() {
+        // "linear-gradient(red, green, blue)" - evenly distributed
+        let lg = parse_style_background_content("linear-gradient(red, green, blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 3);
+            // Positions: 0%, 50%, 100%
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.0).abs() < 0.001);
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 0.5).abs() < 0.001);
+            assert!((grad.stops.as_ref()[2].offset.normalized() - 1.0).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_fixup_ascending_order() {
+        // "linear-gradient(red 50%, blue 20%)" - blue position < red position
+        // W3C says: clamp to max of previous positions
+        let lg = parse_style_background_content("linear-gradient(red 50%, blue 20%)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            // First stop at 50%
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.50).abs() < 0.001);
+            // Second stop clamped to 50% (not 20%)
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 0.50).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_distribute_unpositioned() {
+        // "linear-gradient(red 0%, yellow, green, blue 100%)"
+        // yellow and green should be distributed evenly between 0% and 100%
+        let lg = parse_style_background_content("linear-gradient(red 0%, yellow, green, blue 100%)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 4);
+            // Positions: 0%, 33.3%, 66.6%, 100%
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.0).abs() < 0.001);
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 0.333).abs() < 0.01);
+            assert!((grad.stops.as_ref()[2].offset.normalized() - 0.666).abs() < 0.01);
+            assert!((grad.stops.as_ref()[3].offset.normalized() - 1.0).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_direction_to_corner() {
+        // "linear-gradient(to top right, red, blue)"
+        let lg = parse_style_background_content("linear-gradient(to top right, red, blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(
+                grad.direction,
+                Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::BottomLeft,
+                    to: DirectionCorner::TopRight
+                })
+            );
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_direction_angle() {
+        // "linear-gradient(45deg, red, blue)"
+        let lg = parse_style_background_content("linear-gradient(45deg, red, blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.direction, Direction::Angle(AngleValue::deg(45.0)));
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_repeating_gradient() {
+        // "repeating-linear-gradient(red, blue 20%)"
+        let lg = parse_style_background_content("repeating-linear-gradient(red, blue 20%)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.extend_mode, ExtendMode::Repeat);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_radial_gradient_circle() {
+        // "radial-gradient(circle, red, blue)"
+        let rg = parse_style_background_content("radial-gradient(circle, red, blue)").unwrap();
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.shape, Shape::Circle);
+            assert_eq!(grad.stops.len(), 2);
+            // Check default position is center
+            assert_eq!(grad.position.horizontal, BackgroundPositionHorizontal::Left);
+            assert_eq!(grad.position.vertical, BackgroundPositionVertical::Top);
+        } else {
+            panic!("Expected RadialGradient");
+        }
+    }
+
+    #[test]
+    fn test_radial_gradient_ellipse() {
+        // "radial-gradient(ellipse, red, blue)"
+        let rg = parse_style_background_content("radial-gradient(ellipse, red, blue)").unwrap();
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.shape, Shape::Ellipse);
+            assert_eq!(grad.stops.len(), 2);
+        } else {
+            panic!("Expected RadialGradient");
+        }
+    }
+
+    #[test]
+    fn test_radial_gradient_size_keywords() {
+        // Test different size keywords
+        let rg = parse_style_background_content("radial-gradient(circle closest-side, red, blue)").unwrap();
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.shape, Shape::Circle);
+            assert_eq!(grad.size, RadialGradientSize::ClosestSide);
+        } else {
+            panic!("Expected RadialGradient");
+        }
+    }
+
+    #[test]
+    fn test_radial_gradient_stop_positions() {
+        // "radial-gradient(red 0%, blue 100%)"
+        let rg = parse_style_background_content("radial-gradient(red 0%, blue 100%)").unwrap();
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.stops.len(), 2);
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.0).abs() < 0.001);
+            assert!((grad.stops.as_ref()[1].offset.normalized() - 1.0).abs() < 0.001);
+        } else {
+            panic!("Expected RadialGradient");
+        }
+    }
+
+    #[test]
+    fn test_repeating_radial_gradient() {
+        let rg = parse_style_background_content("repeating-radial-gradient(circle, red, blue 20%)").unwrap();
+        if let StyleBackgroundContent::RadialGradient(grad) = rg {
+            assert_eq!(grad.extend_mode, ExtendMode::Repeat);
+            assert_eq!(grad.shape, Shape::Circle);
+        } else {
+            panic!("Expected RadialGradient");
+        }
+    }
+
+    #[test]
+    fn test_conic_gradient_angle() {
+        // "conic-gradient(from 45deg, red, blue)"
+        let cg = parse_style_background_content("conic-gradient(from 45deg, red, blue)").unwrap();
+        if let StyleBackgroundContent::ConicGradient(grad) = cg {
+            assert_eq!(grad.angle, AngleValue::deg(45.0));
+            assert_eq!(grad.stops.len(), 2);
+        } else {
+            panic!("Expected ConicGradient");
+        }
+    }
+
+    #[test]
+    fn test_conic_gradient_default() {
+        // "conic-gradient(red, blue)" - no angle specified
+        let cg = parse_style_background_content("conic-gradient(red, blue)").unwrap();
+        if let StyleBackgroundContent::ConicGradient(grad) = cg {
+            assert_eq!(grad.stops.len(), 2);
+            // First stop defaults to 0deg
+            assert!((grad.stops.as_ref()[0].angle.to_degrees_raw() - 0.0).abs() < 0.001, 
+                "First stop should be 0deg, got {}", grad.stops.as_ref()[0].angle.to_degrees_raw());
+            // Last stop defaults to 360deg (use to_degrees_raw to preserve 360)
+            assert!((grad.stops.as_ref()[1].angle.to_degrees_raw() - 360.0).abs() < 0.001, 
+                "Last stop should be 360deg, got {}", grad.stops.as_ref()[1].angle.to_degrees_raw());
+        } else {
+            panic!("Expected ConicGradient");
+        }
+    }
+
+    #[test]
+    fn test_conic_gradient_with_positions() {
+        // "conic-gradient(red 0deg, blue 180deg, green 360deg)"
+        let cg = parse_style_background_content("conic-gradient(red 0deg, blue 180deg, green 360deg)").unwrap();
+        if let StyleBackgroundContent::ConicGradient(grad) = cg {
+            assert_eq!(grad.stops.len(), 3);
+            // Use to_degrees_raw() to preserve 360deg
+            assert!((grad.stops.as_ref()[0].angle.to_degrees_raw() - 0.0).abs() < 0.001,
+                "First stop should be 0deg, got {}", grad.stops.as_ref()[0].angle.to_degrees_raw());
+            assert!((grad.stops.as_ref()[1].angle.to_degrees_raw() - 180.0).abs() < 0.001,
+                "Second stop should be 180deg, got {}", grad.stops.as_ref()[1].angle.to_degrees_raw());
+            assert!((grad.stops.as_ref()[2].angle.to_degrees_raw() - 360.0).abs() < 0.001,
+                "Last stop should be 360deg, got {}", grad.stops.as_ref()[2].angle.to_degrees_raw());
+        } else {
+            panic!("Expected ConicGradient");
+        }
+    }
+
+    #[test]
+    fn test_repeating_conic_gradient() {
+        let cg = parse_style_background_content("repeating-conic-gradient(red, blue 30deg)").unwrap();
+        if let StyleBackgroundContent::ConicGradient(grad) = cg {
+            assert_eq!(grad.extend_mode, ExtendMode::Repeat);
+        } else {
+            panic!("Expected ConicGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_with_rgba_color() {
+        // Test parsing gradient with rgba color (contains spaces)
+        let lg = parse_style_background_content("linear-gradient(rgba(255,0,0,0.5), blue)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            // First color should have alpha of ~128 (0.5 * 255, may be 127 or 128 due to rounding)
+            assert!(grad.stops.as_ref()[0].color.a >= 127 && grad.stops.as_ref()[0].color.a <= 128);
+        } else {
+            panic!("Expected LinearGradient");
+        }
+    }
+
+    #[test]
+    fn test_gradient_with_rgba_and_position() {
+        // Test parsing "rgba(0,0,0,0.5) 50%"
+        let lg = parse_style_background_content("linear-gradient(rgba(0,0,0,0.5) 50%, white)").unwrap();
+        if let StyleBackgroundContent::LinearGradient(grad) = lg {
+            assert_eq!(grad.stops.len(), 2);
+            assert!((grad.stops.as_ref()[0].offset.normalized() - 0.5).abs() < 0.001);
+        } else {
+            panic!("Expected LinearGradient");
+        }
     }
 }

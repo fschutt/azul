@@ -773,7 +773,7 @@ mod tests {
     fn test_parse_grid_template_single_px() {
         let result = parse_grid_template("100px").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks[0], GridTrackSizing::Fixed(_)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
     }
 
     #[test]
@@ -786,39 +786,39 @@ mod tests {
     fn test_parse_grid_template_fr_units() {
         let result = parse_grid_template("1fr 2fr 1fr").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks[0], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks[1], GridTrackSizing::Fr(200)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(200)));
     }
 
     #[test]
     fn test_parse_grid_template_fractional_fr() {
         let result = parse_grid_template("0.5fr 1.5fr").unwrap();
         assert_eq!(result.tracks.len(), 2);
-        assert!(matches!(result.tracks[0], GridTrackSizing::Fr(50)));
-        assert!(matches!(result.tracks[1], GridTrackSizing::Fr(150)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(50)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(150)));
     }
 
     #[test]
     fn test_parse_grid_template_auto() {
         let result = parse_grid_template("auto 100px auto").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks[0], GridTrackSizing::Auto));
-        assert!(matches!(result.tracks[2], GridTrackSizing::Auto));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Auto));
+        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Auto));
     }
 
     #[test]
     fn test_parse_grid_template_min_max_content() {
         let result = parse_grid_template("min-content max-content auto").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks[0], GridTrackSizing::MinContent));
-        assert!(matches!(result.tracks[1], GridTrackSizing::MaxContent));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinContent));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::MaxContent));
     }
 
     #[test]
     fn test_parse_grid_template_minmax() {
         let result = parse_grid_template("minmax(100px, 1fr)").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks[0], GridTrackSizing::MinMax(_)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinMax(_)));
     }
 
     #[test]
@@ -831,7 +831,7 @@ mod tests {
     fn test_parse_grid_template_fit_content() {
         let result = parse_grid_template("fit-content(200px)").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks[0], GridTrackSizing::FitContent(_)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::FitContent(_)));
     }
 
     #[test]
@@ -896,14 +896,14 @@ mod tests {
     #[test]
     fn test_parse_grid_placement_named_line() {
         let result = parse_grid_placement("header-start").unwrap();
-        assert!(matches!(result.start, GridLine::Named(_, _)));
+        assert!(matches!(result.start, GridLine::Named(_)));
     }
 
     #[test]
     fn test_parse_grid_placement_named_start_end() {
         let result = parse_grid_placement("header-start / header-end").unwrap();
-        assert!(matches!(result.start, GridLine::Named(_, _)));
-        assert!(matches!(result.end, GridLine::Named(_, _)));
+        assert!(matches!(result.start, GridLine::Named(_)));
+        assert!(matches!(result.end, GridLine::Named(_)));
     }
 
     // Edge cases
@@ -923,7 +923,7 @@ mod tests {
     #[test]
     fn test_parse_grid_template_zero_fr() {
         let result = parse_grid_template("0fr").unwrap();
-        assert!(matches!(result.tracks[0], GridTrackSizing::Fr(0)));
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(0)));
     }
 
     #[test]
