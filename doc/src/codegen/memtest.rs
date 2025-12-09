@@ -1233,6 +1233,36 @@ fn generate_transmuted_fn_body(
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
     
+    // Transform the fn_body:
+    // 1. Replace "azul_dll" with "crate" (generated code is included in azul-dll crate)
+    // 2. Replace "self." with "lowercase(class_name)." (self parameter gets renamed)
+    // 3. Replace "object." with "lowercase(class_name)." (legacy naming convention)
+    // 4. Replace unqualified "TypeName::method(" with fully qualified path
+    let mut fn_body = fn_body
+        .replace("azul_dll", "crate")
+        .replace("self.", &format!("{}.", self_var))
+        .replace("object.", &format!("{}.", self_var));
+    
+    // For constructors: if fn_body starts with "TypeName::" (no "::" before it),
+    // replace with the fully qualified external path
+    // E.g., "RefAny::new_c(...)" -> "azul_core::refany::RefAny::new_c(...)"
+    if is_constructor {
+        // Check if fn_body starts with a type name (uppercase letter followed by ::)
+        if let Some(colon_pos) = fn_body.find("::") {
+            let potential_type = &fn_body[..colon_pos];
+            // Check if it's a simple type name (no :: in it, starts with uppercase)
+            if !potential_type.contains("::") && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                // Look up the type in type_to_external
+                let prefixed_type = format!("{}{}", prefix, potential_type);
+                if let Some(external_path) = type_to_external.get(&prefixed_type) {
+                    // Replace "TypeName::" with "external::path::TypeName::"
+                    let replacement = format!("{}::", external_path.replace("azul_dll", "crate"));
+                    fn_body = fn_body.replacen(&format!("{}::", potential_type), &replacement, 1);
+                }
+            }
+        }
+    }
+    
     let mut lines = Vec::new();
     
     // Generate transmutations for ALL arguments on separate lines
@@ -1240,9 +1270,10 @@ fn generate_transmuted_fn_body(
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
         
         // Get the external type for this argument
+        // Replace azul_dll with crate since generated code is included in azul-dll
         let external_type = type_to_external.get(&base_type)
-            .map(|s| s.as_str())
-            .unwrap_or(&base_type);
+            .map(|s| s.replace("azul_dll", "crate"))
+            .unwrap_or_else(|| base_type.clone());
         
         // Generate transmute line based on reference type
         let transmute_line = if is_mut {
@@ -1282,7 +1313,8 @@ fn generate_transmuted_fn_body(
         // Has return type - need to transmute the result
         let return_external = type_to_external.get(return_type)
             .map(|s| s.as_str())
-            .unwrap_or(return_type);
+            .unwrap_or(return_type)
+            .replace("azul_dll", "crate");
         
         if has_statements {
             // fn_body has statements - wrap in block and transmute the final result

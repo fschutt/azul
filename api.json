@@ -307,6 +307,893 @@
               }
             ],
             "repr": "C"
+          },
+          "MouseCursorType": {
+            "external": "azul_core::window::MouseCursorType",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Default": {},
+                "Crosshair": {},
+                "Hand": {},
+                "Arrow": {},
+                "Move": {},
+                "Text": {},
+                "Wait": {},
+                "Help": {},
+                "Progress": {},
+                "NotAllowed": {},
+                "ContextMenu": {},
+                "Cell": {},
+                "VerticalText": {},
+                "Alias": {},
+                "Copy": {},
+                "NoDrop": {},
+                "Grab": {},
+                "Grabbing": {},
+                "AllScroll": {},
+                "ZoomIn": {},
+                "ZoomOut": {},
+                "EResize": {},
+                "NResize": {},
+                "NeResize": {},
+                "NwResize": {},
+                "SResize": {},
+                "SeResize": {},
+                "SwResize": {},
+                "WResize": {},
+                "EwResize": {},
+                "NsResize": {},
+                "NeswResize": {},
+                "NwseResize": {},
+                "ColResize": {},
+                "RowResize": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowFrame": {
+            "external": "azul_core::window::WindowFrame",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Normal": {},
+                "Minimized": {},
+                "Maximized": {},
+                "Fullscreen": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "LinuxWindowOptions": {
+            "external": "azul_core::window::LinuxWindowOptions",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "x11_visual": {
+                  "type": "OptionX11Visual"
+                },
+                "x11_screen": {
+                  "type": "OptionI32"
+                },
+                "x11_wm_classes": {
+                  "type": "StringPairVec"
+                },
+                "x11_override_redirect": {
+                  "type": "bool"
+                },
+                "x11_window_types": {
+                  "type": "XWindowTypeVec"
+                },
+                "x11_gtk_theme_variant": {
+                  "type": "OptionString"
+                },
+                "x11_resize_increments": {
+                  "type": "OptionLogicalSize"
+                },
+                "x11_base_size": {
+                  "type": "OptionLogicalSize"
+                },
+                "wayland_app_id": {
+                  "type": "OptionString"
+                },
+                "wayland_theme": {
+                  "type": "OptionWaylandTheme"
+                },
+                "request_user_attention": {
+                  "type": "UserAttentionType"
+                },
+                "window_icon": {
+                  "type": "OptionWindowIcon"
+                },
+                "x11_decorations_state": {
+                  "type": "OptionLinuxDecorationsState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FullWindowState": {
+            "external": "azul_layout::window_state::FullWindowState",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "theme": {
+                  "type": "WindowTheme"
+                },
+                "title": {
+                  "type": "String"
+                },
+                "size": {
+                  "type": "WindowSize"
+                },
+                "position": {
+                  "type": "WindowPosition"
+                },
+                "flags": {
+                  "type": "WindowFlags"
+                },
+                "debug_state": {
+                  "type": "DebugState"
+                },
+                "keyboard_state": {
+                  "type": "KeyboardState"
+                },
+                "mouse_state": {
+                  "type": "MouseState"
+                },
+                "touch_state": {
+                  "type": "TouchState"
+                },
+                "ime_position": {
+                  "type": "ImePosition"
+                },
+                "platform_specific_options": {
+                  "type": "PlatformSpecificOptions"
+                },
+                "renderer_options": {
+                  "type": "RendererOptions"
+                },
+                "background_color": {
+                  "type": "ColorU"
+                },
+                "layout_callback": {
+                  "type": "LayoutCallback"
+                },
+                "close_callback": {
+                  "type": "OptionCallback"
+                },
+                "monitor_id": {
+                  "type": "OptionU32"
+                },
+                "window_focused": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WaylandTheme": {
+            "external": "azul_core::window::WaylandTheme",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "title_bar_active_background_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_active_separator_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_active_text_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_inactive_background_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_inactive_separator_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_inactive_text_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_idle_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_idle_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_idle_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_hovered_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_hovered_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_hovered_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_disabled_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_disabled_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_disabled_foreground_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_idle_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_idle_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_idle_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_hovered_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_hovered_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_hovered_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_disabled_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_disabled_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_disabled_background_inactive_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_idle_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_idle_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_idle_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_hovered_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_hovered_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_hovered_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_disabled_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_disabled_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_disabled_foreground_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_idle_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_idle_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_idle_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_hovered_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_hovered_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_hovered_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "maximize_disabled_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "minimize_disabled_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "close_disabled_background_active_color": {
+                  "type": "[u8; 4]"
+                },
+                "title_bar_font": {
+                  "type": "String"
+                },
+                "title_bar_font_size": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "UserAttentionType": {
+            "external": "azul_core::window::UserAttentionType",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Critical": {},
+                "Informational": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "MonitorId": {
+            "external": "azul_core::window::MonitorId",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "index": {
+                  "type": "usize"
+                },
+                "hash": {
+                  "type": "u64"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowFlags": {
+            "external": "azul_core::window::WindowFlags",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "frame": {
+                  "type": "WindowFrame"
+                },
+                "close_requested": {
+                  "type": "bool"
+                },
+                "decorations": {
+                  "type": "WindowDecorations"
+                },
+                "is_visible": {
+                  "type": "bool"
+                },
+                "is_always_on_top": {
+                  "type": "bool"
+                },
+                "is_resizable": {
+                  "type": "bool"
+                },
+                "has_focus": {
+                  "type": "bool"
+                },
+                "background_material": {
+                  "type": "WindowBackgroundMaterial"
+                },
+                "smooth_scroll_enabled": {
+                  "type": "bool"
+                },
+                "autotab_enabled": {
+                  "type": "bool"
+                },
+                "window_type": {
+                  "type": "WindowType"
+                },
+                "has_decorations": {
+                  "type": "bool"
+                },
+                "use_native_menus": {
+                  "type": "bool"
+                },
+                "use_native_context_menus": {
+                  "type": "bool"
+                },
+                "is_top_level": {
+                  "type": "bool"
+                },
+                "prevent_system_sleep": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TaskBarIcon": {
+            "external": "azul_core::window::TaskBarIcon",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "key": {
+                  "type": "IconKey"
+                },
+                "rgba_bytes": {
+                  "type": "U8Vec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HwndHandle": {
+            "external": "azul_core::window::HwndHandle",
+            "repr": "C",
+            "type_alias": {
+              "target": "*mut c_void"
+            }
+          },
+          "WasmWindowOptions": {
+            "external": "azul_core::window::WasmWindowOptions",
+            "derive": [
+              "Debug",
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "_reserved": {
+                  "type": "u8"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SmallWindowIconBytes": {
+            "external": "azul_core::window::SmallWindowIconBytes",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "key": {
+                  "type": "IconKey"
+                },
+                "rgba_bytes": {
+                  "type": "U8Vec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Monitor": {
+            "external": "azul_core::window::Monitor",
+            "custom_impls": [
+              "Default",
+              "Hash"
+            ],
+            "derive": [
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "id": {
+                  "type": "MonitorId"
+                },
+                "name": {
+                  "type": "OptionString"
+                },
+                "size": {
+                  "type": "LayoutSize"
+                },
+                "position": {
+                  "type": "LayoutPoint"
+                },
+                "scale_factor": {
+                  "type": "f64"
+                },
+                "work_area": {
+                  "type": "LayoutRect"
+                },
+                "video_modes": {
+                  "type": "VideoModeVec"
+                },
+                "is_primary_monitor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "IconKey": {
+            "external": "azul_core::window::IconKey",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "id": {
+                  "type": "usize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HwAcceleration": {
+            "external": "azul_core::window::HwAcceleration",
+            "derive": [
+              "PartialEq",
+              "Copy",
+              "Clone",
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Enabled": {},
+                "Disabled": {},
+                "DontCare": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "MacWindowOptions": {
+            "external": "azul_core::window::MacWindowOptions",
+            "derive": [
+              "Debug",
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "_reserved": {
+                  "type": "u8"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Vsync": {
+            "external": "azul_core::window::Vsync",
+            "derive": [
+              "PartialEq",
+              "Copy",
+              "Clone",
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Enabled": {},
+                "Disabled": {},
+                "DontCare": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "X11Visual": {
+            "external": "azul_core::window::X11Visual",
+            "repr": "C",
+            "type_alias": {
+              "target": "*const c_void"
+            }
+          },
+          "VideoMode": {
+            "external": "azul_core::window::VideoMode",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "size": {
+                  "type": "LayoutSize"
+                },
+                "bit_depth": {
+                  "type": "u16"
+                },
+                "refresh_rate": {
+                  "type": "u16"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LargeWindowIconBytes": {
+            "external": "azul_core::window::LargeWindowIconBytes",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "key": {
+                  "type": "IconKey"
+                },
+                "rgba_bytes": {
+                  "type": "U8Vec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "XWindowType": {
+            "external": "azul_core::window::XWindowType",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Desktop": {},
+                "Dock": {},
+                "Toolbar": {},
+                "Menu": {},
+                "Utility": {},
+                "Splash": {},
+                "Dialog": {},
+                "DropdownMenu": {},
+                "PopupMenu": {},
+                "Tooltip": {},
+                "Notification": {},
+                "Combo": {},
+                "Dnd": {},
+                "Normal": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "PlatformSpecificOptions": {
+            "external": "azul_core::window::PlatformSpecificOptions",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "windows_options": {
+                  "type": "WindowsWindowOptions"
+                },
+                "linux_options": {
+                  "type": "LinuxWindowOptions"
+                },
+                "mac_options": {
+                  "type": "MacWindowOptions"
+                },
+                "wasm_options": {
+                  "type": "WasmWindowOptions"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowIcon": {
+            "external": "azul_core::window::WindowIcon",
+            "custom_impls": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Small": {
+                  "type": "SmallWindowIconBytes"
+                },
+                "Large": {
+                  "type": "LargeWindowIconBytes"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "WindowSize": {
+            "external": "azul_core::window::WindowSize",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "dimensions": {
+                  "type": "LogicalSize"
+                },
+                "dpi": {
+                  "type": "u32"
+                },
+                "min_dimensions": {
+                  "type": "OptionLogicalSize"
+                },
+                "max_dimensions": {
+                  "type": "OptionLogicalSize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowsWindowOptions": {
+            "external": "azul_core::window::WindowsWindowOptions",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "allow_drag_and_drop": {
+                  "type": "bool"
+                },
+                "no_redirection_bitmap": {
+                  "type": "bool"
+                },
+                "window_icon": {
+                  "type": "OptionWindowIcon"
+                },
+                "taskbar_icon": {
+                  "type": "OptionTaskBarIcon"
+                },
+                "parent_window": {
+                  "type": "OptionHwndHandle"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowType": {
+            "external": "azul_core::window::WindowType",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Normal": {},
+                "Menu": {},
+                "Tooltip": {},
+                "Dialog": {}
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -315,20 +1202,6 @@
           "Callback type definitions + struct definitions of `CallbackInfo`s"
         ],
         "classes": {
-          "RefAnyDestructorType": {
-            "doc": [
-              "Destructor callback for RefAny - called when the last reference is dropped"
-            ],
-            "external": "azul_core::refany::RefAnyDestructorType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "c_void",
-                  "ref_kind": "refmut"
-                }
-              ]
-            }
-          },
           "CallbackType": {
             "doc": [
               "Main callback type for UI event handling"
@@ -469,8 +1342,7 @@
             ],
             "external": "azul_core::callbacks::CoreCallbackType",
             "type_alias": {
-              "target": "usize",
-              "generic_args": []
+              "target": "usize"
             }
           },
           "NumberInputOnFocusLostCallbackType": {
@@ -939,6 +1811,140 @@
               ],
               "returns": null
             }
+          },
+          "LayoutCallbackType": {
+            "external": "azul_core::callbacks::LayoutCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "RefAny",
+                  "ref_kind": "refmut"
+                },
+                {
+                  "type": "LayoutCallbackInfo",
+                  "ref_kind": "refmut"
+                }
+              ],
+              "returns": {
+                "type": "StyledDom"
+              }
+            },
+            "repr": "C"
+          },
+          "MarshaledLayoutCallbackInner": {
+            "external": "azul_core::callbacks::MarshaledLayoutCallbackInner",
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "MarshaledLayoutCallbackType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "MarshaledLayoutCallbackType": {
+            "external": "azul_core::callbacks::MarshaledLayoutCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "RefAny",
+                  "ref_kind": "refmut"
+                },
+                {
+                  "type": "RefAny",
+                  "ref_kind": "refmut"
+                },
+                {
+                  "type": "LayoutCallbackInfo",
+                  "ref_kind": "refmut"
+                }
+              ],
+              "returns": {
+                "type": "StyledDom"
+              }
+            },
+            "repr": "C"
+          },
+          "LayoutCallbackInner": {
+            "external": "azul_core::callbacks::LayoutCallbackInner",
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "LayoutCallbackType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LayoutCallback": {
+            "external": "azul_core::callbacks::LayoutCallback",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Raw": {
+                  "type": "LayoutCallbackInner"
+                },
+                "Marshaled": {
+                  "type": "MarshaledLayoutCallback"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "LayoutCallbackInfo": {
+            "external": "azul_core::callbacks::LayoutCallbackInfo",
+            "custom_impls": [
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "ref_data": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "window_size": {
+                  "type": "WindowSize"
+                },
+                "theme": {
+                  "type": "WindowTheme"
+                },
+                "_abi_ref": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "_abi_mut": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "MarshaledLayoutCallback": {
+            "external": "azul_core::callbacks::MarshaledLayoutCallback",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "marshal_data": {
+                  "type": "RefAny"
+                },
+                "cb": {
+                  "type": "MarshaledLayoutCallbackInner"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -4187,8 +5193,7 @@
             ],
             "external": "azul_core::xml::XmlTagName",
             "type_alias": {
-              "target": "String",
-              "generic_args": []
+              "target": "String"
             }
           },
           "CheckBoxOnToggleCallback": {
@@ -4507,8 +5512,7 @@
             ],
             "external": "azul_core::xml::XmlAttributeMap",
             "type_alias": {
-              "target": "StringPairVec",
-              "generic_args": []
+              "target": "StringPairVec"
             }
           },
           "NodeTypeTag": {
@@ -4719,6 +5723,198 @@
               {
                 "cb": {
                   "type": "InstantPtrDestructorCallbackType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Callback": {
+            "external": "azul_layout::callbacks::Callback",
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "CallbackType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DebugState": {
+            "external": "azul_core::window::DebugState",
+            "derive": [
+              "Default",
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
+            "struct_fields": [
+              {
+                "profiler_dbg": {
+                  "type": "bool"
+                },
+                "render_target_dbg": {
+                  "type": "bool"
+                },
+                "texture_cache_dbg": {
+                  "type": "bool"
+                },
+                "gpu_time_queries": {
+                  "type": "bool"
+                },
+                "gpu_sample_queries": {
+                  "type": "bool"
+                },
+                "disable_batching": {
+                  "type": "bool"
+                },
+                "epochs": {
+                  "type": "bool"
+                },
+                "echo_driver_messages": {
+                  "type": "bool"
+                },
+                "show_overdraw": {
+                  "type": "bool"
+                },
+                "gpu_cache_dbg": {
+                  "type": "bool"
+                },
+                "texture_cache_dbg_clear_evicted": {
+                  "type": "bool"
+                },
+                "picture_caching_dbg": {
+                  "type": "bool"
+                },
+                "primitive_dbg": {
+                  "type": "bool"
+                },
+                "zoom_dbg": {
+                  "type": "bool"
+                },
+                "small_screen": {
+                  "type": "bool"
+                },
+                "disable_opaque_pass": {
+                  "type": "bool"
+                },
+                "disable_alpha_pass": {
+                  "type": "bool"
+                },
+                "disable_clip_masks": {
+                  "type": "bool"
+                },
+                "disable_text_prims": {
+                  "type": "bool"
+                },
+                "disable_gradient_prims": {
+                  "type": "bool"
+                },
+                "obscure_images": {
+                  "type": "bool"
+                },
+                "glyph_flashing": {
+                  "type": "bool"
+                },
+                "smart_profiler": {
+                  "type": "bool"
+                },
+                "invalidation_dbg": {
+                  "type": "bool"
+                },
+                "tile_cache_logging_dbg": {
+                  "type": "bool"
+                },
+                "profiler_capture": {
+                  "type": "bool"
+                },
+                "force_picture_invalidation": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "KeyboardState": {
+            "external": "azul_core::window::KeyboardState",
+            "derive": [
+              "Default",
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "current_virtual_keycode": {
+                  "type": "OptionVirtualKeyCode"
+                },
+                "pressed_virtual_keycodes": {
+                  "type": "VirtualKeyCodeVec"
+                },
+                "pressed_scancodes": {
+                  "type": "ScanCodeVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TouchState": {
+            "external": "azul_core::window::TouchState",
+            "derive": [
+              "Debug",
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Hash",
+              "Ord",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "num_touches": {
+                  "type": "usize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "MouseState": {
+            "external": "azul_core::window::MouseState",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "mouse_cursor_type": {
+                  "type": "OptionMouseCursorType"
+                },
+                "cursor_position": {
+                  "type": "CursorPosition"
+                },
+                "is_cursor_locked": {
+                  "type": "bool"
+                },
+                "left_down": {
+                  "type": "bool"
+                },
+                "right_down": {
+                  "type": "bool"
+                },
+                "middle_down": {
+                  "type": "bool"
                 }
               }
             ],
@@ -6598,26 +7794,17 @@
             "struct_fields": [
               {
                 "offset": {
-                  "type": "PixelValueNoPercent",
-                  "arraysize": 2
-                }
-              },
-              {
+                  "type": "[PixelValueNoPercent; 2]"
+                },
                 "color": {
                   "type": "ColorU"
-                }
-              },
-              {
+                },
                 "blur_radius": {
                   "type": "PixelValueNoPercent"
-                }
-              },
-              {
+                },
                 "spread_radius": {
                   "type": "PixelValueNoPercent"
-                }
-              },
-              {
+                },
                 "clip_mode": {
                   "type": "BoxShadowClipMode"
                 }
@@ -6794,8 +7981,7 @@
             "struct_fields": [
               {
                 "matrix": {
-                  "type": "FloatValue",
-                  "arraysize": 20
+                  "type": "[FloatValue; 20]"
                 }
               }
             ],
@@ -12520,8 +13706,7 @@
             ],
             "external": "azul_css::props::layout::grid::GridAutoTracks",
             "type_alias": {
-              "target": "GridTemplate",
-              "generic_args": []
+              "target": "GridTemplate"
             }
           },
           "PageBreak": {
@@ -14923,6 +16108,269 @@
                 "y": {
                   "type": "f32"
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowBackgroundMaterial": {
+            "external": "azul_core::window::WindowBackgroundMaterial",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Opaque": {},
+                "Transparent": {},
+                "Sidebar": {},
+                "Menu": {},
+                "HUD": {},
+                "Titlebar": {},
+                "MicaAlt": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "LayoutRect": {
+            "external": "azul_css::props::basic::geometry::LayoutRect",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
+            "derive": [
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "origin": {
+                  "type": "LayoutPoint"
+                },
+                "size": {
+                  "type": "LayoutSize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "WindowPosition": {
+            "external": "azul_core::window::WindowPosition",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Uninitialized": {},
+                "Initialized": {
+                  "type": "PhysicalPositionI32"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "LayoutPoint": {
+            "external": "azul_css::props::basic::geometry::LayoutPoint",
+            "custom_impls": [
+              "Debug",
+              "Display"
+            ],
+            "derive": [
+              "Copy",
+              "Default",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "isize"
+                },
+                "y": {
+                  "type": "isize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CursorPosition": {
+            "external": "azul_core::window::CursorPosition",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "OutOfWindow": {
+                  "type": "LogicalPosition"
+                },
+                "Uninitialized": {},
+                "InWindow": {
+                  "type": "LogicalPosition"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ImePosition": {
+            "external": "azul_core::window::ImePosition",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Uninitialized": {},
+                "Initialized": {
+                  "type": "LogicalRect"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "PhysicalPositionI32": {
+            "external": "azul_core::geom::PhysicalPositionI32",
+            "repr": "C",
+            "type_alias": {
+              "target": "PhysicalPosition",
+              "generic_args": [
+                "i32"
+              ]
+            }
+          },
+          "WindowDecorations": {
+            "external": "azul_core::window::WindowDecorations",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Normal": {},
+                "NoTitle": {},
+                "NoControls": {},
+                "None": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "PhysicalPosition": {
+            "external": "azul_core::geom::PhysicalPosition",
+            "custom_impls": [
+              "Debug"
+            ],
+            "derive": [
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "T"
+                },
+                "y": {
+                  "type": "T"
+                }
+              }
+            ],
+            "repr": "C",
+            "generic_params": [
+              "T"
+            ]
+          },
+          "LinuxDecorationsState": {
+            "external": "azul_core::window::LinuxDecorationsState",
+            "derive": [
+              "Debug",
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "is_dragging_titlebar": {
+                  "type": "bool"
+                },
+                "close_button_hover": {
+                  "type": "bool"
+                },
+                "maximize_button_hover": {
+                  "type": "bool"
+                },
+                "minimize_button_hover": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Srgb": {
+            "external": "azul_core::window::Srgb",
+            "derive": [
+              "PartialEq",
+              "Copy",
+              "Clone",
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Enabled": {},
+                "Disabled": {},
+                "DontCare": {}
               }
             ],
             "repr": "C"
@@ -30123,22 +31571,19 @@
           "GLuint": {
             "external": "azul_core::gl::GLuint",
             "type_alias": {
-              "target": "u32",
-              "generic_args": []
+              "target": "u32"
             }
           },
           "GLint": {
             "external": "azul_core::gl::GLint",
             "type_alias": {
-              "target": "i32",
-              "generic_args": []
+              "target": "i32"
             }
           },
           "GLenum": {
             "external": "azul_core::gl::GLenum",
             "type_alias": {
-              "target": "u32",
-              "generic_args": []
+              "target": "u32"
             }
           }
         }
@@ -30694,275 +32139,166 @@
               {
                 "units_per_em": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "font_flags": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "x_min": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_min": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "x_max": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_max": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "ascender": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "descender": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "line_gap": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "advance_width_max": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "min_left_side_bearing": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "min_right_side_bearing": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "x_max_extent": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "caret_slope_rise": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "caret_slope_run": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "caret_offset": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "num_h_metrics": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "x_avg_char_width": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "us_weight_class": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "us_width_class": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "fs_type": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "y_subscript_x_size": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_subscript_y_size": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_subscript_x_offset": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_subscript_y_offset": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_superscript_x_size": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_superscript_y_size": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_superscript_x_offset": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_superscript_y_offset": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_strikeout_size": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "y_strikeout_position": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "s_family_class": {
                   "type": "i16"
-                }
-              },
-              {
+                },
                 "panose": {
-                  "type": "u8",
-                  "arraysize": 10
-                }
-              },
-              {
+                  "type": "[u8; 10]"
+                },
                 "ul_unicode_range1": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "ul_unicode_range2": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "ul_unicode_range3": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "ul_unicode_range4": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "ach_vend_id": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "fs_selection": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "us_first_char_index": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "us_last_char_index": {
                   "type": "u16"
-                }
-              },
-              {
+                },
                 "s_typo_ascender": {
                   "type": "OptionI16"
-                }
-              },
-              {
+                },
                 "s_typo_descender": {
                   "type": "OptionI16"
-                }
-              },
-              {
+                },
                 "s_typo_line_gap": {
                   "type": "OptionI16"
-                }
-              },
-              {
+                },
                 "us_win_ascent": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "us_win_descent": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "ul_code_page_range1": {
                   "type": "OptionU32"
-                }
-              },
-              {
+                },
                 "ul_code_page_range2": {
                   "type": "OptionU32"
-                }
-              },
-              {
+                },
                 "sx_height": {
                   "type": "OptionI16"
-                }
-              },
-              {
+                },
                 "s_cap_height": {
                   "type": "OptionI16"
-                }
-              },
-              {
+                },
                 "us_default_char": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "us_break_char": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "us_max_context": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "us_lower_optical_point_size": {
                   "type": "OptionU16"
-                }
-              },
-              {
+                },
                 "us_upper_optical_point_size": {
                   "type": "OptionU16"
                 }
@@ -33930,6 +35266,21 @@
               }
             ],
             "repr": "C"
+          },
+          "RefAnyDestructorType": {
+            "doc": [
+              "Destructor callback for RefAny - called when the last reference is dropped"
+            ],
+            "external": "azul_core::refany::RefAnyDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
           }
         }
       },
@@ -36576,6 +37927,218 @@
               }
             ],
             "repr": "C"
+          },
+          "MonitorVec": {
+            "external": "azul_core::window::MonitorVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "MonitorVecDestructor"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "VideoModeVecDestructorType": {
+            "external": "azul_core::window::VideoModeVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "VideoModeVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "ScanCodeVecDestructorType": {
+            "external": "azul_core::window::ScanCodeVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ScanCodeVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "VideoModeVec": {
+            "external": "azul_core::window::VideoModeVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "VideoModeVecDestructor"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "XWindowTypeVec": {
+            "external": "azul_core::window::XWindowTypeVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "XWindowTypeVecDestructor"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "XWindowTypeVecDestructor": {
+            "external": "azul_core::window::XWindowTypeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "XWindowTypeVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "MonitorVecDestructorType": {
+            "external": "azul_core::window::MonitorVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "MonitorVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "MonitorVecDestructor": {
+            "external": "azul_core::window::MonitorVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "MonitorVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "VideoModeVecDestructor": {
+            "external": "azul_core::window::VideoModeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "VideoModeVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "XWindowTypeVecDestructorType": {
+            "external": "azul_core::window::XWindowTypeVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "XWindowTypeVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "ScanCodeVecDestructor": {
+            "external": "azul_core::window::ScanCodeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ScanCodeVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ScanCodeVec": {
+            "external": "azul_core::window::ScanCodeVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ScanCodeVecDestructor"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -37256,6 +38819,253 @@
                 "None": {},
                 "Some": {
                   "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionWaylandTheme": {
+            "external": "azul_core::window::OptionWaylandTheme",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "WaylandTheme"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionMouseCursorType": {
+            "external": "azul_core::window::OptionMouseCursorType",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "MouseCursorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionRendererOptions": {
+            "external": "azul_core::window::OptionRendererOptions",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "RendererOptions"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionWindowIcon": {
+            "external": "azul_core::window::OptionWindowIcon",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "WindowIcon"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionCallback": {
+            "external": "azul_layout::callbacks::OptionCallback",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Eq",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "Callback"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionTaskBarIcon": {
+            "external": "azul_core::window::OptionTaskBarIcon",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "TaskBarIcon"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionHwndHandle": {
+            "external": "azul_core::window::OptionHwndHandle",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "HwndHandle"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionLinuxDecorationsState": {
+            "external": "azul_core::window::OptionLinuxDecorationsState",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "LinuxDecorationsState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionI32": {
+            "external": "azul_css::corety::OptionI32",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "i32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionLogicalSize": {
+            "external": "azul_core::geom::OptionLogicalSize",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "LogicalSize"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionVirtualKeyCode": {
+            "external": "azul_core::window::OptionVirtualKeyCode",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "VirtualKeyCode"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionX11Visual": {
+            "external": "azul_core::window::OptionX11Visual",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "X11Visual"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionWindowTheme": {
+            "external": "azul_core::window::OptionWindowTheme",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "WindowTheme"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "RendererOptions": {
+            "external": "azul_core::window::RendererOptions",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "PartialEq",
+              "Copy",
+              "Clone",
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "vsync": {
+                  "type": "Vsync"
+                },
+                "srgb": {
+                  "type": "Srgb"
+                },
+                "hw_accel": {
+                  "type": "HwAcceleration"
                 }
               }
             ],
@@ -38426,35 +40236,75 @@
             ],
             "functions": {
               "can_be_shared": {
-                "doc": "Returns true if this RefCount can be shared (no mutable borrows active)",
-                "fn_args": [{ "self": "ref" }],
-                "fn_body": "self.can_be_shared()",
-                "returns": { "type": "bool" }
+                "doc": [
+                  "Returns true if this RefCount can be shared (no mutable borrows active)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.can_be_shared()"
               },
               "can_be_shared_mut": {
-                "doc": "Returns true if this RefCount can be mutably shared (no borrows active)",
-                "fn_args": [{ "self": "ref" }],
-                "fn_body": "self.can_be_shared_mut()",
-                "returns": { "type": "bool" }
+                "doc": [
+                  "Returns true if this RefCount can be mutably shared (no borrows active)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.can_be_shared_mut()"
               },
               "increase_ref": {
-                "doc": "Increases the shared reference count",
-                "fn_args": [{ "self": "ref" }],
+                "doc": [
+                  "Increases the shared reference count"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
                 "fn_body": "self.increase_ref()"
               },
               "decrease_ref": {
-                "doc": "Decreases the shared reference count",
-                "fn_args": [{ "self": "ref" }],
+                "doc": [
+                  "Decreases the shared reference count"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
                 "fn_body": "self.decrease_ref()"
               },
               "increase_refmut": {
-                "doc": "Increases the mutable reference count",
-                "fn_args": [{ "self": "ref" }],
+                "doc": [
+                  "Increases the mutable reference count"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
                 "fn_body": "self.increase_refmut()"
               },
               "decrease_refmut": {
-                "doc": "Decreases the mutable reference count",
-                "fn_args": [{ "self": "ref" }],
+                "doc": [
+                  "Decreases the mutable reference count"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
                 "fn_body": "self.decrease_refmut()"
               }
             },
@@ -38514,31 +40364,66 @@
             ],
             "constructors": {
               "new_c": {
-                "doc": "Creates a new RefAny from a raw pointer wrapper, size, alignment, type_id, type_name and destructor",
-                "fn_args": [
-                  { "ptr": "GlVoidPtrConst" },
-                  { "len": "usize" },
-                  { "align": "usize" },
-                  { "type_id": "u64" },
-                  { "type_name": "String" },
-                  { "destructor": "RefAnyDestructorType" }
+                "doc": [
+                  "Creates a new RefAny from a raw pointer wrapper, size, alignment, type_id, type_name and destructor"
                 ],
-                "fn_body": "RefAny::new_c(ptr.ptr, len, align, type_id, type_name, destructor)",
-                "returns": { "type": "RefAny" }
+                "fn_args": [
+                  {
+                    "ptr": "GlVoidPtrConst"
+                  },
+                  {
+                    "len": "usize"
+                  },
+                  {
+                    "align": "usize"
+                  },
+                  {
+                    "type_id": "u64"
+                  },
+                  {
+                    "type_name": "String"
+                  },
+                  {
+                    "destructor": "RefAnyDestructorType"
+                  }
+                ],
+                "returns": {
+                  "type": "RefAny"
+                },
+                "fn_body": "RefAny::new_c(ptr.ptr, len, align, type_id, type_name, destructor)"
               }
             },
             "functions": {
               "get_type_id": {
-                "doc": "Returns the type ID of this RefAny",
-                "fn_args": [{ "self": "ref" }],
-                "fn_body": "self.get_type_id()",
-                "returns": { "type": "u64" }
+                "doc": [
+                  "Returns the type ID of this RefAny"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "u64"
+                },
+                "fn_body": "self.get_type_id()"
               },
               "is_type": {
-                "doc": "Returns true if this RefAny is of the given type ID",
-                "fn_args": [{ "self": "ref" }, { "type_id": "u64" }],
-                "fn_body": "self.get_type_id() == type_id",
-                "returns": { "type": "bool" }
+                "doc": [
+                  "Returns true if this RefAny is of the given type ID"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "type_id": "u64"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.get_type_id() == type_id"
               }
             },
             "repr": "C"
@@ -38602,6 +40487,65 @@
                 "severity": {
                   "type": "GLenum"
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "ScanCode": {
+            "external": "azul_core::window::ScanCode",
+            "repr": "C",
+            "type_alias": {
+              "target": "u32"
+            }
+          }
+        }
+      },
+      "app": {
+        "classes": {
+          "AppLogLevel": {
+            "external": "azul_core::resources::AppLogLevel",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Off": {},
+                "Error": {},
+                "Warn": {},
+                "Info": {},
+                "Debug": {},
+                "Trace": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "AppTerminationBehavior": {
+            "external": "azul_core::resources::AppTerminationBehavior",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "ReturnToMain": {},
+                "RunForever": {},
+                "EndProcess": {}
               }
             ],
             "repr": "C"

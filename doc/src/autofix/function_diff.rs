@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use indexmap::IndexMap;
 
-use super::type_index::{TypeIndex, TypeDefinition, MethodDef, SelfKind, RefKind};
+use super::type_index::{TypeIndex, TypeDefinition, TypeDefKind, MethodDef, SelfKind, RefKind};
 use crate::api::{ApiData, ClassData, FunctionData, ModuleData, VersionData, ReturnTypeData};
 use crate::patch::{ApiPatch, VersionPatch, ModulePatch, ClassPatch};
 
@@ -191,21 +191,23 @@ pub fn find_type_module<'a>(type_name: &str, version_data: &'a VersionData) -> O
 /// This creates the FFI wrapper function body that bridges Rust to C
 pub fn generate_fn_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
+    full_path: &str,
 ) -> String {
+    // Extract type_name from full_path for fn_type detection
+    let type_name = full_path.rsplit("::").next().unwrap_or(full_path);
+    
     // Determine function type based on self_kind and return type
     let fn_type = determine_fn_type(method, type_name);
     
     // Generate code based on function type
     match fn_type.as_str() {
-        "constructor" => generate_constructor_body(method, type_name, crate_prefix),
-        "getter" => generate_getter_body(method, type_name, crate_prefix),
-        "setter" => generate_setter_body(method, type_name, crate_prefix),
-        "method" => generate_method_body(method, type_name, crate_prefix),
-        "static" => generate_static_body(method, type_name, crate_prefix),
-        "destructor" => generate_destructor_body(method, type_name, crate_prefix),
-        _ => generate_method_body(method, type_name, crate_prefix),
+        "constructor" => generate_constructor_body(method, full_path),
+        "getter" => generate_getter_body(method),
+        "setter" => generate_setter_body(method),
+        "method" => generate_method_body(method, full_path),
+        "static" => generate_static_body(method, full_path),
+        "destructor" => generate_destructor_body(method),
+        _ => generate_method_body(method, full_path),
     }
 }
 
@@ -250,8 +252,7 @@ fn determine_fn_type(method: &MethodDef, type_name: &str) -> String {
 
 fn generate_constructor_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
+    full_path: &str,
 ) -> String {
     // fn_body should just be the call expression - the wrapper code is auto-generated
     let args_str = method.args.iter()
@@ -259,19 +260,11 @@ fn generate_constructor_body(
         .collect::<Vec<_>>()
         .join(", ");
     
-    let full_type = if crate_prefix.is_empty() {
-        type_name.to_string()
-    } else {
-        format!("{}::{}", crate_prefix, type_name)
-    };
-    
-    format!("{}::{}({})", full_type, method.name, args_str)
+    format!("{}::{}({})", full_path, method.name, args_str)
 }
 
 fn generate_getter_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
 ) -> String {
     // fn_body should just be the call expression
     format!("object.{}()", method.name)
@@ -279,8 +272,6 @@ fn generate_getter_body(
 
 fn generate_setter_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
 ) -> String {
     // fn_body should just be the call expression
     let arg_name = method.args.first().map(|a| a.name.clone()).unwrap_or_default();
@@ -289,8 +280,7 @@ fn generate_setter_body(
 
 fn generate_method_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
+    full_path: &str,
 ) -> String {
     // fn_body should just be the call expression
     let args_str = method.args.iter()
@@ -305,19 +295,13 @@ fn generate_method_body(
             format!("object.{}({})", method.name, args_str)
         }
     } else {
-        let full_type = if crate_prefix.is_empty() {
-            type_name.to_string()
-        } else {
-            format!("{}::{}", crate_prefix, type_name)
-        };
-        format!("{}::{}({})", full_type, method.name, args_str)
+        format!("{}::{}({})", full_path, method.name, args_str)
     }
 }
 
 fn generate_static_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
+    full_path: &str,
 ) -> String {
     // Static function: no self pointer
     let args_str = method.args.iter()
@@ -325,19 +309,11 @@ fn generate_static_body(
         .collect::<Vec<_>>()
         .join(", ");
     
-    let full_type = if crate_prefix.is_empty() {
-        type_name.to_string()
-    } else {
-        format!("{}::{}", crate_prefix, type_name)
-    };
-    
-    format!("{}::{}({})", full_type, method.name, args_str)
+    format!("{}::{}({})", full_path, method.name, args_str)
 }
 
 fn generate_destructor_body(
     method: &MethodDef,
-    type_name: &str,
-    crate_prefix: &str,
 ) -> String {
     // fn_body should just be the drop expression
     "core::mem::drop(object)".to_string()
@@ -439,16 +415,11 @@ pub fn generate_add_functions_patch(
     let mut functions: IndexMap<String, FunctionData> = IndexMap::new();
     let mut constructors: IndexMap<String, FunctionData> = IndexMap::new();
     
-    // Determine crate prefix from type_def
-    let crate_prefix = match type_def.crate_name.as_str() {
-        "azul_core" => "crate::azul_impl",
-        "azul_css" => "crate::azul_impl::css",
-        "azul_layout" => "crate::azul_impl",
-        _ => "crate",
-    };
+    // Use the full_path from type_def (e.g. "azul_core::dom::Dom")
+    let full_path = &type_def.full_path;
     
     for method in methods {
-        let fn_data = method_to_function_data(method, type_name, crate_prefix);
+        let fn_data = method_to_function_data(method, full_path);
         
         if method.is_constructor {
             constructors.insert(method.name.clone(), fn_data);
@@ -481,15 +452,21 @@ pub fn generate_add_functions_patch(
     ApiPatch { versions }
 }
 
-/// Generate a patch to remove functions from api.json
+/// Generate a patch to remove functions and/or constructors from api.json
+/// 
+/// The function will check api.json to determine if each name is a constructor or function
+/// and remove it from the appropriate collection.
 pub fn generate_remove_functions_patch(
     type_name: &str,
     function_names: &[&str],
     module_name: &str,
     version: &str,
 ) -> ApiPatch {
+    // For now, add both remove_functions and remove_constructors
+    // The patch application logic will handle whichever is present
     let mut class_patch = ClassPatch::default();
     class_patch.remove_functions = Some(function_names.iter().map(|s| s.to_string()).collect());
+    class_patch.remove_constructors = Some(function_names.iter().map(|s| s.to_string()).collect());
     
     let mut classes = BTreeMap::new();
     classes.insert(type_name.to_string(), class_patch);
@@ -504,7 +481,7 @@ pub fn generate_remove_functions_patch(
 }
 
 /// Convert a MethodDef to FunctionData for api.json
-fn method_to_function_data(method: &MethodDef, type_name: &str, crate_prefix: &str) -> FunctionData {
+fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     // Build fn_args
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
     
@@ -526,8 +503,8 @@ fn method_to_function_data(method: &MethodDef, type_name: &str, crate_prefix: &s
         })
     };
     
-    // Generate fn_body
-    let fn_body = Some(generate_fn_body(method, type_name, crate_prefix));
+    // Generate fn_body using the full external path
+    let fn_body = Some(generate_fn_body(method, full_path));
     
     // Build doc
     let doc = if method.doc.is_empty() {
@@ -545,5 +522,464 @@ fn method_to_function_data(method: &MethodDef, type_name: &str, crate_prefix: &s
         const_fn: false,
         generic_params: None,
         generic_bounds: None,
+    }
+}
+
+// ============================================================================
+// TYPE ADDITION WITH TRANSITIVE DEPENDENCIES
+// ============================================================================
+
+use super::module_map::determine_module;
+use super::diff::TypeAddition;
+
+/// Result of adding a type with its dependencies
+#[derive(Debug)]
+pub struct AddTypeResult {
+    /// The primary type being added
+    pub primary_type: String,
+    /// Module the primary type was added to
+    pub primary_module: String,
+    /// All types that were added (including transitive dependencies)
+    pub added_types: Vec<(String, String)>, // (type_name, module)
+    /// Methods that were added to the primary type
+    pub added_methods: Vec<String>,
+    /// Types that were already in api.json (skipped)
+    pub skipped_types: Vec<String>,
+    /// Types that couldn't be found in workspace (warnings)
+    pub missing_types: Vec<String>,
+}
+
+/// Check if a type already exists in api.json
+pub fn type_exists_in_api(type_name: &str, version_data: &VersionData) -> bool {
+    find_type_module(type_name, version_data).is_some()
+}
+
+/// Helper to extract fields from TypeDefKind (expands MacroGenerated types)
+fn get_fields_from_kind(type_def: &TypeDefinition) -> Vec<(String, String, RefKind)> {
+    let expanded = type_def.expand_macro_generated();
+    match &expanded {
+        TypeDefKind::Struct { fields, .. } => {
+            fields.iter().map(|(name, f)| (name.clone(), f.ty.clone(), f.ref_kind.clone())).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Helper to extract variants from TypeDefKind (expands MacroGenerated types)
+fn get_variants_from_kind(type_def: &TypeDefinition) -> Vec<(String, Option<String>)> {
+    let expanded = type_def.expand_macro_generated();
+    match &expanded {
+        TypeDefKind::Enum { variants, .. } => {
+            variants.iter().map(|(name, v)| (name.clone(), v.ty.clone())).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Helper to extract derives from TypeDefKind (expands MacroGenerated types)
+fn get_derives_from_kind(type_def: &TypeDefinition) -> Vec<String> {
+    let expanded = type_def.expand_macro_generated();
+    match &expanded {
+        TypeDefKind::Struct { derives, .. } => derives.clone(),
+        TypeDefKind::Enum { derives, .. } => derives.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// Helper to check if TypeDefKind is an enum (expands MacroGenerated types)
+fn is_enum_kind(type_def: &TypeDefinition) -> bool {
+    let expanded = type_def.expand_macro_generated();
+    matches!(expanded, TypeDefKind::Enum { .. })
+}
+
+/// Helper to check if TypeDefKind is a callback (expands MacroGenerated types)
+fn is_callback_kind(type_def: &TypeDefinition) -> bool {
+    let expanded = type_def.expand_macro_generated();
+    matches!(expanded, TypeDefKind::CallbackTypedef { .. })
+}
+
+/// Helper to check if TypeDefKind is a type alias
+fn is_type_alias_kind(type_def: &TypeDefinition) -> bool {
+    matches!(&type_def.kind, TypeDefKind::TypeAlias { .. })
+}
+
+/// Get type alias info (target type, ref_kind) if this is a type alias
+/// Parses pointer types like "*mut c_void" into (base_type, ref_kind)
+fn get_type_alias_info(type_def: &TypeDefinition) -> Option<(String, RefKind)> {
+    match &type_def.kind {
+        TypeDefKind::TypeAlias { target, .. } => {
+            // Parse pointer prefixes from the target type
+            let trimmed = target.trim();
+            if let Some(rest) = trimmed.strip_prefix("*mut ") {
+                Some((rest.trim().to_string(), RefKind::MutPtr))
+            } else if let Some(rest) = trimmed.strip_prefix("*const ") {
+                Some((rest.trim().to_string(), RefKind::ConstPtr))
+            } else if let Some(rest) = trimmed.strip_prefix("&mut ") {
+                Some((rest.trim().to_string(), RefKind::RefMut))
+            } else if let Some(rest) = trimmed.strip_prefix('&') {
+                Some((rest.trim().to_string(), RefKind::Ref))
+            } else {
+                Some((trimmed.to_string(), RefKind::Value))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Get type alias target if this is a type alias
+fn get_type_alias_target(type_def: &TypeDefinition) -> Option<crate::autofix::patch_format::TypeAliasDef> {
+    match &type_def.kind {
+        TypeDefKind::TypeAlias { target, .. } => {
+            // Parse the target string to extract ref_kind if it's a pointer type
+            let (base_target, ref_kind) = if target.starts_with("*const ") {
+                (target.strip_prefix("*const ").unwrap().to_string(), Some("constptr".to_string()))
+            } else if target.starts_with("*mut ") {
+                (target.strip_prefix("*mut ").unwrap().to_string(), Some("mutptr".to_string()))
+            } else if target.starts_with("* const ") {
+                (target.strip_prefix("* const ").unwrap().to_string(), Some("constptr".to_string()))
+            } else if target.starts_with("* mut ") {
+                (target.strip_prefix("* mut ").unwrap().to_string(), Some("mutptr".to_string()))
+            } else {
+                (target.clone(), None)
+            };
+            Some(crate::autofix::patch_format::TypeAliasDef {
+                target: base_target,
+                ref_kind,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Get callback typedef info if this is a callback typedef
+fn get_callback_typedef_info(type_def: &TypeDefinition) -> Option<(Vec<(String, String)>, Option<String>)> {
+    let expanded = type_def.expand_macro_generated();
+    match expanded {
+        TypeDefKind::CallbackTypedef { args, returns } => {
+            let arg_list: Vec<(String, String)> = args.iter().map(|a| {
+                let ref_kind_str = match a.ref_kind {
+                    RefKind::ConstPtr => "constptr".to_string(),
+                    RefKind::MutPtr => "mutptr".to_string(),
+                    RefKind::Ref => "ref".to_string(),
+                    RefKind::RefMut => "refmut".to_string(),
+                    _ => "value".to_string(),
+                };
+                (a.ty.clone(), ref_kind_str)
+            }).collect();
+            Some((arg_list, returns))
+        }
+        _ => None,
+    }
+}
+
+/// Generate patches to add a type and all its transitive dependencies
+/// 
+/// This function:
+/// 1. Finds the type in the workspace index
+/// 2. Determines the correct module using determine_module()
+/// 3. Collects all types referenced by the type's fields, methods, etc.
+/// 4. Recursively adds those types if they're not in api.json
+/// 5. Returns patches for all types that need to be added
+pub fn generate_add_type_patches(
+    type_name: &str,
+    method_spec: Option<&str>, // None = add type only, Some("*") = all methods, Some("name") = specific method
+    index: &TypeIndex,
+    version_data: &VersionData,
+    version: &str,
+) -> Result<(Vec<crate::autofix::patch_format::AutofixPatch>, AddTypeResult), String> {
+    use crate::autofix::patch_format::{AutofixPatch, PatchOperation, AddOperation, TypeKind, FieldDef};
+    
+    let mut patches = Vec::new();
+    let mut result = AddTypeResult {
+        primary_type: type_name.to_string(),
+        primary_module: String::new(),
+        added_types: Vec::new(),
+        added_methods: Vec::new(),
+        skipped_types: Vec::new(),
+        missing_types: Vec::new(),
+    };
+    
+    // Track which types we've already processed to avoid infinite loops
+    let mut processed: HashSet<String> = HashSet::new();
+    let mut to_process: Vec<String> = vec![type_name.to_string()];
+    
+    // Primitives that don't need to be added
+    let primitives: HashSet<&str> = [
+        "i8", "i16", "i32", "i64", "i128", "isize",
+        "u8", "u16", "u32", "u64", "u128", "usize",
+        "f32", "f64", "bool", "char", "c_void", "String",
+        "()", "Self",
+    ].into_iter().collect();
+    
+    while let Some(current_type) = to_process.pop() {
+        if processed.contains(&current_type) {
+            continue;
+        }
+        processed.insert(current_type.clone());
+        
+        // Skip primitives
+        if primitives.contains(current_type.as_str()) {
+            continue;
+        }
+        
+        // Check if already in api.json
+        if type_exists_in_api(&current_type, version_data) {
+            result.skipped_types.push(current_type.clone());
+            continue;
+        }
+        
+        // Find in workspace
+        let type_def = match index.resolve(&current_type, None) {
+            Some(t) => t,
+            None => {
+                result.missing_types.push(current_type.clone());
+                continue;
+            }
+        };
+        
+        // Determine module
+        let (module_name, is_misc) = determine_module(&current_type);
+        if is_misc {
+            eprintln!("[WARN] Type '{}' mapped to 'misc' module - consider adding a keyword mapping", current_type);
+        }
+        
+        if current_type == type_name {
+            result.primary_module = module_name.clone();
+        }
+        
+        // Collect referenced types from fields using helper functions
+        let mut referenced_types: Vec<String> = Vec::new();
+        
+        let fields = get_fields_from_kind(type_def);
+        for (_, ty, _) in &fields {
+            collect_types_from_type_str(ty, &mut referenced_types);
+        }
+        
+        let variants = get_variants_from_kind(type_def);
+        for (_, ty_opt) in &variants {
+            if let Some(ty) = ty_opt {
+                collect_types_from_type_str(ty, &mut referenced_types);
+            }
+        }
+        
+        // Add referenced types to process queue
+        for ref_type in &referenced_types {
+            if !processed.contains(ref_type) && !primitives.contains(ref_type.as_str()) {
+                to_process.push(ref_type.clone());
+            }
+        }
+        
+        // Generate patch for this type
+        let kind = if is_type_alias_kind(type_def) {
+            TypeKind::TypeAlias
+        } else if is_enum_kind(type_def) {
+            TypeKind::Enum
+        } else if is_callback_kind(type_def) {
+            TypeKind::CallbackTypedef
+        } else {
+            TypeKind::Struct
+        };
+        
+        // Get type alias target if this is a type alias
+        let type_alias_target = get_type_alias_target(type_def);
+        
+        // Build struct_fields
+        let struct_fields: Option<Vec<FieldDef>> = if !fields.is_empty() {
+            Some(fields.iter().map(|(name, ty, ref_kind)| {
+                FieldDef {
+                    name: name.clone(),
+                    field_type: ty.clone(),
+                    ref_kind: match ref_kind {
+                        RefKind::Value => None,
+                        RefKind::Ref => Some("ref".to_string()),
+                        RefKind::RefMut => Some("refmut".to_string()),
+                        RefKind::ConstPtr => Some("constptr".to_string()),
+                        RefKind::MutPtr => Some("mutptr".to_string()),
+                        _ => None,
+                    },
+                    doc: None,
+                }
+            }).collect())
+        } else {
+            None
+        };
+        
+        // Build enum_variants
+        let enum_variants: Option<Vec<crate::autofix::patch_format::VariantDef>> = if !variants.is_empty() {
+            Some(variants.iter().map(|(name, ty_opt)| {
+                crate::autofix::patch_format::VariantDef {
+                    name: name.clone(),
+                    variant_type: ty_opt.clone(),
+                }
+            }).collect())
+        } else {
+            None
+        };
+        
+        // Build derives
+        let derives_list = get_derives_from_kind(type_def);
+        let derives = if derives_list.is_empty() {
+            None
+        } else {
+            Some(derives_list)
+        };
+        
+        // Build callback_typedef if applicable
+        let callback_typedef = get_callback_typedef_info(type_def).map(|(args, returns)| {
+            crate::autofix::patch_format::CallbackTypedefDef {
+                fn_args: args.iter().map(|(ty, ref_kind)| {
+                    crate::autofix::patch_format::CallbackArg {
+                        arg_type: ty.clone(),
+                        ref_kind: if ref_kind == "value" { None } else { Some(ref_kind.clone()) },
+                    }
+                }).collect(),
+                returns: returns.map(|r| {
+                    crate::autofix::patch_format::CallbackReturn {
+                        return_type: r,
+                        ref_kind: None,
+                    }
+                }),
+            }
+        });
+        
+        // Create the patch
+        let mut patch = AutofixPatch::new(format!("Add type {}", current_type));
+        patch.add_operation(PatchOperation::Add(AddOperation {
+            type_name: current_type.clone(),
+            external: type_def.full_path.clone(),
+            kind,
+            module: Some(module_name.clone()),
+            derives,
+            repr_c: if type_alias_target.is_some() || callback_typedef.is_some() { None } else { Some(true) },
+            struct_fields,
+            enum_variants,
+            callback_typedef,
+            type_alias: type_alias_target,
+        }));
+        
+        patches.push(patch);
+        result.added_types.push((current_type.clone(), module_name));
+    }
+    
+    // Now add methods to the primary type if requested
+    if let Some(spec) = method_spec {
+        let type_def = index.resolve(type_name, None)
+            .ok_or_else(|| format!("Type '{}' not found", type_name))?;
+        
+        let methods: Vec<_> = type_def.methods.iter()
+            .filter(|m| m.is_public)
+            .filter(|m| spec == "*" || m.name == spec)
+            .collect();
+        
+        if !methods.is_empty() {
+            // Collect types from method signatures
+            for method in &methods {
+                for arg in &method.args {
+                    let mut refs = Vec::new();
+                    collect_types_from_type_str(&arg.ty, &mut refs);
+                    for ref_type in refs {
+                        if !processed.contains(&ref_type) && !primitives.contains(ref_type.as_str()) 
+                           && !type_exists_in_api(&ref_type, version_data) {
+                            // Need to add this type too
+                            if let Some(ref_type_def) = index.resolve(&ref_type, None) {
+                                let (module, _) = determine_module(&ref_type);
+                                let ref_derives = get_derives_from_kind(ref_type_def);
+                                // Generate a simple add patch for the referenced type
+                                let mut ref_patch = AutofixPatch::new(format!("Add type {}", ref_type));
+                                ref_patch.add_operation(PatchOperation::Add(AddOperation {
+                                    type_name: ref_type.clone(),
+                                    external: ref_type_def.full_path.clone(),
+                                    kind: if is_enum_kind(ref_type_def) { TypeKind::Enum } else { TypeKind::Struct },
+                                    module: Some(module.clone()),
+                                    derives: if ref_derives.is_empty() { None } else { Some(ref_derives) },
+                                    repr_c: Some(true),
+                                    struct_fields: None, // Simplified - autofix run will fill these
+                                    enum_variants: None,
+                                    callback_typedef: None,
+                                    type_alias: None,
+                                }));
+                                patches.push(ref_patch);
+                                result.added_types.push((ref_type, module));
+                            }
+                        }
+                    }
+                }
+                if let Some(ret) = &method.return_type {
+                    let mut refs = Vec::new();
+                    collect_types_from_type_str(ret, &mut refs);
+                    for ref_type in refs {
+                        if !processed.contains(&ref_type) && !primitives.contains(ref_type.as_str()) 
+                           && !type_exists_in_api(&ref_type, version_data) {
+                            if let Some(ref_type_def) = index.resolve(&ref_type, None) {
+                                let (module, _) = determine_module(&ref_type);
+                                let ref_derives = get_derives_from_kind(ref_type_def);
+                                let mut ref_patch = AutofixPatch::new(format!("Add type {}", ref_type));
+                                ref_patch.add_operation(PatchOperation::Add(AddOperation {
+                                    type_name: ref_type.clone(),
+                                    external: ref_type_def.full_path.clone(),
+                                    kind: if is_enum_kind(ref_type_def) { TypeKind::Enum } else { TypeKind::Struct },
+                                    module: Some(module.clone()),
+                                    derives: if ref_derives.is_empty() { None } else { Some(ref_derives) },
+                                    repr_c: Some(true),
+                                    struct_fields: None,
+                                    enum_variants: None,
+                                    callback_typedef: None,
+                                    type_alias: None,
+                                }));
+                                patches.push(ref_patch);
+                                result.added_types.push((ref_type, module));
+                            }
+                        }
+                    }
+                }
+                
+                result.added_methods.push(method.name.clone());
+            }
+            
+            // Generate the functions patch
+            let func_patch = generate_add_functions_patch(
+                type_name,
+                &methods,
+                &result.primary_module,
+                version,
+                type_def,
+            );
+            
+            // Convert ApiPatch to AutofixPatch format
+            // For now, we'll write the function patch separately
+            // The caller should apply both the type patches and the function patch
+        }
+    }
+    
+    Ok((patches, result))
+}
+
+/// Extract type names from a type string like "Vec<Foo>" or "Option<Bar>"
+fn collect_types_from_type_str(type_str: &str, out: &mut Vec<String>) {
+    // Remove references and pointers
+    let cleaned = type_str
+        .trim_start_matches('&')
+        .trim_start_matches("mut ")
+        .trim_start_matches('*')
+        .trim_start_matches("const ")
+        .trim();
+    
+    // Handle generic types like Vec<T>, Option<T>, etc.
+    if let Some(start) = cleaned.find('<') {
+        let base = &cleaned[..start];
+        out.push(base.to_string());
+        
+        if let Some(end) = cleaned.rfind('>') {
+            let inner = &cleaned[start + 1..end];
+            // Handle multiple generic args separated by comma
+            for part in inner.split(',') {
+                collect_types_from_type_str(part.trim(), out);
+            }
+        }
+    } else {
+        // Simple type
+        if !cleaned.is_empty() {
+            out.push(cleaned.to_string());
+        }
     }
 }

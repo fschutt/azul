@@ -1503,12 +1503,14 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 // Generic type alias: target = CssPropertyValue<T>, base = CssPropertyValue
                 class_patch.type_alias = Some(TypeAliasInfo {
                     target: base.clone(),
+                    ref_kind: Default::default(),
                     generic_args: generic_args.clone(),
                 });
             } else {
                 // Simple type alias: target = GridTemplate, no generics
                 class_patch.type_alias = Some(TypeAliasInfo {
                     target: target.clone(),
+                    ref_kind: Default::default(),
                     generic_args: vec![],
                 });
             }

@@ -366,7 +366,7 @@ fn generate_single_type(
     }
     // Error: Type has external path but no struct_fields or enum_fields
     // This is invalid - every non-alias type must have fields defined
-    else if struct_meta.external.is_some() && !struct_meta.is_callback_typedef {
+    else if struct_meta.external.is_some() && !struct_meta.is_callback_typedef && struct_meta.type_alias.is_none() {
         anyhow::bail!(
             "Type '{}' has external path '{}' but no struct_fields or enum_fields defined in api.json. \
              Every type (except type_alias and callback_typedef) must have either struct_fields or enum_fields.",

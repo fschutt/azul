@@ -921,10 +921,10 @@ fn generate_diff_v2(
             }
         }
         
-        // 3. Check path fixes for ALL api.json types against workspace index
+        // 3. Check path fixes and modifications for ALL api.json types against workspace index
         // This catches types that aren't reachable from function signatures
-        // but still have wrong paths (e.g., azul_dll -> azul_layout moves)
-        if !api_info.path.is_empty() && !matched_api_types.contains(api_name) {
+        // but still have wrong paths or missing definitions (e.g., type_alias)
+        if !matched_api_types.contains(api_name) {
             // Try to find this type in the workspace index
             // First try exact name, then with Az prefix
             let workspace_typedef = index.resolve(api_name, None)
@@ -932,7 +932,7 @@ fn generate_diff_v2(
             
             if let Some(typedef) = workspace_typedef {
                 // Found in workspace - check if path matches
-                if !paths_are_equivalent(&api_info.path, &typedef.full_path) {
+                if !api_info.path.is_empty() && !paths_are_equivalent(&api_info.path, &typedef.full_path) {
                     // Path mismatch - need to fix
                     let already_has_fix = diff.path_fixes.iter()
                         .any(|f| f.type_name == *api_name);
@@ -945,6 +945,30 @@ fn generate_diff_v2(
                         });
                     }
                 }
+                
+                // Also check for modifications on unmatched types
+                // This ensures type_alias, struct_fields, etc. are detected for all api.json types
+                diff.modifications.extend(
+                    compare_derives_and_impls(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    check_type_kind_mismatch(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    compare_struct_fields(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    compare_enum_variants(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    compare_callback_typedef(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    compare_type_alias(api_name, typedef, api_info)
+                );
+                diff.modifications.extend(
+                    compare_generic_params(api_name, typedef, api_info)
+                );
             }
         }
     }

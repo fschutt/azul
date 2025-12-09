@@ -471,9 +471,13 @@ pub struct ConstantData {
 /// Information about a type alias, including generic instantiation
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct TypeAliasInfo {
-    /// The target generic type (e.g., "CssPropertyValue")
+    /// The target type (e.g., "c_void" for pointer aliases, "CssPropertyValue" for generics)
     pub target: String,
+    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
+    #[serde(default, skip_serializing_if = "is_ref_kind_value")]
+    pub ref_kind: RefKind,
     /// Generic arguments for instantiation (e.g., ["LayoutZIndex"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub generic_args: Vec<String>,
 }
 
@@ -1616,6 +1620,94 @@ pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
                 
                 // Process enum variant types (keep type as-is for now since no arraysize field)
                 // Arrays in enum variants are rare and can be handled manually if needed
+            }
+        }
+    }
+    
+    count
+}
+
+/// Normalize type_alias entries in api.json by extracting pointer types into ref_kind.
+/// 
+/// Before: `{ "target": "*mut c_void", "generic_args": [] }`
+/// After:  `{ "target": "c_void", "ref_kind": "mutptr" }`
+/// 
+/// Before: `{ "target": "PhysicalPosition<i32>" }`
+/// After:  `{ "target": "PhysicalPosition", "generic_args": ["i32"] }`
+/// 
+/// This ensures:
+/// 1. Pointer prefixes (*const, *mut) are extracted to ref_kind field
+/// 2. Embedded generics (e.g., Foo<Bar>) are extracted to generic_args
+/// 3. Empty generic_args are removed (via serde skip_serializing_if)
+pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
+    use crate::autofix::types::ref_kind::RefKind;
+    
+    let mut count = 0;
+    
+    for (_version_name, version_data) in &mut api_data.0 {
+        for (_module_name, module_data) in &mut version_data.api {
+            for (_class_name, class_data) in &mut module_data.classes {
+                if let Some(type_alias) = &mut class_data.type_alias {
+                    let target = &type_alias.target;
+                    let mut modified = false;
+                    
+                    // Extract pointer prefix from target
+                    let (new_target, new_ref_kind) = if target.starts_with("*const ") {
+                        modified = true;
+                        (target.strip_prefix("*const ").unwrap().trim().to_string(), Some(RefKind::ConstPtr))
+                    } else if target.starts_with("*mut ") {
+                        modified = true;
+                        (target.strip_prefix("*mut ").unwrap().trim().to_string(), Some(RefKind::MutPtr))
+                    } else if target.starts_with("* const ") {
+                        modified = true;
+                        (target.strip_prefix("* const ").unwrap().trim().to_string(), Some(RefKind::ConstPtr))
+                    } else if target.starts_with("* mut ") {
+                        modified = true;
+                        (target.strip_prefix("* mut ").unwrap().trim().to_string(), Some(RefKind::MutPtr))
+                    } else {
+                        (target.clone(), None)
+                    };
+                    
+                    // Extract embedded generics if generic_args is empty
+                    let (final_target, extracted_generic_args) = if type_alias.generic_args.is_empty() {
+                        if let Some(open_idx) = new_target.find('<') {
+                            if let Some(close_idx) = new_target.rfind('>') {
+                                let base = new_target[..open_idx].trim().to_string();
+                                let args_str = &new_target[open_idx + 1..close_idx];
+                                let args: Vec<String> = args_str
+                                    .split(',')
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                                if !args.is_empty() {
+                                    modified = true;
+                                    (base, args)
+                                } else {
+                                    (new_target, vec![])
+                                }
+                            } else {
+                                (new_target, vec![])
+                            }
+                        } else {
+                            (new_target, vec![])
+                        }
+                    } else {
+                        (new_target, vec![])
+                    };
+                    
+                    if modified {
+                        type_alias.target = final_target;
+                        if let Some(rk) = new_ref_kind {
+                            if type_alias.ref_kind == RefKind::Value {
+                                type_alias.ref_kind = rk;
+                            }
+                        }
+                        if !extracted_generic_args.is_empty() {
+                            type_alias.generic_args = extracted_generic_args;
+                        }
+                        count += 1;
+                    }
+                }
             }
         }
     }

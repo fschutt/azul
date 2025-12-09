@@ -428,9 +428,37 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             continue;
         }
         
-        // Type aliases with generics (and no struct_fields) become unions after monomorphization
+        // Type aliases with generics (and no struct_fields) need to check the target type
         if let Some(type_alias) = &class_data.type_alias {
             if !type_alias.generic_args.is_empty() {
+                // Look up the target type to determine if it's a struct or enum
+                let target = &type_alias.target;
+                if let Some((_, target_class)) = search_for_class_by_class_name(version_data, target) {
+                    if let Some(target_data) = version_data.api.values()
+                        .find_map(|m| m.classes.get(target_class))
+                    {
+                        if target_data.struct_fields.is_some() {
+                            // Target is a struct, so monomorphized type is also a struct
+                            code.push_str(&format!("struct {};\r\n", struct_name));
+                            code.push_str(&format!("typedef struct {} {};\r\n", struct_name, struct_name));
+                            continue;
+                        } else if target_data.enum_fields.is_some() {
+                            // Target is an enum - check if it's a union (enum with data)
+                            let is_union = target_data.enum_fields.as_ref()
+                                .map(|f| enum_is_union(f))
+                                .unwrap_or(false);
+                            if is_union {
+                                code.push_str(&format!("union {};\r\n", struct_name));
+                                code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
+                            } else {
+                                code.push_str(&format!("enum {};\r\n", struct_name));
+                                code.push_str(&format!("typedef enum {} {};\r\n", struct_name, struct_name));
+                            }
+                            continue;
+                        }
+                    }
+                }
+                // Fallback: if target not found, assume union for backwards compatibility
                 code.push_str(&format!("union {};\r\n", struct_name));
                 code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
                 continue;
@@ -465,13 +493,19 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         
         if let Some(type_alias) = &class_data.type_alias {
             let target = &type_alias.target;
+            let ref_kind = &type_alias.ref_kind;
+            
             if is_primitive_arg(target) {
                 // Simple primitive alias (like CoreCallbackType -> usize)
                 let c_type = replace_primitive_ctype(target);
-                code.push_str(&format!("typedef {} {};\r\n", c_type, struct_name));
+                // Apply ref_kind for pointer types
+                let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(ref_kind);
+                code.push_str(&format!("typedef {}{}{} {};\r\n", c_ptr_prefix, c_type, c_ptr_suffix, struct_name));
             } else if type_alias.generic_args.is_empty() {
                 // Non-generic type alias - typedef to the target struct
-                code.push_str(&format!("typedef {}{} {};\r\n", PREFIX, target, struct_name));
+                // Apply ref_kind for pointer types (e.g., HwndHandle = *mut c_void)
+                let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(ref_kind);
+                code.push_str(&format!("typedef {}{}{}{} {};\r\n", c_ptr_prefix, PREFIX, target, c_ptr_suffix, struct_name));
             }
             // Generic type aliases are handled in the main definition loop
         }

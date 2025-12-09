@@ -43,6 +43,12 @@ fn main() -> anyhow::Result<()> {
                 println!("[ARRAY] Normalized {} array type fields", array_count);
             }
             
+            // Normalize type_alias: "*mut c_void" -> target: "c_void", ref_kind: "mutptr"
+            let type_alias_count = api::normalize_type_aliases(&mut api_data);
+            if type_alias_count > 0 {
+                println!("[TYPE_ALIAS] Normalized {} type alias entries", type_alias_count);
+            }
+            
             let api_json = serde_json::to_string_pretty(&api_data)?;
             fs::write(&api_path, api_json)?;
             println!("[SAVE] Saved normalized api.json\n");
@@ -164,6 +170,15 @@ fn main() -> anyhow::Result<()> {
         ["autofix", "add", fn_spec] => {
             // Add function(s) to api.json: autofix add Dom.add_callback
             // Or with wildcard: autofix add Dom.*
+            // Also automatically adds the type if it's not in api.json yet
+            
+            // Clear the patches folder to avoid stale patches
+            let patches_dir = project_root.join("target").join("autofix").join("patches");
+            if patches_dir.exists() {
+                let _ = fs::remove_dir_all(&patches_dir);
+            }
+            fs::create_dir_all(&patches_dir)?;
+            
             let api_data = load_api_json(&api_path)?;
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
             
@@ -183,7 +198,7 @@ fn main() -> anyhow::Result<()> {
             let (type_name, method_spec) = if parts.len() == 2 {
                 (parts[0], parts[1])
             } else {
-                // module.TypeName.method
+                // module.TypeName.method - ignore the module prefix, we'll determine it automatically
                 (parts[parts.len() - 2], parts[parts.len() - 1])
             };
             
@@ -196,11 +211,105 @@ fn main() -> anyhow::Result<()> {
                 }
             };
             
-            // Find which module the type is in (from api.json)
+            // Find which module the type is in (from api.json), or determine automatically
             let version_data = api_data.get_version(&version)
                 .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
+            
+            let type_exists = autofix::function_diff::type_exists_in_api(type_name, version_data);
+            
+            if !type_exists {
+                // Type doesn't exist in api.json - use the new function to add it with dependencies
+                println!("[ADD] Type '{}' not found in api.json, adding with transitive dependencies...\n", type_name);
+                
+                let method_spec_opt = Some(method_spec);
+                
+                match autofix::function_diff::generate_add_type_patches(
+                    type_name,
+                    method_spec_opt,
+                    &index,
+                    version_data,
+                    &version,
+                ) {
+                    Ok((patches, result)) => {
+                        // Show what will be added
+                        println!("Types to add:");
+                        for (ty, module) in &result.added_types {
+                            println!("  + {} (-> {} module)", ty, module);
+                        }
+                        
+                        if !result.skipped_types.is_empty() {
+                            println!("\nTypes already in api.json (skipped):");
+                            for ty in &result.skipped_types {
+                                println!("  - {}", ty);
+                            }
+                        }
+                        
+                        if !result.missing_types.is_empty() {
+                            println!("\n[WARN] Types not found in workspace:");
+                            for ty in &result.missing_types {
+                                println!("  ? {}", ty);
+                            }
+                        }
+                        
+                        if !result.added_methods.is_empty() {
+                            println!("\nMethods to add to {}:", type_name);
+                            for m in &result.added_methods {
+                                println!("  + {}", m);
+                            }
+                        }
+                        
+                        // Write patches to files
+                        let patches_dir = project_root.join("target").join("autofix").join("patches");
+                        fs::create_dir_all(&patches_dir)?;
+                        
+                        for (i, patch) in patches.iter().enumerate() {
+                            let patch_filename = format!("add_{}_{}.patch.json", 
+                                type_name.to_lowercase(),
+                                i
+                            );
+                            let patch_path = patches_dir.join(&patch_filename);
+                            
+                            let json = patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                            fs::write(&patch_path, &json)?;
+                        }
+                        
+                        // Also generate the functions patch if methods were requested
+                        if !result.added_methods.is_empty() {
+                            let methods: Vec<_> = type_def.methods.iter()
+                                .filter(|m| m.is_public)
+                                .filter(|m| method_spec == "*" || m.name == method_spec)
+                                .collect();
+                            
+                            let func_patch = autofix::function_diff::generate_add_functions_patch(
+                                type_name,
+                                &methods,
+                                &result.primary_module,
+                                &version,
+                                type_def,
+                            );
+                            
+                            let patch_filename = format!("add_{}_functions.patch.json", type_name.to_lowercase());
+                            let patch_path = patches_dir.join(&patch_filename);
+                            let json = serde_json::to_string_pretty(&func_patch)?;
+                            fs::write(&patch_path, &json)?;
+                        }
+                        
+                        println!("\n[OK] {} patches written to: {}", patches.len() + 1, patches_dir.display());
+                        println!("\nTo apply the patches:");
+                        println!("  cargo run -- patch {}", patches_dir.display());
+                    }
+                    Err(e) => {
+                        eprintln!("Error generating patches: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                
+                return Ok(());
+            }
+            
+            // Type exists - just add the functions (original behavior)
             let module_name = autofix::function_diff::find_type_module(type_name, version_data)
-                .ok_or_else(|| anyhow::anyhow!("Type '{}' not found in api.json", type_name))?
+                .unwrap()
                 .to_string();
             
             // Get matching methods
@@ -259,6 +368,14 @@ fn main() -> anyhow::Result<()> {
         }
         ["autofix", "remove", fn_spec] => {
             // Remove function from api.json: autofix remove Dom.some_function
+            
+            // Clear the patches folder to avoid stale patches
+            let patches_dir = project_root.join("target").join("autofix").join("patches");
+            if patches_dir.exists() {
+                let _ = fs::remove_dir_all(&patches_dir);
+            }
+            fs::create_dir_all(&patches_dir)?;
+            
             let api_data = load_api_json(&api_path)?;
             
             // Get the latest version
@@ -298,9 +415,6 @@ fn main() -> anyhow::Result<()> {
             );
             
             // Write patch to file
-            let patches_dir = project_root.join("target").join("autofix").join("patches");
-            fs::create_dir_all(&patches_dir)?;
-            
             let patch_filename = format!("remove_{}_{}.patch.json", 
                 type_name.to_lowercase(),
                 method_name

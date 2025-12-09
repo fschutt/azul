@@ -64,6 +64,7 @@ pub fn get_module_keywords() -> HashMap<&'static str, Vec<&'static str>> {
         "caption", "empty", "table", "quote", "shape", "clip", "mask",
         "perspective", "backface", "writing", "unicode", "initial",
         "normalize", "angle", "percentage", "float", "clear", "zindex",
+        "srgb", "rgb", "hsl", "hsv",
     ]);
     
     // Window module
@@ -78,6 +79,7 @@ pub fn get_module_keywords() -> HashMap<&'static str, Vec<&'static str>> {
     map.insert("dom", vec![
         "dom", "node", "attribute", "accessibility", "tabindex", "focus",
         "hover", "event", "callback", "inline", "tag",
+        "touchstate", "mousestate", "keyboardstate", "debugstate",
     ]);
     
     // Callbacks module

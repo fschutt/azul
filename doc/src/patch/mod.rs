@@ -1293,15 +1293,85 @@ fn apply_class_patch(
     }
 
     if let Some(new_constructors) = &patch.constructors {
-        println!("  [NOTE] Patching {}.{}: constructors", module_name, class_name);
-        class_data.constructors = Some(new_constructors.clone());
+        // Check if this is an "add" operation
+        if patch.add_constructors.unwrap_or(false) {
+            // Merge mode: add new constructors to existing
+            let mut existing = class_data.constructors.clone().unwrap_or_default();
+            for (name, data) in new_constructors {
+                existing.insert(name.clone(), data.clone());
+            }
+            println!("  [NOTE] Patching {}.{}: constructors (merge)", module_name, class_name);
+            class_data.constructors = Some(existing);
+        } else {
+            // Replace mode
+            println!("  [NOTE] Patching {}.{}: constructors", module_name, class_name);
+            class_data.constructors = Some(new_constructors.clone());
+        }
         patches_applied += 1;
     }
 
+    // Handle remove_constructors
+    if let Some(constructors_to_remove) = &patch.remove_constructors {
+        if let Some(existing_constructors) = &mut class_data.constructors {
+            let count_before = existing_constructors.len();
+            for name in constructors_to_remove {
+                existing_constructors.shift_remove(name);
+            }
+            let count_after = existing_constructors.len();
+            if count_before != count_after {
+                println!(
+                    "  [NOTE] Patching {}.{}: constructors (remove)",
+                    module_name, class_name
+                );
+                println!("     Removing: {:?}", constructors_to_remove);
+                println!("     Removed {} constructor(s)", count_before - count_after);
+                if existing_constructors.is_empty() {
+                    class_data.constructors = None;
+                }
+                patches_applied += 1;
+            }
+        }
+    }
+
     if let Some(new_functions) = &patch.functions {
-        println!("  [NOTE] Patching {}.{}: functions", module_name, class_name);
-        class_data.functions = Some(new_functions.clone());
+        // Check if this is an "add" operation
+        if patch.add_functions.unwrap_or(false) {
+            // Merge mode: add new functions to existing
+            let mut existing = class_data.functions.clone().unwrap_or_default();
+            for (name, data) in new_functions {
+                existing.insert(name.clone(), data.clone());
+            }
+            println!("  [NOTE] Patching {}.{}: functions (merge)", module_name, class_name);
+            class_data.functions = Some(existing);
+        } else {
+            // Replace mode
+            println!("  [NOTE] Patching {}.{}: functions", module_name, class_name);
+            class_data.functions = Some(new_functions.clone());
+        }
         patches_applied += 1;
+    }
+
+    // Handle remove_functions
+    if let Some(functions_to_remove) = &patch.remove_functions {
+        if let Some(existing_functions) = &mut class_data.functions {
+            let count_before = existing_functions.len();
+            for name in functions_to_remove {
+                existing_functions.shift_remove(name);
+            }
+            let count_after = existing_functions.len();
+            if count_before != count_after {
+                println!(
+                    "  [NOTE] Patching {}.{}: functions (remove)",
+                    module_name, class_name
+                );
+                println!("     Removing: {:?}", functions_to_remove);
+                println!("     Removed {} function(s)", count_before - count_after);
+                if existing_functions.is_empty() {
+                    class_data.functions = None;
+                }
+                patches_applied += 1;
+            }
+        }
     }
 
     if let Some(new_type_alias) = &patch.type_alias {

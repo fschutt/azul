@@ -240,6 +240,19 @@ pub struct AddOperation {
     /// Callback typedef definition (for callback function pointer types)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub callback_typedef: Option<CallbackTypedefDef>,
+    /// Type alias info (for type aliases like "type HwndHandle = *mut c_void")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_alias: Option<TypeAliasDef>,
+}
+
+/// Definition for a type alias in add patches
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeAliasDef {
+    /// The base target type (e.g., "c_void")
+    pub target: String,
+    /// Reference kind (constptr, mutptr, value)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
 }
 
 /// Definition for a callback typedef (function pointer type)
@@ -599,6 +612,36 @@ impl AutofixPatch {
                                 })
                             }).collect()]
                         }),
+                        type_alias: a.type_alias.as_ref().map(|type_alias_def| {
+                            let ref_kind = type_alias_def.ref_kind.as_ref()
+                                .and_then(|s| crate::api::RefKind::parse(s))
+                                .unwrap_or_default();
+                            crate::api::TypeAliasInfo {
+                                target: type_alias_def.target.clone(),
+                                ref_kind,
+                                generic_args: Vec::new(),
+                            }
+                        }),
+                        callback_typedef: a.callback_typedef.as_ref().map(|cb| {
+                            crate::api::CallbackDefinition {
+                                fn_args: cb.fn_args.iter().map(|arg| {
+                                    let ref_kind = arg.ref_kind.as_ref()
+                                        .and_then(|s| crate::api::RefKind::parse(s))
+                                        .unwrap_or_default();
+                                    crate::api::CallbackArgData {
+                                        r#type: arg.arg_type.clone(),
+                                        ref_kind,
+                                        doc: None,
+                                    }
+                                }).collect(),
+                                returns: cb.returns.as_ref().map(|r| {
+                                    crate::api::ReturnTypeData {
+                                        r#type: r.return_type.clone(),
+                                        doc: None,
+                                    }
+                                }),
+                            }
+                        }),
                         ..Default::default()
                     };
                     let module_name = a.module.clone().unwrap_or_else(|| {
@@ -750,6 +793,7 @@ impl AutofixPatch {
                     use crate::api::TypeAliasInfo;
                     patch.type_alias = Some(TypeAliasInfo {
                         target: target.clone(),
+                        ref_kind: Default::default(),
                         generic_args: generic_args.clone(),
                     });
                 }
@@ -757,6 +801,7 @@ impl AutofixPatch {
                     use crate::api::TypeAliasInfo;
                     patch.type_alias = Some(TypeAliasInfo {
                         target: new_target.clone(),
+                        ref_kind: Default::default(),
                         generic_args: new_generic_args.clone(),
                     });
                 }
@@ -916,6 +961,8 @@ mod tests {
                 VariantDef { name: "Auto".to_string(), variant_type: None },
                 VariantDef { name: "Fixed".to_string(), variant_type: Some("PixelValue".to_string()) },
             ]),
+            callback_typedef: None,
+            type_alias: None,
         }));
 
         let json = patch.to_json().unwrap();

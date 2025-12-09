@@ -14,7 +14,7 @@ use azul_core::{
         RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
     },
 };
-use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString, corety::OptionU32};
+use azul_css::{impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq, props::basic::color::ColorU, AzString, corety::OptionU32};
 
 use crate::callbacks::OptionCallback;
 
@@ -54,6 +54,12 @@ impl WindowCreateOptions {
         options
     }
 }
+
+impl_vec!(WindowCreateOptions, WindowCreateOptionsVec, WindowCreateOptionsVecDestructor);
+impl_vec_clone!(WindowCreateOptions, WindowCreateOptionsVec, WindowCreateOptionsVecDestructor);
+impl_vec_partialeq!(WindowCreateOptions, WindowCreateOptionsVec);
+impl_vec_debug!(WindowCreateOptions, WindowCreateOptionsVec);
+impl_vec_mut!(WindowCreateOptions, WindowCreateOptionsVec);
 
 /// Full window state including internal fields not exposed to callbacks
 #[derive(Debug, Clone, PartialEq)]

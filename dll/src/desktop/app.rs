@@ -9,26 +9,26 @@ use azul_core::{
     window::MonitorVec,
 };
 use azul_css::{impl_option, impl_option_inner, AzString};
-use azul_layout::{timer::Timer, window_state::WindowCreateOptions};
+use azul_layout::{timer::Timer, window_state::{WindowCreateOptions, WindowCreateOptionsVec}};
 use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct AzAppPtr {
-    pub ptr: Box<Arc<Mutex<App>>>,
+pub struct App {
+    pub ptr: Box<Arc<Mutex<AppInternal>>>,
     pub run_destructor: bool,
 }
 
-impl Drop for AzAppPtr {
+impl Drop for App {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
 }
 
-impl AzAppPtr {
+impl App {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         Self {
-            ptr: Box::new(Arc::new(Mutex::new(App::new(initial_data, app_config)))),
+            ptr: Box::new(Arc::new(Mutex::new(AppInternal::new(initial_data, app_config)))),
             run_destructor: true,
         }
     }
@@ -47,29 +47,39 @@ impl AzAppPtr {
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
-        if let Ok(mut l) = self.ptr.try_lock() {
-            let mut app = App::new(RefAny::new(Dummy { _dummy: 0 }), l.config.clone());
-            core::mem::swap(&mut *l, &mut app);
-            app.run(root_window)
+        if let Ok(l) = self.ptr.try_lock() {
+            // Use shell2 for the actual run loop
+            let err = crate::desktop::shell2::run(
+                l.data.clone(),
+                l.config.clone(),
+                (*l.fc_cache).clone(),
+                root_window,
+            );
+
+            if let Err(e) = err {
+                crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+                eprintln!("Application error: {:?}", e);
+            }
         }
     }
 }
 
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
-pub struct App {
+#[repr(C)]
+pub struct AppInternal {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: RefAny,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
-    pub windows: Vec<WindowCreateOptions>,
+    pub windows: WindowCreateOptionsVec,
     /// Font configuration cache (shared across all windows)
-    pub fc_cache: std::sync::Arc<FcFontCache>,
+    pub fc_cache: Box<Arc<FcFontCache>>,
 }
 
-impl App {
+impl AppInternal {
     #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback.
     ///
@@ -81,12 +91,12 @@ impl App {
         #[cfg(not(miri))]
         let fc_cache = {
             eprintln!("[App::new] Building FcFontCache...");
-            let cache = std::sync::Arc::new(FcFontCache::build());
+            let cache = Arc::new(FcFontCache::build());
             eprintln!("[App::new] FcFontCache built successfully");
             cache
         };
         #[cfg(miri)]
-        let fc_cache = std::sync::Arc::new(FcFontCache::default());
+        let fc_cache = Arc::new(FcFontCache::default());
 
         eprintln!("[App::new] Setting up logging...");
 
@@ -114,10 +124,10 @@ impl App {
         eprintln!("[App::new] App created successfully");
 
         Self {
-            windows: Vec::new(),
+            windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
             config: app_config,
-            fc_cache,
+            fc_cache: Box::new(fc_cache),
         }
     }
 
@@ -151,7 +161,7 @@ impl App {
         let err = crate::desktop::shell2::run(
             self.data,
             self.config.clone(),
-            self.fc_cache.clone(),
+            (*self.fc_cache).clone(),
             root_window,
         );
 

@@ -761,6 +761,7 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
         struct_fields,
         enum_variants,
         callback_typedef,
+        type_alias: None,
     }));
     
     patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
