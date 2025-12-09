@@ -1488,11 +1488,11 @@ mod tests {
                 api: IndexMap::from([(
                     "test_module".to_string(),
                     ModuleData {
-                        doc: Some("Test module".to_string()),
+                        doc: Some(vec!["Test module".to_string()]),
                         classes: IndexMap::from([(
                             "TestClass".to_string(),
                             ClassData {
-                                doc: Some("Original documentation".to_string()),
+                                doc: Some(vec!["Original documentation".to_string()]),
                                 external: Some("original::path::TestClass".to_string()),
                                 is_boxed_object: false,
                                 custom_impls: None,
@@ -1506,7 +1506,7 @@ mod tests {
                                     "field1".to_string(),
                                     FieldData {
                                         r#type: "String".to_string(),
-                                        doc: Some("Field documentation".to_string()),
+                                        doc: Some(vec!["Field documentation".to_string()]),
                                         ..Default::default()
                                     },
                                 )])]),
@@ -1547,7 +1547,7 @@ mod tests {
                                             "field1".to_string(),
                                             FieldData {
                                                 r#type: "UpdatedType".to_string(),
-                                                doc: Some("Field documentation".to_string()),
+                                                doc: Some(vec!["Field documentation".to_string()]),
                                                 ..Default::default()
                                             },
                                         ),
@@ -1577,7 +1577,7 @@ mod tests {
 
         assert_eq!(
             class_data.doc,
-            Some("Original documentation".to_string()),
+            Some(vec!["Original documentation".to_string()]),
             "Documentation should be preserved when not in patch"
         );
 
@@ -1633,11 +1633,11 @@ mod tests {
                 api: IndexMap::from([(
                     "test_module".to_string(),
                     ModuleData {
-                        doc: Some("Test module".to_string()),
+                        doc: Some(vec!["Test module".to_string()]),
                         classes: IndexMap::from([(
                             "TestClass".to_string(),
                             ClassData {
-                                doc: Some("Original documentation".to_string()),
+                                doc: Some(vec!["Original documentation".to_string()]),
                                 external: Some("original::path::TestClass".to_string()),
                                 ..Default::default()
                             },
@@ -1658,7 +1658,7 @@ mod tests {
                             classes: BTreeMap::from([(
                                 "TestClass".to_string(),
                                 ClassPatch {
-                                    doc: Some("Updated documentation".to_string()),
+                                    doc: Some(vec!["Updated documentation".to_string()]),
                                     external: Some("new::path::TestClass".to_string()),
                                     ..Default::default()
                                 },
@@ -1678,7 +1678,7 @@ mod tests {
 
         assert_eq!(
             class_data.doc,
-            Some("Updated documentation".to_string()),
+            Some(vec!["Updated documentation".to_string()]),
             "Documentation should be updated when in patch"
         );
 

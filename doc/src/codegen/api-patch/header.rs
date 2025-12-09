@@ -1,11 +1,4 @@
-#![no_std]
-#![allow(non_upper_case_globals)]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
-)]
-
-//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "
+// Auto-generated public Rust API for the Azul GUI toolkit
 
 extern crate alloc;
 #[cfg(feature = "serde-support")]

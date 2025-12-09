@@ -31963,15 +31963,15 @@
               },
               "encode_jpeg": {
                 "doc": [
-                  "Encodes the RawImage in the JPG image format"
+                  "Encodes the RawImage in the JPG image format.",
+                  "Quality is a value from 0 to 100."
                 ],
                 "fn_args": [
                   {
                     "self": "ref"
                   },
                   {
-                    "quality": "u8",
-                    "doc": "Output JPEG quality, value from 0 to 100"
+                    "quality": "u8"
                   }
                 ],
                 "returns": {

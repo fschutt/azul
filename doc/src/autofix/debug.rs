@@ -361,7 +361,7 @@ mod tests {
                                     ty: field.ty.to_token_stream().to_string()
                                         .split_whitespace().collect::<Vec<_>>().join(" "),
                                     ref_kind: RefKind::Value,
-                                    doc: String::new(),
+                                    doc: Vec::new(),
                                 },
                             );
                         }
@@ -378,7 +378,9 @@ mod tests {
                             repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec![],
+                            custom_impls: vec![],
                         },
+                        methods: vec![],
                         source_code: String::new(),
                     });
                 }
@@ -403,7 +405,7 @@ mod tests {
                             VariantDef {
                                 name: variant_name,
                                 ty: variant_ty,
-                                doc: String::new(),
+                                doc: Vec::new(),
                             },
                         );
                     }
@@ -419,7 +421,9 @@ mod tests {
                             repr: Some("C".to_string()),
                             generic_params: vec![],
                             derives: vec![],
+                            custom_impls: vec![],
                         },
+                        methods: vec![],
                         source_code: String::new(),
                     });
                 }

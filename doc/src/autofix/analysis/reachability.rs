@@ -109,14 +109,33 @@ fn extract_fn_types(parser: &TypeParser, fn_def: &serde_json::Value, out: &mut H
         extract_types_from_string(parser, ret, out);
     }
 
-    // Arguments (skip "self" key!)
-    if let Some(args) = fn_def.get("fn_args").and_then(|v| v.as_object()) {
-        for (key, val) in args {
-            if key == "self" {
-                continue; // "self" value is borrow mode, not a type
+    // Arguments - fn_args MUST be an array of objects
+    if let Some(fn_args) = fn_def.get("fn_args") {
+        if let Some(args_array) = fn_args.as_array() {
+            // Correct format: array of objects
+            for arg in args_array {
+                if let Some(obj) = arg.as_object() {
+                    for (key, val) in obj {
+                        // Skip self (borrow mode), doc, type metadata
+                        if key == "self" || key == "doc" || key == "type" {
+                            continue;
+                        }
+                        if let Some(type_str) = val.as_str() {
+                            extract_types_from_string(parser, type_str, out);
+                        }
+                    }
+                }
             }
-            if let Some(type_str) = val.as_str() {
-                extract_types_from_string(parser, type_str, out);
+        } else if let Some(args_obj) = fn_args.as_object() {
+            // Legacy format: flat object (deprecated, order not preserved!)
+            eprintln!("WARNING: fn_args is a flat object instead of array - argument order may be lost!");
+            for (key, val) in args_obj {
+                if key == "self" || key == "doc" || key == "type" {
+                    continue;
+                }
+                if let Some(type_str) = val.as_str() {
+                    extract_types_from_string(parser, type_str, out);
+                }
             }
         }
     }

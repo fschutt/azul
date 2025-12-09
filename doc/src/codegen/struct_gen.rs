@@ -1745,7 +1745,7 @@ mod tests {
 
         let mut meta = StructMetadata {
             name: "Point".to_string(),
-            doc: Some("A 2D point".to_string()),
+            doc: Some(vec!["A 2D point".to_string()]),
             external: Some("crate::Point".to_string()),
             derive: vec!["Copy".to_string(), "Clone".to_string(), "Debug".to_string()],
             is_callback_typedef: false,
@@ -1833,7 +1833,7 @@ mod tests {
 
         let meta = StructMetadata {
             name: "Color".to_string(),
-            doc: Some("RGB color".to_string()),
+            doc: Some(vec!["RGB color".to_string()]),
             external: Some("crate::Color".to_string()),
             derive: vec!["Copy".to_string(), "Clone".to_string(), "Debug".to_string()],
             is_callback_typedef: false,
