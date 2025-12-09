@@ -170,7 +170,6 @@ impl RefCount {
     /// - The lifetime is tied to `&self`, ensuring the pointer is still alive
     /// - Reference counting ensures the data isn't freed while references exist
     fn downcast(&self) -> &RefCountInner {
-        eprintln!("[RefCount::downcast] self.ptr = {:?}", self.ptr);
         if self.ptr.is_null() {
             panic!("[RefCount::downcast] FATAL: self.ptr is null!");
         }

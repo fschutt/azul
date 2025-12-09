@@ -179,9 +179,11 @@ define_class!(
 
         #[unsafe(method(prepareOpenGL))]
         fn prepare_opengl(&self) {
+            eprintln!("[GLView] prepareOpenGL called!");
             // Load GL functions via dlopen
             match GlFunctions::initialize() {
                 Ok(functions) => {
+                    eprintln!("[GLView] prepareOpenGL: GL functions loaded successfully");
                     *self.ivars().gl_functions.borrow_mut() = Some(functions.get_context());
                     self.ivars().needs_reshape.set(true);
                 }
@@ -189,10 +191,12 @@ define_class!(
                     eprintln!("Failed to load GL functions: {}", e);
                 }
             }
+            eprintln!("[GLView] prepareOpenGL done");
         }
 
         #[unsafe(method(reshape))]
         fn reshape(&self) {
+            eprintln!("[GLView] reshape called!");
             let mtm = self.ivars().mtm;
 
             // Update context - THIS IS STILL IMPORTANT
@@ -1638,37 +1642,31 @@ impl MacOSWindow {
     }
 
     /// Configure VSync on an OpenGL context
-    fn configure_vsync(gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
+    /// 
+    /// NOTE: NSOpenGLContext setValues:forParameter: is deprecated on macOS 10.14+
+    /// CVDisplayLink is the preferred approach for frame synchronization.
+    /// This function is kept as a fallback but currently disabled due to
+    /// type encoding issues with objc2's msg_send! macro.
+    fn configure_vsync(_gl_context: &NSOpenGLContext, vsync: azul_core::window::Vsync) {
         use azul_core::window::Vsync;
 
-        // Traditional VSync configuration via NSOpenGLContext
-        // This is a simple immediate synchronization method, but CVDisplayLink is preferred
-
-        // Note: On modern macOS (10.14+), CVDisplayLink is the recommended approach
-        // This function provides a fallback for older systems or when CVDisplayLink fails
-
-        let swap_interval: i32 = match vsync {
-            Vsync::Enabled => 1,  // Sync to display refresh rate
-            Vsync::Disabled => 0, // No synchronization
-            Vsync::DontCare => 1, // Default to enabled
+        // TODO: Re-enable once objc2-open-gl feature is properly configured
+        // The issue is that msg_send! expects specific type encodings:
+        // - vals: *const GLint (i32)  
+        // - param: NSOpenGLContextParameter (wraps NSInteger = isize)
+        // Using raw msg_send! with incorrect types causes runtime panics.
+        //
+        // For now, we rely on CVDisplayLink for vsync (see initialize_display_link)
+        
+        let swap_interval = match vsync {
+            Vsync::Enabled => 1,
+            Vsync::Disabled => 0,
+            Vsync::DontCare => 1,
         };
 
-        unsafe {
-            use objc2::msg_send;
-
-            // Set swap interval on the GL context
-            // This must be called AFTER makeCurrentContext() in the event loop
-            let swap_ptr = &swap_interval as *const i32;
-            let _: () = msg_send![gl_context, setValues:swap_ptr forParameter:222]; // 222 = NSOpenGLCPSwapInterval
-        }
-
         eprintln!(
-            "[MacOSWindow::configure_vsync] Traditional VSync {} (swap interval: {})",
-            if swap_interval == 1 {
-                "enabled"
-            } else {
-                "disabled"
-            },
+            "[MacOSWindow::configure_vsync] VSync {} requested (swap interval: {}), using CVDisplayLink instead",
+            if swap_interval == 1 { "enabled" } else { "disabled" },
             swap_interval
         );
     }
@@ -1875,8 +1873,10 @@ impl MacOSWindow {
             RenderBackend::OpenGL => match Self::create_gl_view(content_rect, mtm) {
                 Ok((view, ctx, funcs)) => {
                     eprintln!("[MacOSWindow::new] OpenGL view created successfully");
+                    eprintln!("[MacOSWindow::new] Configuring VSync...");
                     let vsync = options.state.renderer_options.vsync;
                     Self::configure_vsync(&ctx, vsync);
+                    eprintln!("[MacOSWindow::new] VSync configured, returning from match...");
                     (
                         RenderBackend::OpenGL,
                         Some(view),

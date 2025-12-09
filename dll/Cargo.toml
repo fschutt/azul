@@ -176,6 +176,11 @@ name = "hello_world_test"
 path = "examples/hello_world_test.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "hello_world_window"
+path = "examples/hello_world_window.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """
