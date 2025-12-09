@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
-use std::{fmt, sync::Mutex, thread::JoinHandle};
+use std::fmt;
 
 use azul_core::{
-    callbacks::{Dummy, Update},
+    callbacks::Update,
     refany::RefAny,
     resources::{AppConfig, ImageCache, ImageRef},
     task::TimerId,
@@ -15,7 +15,7 @@ use rust_fontconfig::FcFontCache;
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct App {
-    pub ptr: Box<Arc<Mutex<AppInternal>>>,
+    pub ptr: Box<AppInternal>,
     pub run_destructor: bool,
 }
 
@@ -28,44 +28,49 @@ impl Drop for App {
 impl App {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         Self {
-            ptr: Box::new(Arc::new(Mutex::new(AppInternal::new(initial_data, app_config)))),
+            ptr: Box::new(AppInternal::new(initial_data, app_config)),
             run_destructor: true,
         }
     }
 
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {
-        if let Ok(mut l) = (&*self.ptr).try_lock() {
-            l.add_window(create_options);
-        }
+        self.ptr.add_window(create_options);
     }
 
     pub fn get_monitors(&self) -> MonitorVec {
-        self.ptr
-            .lock()
-            .map(|m| m.get_monitors())
-            .unwrap_or(MonitorVec::from_const_slice(&[]))
+        self.ptr.get_monitors()
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
-        if let Ok(l) = self.ptr.try_lock() {
-            // Use shell2 for the actual run loop
-            let err = crate::desktop::shell2::run(
-                l.data.clone(),
-                l.config.clone(),
-                (*l.fc_cache).clone(),
-                root_window,
-            );
+        eprintln!("[App::run] Starting...");
+        eprintln!("[App::run] Cloning data...");
+        let data = self.ptr.data.clone();
+        eprintln!("[App::run] Data cloned successfully");
+        eprintln!("[App::run] Cloning config...");
+        let config = self.ptr.config.clone();
+        eprintln!("[App::run] Config cloned successfully");
+        eprintln!("[App::run] Cloning fc_cache...");
+        let fc_cache = (*self.ptr.fc_cache).clone();
+        eprintln!("[App::run] fc_cache cloned successfully");
+        eprintln!("[App::run] Calling shell2::run...");
+        
+        // Use shell2 for the actual run loop
+        let err = crate::desktop::shell2::run(
+            data,
+            config,
+            fc_cache,
+            root_window,
+        );
 
-            if let Err(e) = err {
-                crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
-                eprintln!("Application error: {:?}", e);
-            }
+        if let Err(e) = err {
+            crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+            eprintln!("Application error: {:?}", e);
         }
     }
 }
 
 /// Graphical application that maintains some kind of application state
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AppInternal {
     /// Your data (the global struct which all callbacks will have access to)
@@ -86,7 +91,9 @@ impl AppInternal {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
-        eprintln!("[App::new] Starting App creation");
+        eprintln!("[AppInternal::new] Starting App creation");
+        eprintln!("[AppInternal::new] initial_data._internal_ptr: {:?}", initial_data._internal_ptr);
+        eprintln!("[AppInternal::new] initial_data.sharing_info.ptr: {:?}", initial_data.sharing_info.ptr);
 
         #[cfg(not(miri))]
         let fc_cache = {

@@ -170,6 +170,10 @@ impl RefCount {
     /// - The lifetime is tied to `&self`, ensuring the pointer is still alive
     /// - Reference counting ensures the data isn't freed while references exist
     fn downcast(&self) -> &RefCountInner {
+        eprintln!("[RefCount::downcast] self.ptr = {:?}", self.ptr);
+        if self.ptr.is_null() {
+            panic!("[RefCount::downcast] FATAL: self.ptr is null!");
+        }
         unsafe { &*self.ptr }
     }
 
@@ -624,9 +628,18 @@ impl RefAny {
             custom_destructor,
         };
 
+        let sharing_info = RefCount::new(ref_count_inner);
+        
+        eprintln!("[RefAny::new_c] Created RefAny:");
+        eprintln!("  input ptr: {:?}", ptr);
+        eprintln!("  len: {}, align: {}", len, align);
+        eprintln!("  _internal_ptr (heap copy): {:?}", _internal_ptr);
+        eprintln!("  sharing_info.ptr: {:?}", sharing_info.ptr);
+        eprintln!("  type_id: {}", type_id);
+
         Self {
             _internal_ptr: _internal_ptr as *const c_void,
-            sharing_info: RefCount::new(ref_count_inner),
+            sharing_info,
             instance_id: 0, // Root instance
             run_destructor: true,
         }
@@ -874,11 +887,19 @@ impl Clone for RefAny {
     /// - The heap allocation remains valid (only freed when count reaches 0)
     /// - `run_destructor` is set to `true` for all clones
     fn clone(&self) -> Self {
+        eprintln!("[RefAny::clone] Cloning RefAny:");
+        eprintln!("  self._internal_ptr: {:?}", self._internal_ptr);
+        eprintln!("  self.sharing_info.ptr: {:?}", self.sharing_info.ptr);
+        eprintln!("  self.instance_id: {}", self.instance_id);
+        
         // Atomically increment the reference count
-        self.sharing_info
-            .downcast()
-            .num_copies
-            .fetch_add(1, AtomicOrdering::SeqCst);
+        eprintln!("[RefAny::clone] About to call sharing_info.downcast()...");
+        let inner = self.sharing_info.downcast();
+        eprintln!("[RefAny::clone] downcast() succeeded, incrementing num_copies...");
+        inner.num_copies.fetch_add(1, AtomicOrdering::SeqCst);
+
+        let new_instance_id = inner.num_copies.load(AtomicOrdering::SeqCst) as u64;
+        eprintln!("[RefAny::clone] New instance_id: {}", new_instance_id);
 
         Self {
             _internal_ptr: self._internal_ptr, // Share the same data pointer
@@ -887,11 +908,7 @@ impl Clone for RefAny {
                 run_destructor: true,
             },
             // Give this clone a unique ID based on the updated count
-            instance_id: self
-                .sharing_info
-                .downcast()
-                .num_copies
-                .load(AtomicOrdering::SeqCst) as u64,
+            instance_id: new_instance_id,
             run_destructor: true,
         }
     }

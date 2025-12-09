@@ -8,6 +8,7 @@ vendor/
 *.sublime-project
 .vscode/*
 .vs/*
+*.dSYM
 *.log
 .idea/*
 out.txt

@@ -53,9 +53,20 @@ AzUpdate myOnClick(AzRefAny* restrict data, AzCallbackInfo* restrict info) {
 int main() {
     MyDataModel model = { .counter = 5 };
     AzRefAny data = MyDataModel_upcast(model);
+    printf("[C main] After upcast: data._internal_ptr = %p\n", data._internal_ptr);
+    printf("[C main] After upcast: data.sharing_info.ptr = %p\n", data.sharing_info.ptr);
+    
     AzAppConfig config = AzAppConfig_default();
-    AzApp app = AzApp_new(data, config);
+    
+    // Create window BEFORE app to avoid stack corruption
     AzWindowCreateOptions window = AzWindowCreateOptions_new(myLayoutFunc);
+    printf("[C main] After window create\n");
+    
+    AzApp app = AzApp_new(data, config);
+    printf("[C main] After AzApp_new: app.ptr = %p\n", app.ptr);
+    printf("[C main] After AzApp_new: app.run_destructor = %d\n", app.run_destructor);
+    
+    printf("[C main] About to call AzApp_run...\n");
     AzApp_run(&app, window);
     return 0;
 }

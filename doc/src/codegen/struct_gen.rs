@@ -939,8 +939,20 @@ fn generate_struct_definition(
         // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
         let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
         
+        // Check if this type has Clone - either via custom_impls (like RefAny) or via derive
+        // Both need to call the real .clone() method via transmute
+        let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
+        let has_derive_clone = struct_meta.derive.contains(&"Clone".to_string());
+        let can_delegate_clone = has_custom_clone || has_derive_clone;
+        // Replace azul_dll:: with crate:: since we're compiling within the crate
+        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name)
+            .replace("azul_dll::", "crate::");
+        
         // Generate impl Clone for memtest
-        if all_manual_traits.contains("Clone") {
+        // IMPORTANT: Only generate Clone if we have a Clone impl we can delegate to.
+        // Never use core::ptr::read - it's NEVER a valid Clone implementation!
+        // Types without Clone (custom or derive) will simply not have Clone impl in memtest.
+        if all_manual_traits.contains("Clone") && can_delegate_clone && !is_generic_type {
             code.push_str(&format!(
                 "{}impl{} Clone for {} {{\n",
                 indent_str, impl_generics, type_with_generics
@@ -949,13 +961,17 @@ fn generate_struct_definition(
                 "{}    fn clone(&self) -> Self {{\n",
                 indent_str
             ));
+            // Call the real clone() on the external type
+            // This is critical for types that manage refcounts or resources
             code.push_str(&format!(
-                "{}        unsafe {{ core::ptr::read(self) }}\n",
-                indent_str
+                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}\n",
+                indent_str, external_path, struct_name, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
+        // NOTE: Types without Clone (custom or derive) do NOT get a Clone impl in memtest.
+        // This is intentional - core::ptr::read is NEVER a valid Clone implementation!
         
         // Generate impl Debug for memtest
         // Skip VecDestructor types - these get detailed Debug impls in memtest.rs
@@ -1369,8 +1385,18 @@ fn generate_enum_definition(
         // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
         let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
         
+        // Check if this type has a custom Clone implementation or derived Clone
+        // These need to call the real .clone() method, not just ptr::read
+        let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
+        let has_derived_clone = struct_meta.derive.contains(&"Clone".to_string());
+        // Replace azul_dll:: with crate:: since we're compiling within the crate
+        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name)
+            .replace("azul_dll::", "crate::");
+        
         // Generate impl Clone for memtest
-        if all_manual_traits.contains("Clone") {
+        // IMPORTANT: Only generate Clone if we have a custom_impls OR derived Clone that we can delegate to.
+        // Never use core::ptr::read - it's NEVER a valid Clone implementation!
+        if all_manual_traits.contains("Clone") && (has_custom_clone || has_derived_clone) && !is_generic_type {
             code.push_str(&format!(
                 "{}impl{} Clone for {} {{\n",
                 indent_str, impl_generics, type_with_generics
@@ -1379,13 +1405,15 @@ fn generate_enum_definition(
                 "{}    fn clone(&self) -> Self {{\n",
                 indent_str
             ));
+            // For types with custom Clone impl, call the real clone()
             code.push_str(&format!(
-                "{}        unsafe {{ core::ptr::read(self) }}\n",
-                indent_str
+                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}\n",
+                indent_str, external_path, struct_name, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
+        // NOTE: Types without custom_impls Clone do NOT get a Clone impl in memtest.
         
         // Generate impl Debug for memtest
         // Skip VecDestructor types - these get detailed Debug impls in memtest.rs

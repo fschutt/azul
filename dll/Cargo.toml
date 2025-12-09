@@ -171,6 +171,11 @@ name = "kitchen_sink"
 path = "examples/kitchen_sink.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "hello_world_test"
+path = "examples/hello_world_test.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """

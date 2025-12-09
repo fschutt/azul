@@ -202,13 +202,38 @@ pub fn get_class<'a>(
 }
 
 /// Check if a class is stack allocated
+/// 
+/// A class is stack-allocated when:
+/// - It has `struct_fields` or `enum_fields` (has actual data layout)
+/// - AND it has `repr: C` (has stable C-compatible layout)
+/// - AND `is_boxed_object` is NOT true (not explicitly marked as pointer-wrapper)
 pub fn class_is_stack_allocated(class: &ClassData) -> bool {
-    !(class.is_boxed_object
-        || (class.external.is_some()
-            && (class.struct_fields.is_some()
-                || class.enum_fields.is_some()
-                || class.callback_typedef.is_some()
-                || class.const_value_type.is_some())))
+    // If explicitly marked as boxed object, it's not stack allocated
+    if class.is_boxed_object {
+        return false;
+    }
+    
+    // Callback typedefs are function pointers, always stack-allocated
+    if class.callback_typedef.is_some() {
+        return true;
+    }
+    
+    // Const values are stack-allocated
+    if class.const_value_type.is_some() {
+        return true;
+    }
+    
+    // Type aliases without struct/enum fields are stack-allocated 
+    // (they just alias another type)
+    if class.type_alias.is_some() {
+        return true;
+    }
+    
+    // Structs and enums with repr(C) are stack-allocated
+    let has_repr_c = class.repr.as_deref() == Some("C");
+    let has_data_layout = class.struct_fields.is_some() || class.enum_fields.is_some();
+    
+    has_data_layout && has_repr_c
 }
 
 /// Check if a class is a small enum (only has enum fields)

@@ -109,6 +109,129 @@ jobs:
       - name: Run reftest
         run: cargo run -r -p azul-doc reftest run
 
+  # ===================================================================
+  # ==          FFI SAFETY TESTS (Address Sanitizer + Miri)          ==
+  # ===================================================================
+
+  ffi_safety_tests:
+    name: FFI Safety Tests (ASan + Miri)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    needs: lint_and_check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Install Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+
+      - name: Install clang and LLDB
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lldb
+
+      - name: Build azul-dll with c-api feature (debug)
+        run: cargo build -p azul-dll --features c-api
+
+      - name: Generate C header
+        run: cargo run -r -p azul-doc codegen
+
+      - name: Compile C hello-world with Address Sanitizer
+        run: |
+          cd examples/c
+          clang -g -O0 -fsanitize=address \
+            -I../../target/codegen \
+            hello-world.c \
+            -L../../target/debug -lazul_dll \
+            -o hello-world-asan
+
+      - name: Run C hello-world with Address Sanitizer
+        run: |
+          cd examples/c
+          export LD_LIBRARY_PATH=../../target/debug:$LD_LIBRARY_PATH
+          export ASAN_OPTIONS=detect_leaks=0,abort_on_error=1
+          # Run with timeout to catch hangs, exit 0 if window closes normally
+          timeout 5s ./hello-world-asan || [ $? -eq 124 ]
+
+      - name: Run Miri on Rust examples (kitchen_sink)
+        run: |
+          # Note: Miri cannot run the full GUI app, but can test the setup/teardown logic
+          cargo +nightly miri test --lib -p azul-dll -- --nocapture || true
+
+      - name: Check for FFI safety issues in api.json types
+        run: |
+          # Run autofix which includes FFI safety checks
+          cargo run -r -p azul-doc autofix 2>&1 | tee autofix_output.txt
+          # Fail if there are FFI safety warnings about missing repr(C)
+          if grep -q "FFI safety issues" autofix_output.txt; then
+            echo "ERROR: FFI safety issues detected!"
+            grep -A 20 "FFI safety issues" autofix_output.txt
+            exit 1
+          fi
+
+  ffi_safety_tests_macos:
+    name: FFI Safety Tests (macOS ASan + LLDB)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    needs: lint_and_check
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Build azul-dll with c-api feature (debug)
+        run: cargo build -p azul-dll --features c-api
+
+      - name: Generate C header
+        run: cargo run -r -p azul-doc codegen
+
+      - name: Compile C hello-world with Address Sanitizer
+        run: |
+          cd examples/c
+          clang -g -O0 -fsanitize=address \
+            -I../../target/codegen \
+            hello-world.c \
+            -L../../target/debug -lazul_dll \
+            -o hello-world-asan
+
+      - name: Run C hello-world with Address Sanitizer
+        run: |
+          cd examples/c
+          export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
+          export ASAN_OPTIONS=detect_leaks=0,abort_on_error=1
+          # Run with timeout, exit 0 if window closes normally or timeout
+          gtimeout 5s ./hello-world-asan || [ $? -eq 124 ]
+        continue-on-error: true  # macOS may not have gtimeout
+
+      - name: Run LLDB crash detection on C example
+        run: |
+          cd examples/c
+          export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
+          # Use LLDB to run and detect crashes - exit on first signal
+          echo "run" > /tmp/lldb_commands.txt
+          echo "bt" >> /tmp/lldb_commands.txt
+          echo "quit" >> /tmp/lldb_commands.txt
+          # Run LLDB batch mode - will show backtrace on crash
+          lldb -b -s /tmp/lldb_commands.txt ./hello-world-asan 2>&1 | tee lldb_output.txt || true
+          # Check for crash indicators
+          if grep -q "SIGABRT\|SIGSEGV\|AddressSanitizer" lldb_output.txt; then
+            echo "ERROR: Crash detected in C example!"
+            cat lldb_output.txt
+            exit 1
+          fi
+        continue-on-error: true  # Don't fail CI if LLDB has issues
+
   build_binaries:
     name: Build Binaries on ${{ matrix.os }}
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'

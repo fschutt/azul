@@ -690,6 +690,19 @@ fn main() -> anyhow::Result<()> {
         }
         ["memtest", "run"] => {
             let api_data = load_api_json(&api_path)?;
+            
+            // Run FFI safety checks first
+            println!("[CHECK] Running FFI safety checks...\n");
+            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
+                ?;
+            let ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            if !ffi_warnings.is_empty() {
+                autofix::print_ffi_safety_warnings(&ffi_warnings);
+                eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());
+                std::process::exit(1);
+            }
+            println!("[OK] FFI safety checks passed.\n");
+            
             println!("[TEST] Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -714,6 +727,19 @@ fn main() -> anyhow::Result<()> {
         }
         ["memtest"] => {
             let api_data = load_api_json(&api_path)?;
+            
+            // Run FFI safety checks first
+            println!("[CHECK] Running FFI safety checks...\n");
+            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
+                ?;
+            let ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            if !ffi_warnings.is_empty() {
+                autofix::print_ffi_safety_warnings(&ffi_warnings);
+                eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());
+                std::process::exit(1);
+            }
+            println!("[OK] FFI safety checks passed.\n");
+            
             println!("[TEST] Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -778,11 +804,9 @@ fn main() -> anyhow::Result<()> {
 
             println!("[FIX] Generating Rust library code...\n");
 
-            // Generate dll/lib.rs
-            let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
-            let dll_path = project_root.join("dll").join("lib.rs");
-            fs::write(&dll_path, dll_code)?;
-            println!("[OK] Generated: {}", dll_path.display());
+            // NOTE: dll/lib.rs is no longer generated here.
+            // The DLL uses include!() with target/memtest/dll_api.rs instead.
+            // To regenerate the DLL API: cd doc && cargo run --release -- memtest dll
 
             // Generate azul-rs/azul.rs
             let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
@@ -844,11 +868,9 @@ fn main() -> anyhow::Result<()> {
 
             println!("[FIX] Generating all language bindings...\n");
 
-            // Generate dll/lib.rs
-            let dll_code = codegen::rust_dll::generate_rust_dll(&api_data, version);
-            let dll_path = project_root.join("dll").join("lib.rs");
-            fs::write(&dll_path, dll_code)?;
-            println!("[OK] Generated: {}", dll_path.display());
+            // NOTE: dll/lib.rs is no longer generated here.
+            // The DLL uses include!() with target/memtest/dll_api.rs instead.
+            // To regenerate the DLL API: cd doc && cargo run --release -- memtest dll
 
             // Generate azul-rs/azul.rs
             let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);

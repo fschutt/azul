@@ -51,14 +51,6 @@ use crate::{
     FastBTreeSet, FastHashMap,
 };
 
-// NOTE: must be repr(C), otherwise UB
-// due to zero-sized allocation in RefAny::new_c
-// TODO: fix later!
-#[repr(C)]
-pub struct Dummy {
-    pub _dummy: u8,
-}
-
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -663,6 +655,7 @@ pub struct LayoutCallbackInfoRefData<'a> {
     pub system_style: Arc<SystemStyle>,
 }
 
+#[repr(C)]
 pub struct LayoutCallbackInfo {
     /// Single reference to all readonly reference data
     /// This consolidates 4 individual parameters into 1, improving API ergonomics

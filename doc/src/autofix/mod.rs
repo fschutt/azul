@@ -847,6 +847,10 @@ pub struct FfiSafetyWarning {
 /// The kind of FFI safety issue
 #[derive(Debug)]
 pub enum FfiSafetyWarningKind {
+    /// Struct is missing repr(C) attribute
+    StructMissingReprC {
+        current_repr: Option<String>,
+    },
     /// Enum variant has more than one field (not FFI-safe)
     MultiFieldVariant {
         variant_name: String,
@@ -867,11 +871,16 @@ pub enum FfiSafetyWarningKind {
     NonCReprEnum {
         current_repr: String,
     },
+    /// Type name is duplicated in multiple files
+    DuplicateTypeName {
+        other_files: Vec<String>,
+    },
 }
 
 /// Check FFI safety of types that exist in api.json
 pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Vec<FfiSafetyWarning> {
     use std::collections::HashSet;
+    use std::collections::HashMap;
     
     // Build a set of type names that exist in api.json
     let api_types: HashSet<String> = api_data.0.values()
@@ -882,6 +891,53 @@ pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Ve
     
     let mut warnings = Vec::new();
     
+    // Check for duplicate type names first
+    // Build a map of type_name -> list of (file path, is_generic)
+    let mut type_locations: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+    for (type_name, defs) in index.iter_all() {
+        if !api_types.contains(type_name) {
+            continue;
+        }
+        for typedef in defs {
+            let file_path = typedef.file_path.display().to_string();
+            let is_generic = match &typedef.kind {
+                type_index::TypeDefKind::Struct { generic_params, .. } => !generic_params.is_empty(),
+                type_index::TypeDefKind::Enum { generic_params, .. } => !generic_params.is_empty(),
+                _ => false,
+            };
+            type_locations
+                .entry(type_name.clone())
+                .or_default()
+                .push((file_path, is_generic));
+        }
+    }
+    
+    // Report duplicates (only if BOTH are non-generic or BOTH are generic)
+    for (type_name, files) in &type_locations {
+        // Filter to only non-generic types for duplicate check
+        let non_generic_files: Vec<&String> = files.iter()
+            .filter(|(_, is_generic)| !*is_generic)
+            .map(|(path, _)| path)
+            .collect();
+        
+        if non_generic_files.len() > 1 {
+            // Report for each non-generic file
+            for file in &non_generic_files {
+                let other_files: Vec<String> = non_generic_files.iter()
+                    .filter(|f| *f != file)
+                    .map(|f| (*f).clone())
+                    .collect();
+                warnings.push(FfiSafetyWarning {
+                    type_name: type_name.clone(),
+                    file_path: (*file).clone(),
+                    kind: FfiSafetyWarningKind::DuplicateTypeName {
+                        other_files,
+                    },
+                });
+            }
+        }
+    }
+    
     // Iterate over all types, but only check those in api.json
     for (type_name, defs) in index.iter_all() {
         // Skip types that aren't in api.json
@@ -890,9 +946,29 @@ pub fn check_ffi_safety(index: &type_index::TypeIndex, api_data: &ApiData) -> Ve
         }
         
         for typedef in defs {
-            // Only check enums
+            let file_path = typedef.file_path.display().to_string();
+            
+            // Check structs for repr(C)
+            if let type_index::TypeDefKind::Struct { repr, .. } = &typedef.kind {
+                // Structs in api.json must have repr(C)
+                let has_repr_c = match repr {
+                    Some(r) => r.to_lowercase().contains("c"),
+                    None => false,
+                };
+                
+                if !has_repr_c {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: type_name.clone(),
+                        file_path: file_path.clone(),
+                        kind: FfiSafetyWarningKind::StructMissingReprC {
+                            current_repr: repr.clone(),
+                        },
+                    });
+                }
+            }
+            
+            // Check enums
             if let type_index::TypeDefKind::Enum { variants, repr, .. } = &typedef.kind {
-                let file_path = typedef.file_path.display().to_string();
                 
                 // Check if any variant has data
                 let has_data_variants = variants.values().any(|v| v.ty.is_some());
@@ -994,6 +1070,13 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
     
     for warning in warnings {
         match &warning.kind {
+            FfiSafetyWarningKind::StructMissingReprC { current_repr } => {
+                let repr_display = current_repr.as_deref().unwrap_or("none");
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Struct has repr: {}", "→".dimmed(), repr_display.yellow());
+                println!("    {} Add #[repr(C)] for FFI-safe struct layout.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
             FfiSafetyWarningKind::MultiFieldVariant { variant_name, field_count, field_types } => {
                 println!("  {} {}", "✗".red(), format!("{}::{}", warning.type_name, variant_name).white());
                 println!("    {} Enum variant has {} fields: {}", 
@@ -1022,6 +1105,16 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 println!("    {} Enum uses non-C repr: #[repr({})]", "→".dimmed(), current_repr.yellow());
                 println!("    {} Explicit discriminant values (= 100, = 200) are not FFI-safe.", "REASON:".magenta());
                 println!("    {} Use #[repr(C)] for enums without data, remove explicit discriminant values.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::DuplicateTypeName { other_files } => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Type name is duplicated in multiple files!", "→".dimmed());
+                println!("    {} Also defined in:", "ALSO:".magenta());
+                for other in other_files {
+                    println!("       - {}", other.yellow());
+                }
+                println!("    {} Rename one of the types to avoid name collision in C API.", "FIX:".cyan());
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
         }

@@ -18,13 +18,13 @@ use crate::desktop::shell2::common::window::PlatformWindow;
 
 // -- State for input devices --
 
-pub(super) struct KeyboardState {
+pub(super) struct WaylandKeyboardState {
     pub(super) context: *mut xkb_context,
     pub(super) keymap: *mut xkb_keymap,
     pub(super) state: *mut xkb_state,
 }
 
-impl KeyboardState {
+impl WaylandKeyboardState {
     pub(super) fn new() -> Self {
         Self {
             context: std::ptr::null_mut(),

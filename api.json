@@ -2880,7 +2880,7 @@
                 },
                 "extra": {
                   "type": "c_void",
-                  "ref_kind": "optionboxed"
+                  "ref_kind": "mutptr"
                 }
               }
             ],
@@ -15281,7 +15281,7 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "ref_kind": "boxed"
+                  "ref_kind": "mutptr"
                 },
                 "run_destructor": {
                   "type": "bool"
@@ -15970,11 +15970,11 @@
               {
                 "min": {
                   "type": "c_void",
-                  "ref_kind": "boxed"
+                  "ref_kind": "mutptr"
                 },
                 "max": {
                   "type": "c_void",
-                  "ref_kind": "boxed"
+                  "ref_kind": "mutptr"
                 }
               }
             ],
@@ -27503,7 +27503,7 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "ref_kind": "boxed"
+                  "ref_kind": "mutptr"
                 },
                 "renderer_type": {
                   "type": "RendererType"
