@@ -1162,6 +1162,19 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Create a new WindowCreateOptions with a layout callback"
+                ],
+                "fn_args": [
+                  {
+                    "layout_callback": "LayoutCallbackType"
+                  }
+                ],
+                "fn_body": "azul_layout::window_state::WindowCreateOptions::new(layout_callback)"
+              }
+            },
             "repr": "C"
           },
           "FullWindowState": {
@@ -1929,6 +1942,16 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "fn_args": [
+                  {
+                    "cb": "LayoutCallbackType"
+                  }
+                ],
+                "fn_body": "azul_core::callbacks::LayoutCallback::new(cb)"
+              }
+            },
             "repr": "C, u8"
           },
           "LayoutCallbackInfo": {
@@ -35219,6 +35242,22 @@
                 }
               }
             ],
+            "constructors": {
+              "copy_from_bytes": {
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "start": "usize"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::corety::AzString::copy_from_bytes(ptr, start, len)"
+              }
+            },
             "repr": "C"
           },
           "Refstr": {
@@ -40568,6 +40607,12 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "fn_args": [],
+                "fn_body": "azul_core::resources::AppConfig::new()"
+              }
+            },
             "repr": "C"
           },
           "App": {

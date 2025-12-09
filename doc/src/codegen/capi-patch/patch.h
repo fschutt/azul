@@ -20,9 +20,9 @@
     .node_type = nt, \
     .dataset = AzOptionRefAny_None, \
     .ids_and_classes = AzIdOrClassVec_empty, \
-    .callbacks = AzCallbackDataVec_empty, \
+    .attributes = AzAttributeVec_empty, \
+    .callbacks = AzCoreCallbackDataVec_empty, \
     .inline_css_props = AzNodeDataInlineCssPropertyVec_empty, \
-    .clip_mask = AzOptionImageMask_None, \
     .tab_index = AzOptionTabIndex_None, \
 }
 
@@ -36,19 +36,16 @@
     .estimated_total_children = 0, \
 }
 
-/* Macro to initialize the default AppConfig struct, must be in a header file
- * so that the LayoutSolverVersion is defined by the binary, not the library -
- * this way upgrading the library won't break the application layout
+/* Macro to initialize the default AppConfig struct
  *
  * AzAppConfig foo = AzAppConfig_default();
  */
 #define AzAppConfig_default(...) { \
-    .layout_solver = AzLayoutSolverVersion_March2021, \
     .log_level = AzAppLogLevel_Error, \
-    .enable_visual_panic_hook = true, \
+    .enable_visual_panic_hook = false, \
     .enable_logging_on_panic = true, \
     .enable_tab_navigation = true, \
-    .system_callbacks = AzSystemCallbacks_libraryInternal(), \
+    .termination_behavior = AzAppTerminationBehavior_EndProcess, \
 }
 
 /* Macro to generate reflection metadata for a given struct - for a "structName" of "foo", generates:

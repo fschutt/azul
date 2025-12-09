@@ -130,6 +130,12 @@ pub enum LayoutCallback {
     Marshaled(MarshaledLayoutCallback),
 }
 
+impl LayoutCallback {
+    pub fn new(cb: LayoutCallbackType) -> Self {
+        Self::Raw(LayoutCallbackInner { cb })
+    }
+}
+
 impl Default for LayoutCallback {
     fn default() -> Self {
         Self::Raw(LayoutCallbackInner {

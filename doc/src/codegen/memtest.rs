@@ -1011,7 +1011,9 @@ fn generate_dll_module(
         for (class_name, class_data) in &module_data.classes {
             if let Some(external) = &class_data.external {
                 let prefixed_name = format!("{}{}", prefix, class_name);
-                type_to_external.insert(prefixed_name, external.clone());
+                // Replace azul_dll:: with crate:: since the generated code runs inside azul-dll
+                let external_fixed = external.replace("azul_dll::", "crate::");
+                type_to_external.insert(prefixed_name, external_fixed);
             }
         }
     }
@@ -1235,12 +1237,12 @@ fn generate_transmuted_fn_body(
     let parsed_args = parse_fn_args(fn_args);
     
     // Transform the fn_body:
-    // 1. Replace "azul_dll" with "crate" (generated code is included in azul-dll crate)
+    // 1. Replace "azul_dll::" with "crate::" (generated code is included in azul-dll crate)
     // 2. Replace "self." with "lowercase(class_name)." (self parameter gets renamed)
     // 3. Replace "object." with "lowercase(class_name)." (legacy naming convention)
     // 4. Replace unqualified "TypeName::method(" with fully qualified path
     let mut fn_body = fn_body
-        .replace("azul_dll", "crate")
+        .replace("azul_dll::", "crate::")
         .replace("self.", &format!("{}.", self_var))
         .replace("object.", &format!("{}.", self_var));
     

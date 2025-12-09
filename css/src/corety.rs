@@ -161,6 +161,15 @@ impl AzString {
         }
     }
 
+    /// Copies bytes from a pointer into a new AzString.
+    /// This is useful for C FFI where you have a char* buffer.
+    #[inline]
+    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+        Self {
+            vec: U8Vec::copy_from_bytes(ptr, start, len),
+        }
+    }
+
     #[inline]
     pub fn from_string(s: String) -> Self {
         Self {
@@ -269,6 +278,19 @@ impl_vec_clone!(u8, U8Vec, U8VecDestructor);
 impl_vec_partialeq!(u8, U8Vec);
 impl_vec_eq!(u8, U8Vec);
 impl_vec_hash!(u8, U8Vec);
+
+impl U8Vec {
+    /// Copies bytes from a pointer into a new Vec.
+    /// This is useful for C FFI where you have a uint8_t* buffer.
+    #[inline]
+    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::new();
+        }
+        let slice = unsafe { core::slice::from_raw_parts(ptr.add(start), len) };
+        Self::from_vec(slice.to_vec())
+    }
+}
 
 impl_option!(
     U8Vec,
