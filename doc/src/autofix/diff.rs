@@ -1542,8 +1542,10 @@ mod tests {
 
     #[test]
     fn test_paths_are_equivalent() {
+        // Paths must be exactly the same
         assert!(paths_are_equivalent("azul_core::dom::Dom", "azul_core::dom::Dom"));
-        assert!(paths_are_equivalent("azul_core::resources::FontCache", "azul_css::resources::FontCache"));
+        // Different crates are NOT equivalent - we want to catch crate renames
+        assert!(!paths_are_equivalent("azul_core::resources::FontCache", "azul_css::resources::FontCache"));
         assert!(!paths_are_equivalent("azul_core::dom::Dom", "azul_core::window::Dom"));
     }
 

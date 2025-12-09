@@ -633,10 +633,11 @@ impl TypeIndex {
         for candidate in candidates {
             let mut score = 0;
 
-            // Prefer matching crate - this should take priority
+            // Prefer matching crate - this should take ABSOLUTE priority
+            // Use a very high score to override all other considerations
             if let Some(pref) = preferred_crate {
                 if candidate.crate_name == pref {
-                    score += 200;
+                    score += 10000; // Absolute priority for explicit preference
                 }
             }
 
@@ -1284,10 +1285,15 @@ fn extract_enum(
 
 /// Extract reference kind and base type from a syn::Type
 /// Returns (base_type_string, RefKind)
+/// 
+/// For raw pointers (*mut T, *const T), we return the FULL type string and RefKind::Value
+/// because pointers are passed by value in C FFI. This matches api.json conventions.
+/// 
+/// For references (&T, &mut T), we return the base type and RefKind::Ref/RefMut.
 fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
     match ty {
         syn::Type::Reference(ref_type) => {
-            // &T or &mut T
+            // &T or &mut T - extract base type, use Ref/RefMut
             let inner_type = extract_type_name(&ref_type.elem);
             if ref_type.mutability.is_some() {
                 (inner_type, RefKind::RefMut)
@@ -1296,13 +1302,15 @@ fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
             }
         }
         syn::Type::Ptr(ptr_type) => {
-            // *const T or *mut T - extract base type and use ConstPtr/MutPtr
+            // *const T or *mut T - keep full pointer type, use Value
+            // Raw pointers are passed by value in C FFI
             let inner_type = extract_type_name(&ptr_type.elem);
-            if ptr_type.mutability.is_some() {
-                (inner_type, RefKind::MutPtr)
+            let full_type = if ptr_type.mutability.is_some() {
+                format!("*mut {}", inner_type)
             } else {
-                (inner_type, RefKind::ConstPtr)
-            }
+                format!("*const {}", inner_type)
+            };
+            (full_type, RefKind::Value)
         }
         _ => {
             // Any other type is passed by value
@@ -2409,7 +2417,8 @@ mod tests {
         
         match &types[1].kind {
             TypeDefKind::TypeAlias { target, .. } => {
-                assert_eq!(target, "Vec < String >");
+                // extract_type_name formats generics without spaces
+                assert_eq!(target, "Vec<String>");
             }
             _ => panic!("Expected TypeAlias for MyVec"),
         }
