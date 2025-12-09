@@ -40607,13 +40607,20 @@
               "add_window": {
                 "fn_args": [
                   {
+                    "self": "refmut"
+                  },
+                  {
                     "create_options": "WindowCreateOptions"
                   }
                 ],
                 "fn_body": "object.add_window(create_options)"
               },
               "get_monitors": {
-                "fn_args": [],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
                 "returns": {
                   "type": "MonitorVec"
                 },
@@ -40621,6 +40628,9 @@
               },
               "run": {
                 "fn_args": [
+                  {
+                    "self": "ref"
+                  },
                   {
                     "root_window": "WindowCreateOptions"
                   }

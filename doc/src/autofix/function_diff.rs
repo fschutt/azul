@@ -152,8 +152,8 @@ pub fn compare_type_functions(
         .cloned()
         .collect();
     
-    // TODO: Check for differences in matching functions
-    let differences = Vec::new();
+    // Check for differences in matching functions
+    let differences = find_function_differences(&matching, &source_methods, api_class);
     
     Some(FunctionComparison {
         missing_in_api,
@@ -161,6 +161,82 @@ pub fn compare_type_functions(
         differences,
         matching,
     })
+}
+
+/// Find differences between source methods and api.json functions
+fn find_function_differences(
+    matching: &[String],
+    source_methods: &HashMap<String, &MethodDef>,
+    api_class: &ClassData,
+) -> Vec<FunctionDiff> {
+    let mut differences = Vec::new();
+    
+    for name in matching {
+        let Some(source_method) = source_methods.get(name) else { continue };
+        
+        // Find the function in api.json (check both functions and constructors)
+        let api_fn = api_class.functions.as_ref()
+            .and_then(|fns| fns.get(name))
+            .or_else(|| api_class.constructors.as_ref().and_then(|ctors| ctors.get(name)));
+        
+        let Some(api_fn) = api_fn else { continue };
+        
+        let mut diffs = Vec::new();
+        
+        // Check self parameter
+        let api_has_self = api_fn.fn_args.iter().any(|arg_map| arg_map.contains_key("self"));
+        let source_has_self = source_method.self_kind.is_some();
+        
+        if source_has_self && !api_has_self {
+            let self_kind = match &source_method.self_kind {
+                Some(SelfKind::Value) => "value",
+                Some(SelfKind::Ref) => "ref",
+                Some(SelfKind::RefMut) => "refmut",
+                None => "none",
+            };
+            diffs.push(format!("missing self parameter (should be '{}')", self_kind));
+        } else if !source_has_self && api_has_self {
+            diffs.push("has self parameter but source method is static".to_string());
+        } else if source_has_self && api_has_self {
+            // Check self kind matches
+            let api_self_kind = api_fn.fn_args.iter()
+                .find_map(|arg_map| arg_map.get("self"))
+                .map(|s| s.as_str())
+                .unwrap_or("value");
+            
+            let source_self_kind = match &source_method.self_kind {
+                Some(SelfKind::Value) => "value",
+                Some(SelfKind::Ref) => "ref",
+                Some(SelfKind::RefMut) => "refmut",
+                None => "value",
+            };
+            
+            if api_self_kind != source_self_kind {
+                diffs.push(format!("self kind mismatch: api.json has '{}', source has '{}'", 
+                    api_self_kind, source_self_kind));
+            }
+        }
+        
+        // Check argument count (excluding self)
+        let api_arg_count = api_fn.fn_args.iter()
+            .filter(|arg_map| !arg_map.contains_key("self"))
+            .count();
+        let source_arg_count = source_method.args.len();
+        
+        if api_arg_count != source_arg_count {
+            diffs.push(format!("argument count mismatch: api.json has {}, source has {}", 
+                api_arg_count, source_arg_count));
+        }
+        
+        if !diffs.is_empty() {
+            differences.push(FunctionDiff {
+                name: name.clone(),
+                differences: diffs,
+            });
+        }
+    }
+    
+    differences
 }
 
 /// Find a class/type in api.json for a specific version
@@ -482,9 +558,26 @@ pub fn generate_remove_functions_patch(
 
 /// Convert a MethodDef to FunctionData for api.json
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
-    // Build fn_args
+    use super::type_index::SelfKind;
+    
+    // Build fn_args - first add self if present (non-constructor)
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
     
+    // Add self parameter for non-static, non-constructor methods
+    if !method.is_constructor {
+        if let Some(ref self_kind) = method.self_kind {
+            let mut self_arg = IndexMap::new();
+            let self_str = match self_kind {
+                SelfKind::Value => "value",
+                SelfKind::Ref => "ref",
+                SelfKind::RefMut => "refmut",
+            };
+            self_arg.insert("self".to_string(), self_str.to_string());
+            fn_args.push(self_arg);
+        }
+    }
+    
+    // Add remaining arguments
     for arg in &method.args {
         let mut arg_map = IndexMap::new();
         arg_map.insert(arg.name.clone(), arg.ty.clone());

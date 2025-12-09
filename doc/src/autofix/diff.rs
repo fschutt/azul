@@ -147,6 +147,18 @@ pub enum ModificationKind {
     TypeAliasTargetChanged { old_target: String, new_target: String, new_generic_args: Vec<String> },
     /// Generic params changed (e.g., PhysicalSize<T> missing generic_params: ["T"])
     GenericParamsChanged { old_params: Vec<String>, new_params: Vec<String> },
+    /// Function self parameter mismatch (missing or wrong kind)
+    FunctionSelfMismatch { 
+        fn_name: String, 
+        expected_self: Option<String>,  // "ref", "refmut", "value", or None for static
+        actual_self: Option<String>,    // what api.json has
+    },
+    /// Function argument count mismatch
+    FunctionArgCountMismatch {
+        fn_name: String,
+        expected_count: usize,
+        actual_count: usize,
+    },
 }
 
 // ============================================================================
@@ -752,6 +764,37 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 // Extract generic params
                 let generic_params = class_data.generic_params.clone().unwrap_or_default();
                 
+                // Extract functions (both regular functions and constructors)
+                let mut functions = std::collections::HashMap::new();
+                
+                if let Some(ref fns) = class_data.functions {
+                    for (fn_name, fn_data) in fns {
+                        let fn_args: Vec<(String, String)> = fn_data.fn_args.iter()
+                            .flat_map(|arg_map| {
+                                arg_map.iter().map(|(arg_name, arg_type)| {
+                                    (arg_name.clone(), arg_type.clone())
+                                })
+                            })
+                            .collect();
+                        let returns = fn_data.returns.as_ref().map(|r| r.r#type.clone());
+                        functions.insert(fn_name.clone(), ApiFunctionInfo { fn_args, returns });
+                    }
+                }
+                
+                if let Some(ref ctors) = class_data.constructors {
+                    for (ctor_name, ctor_data) in ctors {
+                        let fn_args: Vec<(String, String)> = ctor_data.fn_args.iter()
+                            .flat_map(|arg_map| {
+                                arg_map.iter().map(|(arg_name, arg_type)| {
+                                    (arg_name.clone(), arg_type.clone())
+                                })
+                            })
+                            .collect();
+                        let returns = ctor_data.returns.as_ref().map(|r| r.r#type.clone());
+                        functions.insert(ctor_name.clone(), ApiFunctionInfo { fn_args, returns });
+                    }
+                }
+                
                 types.insert(class_name.clone(), ApiTypeInfo {
                     path,
                     module: module_name.clone(),
@@ -765,6 +808,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                     type_alias_target,
                     type_alias_generic_args,
                     generic_params,
+                    functions,
                 });
             }
         }
@@ -795,6 +839,17 @@ pub struct ApiTypeInfo {
     pub type_alias_generic_args: Vec<String>,
     /// Generic type parameters (e.g., ["T"] for PhysicalSize<T>)
     pub generic_params: Vec<String>,
+    /// Functions from api.json: fn_name -> (arg_name, arg_type/ref_kind)
+    pub functions: std::collections::HashMap<String, ApiFunctionInfo>,
+}
+
+/// Information about a function from api.json
+#[derive(Debug, Clone, Default)]
+pub struct ApiFunctionInfo {
+    /// Arguments: (arg_name, arg_type_or_ref_kind)
+    pub fn_args: Vec<(String, String)>,
+    /// Return type
+    pub returns: Option<String>,
 }
 
 /// Generate diff between expected (workspace-resolved) and current (api.json) types
@@ -869,6 +924,11 @@ fn generate_diff_v2(
                     // Check for generic_params differences
                     diff.modifications.extend(
                         compare_generic_params(matched_api_name, typedef, api_info)
+                    );
+                    
+                    // Check for function signature differences (self parameter, arg count)
+                    diff.modifications.extend(
+                        compare_functions(matched_api_name, typedef, api_info)
                     );
                 }
                 
@@ -1540,4 +1600,81 @@ mod tests {
         assert_eq!(workspace_name_to_api_name("StringPair"), "StringPair");
         assert_eq!(workspace_name_to_api_name("Dom"), "Dom");
     }
+}
+
+/// Compare functions between workspace type and api.json class
+/// Checks for self parameter mismatches and argument count differences
+fn compare_functions(
+    type_name: &str,
+    workspace_type: &TypeDefinition,
+    api_info: &ApiTypeInfo,
+) -> Vec<TypeModification> {
+    use super::type_index::SelfKind;
+    
+    let mut modifications = Vec::new();
+    
+    // Get workspace methods (only public ones)
+    let workspace_methods: std::collections::HashMap<String, &super::type_index::MethodDef> = 
+        workspace_type.methods.iter()
+            .filter(|m| m.is_public)
+            .map(|m| (m.name.clone(), m))
+            .collect();
+    
+    // Check each api.json function
+    for (fn_name, fn_info) in api_info.functions.iter() {
+        // Find matching workspace method
+        let Some(workspace_method) = workspace_methods.get(fn_name) else {
+            continue; // Function only in api.json, not our concern here
+        };
+        
+        // Check self parameter
+        let api_has_self = fn_info.fn_args.iter()
+            .any(|(arg_name, _)| arg_name == "self");
+        let api_self_kind = fn_info.fn_args.iter()
+            .find(|(arg_name, _)| arg_name == "self")
+            .map(|(_, ref_kind)| ref_kind.as_str());
+        
+        let workspace_self_kind = workspace_method.self_kind.as_ref().map(|sk| {
+            match sk {
+                SelfKind::Value => "value",
+                SelfKind::Ref => "ref",
+                SelfKind::RefMut => "refmut",
+            }
+        });
+        
+        let workspace_has_self = workspace_self_kind.is_some();
+        
+        // Check for mismatch
+        if workspace_has_self != api_has_self || 
+           (workspace_has_self && api_has_self && workspace_self_kind != api_self_kind) 
+        {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::FunctionSelfMismatch {
+                    fn_name: fn_name.clone(),
+                    expected_self: workspace_self_kind.map(|s| s.to_string()),
+                    actual_self: api_self_kind.map(|s| s.to_string()),
+                },
+            });
+        }
+        
+        // Check argument count (excluding self)
+        let api_arg_count = fn_info.fn_args.iter()
+            .filter(|(arg_name, _)| arg_name != "self")
+            .count();
+        let workspace_arg_count = workspace_method.args.len();
+        
+        if api_arg_count != workspace_arg_count {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::FunctionArgCountMismatch {
+                    fn_name: fn_name.clone(),
+                    expected_count: workspace_arg_count,
+                    actual_count: api_arg_count,
+                },
+            });
+        }
+    }
+    
+    modifications
 }

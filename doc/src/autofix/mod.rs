@@ -380,6 +380,24 @@ pub fn autofix_api(
                         "-".red()
                     );
                 }
+                diff::ModificationKind::FunctionSelfMismatch { fn_name, expected_self, actual_self } => {
+                    let expected = expected_self.as_deref().unwrap_or("static");
+                    let actual = actual_self.as_deref().unwrap_or("static");
+                    println!("  {}.{}: self mismatch - expected '{}', got '{}'", 
+                        modification.type_name.white(), 
+                        fn_name.yellow(),
+                        expected.green(),
+                        actual.red()
+                    );
+                }
+                diff::ModificationKind::FunctionArgCountMismatch { fn_name, expected_count, actual_count } => {
+                    println!("  {}.{}: arg count mismatch - expected {}, got {}", 
+                        modification.type_name.white(), 
+                        fn_name.yellow(),
+                        expected_count.to_string().green(),
+                        actual_count.to_string().red()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -646,6 +664,18 @@ fn generate_combined_patch(
                 changes.push(ModifyChange::SetGenericParams {
                     old_params: old_params.clone(),
                     new_params: new_params.clone(),
+                });
+            }
+            diff::ModificationKind::FunctionSelfMismatch { fn_name, expected_self, actual_self: _ } => {
+                changes.push(ModifyChange::FixFunctionSelf {
+                    fn_name: fn_name.clone(),
+                    expected_self: expected_self.clone(),
+                });
+            }
+            diff::ModificationKind::FunctionArgCountMismatch { fn_name, expected_count, actual_count: _ } => {
+                changes.push(ModifyChange::FixFunctionArgs {
+                    fn_name: fn_name.clone(),
+                    expected_count: *expected_count,
                 });
             }
         }

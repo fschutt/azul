@@ -166,6 +166,18 @@ pub enum ModifyChange {
     RemoveStructFields,
     /// Remove enum_fields entirely (type changed from enum to struct)
     RemoveEnumFields,
+    /// Fix function self parameter
+    FixFunctionSelf {
+        fn_name: String,
+        /// Expected self kind from source: "ref", "refmut", "value", or null for static
+        expected_self: Option<String>,
+    },
+    /// Fix function argument count (regenerate fn_args from source)
+    FixFunctionArgs {
+        fn_name: String,
+        /// Expected number of arguments (excluding self)
+        expected_count: usize,
+    },
 }
 
 /// Struct field definition for complete field replacement
@@ -538,6 +550,13 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::RemoveEnumFields => {
             "- enum_fields (type changed to struct)".to_string()
         }
+        ModifyChange::FixFunctionSelf { fn_name, expected_self } => {
+            let self_str = expected_self.as_deref().unwrap_or("static");
+            format!("~ fn {}: set self = {}", fn_name, self_str)
+        }
+        ModifyChange::FixFunctionArgs { fn_name, expected_count } => {
+            format!("~ fn {}: fix arg count to {}", fn_name, expected_count)
+        }
     }
 }
 
@@ -855,6 +874,22 @@ impl AutofixPatch {
                     // Type changed from enum to struct - clear enum_fields
                     patch.enum_fields = Some(vec![]); // Empty vec signals removal
                     patch.add_enum_fields = Some(false);
+                }
+                ModifyChange::FixFunctionSelf { fn_name, expected_self } => {
+                    // Function self parameter mismatch detected
+                    // We can't easily fix this here because we need to preserve other arguments
+                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the function
+                    eprintln!("  [WARN] {}.{}: needs self='{}' - run 'autofix add \"{}.{}\"' to fix",
+                        m.type_name, fn_name, 
+                        expected_self.as_deref().unwrap_or("static"),
+                        m.type_name, fn_name);
+                }
+                ModifyChange::FixFunctionArgs { fn_name, expected_count } => {
+                    // Function argument count mismatch detected
+                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the function
+                    eprintln!("  [WARN] {}.{}: needs {} args - run 'autofix add \"{}.{}\"' to fix",
+                        m.type_name, fn_name, expected_count,
+                        m.type_name, fn_name);
                 }
             }
         }
