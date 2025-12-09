@@ -40628,8 +40628,10 @@
               {
                 "ptr": {
                   "type": "c_void",
-                  "ref_kind": "boxed"
-                },
+                  "ref_kind": "mutptr"
+                }
+              },
+              {
                 "run_destructor": {
                   "type": "bool"
                 }

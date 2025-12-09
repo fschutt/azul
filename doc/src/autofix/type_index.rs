@@ -1134,8 +1134,10 @@ fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
             if let Some(segment) = type_path.path.segments.last() {
                 // Check if it's Box<T>
                 if segment.ident == "Box" {
-                    // Box<T> -> type becomes "c_void", ref_kind is Boxed
-                    return ("c_void".to_string(), RefKind::Boxed);
+                    // Box<T> -> type becomes "c_void", ref_kind is MutPtr (Box is an owned pointer)
+                    // We use MutPtr instead of Boxed because Box<c_void> causes UB in Rust
+                    // (Box must be non-null but c_void is an opaque type)
+                    return ("c_void".to_string(), RefKind::MutPtr);
                 }
                 // Check if it's Option<Box<T>>
                 if segment.ident == "Option" {
@@ -1145,8 +1147,9 @@ fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
                             if let syn::Type::Path(inner_path) = inner_ty {
                                 if let Some(inner_segment) = inner_path.path.segments.last() {
                                     if inner_segment.ident == "Box" {
-                                        // Option<Box<T>> -> type becomes "c_void", ref_kind is OptionBoxed
-                                        return ("c_void".to_string(), RefKind::OptionBoxed);
+                                        // Option<Box<T>> -> type becomes "c_void", ref_kind is MutPtr
+                                        // (nullable pointer, same as Option<Box<T>> in FFI)
+                                        return ("c_void".to_string(), RefKind::MutPtr);
                                     }
                                 }
                             }
