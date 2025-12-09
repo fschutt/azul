@@ -77,9 +77,10 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
             code.push_str("\r\n");
 
-            // Handle type aliases (generic type instantiations)
+            // Handle type aliases (generic type instantiations or pointer types)
             if let Some(type_alias_info) = &class_data.type_alias {
-                eprintln!("DEBUG: Generating type alias for {}", class_name);
+                eprintln!("DEBUG: Generating type alias for {} - target: {}, ref_kind: {:?}, generic_args: {:?}", 
+                    class_name, type_alias_info.target, type_alias_info.ref_kind, type_alias_info.generic_args);
 
                 // Always add prefix, even if type already has it (consistency)
                 let class_ptr_name = format!("{}{}", PREFIX, class_name);
@@ -91,21 +92,59 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                     }
                 }
 
-                // Generate type alias: pub type Az1LayoutZIndexValue =
-                // Az1CssPropertyValue<Az1LayoutZIndex>;
-                // Always add prefix, even if type already has it (consistency)
-                let target_with_prefix = format!("{}{}", PREFIX, type_alias_info.target);
-                let args_with_prefix: Vec<String> = type_alias_info
-                    .generic_args
-                    .iter()
-                    .map(|arg| format!("{}{}", PREFIX, arg))
-                    .collect();
+                // Check if target is a primitive that doesn't need prefix (like c_void)
+                let target_is_primitive = matches!(
+                    type_alias_info.target.as_str(),
+                    "c_void" | "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" 
+                    | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
+                );
+                
+                let target_with_prefix = if target_is_primitive {
+                    type_alias_info.target.clone()
+                } else {
+                    format!("{}{}", PREFIX, type_alias_info.target)
+                };
+
+                // Generate based on ref_kind and whether there are generic args
+                let type_rhs = if !type_alias_info.generic_args.is_empty() {
+                    // Generic type alias: pub type AzFoo = AzBar<AzBaz>;
+                    let args_with_prefix: Vec<String> = type_alias_info
+                        .generic_args
+                        .iter()
+                        .map(|arg| {
+                            let arg_is_primitive = matches!(
+                                arg.as_str(),
+                                "c_void" | "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" 
+                                | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
+                            );
+                            if arg_is_primitive {
+                                arg.clone()
+                            } else {
+                                format!("{}{}", PREFIX, arg)
+                            }
+                        })
+                        .collect();
+                    format!("{}<{}>", target_with_prefix, args_with_prefix.join(", "))
+                } else {
+                    // Simple type alias, check ref_kind for pointer types
+                    use crate::api::RefKind;
+                    match type_alias_info.ref_kind {
+                        RefKind::MutPtr => format!("*mut {}", target_with_prefix),
+                        RefKind::ConstPtr => format!("*const {}", target_with_prefix),
+                        RefKind::Value => target_with_prefix,
+                        // Ref, RefMut, Boxed, OptionBoxed are not typically used for type_alias
+                        // but handle them for completeness
+                        RefKind::Ref => format!("&{}", target_with_prefix),
+                        RefKind::RefMut => format!("&mut {}", target_with_prefix),
+                        RefKind::Boxed => format!("Box<{}>", target_with_prefix),
+                        RefKind::OptionBoxed => format!("Option<Box<{}>>", target_with_prefix),
+                    }
+                };
 
                 code.push_str(&format!(
-                    "pub type {} = {}<{}>;\r\n",
+                    "pub type {} = {};\r\n",
                     class_ptr_name,
-                    target_with_prefix,
-                    args_with_prefix.join(", ")
+                    type_rhs
                 ));
 
                 continue; // Skip normal class generation for type aliases

@@ -284,9 +284,22 @@ fn generate_single_type(
 
         if type_alias_info.generic_args.is_empty() {
             // Simple type alias without generics: pub type AzGLuint = u32;
+            // Apply ref_kind to generate proper pointer types
+            use crate::api::RefKind;
+            let type_rhs = match type_alias_info.ref_kind {
+                RefKind::MutPtr => format!("*mut {}", target_name),
+                RefKind::ConstPtr => format!("*const {}", target_name),
+                RefKind::Value => target_name.clone(),
+                // Ref, RefMut, Boxed, OptionBoxed are not typically used for type_alias
+                // but handle them for completeness
+                RefKind::Ref => format!("&{}", target_name),
+                RefKind::RefMut => format!("&mut {}", target_name),
+                RefKind::Boxed => format!("Box<{}>", target_name),
+                RefKind::OptionBoxed => format!("Option<Box<{}>>", target_name),
+            };
             code.push_str(&format!(
                 "{}pub type {} = {};\n\n",
-                indent_str, struct_name, target_name
+                indent_str, struct_name, type_rhs
             ));
         } else {
             // Generic type alias: pub type AzFooValue = AzCssPropertyValue<AzFoo>;

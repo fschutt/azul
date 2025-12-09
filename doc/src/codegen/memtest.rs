@@ -269,6 +269,7 @@ edition = "2021"
 azul-core = { path = "../../core" }
 azul-layout = { path = "../../layout", features = ["widgets", "extra"] }
 azul-css = { path = "../../css" }
+azul-dll = { path = "../../dll" }
 
 # Serde support (not enabled by default, but types need to be available for conditional compilation)
 serde = { version = "1.0", optional = true }

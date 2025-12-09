@@ -606,6 +606,12 @@ fn resolve_api_functions_with_workspace_index(
                 // Resolve constructor parameters
                 if let Some(ref constructors) = class_data.constructors {
                     for (ctor_name, ctor_data) in constructors {
+                        // Constructors implicitly return Self, so the class type is reachable
+                        // This ensures types like App are not marked for removal just because
+                        // the constructor doesn't have an explicit "returns" field
+                        let self_context = format!("{}::{} -> Self (implicit)", class_name, ctor_name);
+                        resolver.resolve_type_with_context(class_name, &ctx, Some(&self_context));
+                        
                         // Resolve parameter types - fn_args is Vec<IndexMap<String, String>>
                         for arg_map in &ctor_data.fn_args {
                             for (arg_name, arg_type) in arg_map {
@@ -614,7 +620,7 @@ fn resolve_api_functions_with_workspace_index(
                             }
                         }
                         
-                        // Resolve return type
+                        // Resolve return type (if explicit, though constructors usually return Self)
                         if let Some(ref returns) = ctor_data.returns {
                             let parent_context = format!("{}::{} -> return", class_name, ctor_name);
                             resolver.resolve_type_with_context(&returns.r#type, &ctx, Some(&parent_context));

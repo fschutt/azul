@@ -791,17 +791,21 @@ impl AutofixPatch {
                 }
                 ModifyChange::SetTypeAlias { target, generic_args } => {
                     use crate::api::TypeAliasInfo;
+                    // Parse pointer prefixes from target string
+                    let (base_target, ref_kind) = parse_pointer_from_type(target);
                     patch.type_alias = Some(TypeAliasInfo {
-                        target: target.clone(),
-                        ref_kind: Default::default(),
+                        target: base_target,
+                        ref_kind,
                         generic_args: generic_args.clone(),
                     });
                 }
                 ModifyChange::ChangeTypeAlias { new_target, new_generic_args, .. } => {
                     use crate::api::TypeAliasInfo;
+                    // Parse pointer prefixes from target string
+                    let (base_target, ref_kind) = parse_pointer_from_type(new_target);
                     patch.type_alias = Some(TypeAliasInfo {
-                        target: new_target.clone(),
-                        ref_kind: Default::default(),
+                        target: base_target,
+                        ref_kind,
                         generic_args: new_generic_args.clone(),
                     });
                 }
@@ -905,6 +909,22 @@ fn insert_class_patch(
         .or_insert_with(ModulePatch::default)
         .classes
         .insert(class_name.to_string(), class_patch);
+}
+
+/// Parse pointer prefixes from a type string (e.g., "*mut c_void" -> ("c_void", MutPtr))
+fn parse_pointer_from_type(target: &str) -> (String, crate::api::RefKind) {
+    let trimmed = target.trim();
+    if let Some(rest) = trimmed.strip_prefix("*mut ") {
+        (rest.trim().to_string(), crate::api::RefKind::MutPtr)
+    } else if let Some(rest) = trimmed.strip_prefix("*const ") {
+        (rest.trim().to_string(), crate::api::RefKind::ConstPtr)
+    } else if let Some(rest) = trimmed.strip_prefix("&mut ") {
+        (rest.trim().to_string(), crate::api::RefKind::RefMut)
+    } else if let Some(rest) = trimmed.strip_prefix('&') {
+        (rest.trim().to_string(), crate::api::RefKind::Ref)
+    } else {
+        (trimmed.to_string(), crate::api::RefKind::Value)
+    }
 }
 
 #[cfg(test)]
