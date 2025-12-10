@@ -2080,13 +2080,13 @@ pub fn render_node_clipmask_cpu(
 #[cfg(feature = "svg")]
 #[derive(Debug)]
 #[repr(C)]
-pub struct SvgXmlNode {
+pub struct ParsedSvgXmlNode {
     node: Box<usvg::Group>, // usvg::Node
     pub run_destructor: bool,
 }
 
 #[cfg(feature = "svg")]
-impl Clone for SvgXmlNode {
+impl Clone for ParsedSvgXmlNode {
     fn clone(&self) -> Self {
         Self {
             node: self.node.clone(),
@@ -2096,7 +2096,7 @@ impl Clone for SvgXmlNode {
 }
 
 #[cfg(feature = "svg")]
-impl Drop for SvgXmlNode {
+impl Drop for ParsedSvgXmlNode {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
@@ -2106,8 +2106,8 @@ impl Drop for SvgXmlNode {
 pub use azul_core::svg::SvgXmlNode;
 
 #[cfg(feature = "svg")]
-fn svgxmlnode_new(node: usvg::Group) -> SvgXmlNode {
-    SvgXmlNode {
+fn svgxmlnode_new(node: usvg::Group) -> ParsedSvgXmlNode {
+    ParsedSvgXmlNode {
         node: Box::new(node),
         run_destructor: true,
     }
@@ -2117,7 +2117,7 @@ fn svgxmlnode_new(node: usvg::Group) -> SvgXmlNode {
 pub fn svgxmlnode_parse(
     svg_file_data: &[u8],
     options: SvgParseOptions,
-) -> Result<SvgXmlNode, SvgParseError> {
+) -> Result<ParsedSvgXmlNode, SvgParseError> {
     let svg = svg_parse(svg_file_data, options)?;
     Ok(svg_root(&svg))
 }
@@ -2126,7 +2126,7 @@ pub fn svgxmlnode_parse(
 pub fn svgxmlnode_parse(
     svg_file_data: &[u8],
     options: SvgParseOptions,
-) -> Result<SvgXmlNode, SvgParseError> {
+) -> Result<ParsedSvgXmlNode, SvgParseError> {
     Err(SvgParseError::NoParserAvailable)
 }
 
@@ -2140,13 +2140,13 @@ pub fn svgxmlnode_from_xml(xml: Xml) -> Result<Self, SvgParseError> {
 
 #[cfg(feature = "svg")]
 #[repr(C)]
-pub struct Svg {
+pub struct ParsedSvg {
     tree: Box<usvg::Tree>, // *mut usvg::Tree,
     pub run_destructor: bool,
 }
 
 #[cfg(feature = "svg")]
-impl Clone for Svg {
+impl Clone for ParsedSvg {
     fn clone(&self) -> Self {
         Self {
             tree: self.tree.clone(),
@@ -2156,7 +2156,7 @@ impl Clone for Svg {
 }
 
 #[cfg(feature = "svg")]
-impl Drop for Svg {
+impl Drop for ParsedSvg {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
@@ -2166,15 +2166,15 @@ impl Drop for Svg {
 pub use azul_core::svg::Svg;
 
 #[cfg(feature = "svg")]
-impl fmt::Debug for Svg {
+impl fmt::Debug for ParsedSvg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         svg_to_string(&self, SvgXmlOptions::default()).fmt(f)
     }
 }
 
 #[cfg(feature = "svg")]
-fn svg_new(tree: usvg::Tree) -> Svg {
-    Svg {
+fn svg_new(tree: usvg::Tree) -> ParsedSvg {
+    ParsedSvg {
         tree: Box::new(tree),
         run_destructor: true,
     }
@@ -2182,7 +2182,7 @@ fn svg_new(tree: usvg::Tree) -> Svg {
 
 /// NOTE: SVG file data may be Zlib compressed
 #[cfg(feature = "svg")]
-pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
+pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<ParsedSvg, SvgParseError> {
     let rtree = usvg::Tree::from_data(svg_file_data, &translate_to_usvg_parseoptions(options))
         .map_err(translate_usvg_svgparserror)?;
 
@@ -2190,25 +2190,25 @@ pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, 
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
+pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<ParsedSvg, SvgParseError> {
     Err(SvgParseError::NoParserAvailable)
 }
 
 #[cfg(feature = "svg")]
-pub fn svg_root(s: &Svg) -> SvgXmlNode {
+pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
     svgxmlnode_new(s.tree.root().clone())
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn svg_root(s: &Svg) -> SvgXmlNode {
-    SvgXmlNode {
+pub fn svg_root(s: &ParsedSvg) -> ParsedSvgXmlNode {
+    ParsedSvgXmlNode {
         node: core::ptr::null_mut(),
         run_destructor: false,
     }
 }
 
 #[cfg(feature = "svg")]
-pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
+pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     use azul_core::resources::RawImageData;
     use tiny_skia::Pixmap;
 
@@ -2246,7 +2246,7 @@ pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
+pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
     None
 }
 
@@ -2259,12 +2259,12 @@ pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
 */
 
 #[cfg(feature = "svg")]
-pub fn svg_to_string(s: &Svg, options: SvgXmlOptions) -> String {
+pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
     s.tree.to_string(&translate_to_usvg_xmloptions(options))
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn svg_to_string(s: &Svg, options: SvgXmlOptions) -> String {
+pub fn svg_to_string(s: &ParsedSvg, options: SvgXmlOptions) -> String {
     String::new()
 }
 

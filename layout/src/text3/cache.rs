@@ -478,7 +478,7 @@ pub struct UnifiedConstraints {
     // Text layout
     pub writing_mode: Option<WritingMode>,
     // Base direction from CSS, overrides auto-detection
-    pub direction: Option<Direction>,
+    pub direction: Option<BidiDirection>,
     pub text_orientation: TextOrientation,
     pub text_align: TextAlign,
     pub text_justify: JustifyContent,
@@ -599,7 +599,7 @@ impl PartialEq for UnifiedConstraints {
 impl Eq for UnifiedConstraints {}
 
 impl UnifiedConstraints {
-    fn direction(&self, fallback: Direction) -> Direction {
+    fn direction(&self, fallback: BidiDirection) -> BidiDirection {
         match self.writing_mode {
             Some(s) => s.get_direction().unwrap_or(fallback),
             None => fallback,
@@ -621,14 +621,14 @@ pub struct LineConstraints {
 }
 
 impl WritingMode {
-    fn get_direction(&self) -> Option<Direction> {
+    fn get_direction(&self) -> Option<BidiDirection> {
         match self {
             // determined by text content
             WritingMode::HorizontalTb => None,
-            WritingMode::VerticalRl => Some(Direction::Rtl),
-            WritingMode::VerticalLr => Some(Direction::Ltr),
-            WritingMode::SidewaysRl => Some(Direction::Rtl),
-            WritingMode::SidewaysLr => Some(Direction::Ltr),
+            WritingMode::VerticalRl => Some(BidiDirection::Rtl),
+            WritingMode::VerticalLr => Some(BidiDirection::Ltr),
+            WritingMode::SidewaysRl => Some(BidiDirection::Rtl),
+            WritingMode::SidewaysLr => Some(BidiDirection::Ltr),
         }
     }
 }
@@ -2118,14 +2118,14 @@ pub enum GlyphOrientation {
 
 // Bidi and script detection
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Direction {
+pub enum BidiDirection {
     Ltr,
     Rtl,
 }
 
-impl Direction {
+impl BidiDirection {
     pub fn is_rtl(&self) -> bool {
-        matches!(self, Direction::Rtl)
+        matches!(self, BidiDirection::Rtl)
     }
 }
 
@@ -2565,7 +2565,7 @@ pub struct ShapedCluster {
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
-    pub direction: Direction,
+    pub direction: BidiDirection,
     /// Font style of this cluster
     pub style: Arc<StyleProperties>,
     /// If this cluster is a list marker: whether it should be positioned outside
@@ -3655,7 +3655,7 @@ pub struct LogicalItemsKey<'a> {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct VisualItemsKey {
     pub logical_items_id: CacheId,
-    pub base_direction: Direction,
+    pub base_direction: BidiDirection,
 }
 
 /// Key for caching the shaping stage.
@@ -3804,7 +3804,7 @@ impl LayoutCache {
         // would treat the entire paragraph as RTL if the first strong character is Arabic.
         // Per HTML/CSS spec, base direction should come from the 'direction' CSS property,
         // defaulting to LTR if not specified.
-        let base_direction = first_constraints.direction.unwrap_or(Direction::Ltr);
+        let base_direction = first_constraints.direction.unwrap_or(BidiDirection::Ltr);
         let visual_key = VisualItemsKey {
             logical_items_id,
             base_direction,
@@ -4101,7 +4101,7 @@ pub fn create_logical_items(
 
 // --- Stage 2 Implementation ---
 
-pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> Direction {
+pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
         if let LogicalItem::Text { text, .. } = item {
             Some(unicode_bidi::get_base_direction(text.as_str()))
@@ -4111,14 +4111,14 @@ pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> Directi
     });
 
     match first_strong {
-        Some(unicode_bidi::Direction::Rtl) => Direction::Rtl,
-        _ => Direction::Ltr,
+        Some(unicode_bidi::Direction::Rtl) => BidiDirection::Rtl,
+        _ => BidiDirection::Ltr,
     }
 }
 
 pub fn reorder_logical_items(
     logical_items: &[LogicalItem],
-    base_direction: Direction,
+    base_direction: BidiDirection,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<VisualItem>, LayoutError> {
     if let Some(msgs) = debug_messages {
@@ -4165,7 +4165,7 @@ pub fn reorder_logical_items(
         )));
     }
 
-    let bidi_level = if base_direction == Direction::Rtl {
+    let bidi_level = if base_direction == BidiDirection::Rtl {
         Some(Level::rtl())
     } else {
         Some(Level::ltr())
@@ -4263,9 +4263,9 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 ..
             } => {
                 let direction = if item.bidi_level.is_rtl() {
-                    Direction::Rtl
+                    BidiDirection::Rtl
                 } else {
-                    Direction::Ltr
+                    BidiDirection::Ltr
                 };
 
                 // Build FontChainKey from style
@@ -4444,7 +4444,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 // Force LTR horizontal shaping for the combined block.
                 let glyphs =
-                    font.shape_text(text, item.script, language, Direction::Ltr, style.as_ref())?;
+                    font.shape_text(text, item.script, language, BidiDirection::Ltr, style.as_ref())?;
 
                 let shaped_glyphs = glyphs
                     .into_iter()
@@ -4521,7 +4521,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     text: &str,
     script: Script,
     language: crate::text3::script::Language,
-    direction: Direction,
+    direction: BidiDirection,
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
@@ -4971,7 +4971,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Use the CSS direction from constraints instead of auto-detecting from text
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
     // correct paragraph-level direction for alignment purposes
-    let base_direction = fragment_constraints.direction.unwrap_or(Direction::Ltr);
+    let base_direction = fragment_constraints.direction.unwrap_or(BidiDirection::Ltr);
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -5435,7 +5435,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 vertical_offset: Point::default(),
             }],
             advance: hyphen_advance,
-            direction: Direction::Ltr,
+            direction: BidiDirection::Ltr,
             style: style.clone(),
             marker_position_outside: None,
         });
@@ -5563,7 +5563,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     line_top_y: f32,
     line_index: usize,
     text_align: TextAlign,
-    base_direction: Direction,
+    base_direction: BidiDirection,
     is_last_line: bool,
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
@@ -5582,10 +5582,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
     }
     // NEW: Resolve the final physical alignment here, inside the function.
     let physical_align = match (text_align, base_direction) {
-        (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
-        (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
-        (TextAlign::End, Direction::Ltr) => TextAlign::Right,
-        (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+        (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
+        (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
+        (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
+        (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
         // Physical alignments are returned as-is, regardless of direction.
         (other, _) => other,
     };
@@ -6162,7 +6162,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
             },
             glyphs: vec![kashida_glyph],
             advance: kashida_advance,
-            direction: Direction::Ltr,
+            direction: BidiDirection::Ltr,
             style,
             marker_position_outside: None,
         })
@@ -6652,17 +6652,17 @@ fn perform_bidi_analysis<'a, 'b: 'a>(
     styled_runs: &'a [TextRunInfo],
     full_text: &'b str,
     force_lang: Option<Language>,
-) -> Result<(Vec<VisualRun<'a>>, Direction), LayoutError> {
+) -> Result<(Vec<VisualRun<'a>>, BidiDirection), LayoutError> {
     if full_text.is_empty() {
-        return Ok((Vec::new(), Direction::Ltr));
+        return Ok((Vec::new(), BidiDirection::Ltr));
     }
 
     let bidi_info = BidiInfo::new(full_text, None);
     let para = &bidi_info.paragraphs[0];
     let base_direction = if para.level.is_rtl() {
-        Direction::Rtl
+        BidiDirection::Rtl
     } else {
-        Direction::Ltr
+        BidiDirection::Ltr
     };
 
     // Create a map from each byte index to its original styled run.

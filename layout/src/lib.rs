@@ -42,7 +42,7 @@ pub mod font;
 pub use allsorts::subset::CmapTarget;
 #[cfg(feature = "font_loading")]
 pub use font::parsed::{
-    FontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
+    PdfFontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
     SubsetFont,
 };
 // Re-export hyphenation for external crates (like printpdf)

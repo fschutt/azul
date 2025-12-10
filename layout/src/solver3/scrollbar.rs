@@ -3,14 +3,14 @@ use azul_core::geom::LogicalSize;
 /// Information about scrollbar requirements and dimensions
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct ScrollbarInfo {
+pub struct ScrollbarRequirements {
     pub needs_horizontal: bool,
     pub needs_vertical: bool,
     pub scrollbar_width: f32,
     pub scrollbar_height: f32,
 }
 
-impl ScrollbarInfo {
+impl ScrollbarRequirements {
     /// Checks if the presence of scrollbars reduces the available inner size,
     /// which would necessitate a reflow of the content.
     pub fn needs_reflow(&self) -> bool {

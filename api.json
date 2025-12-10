@@ -451,130 +451,130 @@
             "struct_fields": [
               {
                 "title_bar_active_background_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_active_separator_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_active_text_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_inactive_background_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_inactive_separator_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_inactive_text_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_idle_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_idle_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_idle_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_hovered_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_hovered_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_hovered_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_disabled_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_disabled_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_disabled_foreground_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_idle_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_idle_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_idle_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_hovered_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_hovered_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_hovered_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_disabled_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_disabled_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_disabled_background_inactive_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_idle_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_idle_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_idle_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_hovered_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_hovered_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_hovered_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_disabled_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_disabled_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_disabled_foreground_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_idle_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_idle_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_idle_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_hovered_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_hovered_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_hovered_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "maximize_disabled_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "minimize_disabled_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "close_disabled_background_active_color": {
-                  "type": "[u8; 4]"
+                  "type": "ColorU"
                 },
                 "title_bar_font": {
                   "type": "String"
@@ -1179,6 +1179,9 @@
           },
           "FullWindowState": {
             "external": "azul_layout::window_state::FullWindowState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -1596,8 +1599,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "c_void",
-                  "ref_kind": "mutptr"
+                  "type": "c_void", "ref_kind": "mutptr"
                 }
               ],
               "returns": null
@@ -1837,8 +1839,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "InstantPtr",
-                  "ref_kind": "constptr"
+                  "type": "InstantPtr", "ref_kind": "constptr"
                 }
               ],
               "returns": {
@@ -1851,8 +1852,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "InstantPtr",
-                  "ref_kind": "mutptr"
+                  "type": "InstantPtr", "ref_kind": "mutptr"
                 }
               ],
               "returns": null
@@ -7849,8 +7849,11 @@
             ],
             "struct_fields": [
               {
-                "offset": {
-                  "type": "[PixelValueNoPercent; 2]"
+                "offset_x": {
+                  "type": "PixelValueNoPercent"
+                },
+                "offset_y": {
+                  "type": "PixelValueNoPercent"
                 },
                 "color": {
                   "type": "ColorU"
@@ -8036,8 +8039,65 @@
             ],
             "struct_fields": [
               {
-                "matrix": {
-                  "type": "[FloatValue; 20]"
+                "m0": {
+                  "type": "FloatValue"
+                },
+                "m1": {
+                  "type": "FloatValue"
+                },
+                "m2": {
+                  "type": "FloatValue"
+                },
+                "m3": {
+                  "type": "FloatValue"
+                },
+                "m4": {
+                  "type": "FloatValue"
+                },
+                "m5": {
+                  "type": "FloatValue"
+                },
+                "m6": {
+                  "type": "FloatValue"
+                },
+                "m7": {
+                  "type": "FloatValue"
+                },
+                "m8": {
+                  "type": "FloatValue"
+                },
+                "m9": {
+                  "type": "FloatValue"
+                },
+                "m10": {
+                  "type": "FloatValue"
+                },
+                "m11": {
+                  "type": "FloatValue"
+                },
+                "m12": {
+                  "type": "FloatValue"
+                },
+                "m13": {
+                  "type": "FloatValue"
+                },
+                "m14": {
+                  "type": "FloatValue"
+                },
+                "m15": {
+                  "type": "FloatValue"
+                },
+                "m16": {
+                  "type": "FloatValue"
+                },
+                "m17": {
+                  "type": "FloatValue"
+                },
+                "m18": {
+                  "type": "FloatValue"
+                },
+                "m19": {
+                  "type": "FloatValue"
                 }
               }
             ],
@@ -8082,26 +8142,14 @@
             ],
             "enum_fields": [
               {
-                "Over": {}
-              },
-              {
-                "In": {}
-              },
-              {
-                "Atop": {}
-              },
-              {
-                "Out": {}
-              },
-              {
-                "Xor": {}
-              },
-              {
-                "Lighter": {}
-              },
-              {
+                "Over": {},
+                "In": {},
+                "Atop": {},
+                "Out": {},
+                "Xor": {},
+                "Lighter": {},
                 "Arithmetic": {
-                  "type": "[FloatValue;4]"
+                  "type": "ArithmeticCoefficients"
                 }
               }
             ],
@@ -32290,7 +32338,7 @@
                   "type": "i16"
                 },
                 "panose": {
-                  "type": "[u8; 10]"
+                  "type": "Panose"
                 },
                 "ul_unicode_range1": {
                   "type": "u32"
@@ -35347,8 +35395,7 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "c_void",
-                  "ref_kind": "mutptr"
+                  "type": "c_void", "ref_kind": "mutptr"
                 }
               ],
               "returns": null
@@ -40569,6 +40616,83 @@
             "type_alias": {
               "target": "u32"
             }
+          },
+          "ArithmeticCoefficients": {
+            "external": "azul_css::props::style::filter::ArithmeticCoefficients",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "k1": {
+                  "type": "FloatValue"
+                },
+                "k2": {
+                  "type": "FloatValue"
+                },
+                "k3": {
+                  "type": "FloatValue"
+                },
+                "k4": {
+                  "type": "FloatValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Panose": {
+            "external": "azul_css::props::basic::font::Panose",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "family_type": {
+                  "type": "u8"
+                },
+                "serif_style": {
+                  "type": "u8"
+                },
+                "weight": {
+                  "type": "u8"
+                },
+                "proportion": {
+                  "type": "u8"
+                },
+                "contrast": {
+                  "type": "u8"
+                },
+                "stroke_variation": {
+                  "type": "u8"
+                },
+                "arm_style": {
+                  "type": "u8"
+                },
+                "letterform": {
+                  "type": "u8"
+                },
+                "midline": {
+                  "type": "u8"
+                },
+                "x_height": {
+                  "type": "u8"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -40689,6 +40813,9 @@
           },
           "AppTerminationBehavior": {
             "external": "azul_core::resources::AppTerminationBehavior",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Copy",

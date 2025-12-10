@@ -76,7 +76,7 @@ use crate::{
         },
         layout_tree::{AnonymousBoxType, CachedInlineLayout, LayoutNode, LayoutTree, PseudoElement},
         positioning::get_position_type,
-        scrollbar::ScrollbarInfo,
+        scrollbar::ScrollbarRequirements,
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
@@ -2353,8 +2353,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .get_direction(node_data, &id, node_state)
         .and_then(|s| s.get_property().copied())
         .map(|d| match d {
-            StyleDirection::Ltr => text3::cache::Direction::Ltr,
-            StyleDirection::Rtl => text3::cache::Direction::Rtl,
+            StyleDirection::Ltr => text3::cache::BidiDirection::Ltr,
+            StyleDirection::Rtl => text3::cache::BidiDirection::Rtl,
         });
 
     debug_info!(
@@ -5357,7 +5357,7 @@ pub fn check_scrollbar_necessity(
     container_size: LogicalSize,
     overflow_x: OverflowBehavior,
     overflow_y: OverflowBehavior,
-) -> ScrollbarInfo {
+) -> ScrollbarRequirements {
     let mut needs_horizontal = match overflow_x {
         OverflowBehavior::Visible | 
         OverflowBehavior::Hidden | 
@@ -5388,7 +5388,7 @@ pub fn check_scrollbar_necessity(
         }
     }
 
-    ScrollbarInfo {
+    ScrollbarRequirements {
         needs_horizontal,
         needs_vertical,
         scrollbar_width: if needs_vertical {

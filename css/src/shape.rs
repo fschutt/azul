@@ -346,13 +346,13 @@ impl_vec_partialeq!(LineSegment, LineSegmentVec);
 /// A 2D rectangle for shape bounding boxes and reference boxes
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-pub struct LayoutRect {
+pub struct ShapeRect {
     pub origin: ShapePoint,
     pub width: f32,
     pub height: f32,
 }
 
-impl LayoutRect {
+impl ShapeRect {
     pub const fn new(origin: ShapePoint, width: f32, height: f32) -> Self {
         Self {
             origin,
@@ -371,16 +371,16 @@ impl LayoutRect {
 }
 
 impl_option!(
-    LayoutRect,
-    OptionLayoutRect,
+    ShapeRect,
+    OptionShapeRect,
     [Debug, Copy, Clone, PartialEq]
 );
 
 impl CssShape {
     /// Computes the bounding box of this shape
-    pub fn bounding_box(&self) -> LayoutRect {
+    pub fn bounding_box(&self) -> ShapeRect {
         match self {
-            CssShape::Circle(ShapeCircle { center, radius }) => LayoutRect {
+            CssShape::Circle(ShapeCircle { center, radius }) => ShapeRect {
                 origin: ShapePoint::new(center.x - radius, center.y - radius),
                 width: radius * 2.0,
                 height: radius * 2.0,
@@ -390,7 +390,7 @@ impl CssShape {
                 center,
                 radius_x,
                 radius_y,
-            }) => LayoutRect {
+            }) => ShapeRect {
                 origin: ShapePoint::new(center.x - radius_x, center.y - radius_y),
                 width: radius_x * 2.0,
                 height: radius_y * 2.0,
@@ -398,7 +398,7 @@ impl CssShape {
 
             CssShape::Polygon(ShapePolygon { points }) => {
                 if points.as_ref().is_empty() {
-                    return LayoutRect::zero();
+                    return ShapeRect::zero();
                 }
 
                 let first = points.as_ref()[0];
@@ -414,7 +414,7 @@ impl CssShape {
                     max_y = max_y.max(point.y);
                 }
 
-                LayoutRect {
+                ShapeRect {
                     origin: ShapePoint::new(min_x, min_y),
                     width: max_x - min_x,
                     height: max_y - min_y,
@@ -430,7 +430,7 @@ impl CssShape {
             }) => {
                 // For inset, we need the reference box to compute actual bounds
                 // For now, return a placeholder that indicates the insets
-                LayoutRect {
+                ShapeRect {
                     origin: ShapePoint::new(*left, *top),
                     width: 0.0, // Will be computed relative to container
                     height: 0.0,
@@ -440,7 +440,7 @@ impl CssShape {
             CssShape::Path(_) => {
                 // Path bounding box computation requires parsing the path
                 // For now, return zero rect
-                LayoutRect::zero()
+                ShapeRect::zero()
             }
         }
     }
@@ -459,7 +459,7 @@ impl CssShape {
         &self,
         y: f32,
         margin: f32,
-        reference_box: OptionLayoutRect,
+        reference_box: OptionShapeRect,
     ) -> LineSegmentVec {
         use alloc::vec::Vec;
 
@@ -519,8 +519,8 @@ impl CssShape {
                 border_radius,
             }) => {
                 let ref_box = match reference_box {
-                    OptionLayoutRect::Some(r) => r,
-                    OptionLayoutRect::None => LayoutRect::zero(),
+                    OptionShapeRect::Some(r) => r,
+                    OptionShapeRect::None => ShapeRect::zero(),
                 };
 
                 let inset_top = ref_box.origin.y + top + margin;

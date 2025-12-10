@@ -303,7 +303,7 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// The line index this run belongs to (for breaking runs at line boundaries)
     pub line_index: usize,
     /// Text direction for this run
-    pub direction: crate::text3::cache::Direction,
+    pub direction: crate::text3::cache::BidiDirection,
     /// Writing mode for this run
     pub writing_mode: crate::text3::cache::WritingMode,
     /// The starting position (baseline) of this run - used for SetTextMatrix

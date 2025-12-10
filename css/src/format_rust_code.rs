@@ -821,12 +821,27 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format!("StyleFilter::Opacity({})", format_percentage_value(pct))
         }
         StyleFilter::ColorMatrix(cm) => format!(
-            "StyleFilter::ColorMatrix(StyleColorMatrix {{ matrix: {} }})",
-            cm.matrix
-                .iter()
-                .map(|f| format_float_value(f))
-                .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", tabs_str))
+            "StyleFilter::ColorMatrix(StyleColorMatrix {{ m0: {}, m1: {}, m2: {}, m3: {}, m4: {}, m5: {}, m6: {}, m7: {}, m8: {}, m9: {}, m10: {}, m11: {}, m12: {}, m13: {}, m14: {}, m15: {}, m16: {}, m17: {}, m18: {}, m19: {} }})",
+            format_float_value(&cm.m0),
+            format_float_value(&cm.m1),
+            format_float_value(&cm.m2),
+            format_float_value(&cm.m3),
+            format_float_value(&cm.m4),
+            format_float_value(&cm.m5),
+            format_float_value(&cm.m6),
+            format_float_value(&cm.m7),
+            format_float_value(&cm.m8),
+            format_float_value(&cm.m9),
+            format_float_value(&cm.m10),
+            format_float_value(&cm.m11),
+            format_float_value(&cm.m12),
+            format_float_value(&cm.m13),
+            format_float_value(&cm.m14),
+            format_float_value(&cm.m15),
+            format_float_value(&cm.m16),
+            format_float_value(&cm.m17),
+            format_float_value(&cm.m18),
+            format_float_value(&cm.m19)
         ),
         StyleFilter::DropShadow(m) => {
             format!("StyleFilter::DropShadow({})", m.format_as_rust_code(tabs))
@@ -856,11 +871,11 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format!("StyleFilter::Composite(StyleCompositeFilter::Lighter)")
         }
         StyleFilter::Composite(StyleCompositeFilter::Arithmetic(fv)) => format!(
-            "StyleFilter::Composite(StyleCompositeFilter::Arithmetic({}))",
-            fv.iter()
-                .map(|f| format_float_value(f))
-                .collect::<Vec<_>>()
-                .join(&format!(",\r\n{}", tabs_minus_one))
+            "StyleFilter::Composite(StyleCompositeFilter::Arithmetic(ArithmeticCoefficients {{ k1: {}, k2: {}, k3: {}, k4: {} }}))",
+            format_float_value(&fv.k1),
+            format_float_value(&fv.k2),
+            format_float_value(&fv.k3),
+            format_float_value(&fv.k4)
         ),
     }
 }

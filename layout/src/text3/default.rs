@@ -9,7 +9,7 @@ use azul_css::props::basic::FontRef;
 use rust_fontconfig::FcFontCache;
 use crate::text3::{
     cache::{
-        BidiLevel, Direction, FontManager, FontSelector, Glyph, GlyphOrientation, GlyphSource,
+        BidiDirection, BidiLevel, FontManager, FontSelector, Glyph, GlyphOrientation, GlyphSource,
         LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
         TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
     },
@@ -111,7 +111,7 @@ impl ParsedFontTrait for FontRef {
         text: &str,
         script: Script,
         language: crate::text3::script::Language,
-        direction: Direction,
+        direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         // Delegate to the inner ParsedFont's shape_text, passing self as font_ref
@@ -169,7 +169,7 @@ impl ParsedFont {
         text: &str,
         script: Script,
         language: crate::text3::script::Language,
-        direction: Direction,
+        direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         // Use the common shaping implementation
@@ -581,7 +581,7 @@ fn shape_text_internal(
     text: &str,
     script: Script,
     language: crate::text3::script::Language,
-    direction: Direction,
+    direction: BidiDirection,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph>, LayoutError> {
     let script_tag = to_opentype_script_tag(script);
@@ -743,7 +743,7 @@ pub fn shape_text_for_parsed_font(
     text: &str,
     script: Script,
     language: crate::text3::script::Language,
-    direction: Direction,
+    direction: BidiDirection,
     style: &StyleProperties,
 ) -> Result<Vec<Glyph>, LayoutError> {
     // Delegate to the single internal implementation

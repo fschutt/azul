@@ -36,7 +36,7 @@ use crate::{
     solver3::{
         display_list::{BorderRadius, PhysicalSizeImport},
         layout_tree::LayoutNode,
-        scrollbar::ScrollbarInfo,
+        scrollbar::ScrollbarRequirements,
     },
 };
 
@@ -856,6 +856,26 @@ pub fn get_background_color(
     })
 }
 
+/// Returns all background content layers for a node (colors, gradients, images).
+/// This is used for rendering backgrounds that may include linear/radial/conic gradients.
+pub fn get_background_contents(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    use azul_css::props::style::StyleBackgroundContent;
+
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_content(node_data, &node_id, node_state)
+        .and_then(|bg| bg.get_property())
+        .map(|bg_vec| bg_vec.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
 /// Information about border rendering
 pub struct BorderInfo {
     pub widths: crate::solver3::display_list::StyleBorderWidths,
@@ -1034,7 +1054,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 // Scrollbar Information
 
 /// Get scrollbar information from a layout node
-pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarInfo {
+pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
     // Check if there's inline content that might overflow
     let has_inline_content = node.inline_layout_result.is_some();
 
@@ -1044,7 +1064,7 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarInfo {
     //   - Then check if content exceeds container bounds
     // This requires adding overflow detection in the layout pass itself
 
-    ScrollbarInfo {
+    ScrollbarRequirements {
         needs_vertical: false,
         needs_horizontal: false,
         scrollbar_width: if has_inline_content { 16.0 } else { 0.0 },

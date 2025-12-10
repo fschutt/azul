@@ -10,7 +10,7 @@ pub use crate::text3::script::Language;
 #[cfg(feature = "text_layout")]
 pub use crate::text3::{
     cache::{
-        AvailableSpace, ContentIndex, Direction, FontHash, FontManager, FontSelector, FontStyle,
+        AvailableSpace, BidiDirection, ContentIndex, FontHash, FontManager, FontSelector, FontStyle,
         Glyph, ImageSource, InlineContent, InlineImage, InlineShape, LayoutCache, LayoutError,
         LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
         ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, UnifiedConstraints,
@@ -37,7 +37,7 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
         text: &str,
         script: Script,
         language: Language,
-        direction: Direction,
+        direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError>;
 
@@ -89,7 +89,7 @@ mod stub {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Direction {
+    pub enum TextDirection {
         LeftToRight,
         RightToLeft,
     }

@@ -178,7 +178,7 @@ pub mod parsed {
         /// Layout-specific font metrics (ascent, descent, line gap).
         pub font_metrics: LayoutFontMetrics,
         /// PDF-specific detailed font metrics from HEAD, HHEA, OS/2 tables.
-        pub pdf_font_metrics: FontMetrics,
+        pub pdf_font_metrics: PdfFontMetrics,
         /// Total number of glyphs in the font (from maxp table).
         pub num_glyphs: u16,
         /// Horizontal header table (hhea) containing global horizontal metrics.
@@ -238,7 +238,7 @@ pub mod parsed {
     /// text positioning in generated PDF documents.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(C)]
-    pub struct FontMetrics {
+    pub struct PdfFontMetrics {
         // -- HEAD table fields --
         /// Font units per em-square (typically 1000 or 2048).
         pub units_per_em: u16,
@@ -280,15 +280,15 @@ pub mod parsed {
         pub y_strikeout_position: i16,
     }
 
-    impl Default for FontMetrics {
+    impl Default for PdfFontMetrics {
         fn default() -> Self {
-            FontMetrics::zero()
+            PdfFontMetrics::zero()
         }
     }
 
-    impl FontMetrics {
+    impl PdfFontMetrics {
         pub const fn zero() -> Self {
-            FontMetrics {
+            PdfFontMetrics {
                 units_per_em: 1000,
                 font_flags: 0,
                 x_min: 0,
@@ -842,7 +842,7 @@ pub mod parsed {
             font_index: usize,
             head_table: &allsorts::tables::HeadTable,
             hhea_table: &allsorts::tables::HheaTable,
-        ) -> FontMetrics {
+        ) -> PdfFontMetrics {
             use allsorts::{
                 binary::read::ReadScope,
                 font_data::FontData,
@@ -866,7 +866,7 @@ pub mod parsed {
                 });
 
             // Base metrics from HEAD and HHEA (always present)
-            let base = FontMetrics {
+            let base = PdfFontMetrics {
                 units_per_em: head_table.units_per_em,
                 font_flags: head_table.flags,
                 x_min: head_table.x_min,
@@ -879,12 +879,12 @@ pub mod parsed {
                 advance_width_max: hhea_table.advance_width_max,
                 caret_slope_rise: hhea_table.caret_slope_rise,
                 caret_slope_run: hhea_table.caret_slope_run,
-                ..FontMetrics::zero()
+                ..PdfFontMetrics::zero()
             };
 
             // Add OS/2 metrics if available
             os2_table
-                .map(|os2| FontMetrics {
+                .map(|os2| PdfFontMetrics {
                     x_avg_char_width: os2.x_avg_char_width,
                     us_weight_class: os2.us_weight_class,
                     us_width_class: os2.us_width_class,
@@ -1611,7 +1611,7 @@ pub mod parsed {
             text: &str,
             script: crate::font_traits::Script,
             language: crate::font_traits::Language,
-            direction: crate::font_traits::Direction,
+            direction: crate::font_traits::BidiDirection,
             style: &crate::font_traits::StyleProperties,
         ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
             // Call the existing shape_text_for_parsed_font method (defined in default.rs)

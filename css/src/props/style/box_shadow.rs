@@ -36,7 +36,8 @@ impl fmt::Display for BoxShadowClipMode {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleBoxShadow {
-    pub offset: [PixelValueNoPercent; 2],
+    pub offset_x: PixelValueNoPercent,
+    pub offset_y: PixelValueNoPercent,
     pub color: ColorU,
     pub blur_radius: PixelValueNoPercent,
     pub spread_radius: PixelValueNoPercent,
@@ -46,10 +47,8 @@ pub struct StyleBoxShadow {
 impl Default for StyleBoxShadow {
     fn default() -> Self {
         Self {
-            offset: [
-                PixelValueNoPercent::default(),
-                PixelValueNoPercent::default(),
-            ],
+            offset_x: PixelValueNoPercent::default(),
+            offset_y: PixelValueNoPercent::default(),
             color: ColorU::BLACK,
             blur_radius: PixelValueNoPercent::default(),
             spread_radius: PixelValueNoPercent::default(),
@@ -61,9 +60,8 @@ impl Default for StyleBoxShadow {
 impl StyleBoxShadow {
     /// Scales the pixel values of the shadow for a given DPI factor.
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        for s in self.offset.iter_mut() {
-            s.scale_for_dpi(scale_factor);
-        }
+        self.offset_x.scale_for_dpi(scale_factor);
+        self.offset_y.scale_for_dpi(scale_factor);
         self.blur_radius.scale_for_dpi(scale_factor);
         self.spread_radius.scale_for_dpi(scale_factor);
     }
@@ -76,8 +74,8 @@ impl PrintAsCssValue for StyleBoxShadow {
         if self.clip_mode == BoxShadowClipMode::Inset {
             components.push("inset".to_string());
         }
-        components.push(self.offset[0].to_string());
-        components.push(self.offset[1].to_string());
+        components.push(self.offset_x.to_string());
+        components.push(self.offset_y.to_string());
 
         // Only print blur, spread, and color if they are not default, for brevity
         if self.blur_radius.inner.number.get() != 0.0
@@ -102,12 +100,13 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
         format!(
-            "StyleBoxShadow {{\r\n{}    offset: [{}, {}],\r\n{}    color: {},\r\n{}    \
+            "StyleBoxShadow {{\r\n{}    offset_x: {},\r\n{}    offset_y: {},\r\n{}    color: {},\r\n{}    \
              blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
              BoxShadowClipMode::{:?},\r\n{}}}",
             t,
-            crate::format_rust_code::format_pixel_value_no_percent(&self.offset[0]),
-            crate::format_rust_code::format_pixel_value_no_percent(&self.offset[1]),
+            crate::format_rust_code::format_pixel_value_no_percent(&self.offset_x),
+            t,
+            crate::format_rust_code::format_pixel_value_no_percent(&self.offset_y),
             t,
             crate::format_rust_code::format_color_value(&self.color),
             t,
@@ -212,8 +211,8 @@ pub fn parse_style_box_shadow<'a>(
     // The remaining parts must be 2, 3, or 4 length values.
     match parts.len() {
         2..=4 => {
-            shadow.offset[0] = parse_pixel_value_no_percent(parts[0])?;
-            shadow.offset[1] = parse_pixel_value_no_percent(parts[1])?;
+            shadow.offset_x = parse_pixel_value_no_percent(parts[0])?;
+            shadow.offset_y = parse_pixel_value_no_percent(parts[1])?;
             if parts.len() > 2 {
                 shadow.blur_radius = parse_pixel_value_no_percent(parts[2])?;
             }
@@ -241,7 +240,8 @@ mod tests {
     #[test]
     fn test_parse_box_shadow_simple() {
         let result = parse_style_box_shadow("10px 5px").unwrap();
-        assert_eq!(result.offset, [px_no_percent(10.0), px_no_percent(5.0)]);
+        assert_eq!(result.offset_x, px_no_percent(10.0));
+        assert_eq!(result.offset_y, px_no_percent(5.0));
         assert_eq!(result.blur_radius, px_no_percent(0.0));
         assert_eq!(result.spread_radius, px_no_percent(0.0));
         assert_eq!(result.color, ColorU::BLACK);
@@ -251,21 +251,24 @@ mod tests {
     #[test]
     fn test_parse_box_shadow_with_color() {
         let result = parse_style_box_shadow("10px 5px #888").unwrap();
-        assert_eq!(result.offset, [px_no_percent(10.0), px_no_percent(5.0)]);
+        assert_eq!(result.offset_x, px_no_percent(10.0));
+        assert_eq!(result.offset_y, px_no_percent(5.0));
         assert_eq!(result.color, ColorU::new_rgb(0x88, 0x88, 0x88));
     }
 
     #[test]
     fn test_parse_box_shadow_with_blur() {
         let result = parse_style_box_shadow("5px 10px 20px").unwrap();
-        assert_eq!(result.offset, [px_no_percent(5.0), px_no_percent(10.0)]);
+        assert_eq!(result.offset_x, px_no_percent(5.0));
+        assert_eq!(result.offset_y, px_no_percent(10.0));
         assert_eq!(result.blur_radius, px_no_percent(20.0));
     }
 
     #[test]
     fn test_parse_box_shadow_with_spread() {
         let result = parse_style_box_shadow("2px 2px 2px 1px rgba(0,0,0,0.2)").unwrap();
-        assert_eq!(result.offset, [px_no_percent(2.0), px_no_percent(2.0)]);
+        assert_eq!(result.offset_x, px_no_percent(2.0));
+        assert_eq!(result.offset_y, px_no_percent(2.0));
         assert_eq!(result.blur_radius, px_no_percent(2.0));
         assert_eq!(result.spread_radius, px_no_percent(1.0));
         assert_eq!(result.color, ColorU::new(0, 0, 0, 51));
@@ -275,7 +278,8 @@ mod tests {
     fn test_parse_box_shadow_inset() {
         let result = parse_style_box_shadow("inset 0 0 10px #000").unwrap();
         assert_eq!(result.clip_mode, BoxShadowClipMode::Inset);
-        assert_eq!(result.offset, [px_no_percent(0.0), px_no_percent(0.0)]);
+        assert_eq!(result.offset_x, px_no_percent(0.0));
+        assert_eq!(result.offset_y, px_no_percent(0.0));
         assert_eq!(result.blur_radius, px_no_percent(10.0));
         assert_eq!(result.color, ColorU::BLACK);
     }
@@ -284,14 +288,12 @@ mod tests {
     fn test_parse_box_shadow_mixed_order() {
         let result = parse_style_box_shadow("5px 1em red inset").unwrap();
         assert_eq!(result.clip_mode, BoxShadowClipMode::Inset);
+        assert_eq!(result.offset_x, px_no_percent(5.0));
         assert_eq!(
-            result.offset,
-            [
-                px_no_percent(5.0),
-                PixelValueNoPercent {
-                    inner: PixelValue::em(1.0)
-                }
-            ]
+            result.offset_y,
+            PixelValueNoPercent {
+                inner: PixelValue::em(1.0)
+            }
         );
         assert_eq!(result.color, ColorU::RED);
     }

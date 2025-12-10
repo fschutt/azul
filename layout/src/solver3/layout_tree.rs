@@ -36,7 +36,7 @@ use crate::{
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{get_float, get_overflow_x, get_overflow_y, get_position},
-        scrollbar::ScrollbarInfo,
+        scrollbar::ScrollbarRequirements,
         LayoutContext, Result,
     },
     text3::cache::AvailableSpace,
@@ -250,7 +250,7 @@ pub struct LayoutNode {
     pub escaped_bottom_margin: Option<f32>,
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
-    pub scrollbar_info: Option<ScrollbarInfo>,
+    pub scrollbar_info: Option<ScrollbarRequirements>,
 }
 
 /// CSS pseudo-elements that can be generated

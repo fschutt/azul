@@ -66,10 +66,43 @@ pub struct StyleBlur {
     pub height: PixelValue,
 }
 
+/// Color matrix with 20 float values for color transformation.
+/// Layout: 4 rows × 5 columns (RGBA + offset for each channel)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleColorMatrix {
-    pub matrix: [FloatValue; 20],
+    pub m0: FloatValue,
+    pub m1: FloatValue,
+    pub m2: FloatValue,
+    pub m3: FloatValue,
+    pub m4: FloatValue,
+    pub m5: FloatValue,
+    pub m6: FloatValue,
+    pub m7: FloatValue,
+    pub m8: FloatValue,
+    pub m9: FloatValue,
+    pub m10: FloatValue,
+    pub m11: FloatValue,
+    pub m12: FloatValue,
+    pub m13: FloatValue,
+    pub m14: FloatValue,
+    pub m15: FloatValue,
+    pub m16: FloatValue,
+    pub m17: FloatValue,
+    pub m18: FloatValue,
+    pub m19: FloatValue,
+}
+
+impl StyleColorMatrix {
+    /// Returns the matrix values as a slice for iteration
+    pub fn as_slice(&self) -> [FloatValue; 20] {
+        [
+            self.m0, self.m1, self.m2, self.m3, self.m4,
+            self.m5, self.m6, self.m7, self.m8, self.m9,
+            self.m10, self.m11, self.m12, self.m13, self.m14,
+            self.m15, self.m16, self.m17, self.m18, self.m19,
+        ]
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,6 +110,17 @@ pub struct StyleColorMatrix {
 pub struct StyleFilterOffset {
     pub x: PixelValue,
     pub y: PixelValue,
+}
+
+/// Arithmetic coefficients for composite filter (k1, k2, k3, k4).
+/// Result = k1*i1*i2 + k2*i1 + k3*i2 + k4
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ArithmeticCoefficients {
+    pub k1: FloatValue,
+    pub k2: FloatValue,
+    pub k3: FloatValue,
+    pub k4: FloatValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -88,7 +132,7 @@ pub enum StyleCompositeFilter {
     Out,
     Xor,
     Lighter,
-    Arithmetic([FloatValue; 4]),
+    Arithmetic(ArithmeticCoefficients),
 }
 
 // --- PRINTING IMPLEMENTATIONS ---
@@ -128,7 +172,7 @@ impl PrintAsCssValue for StyleFilter {
             StyleFilter::Opacity(c) => format!("opacity({})", c),
             StyleFilter::ColorMatrix(c) => format!(
                 "color-matrix({})",
-                c.matrix
+                c.as_slice()
                     .iter()
                     .map(|s| format!("{}", s))
                     .collect::<Vec<_>>()
@@ -154,11 +198,8 @@ impl PrintAsCssValue for StyleCompositeFilter {
             StyleCompositeFilter::Xor => "xor".to_string(),
             StyleCompositeFilter::Lighter => "lighter".to_string(),
             StyleCompositeFilter::Arithmetic(fv) => format!(
-                "arithmetic {}",
-                fv.iter()
-                    .map(|s| format!("{}", s))
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                "arithmetic {} {} {} {}",
+                fv.k1, fv.k2, fv.k3, fv.k4
             ),
         }
     }
@@ -669,12 +710,33 @@ mod parser {
             });
         }
 
-        let mut matrix = [FloatValue::const_new(0); 20];
+        let mut values = [FloatValue::const_new(0); 20];
         for (i, comp) in components.iter().enumerate() {
-            matrix[i] = parse_float_value(comp)?;
+            values[i] = parse_float_value(comp)?;
         }
 
-        Ok(StyleColorMatrix { matrix })
+        Ok(StyleColorMatrix {
+            m0: values[0],
+            m1: values[1],
+            m2: values[2],
+            m3: values[3],
+            m4: values[4],
+            m5: values[5],
+            m6: values[6],
+            m7: values[7],
+            m8: values[8],
+            m9: values[9],
+            m10: values[10],
+            m11: values[11],
+            m12: values[12],
+            m13: values[13],
+            m14: values[14],
+            m15: values[15],
+            m16: values[16],
+            m17: values[17],
+            m18: values[18],
+            m19: values[19],
+        })
     }
 
     fn parse_filter_offset<'a>(
@@ -709,8 +771,8 @@ mod parser {
             "xor" => Ok(StyleCompositeFilter::Xor),
             "lighter" => Ok(StyleCompositeFilter::Lighter),
             "arithmetic" => {
-                let mut params = [FloatValue::const_new(0); 4];
-                for (i, val) in params.iter_mut().enumerate() {
+                let mut values = [FloatValue::const_new(0); 4];
+                for (i, val) in values.iter_mut().enumerate() {
                     let s = iter.next().ok_or(
                         CssStyleCompositeFilterParseError::WrongNumberOfComponents {
                             expected: 4,
@@ -720,7 +782,12 @@ mod parser {
                     )?;
                     *val = parse_float_value(s)?;
                 }
-                Ok(StyleCompositeFilter::Arithmetic(params))
+                Ok(StyleCompositeFilter::Arithmetic(ArithmeticCoefficients {
+                    k1: values[0],
+                    k2: values[1],
+                    k3: values[2],
+                    k4: values[3],
+                }))
             }
             _ => Err(InvalidValueErr(operator).into()),
         }
@@ -761,7 +828,7 @@ mod tests {
         let shadow = parse_style_filter("drop-shadow(10px 5px 5px #888)").unwrap();
         assert!(matches!(shadow, StyleFilter::DropShadow(_)));
         if let StyleFilter::DropShadow(s) = shadow {
-            assert_eq!(s.offset[0].inner, PixelValue::px(10.0));
+            assert_eq!(s.offset_x.inner, PixelValue::px(10.0));
             assert_eq!(s.blur_radius.inner, PixelValue::px(5.0));
             assert_eq!(s.color, ColorU::new_rgb(0x88, 0x88, 0x88));
         }

@@ -103,14 +103,14 @@ impl fmt::Display for NormalizedPercentage {
 /// Logical size in CSS logical coordinate system
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-pub struct LogicalSize {
+pub struct CssLogicalSize {
     /// Inline-axis size (width in horizontal writing mode)
     pub inline_size: f32,
     /// Block-axis size (height in horizontal writing mode)
     pub block_size: f32,
 }
 
-impl LogicalSize {
+impl CssLogicalSize {
     #[inline]
     pub const fn new(inline_size: f32, block_size: f32) -> Self {
         Self {
@@ -145,8 +145,8 @@ impl PhysicalSize {
 
     /// Convert to logical size in horizontal writing mode
     #[inline]
-    pub const fn to_logical(self) -> LogicalSize {
-        LogicalSize {
+    pub const fn to_logical(self) -> CssLogicalSize {
+        CssLogicalSize {
             inline_size: self.width,
             block_size: self.height,
         }

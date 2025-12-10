@@ -8,7 +8,7 @@ use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace,
-    Direction, GlyphKind, JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo,
+    BidiDirection, GlyphKind, JustifyContent, LayoutError, LoadedFonts, LogicalItem, OverflowInfo,
     ParsedFontTrait, Point, PositionedItem, Rect, ShapedCluster, ShapedGlyph, ShapedItem,
     TextAlign, UnifiedConstraints, UnifiedLayout,
 };
@@ -418,10 +418,10 @@ fn position_lines_from_breaks(
         // Resolve the physical alignment here, inside the function,
         // just like in position_one_line
         let physical_align = match (constraints.text_align, base_direction) {
-            (TextAlign::Start, Direction::Ltr) => TextAlign::Left,
-            (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
-            (TextAlign::End, Direction::Ltr) => TextAlign::Right,
-            (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+            (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
+            (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
+            (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
+            (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
             (other, _) => other,
         };
 

@@ -1756,14 +1756,7 @@ fn render_node(
         )),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1781,14 +1774,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1806,14 +1792,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1831,14 +1810,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1888,14 +1860,7 @@ fn render_node(
         )),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1913,14 +1878,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1938,14 +1896,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1963,14 +1914,7 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -2173,14 +2117,7 @@ fn render_node(
            )),
            NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
                StyleBoxShadow {
-                   offset: [
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                   ],
+                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
                        r: 0,
                        g: 131,
@@ -2198,14 +2135,7 @@ fn render_node(
            ))),
            NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
                StyleBoxShadow {
-                   offset: [
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                   ],
+                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
                        r: 0,
                        g: 131,
@@ -2223,14 +2153,7 @@ fn render_node(
            ))),
            NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
                StyleBoxShadow {
-                   offset: [
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                   ],
+                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
                        r: 0,
                        g: 131,
@@ -2248,14 +2171,7 @@ fn render_node(
            ))),
            NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
                StyleBoxShadowValue::Exact(StyleBoxShadow {
-                   offset: [
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                       PixelValueNoPercent {
-                           inner: PixelValue::const_px(0),
-                       },
-                   ],
+                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
                    color: ColorU {
                        r: 0,
                        g: 131,

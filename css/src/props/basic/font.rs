@@ -600,6 +600,89 @@ pub fn parse_style_font_family<'a>(
 
 use crate::corety::{OptionI16, OptionU16, OptionU32};
 
+/// PANOSE classification values for font identification (10 bytes).
+/// See https://learn.microsoft.com/en-us/typography/opentype/spec/os2#panose
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct Panose {
+    pub family_type: u8,
+    pub serif_style: u8,
+    pub weight: u8,
+    pub proportion: u8,
+    pub contrast: u8,
+    pub stroke_variation: u8,
+    pub arm_style: u8,
+    pub letterform: u8,
+    pub midline: u8,
+    pub x_height: u8,
+}
+
+impl Default for Panose {
+    fn default() -> Self {
+        Panose {
+            family_type: 0,
+            serif_style: 0,
+            weight: 0,
+            proportion: 0,
+            contrast: 0,
+            stroke_variation: 0,
+            arm_style: 0,
+            letterform: 0,
+            midline: 0,
+            x_height: 0,
+        }
+    }
+}
+
+impl Panose {
+    pub const fn zero() -> Self {
+        Panose {
+            family_type: 0,
+            serif_style: 0,
+            weight: 0,
+            proportion: 0,
+            contrast: 0,
+            stroke_variation: 0,
+            arm_style: 0,
+            letterform: 0,
+            midline: 0,
+            x_height: 0,
+        }
+    }
+
+    /// Create from a 10-byte array
+    pub const fn from_array(arr: [u8; 10]) -> Self {
+        Panose {
+            family_type: arr[0],
+            serif_style: arr[1],
+            weight: arr[2],
+            proportion: arr[3],
+            contrast: arr[4],
+            stroke_variation: arr[5],
+            arm_style: arr[6],
+            letterform: arr[7],
+            midline: arr[8],
+            x_height: arr[9],
+        }
+    }
+
+    /// Convert to a 10-byte array
+    pub const fn to_array(&self) -> [u8; 10] {
+        [
+            self.family_type,
+            self.serif_style,
+            self.weight,
+            self.proportion,
+            self.contrast,
+            self.stroke_variation,
+            self.arm_style,
+            self.letterform,
+            self.midline,
+            self.x_height,
+        ]
+    }
+}
+
 /// Font metrics structure containing all font-related measurements from
 /// the font file tables (head, hhea, and os/2 tables).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -642,7 +725,7 @@ pub struct FontMetrics {
     pub y_strikeout_size: i16,
     pub y_strikeout_position: i16,
     pub s_family_class: i16,
-    pub panose: [u8; 10],
+    pub panose: Panose,
     pub ul_unicode_range1: u32,
     pub ul_unicode_range2: u32,
     pub ul_unicode_range3: u32,
@@ -718,7 +801,7 @@ impl FontMetrics {
             y_strikeout_size: 0,
             y_strikeout_position: 0,
             s_family_class: 0,
-            panose: [0; 10],
+            panose: Panose::zero(),
             ul_unicode_range1: 0,
             ul_unicode_range2: 0,
             ul_unicode_range3: 0,

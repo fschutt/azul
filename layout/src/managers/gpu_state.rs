@@ -18,7 +18,7 @@ use azul_core::{
 
 use crate::{
     managers::scroll_state::{FrameScrollInfo, ScrollManager},
-    solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarInfo},
+    solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarRequirements},
     text3::cache::ParsedFontTrait,
 };
 
@@ -168,7 +168,7 @@ impl GpuStateManager {
 
 /// Computes the transform for a vertical scrollbar thumb.
 fn compute_vertical_thumb_transform(
-    scrollbar_info: &ScrollbarInfo,
+    scrollbar_info: &ScrollbarRequirements,
     container_size: &LogicalSize,
     content_size: &LogicalSize,
     scroll_y: f32,

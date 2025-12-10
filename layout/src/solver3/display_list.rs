@@ -28,6 +28,9 @@ use azul_css::{
             LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
             StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
             StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
+            background::{LinearGradient, RadialGradient, ConicGradient, ExtendMode},
+            box_shadow::{StyleBoxShadow, BoxShadowClipMode},
+            filter::{StyleFilter, StyleFilterVec},
         },
     },
     LayoutDebugMessage,
@@ -45,13 +48,13 @@ use crate::{
     },
     solver3::{
         getters::{
-            get_background_color, get_border_info, get_border_radius, get_caret_style,
+            get_background_color, get_background_contents, get_border_info, get_border_radius, get_caret_style,
             get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
             get_style_border_radius, get_z_index, BorderInfo, CaretStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
-        scrollbar::ScrollbarInfo,
+        scrollbar::ScrollbarRequirements,
         LayoutContext, LayoutError, Result,
     },
 };
@@ -326,8 +329,61 @@ pub enum DisplayListItem {
     /// Defines a region for hit-testing.
     HitTestArea {
         bounds: LogicalRect,
-        tag: TagId, // This would be a renderer-agnostic ID type
+        tag: DisplayListTagId, // This would be a renderer-agnostic ID type
     },
+
+    // --- Gradient Primitives ---
+    /// A linear gradient fill.
+    LinearGradient {
+        bounds: LogicalRect,
+        gradient: LinearGradient,
+        border_radius: BorderRadius,
+    },
+    /// A radial gradient fill.
+    RadialGradient {
+        bounds: LogicalRect,
+        gradient: RadialGradient,
+        border_radius: BorderRadius,
+    },
+    /// A conic (angular) gradient fill.
+    ConicGradient {
+        bounds: LogicalRect,
+        gradient: ConicGradient,
+        border_radius: BorderRadius,
+    },
+
+    // --- Shadow Effects ---
+    /// A box shadow (either outset or inset).
+    BoxShadow {
+        bounds: LogicalRect,
+        shadow: StyleBoxShadow,
+        border_radius: BorderRadius,
+    },
+
+    // --- Filter Effects ---
+    /// Push a filter effect that applies to subsequent content.
+    PushFilter {
+        bounds: LogicalRect,
+        filters: Vec<StyleFilter>,
+    },
+    /// Pop a previously pushed filter.
+    PopFilter,
+
+    /// Push a backdrop filter (applies to content behind the element).
+    PushBackdropFilter {
+        bounds: LogicalRect,
+        filters: Vec<StyleFilter>,
+    },
+    /// Pop a previously pushed backdrop filter.
+    PopBackdropFilter,
+
+    /// Push an opacity layer.
+    PushOpacity {
+        bounds: LogicalRect,
+        opacity: f32,
+    },
+    /// Pop an opacity layer.
+    PopOpacity,
 }
 
 // Helper structs for the DisplayList
@@ -350,7 +406,7 @@ impl BorderRadius {
 
 // Dummy types for compilation
 pub type ExternalScrollId = u64;
-pub type TagId = u64;
+pub type DisplayListTagId = u64;
 
 /// Internal builder to accumulate display list items during generation.
 #[derive(Debug, Default)]
@@ -384,7 +440,7 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: TagId) {
+    pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
         self.push_item(DisplayListItem::HitTestArea { bounds, tag });
     }
     pub fn push_scrollbar(
@@ -416,6 +472,49 @@ impl DisplayListBuilder {
             });
         }
     }
+
+    /// Push a linear gradient background
+    pub fn push_linear_gradient(
+        &mut self,
+        bounds: LogicalRect,
+        gradient: LinearGradient,
+        border_radius: BorderRadius,
+    ) {
+        self.push_item(DisplayListItem::LinearGradient {
+            bounds,
+            gradient,
+            border_radius,
+        });
+    }
+
+    /// Push a radial gradient background
+    pub fn push_radial_gradient(
+        &mut self,
+        bounds: LogicalRect,
+        gradient: RadialGradient,
+        border_radius: BorderRadius,
+    ) {
+        self.push_item(DisplayListItem::RadialGradient {
+            bounds,
+            gradient,
+            border_radius,
+        });
+    }
+
+    /// Push a conic gradient background
+    pub fn push_conic_gradient(
+        &mut self,
+        bounds: LogicalRect,
+        gradient: ConicGradient,
+        border_radius: BorderRadius,
+    ) {
+        self.push_item(DisplayListItem::ConicGradient {
+            bounds,
+            gradient,
+            border_radius,
+        });
+    }
+
     pub fn push_selection_rect(
         &mut self,
         bounds: LogicalRect,
@@ -1241,18 +1340,20 @@ where
         }
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
+            use azul_css::props::style::StyleBackgroundContent;
+            
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let background_contents = get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             debug_info!(
                 self.ctx,
-                "Painting background/border for node {} ({:?}) at {:?}, bg_color={:?}",
+                "Painting background/border for node {} ({:?}) at {:?}, backgrounds={:?}",
                 node_index,
                 node_type.get_node_type(),
                 paint_rect,
-                bg_color
+                background_contents.len()
             );
 
             // Get both versions: simple BorderRadius for rect clipping and StyleBorderRadius for
@@ -1271,7 +1372,28 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            builder.push_rect(paint_rect, bg_color, simple_border_radius);
+            // Paint all background layers in order (CSS paints backgrounds back to front)
+            for bg in background_contents {
+                match bg {
+                    StyleBackgroundContent::Color(color) => {
+                        builder.push_rect(paint_rect, color, simple_border_radius);
+                    }
+                    StyleBackgroundContent::LinearGradient(gradient) => {
+                        builder.push_linear_gradient(paint_rect, gradient, simple_border_radius);
+                    }
+                    StyleBackgroundContent::RadialGradient(gradient) => {
+                        builder.push_radial_gradient(paint_rect, gradient, simple_border_radius);
+                    }
+                    StyleBackgroundContent::ConicGradient(gradient) => {
+                        builder.push_conic_gradient(paint_rect, gradient, simple_border_radius);
+                    }
+                    StyleBackgroundContent::Image(_image_id) => {
+                        // TODO: Implement image backgrounds
+                        // Would need to look up image_id and push_image
+                    }
+                }
+            }
+            
             builder.push_border(
                 paint_rect,
                 border_info.widths,
@@ -1940,7 +2062,7 @@ fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
     content_size
 }
 
-fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<TagId> {
+fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     id.map(|i| i.index() as u64)
 }
 
@@ -2128,6 +2250,62 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PopScrollFrame
         | DisplayListItem::PushStackingContext { .. }
         | DisplayListItem::PopStackingContext => None,
+
+        // Gradient items - simple bounds check
+        DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+                None
+            } else {
+                Some(DisplayListItem::LinearGradient {
+                    bounds: offset_rect_y(*bounds, -page_top),
+                    gradient: gradient.clone(),
+                    border_radius: *border_radius,
+                })
+            }
+        }
+        DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+                None
+            } else {
+                Some(DisplayListItem::RadialGradient {
+                    bounds: offset_rect_y(*bounds, -page_top),
+                    gradient: gradient.clone(),
+                    border_radius: *border_radius,
+                })
+            }
+        }
+        DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+                None
+            } else {
+                Some(DisplayListItem::ConicGradient {
+                    bounds: offset_rect_y(*bounds, -page_top),
+                    gradient: gradient.clone(),
+                    border_radius: *border_radius,
+                })
+            }
+        }
+
+        // BoxShadow - simple bounds check
+        DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
+            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+                None
+            } else {
+                Some(DisplayListItem::BoxShadow {
+                    bounds: offset_rect_y(*bounds, -page_top),
+                    shadow: *shadow,
+                    border_radius: *border_radius,
+                })
+            }
+        }
+
+        // Filter effects - skip for now (would need proper per-page tracking)
+        DisplayListItem::PushFilter { .. }
+        | DisplayListItem::PopFilter
+        | DisplayListItem::PushBackdropFilter { .. }
+        | DisplayListItem::PopBackdropFilter
+        | DisplayListItem::PushOpacity { .. }
+        | DisplayListItem::PopOpacity => None,
     }
 }
 
@@ -2487,7 +2665,7 @@ fn clip_scrollbar_item(
 /// Clips a hit test area to page bounds.
 fn clip_hit_test_area_item(
     bounds: LogicalRect,
-    tag: TagId,
+    tag: DisplayListTagId,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
@@ -3073,6 +3251,61 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
         DisplayListItem::PopClip => DisplayListItem::PopClip,
         DisplayListItem::PopScrollFrame => DisplayListItem::PopScrollFrame,
         DisplayListItem::PopStackingContext => DisplayListItem::PopStackingContext,
+
+        // Gradient items
+        DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::LinearGradient {
+                bounds: offset_rect_y(*bounds, y_offset),
+                gradient: gradient.clone(),
+                border_radius: *border_radius,
+            }
+        }
+        DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::RadialGradient {
+                bounds: offset_rect_y(*bounds, y_offset),
+                gradient: gradient.clone(),
+                border_radius: *border_radius,
+            }
+        }
+        DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::ConicGradient {
+                bounds: offset_rect_y(*bounds, y_offset),
+                gradient: gradient.clone(),
+                border_radius: *border_radius,
+            }
+        }
+
+        // BoxShadow
+        DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
+            DisplayListItem::BoxShadow {
+                bounds: offset_rect_y(*bounds, y_offset),
+                shadow: *shadow,
+                border_radius: *border_radius,
+            }
+        }
+
+        // Filter effects
+        DisplayListItem::PushFilter { bounds, filters } => {
+            DisplayListItem::PushFilter {
+                bounds: offset_rect_y(*bounds, y_offset),
+                filters: filters.clone(),
+            }
+        }
+        DisplayListItem::PopFilter => DisplayListItem::PopFilter,
+        DisplayListItem::PushBackdropFilter { bounds, filters } => {
+            DisplayListItem::PushBackdropFilter {
+                bounds: offset_rect_y(*bounds, y_offset),
+                filters: filters.clone(),
+            }
+        }
+        DisplayListItem::PopBackdropFilter => DisplayListItem::PopBackdropFilter,
+        DisplayListItem::PushOpacity { bounds, opacity } => {
+            DisplayListItem::PushOpacity {
+                bounds: offset_rect_y(*bounds, y_offset),
+                opacity: *opacity,
+            }
+        }
+        DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
     }
 }
 

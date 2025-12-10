@@ -248,14 +248,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[NodeDataInlineCssProperty] = 
     // .__azul_native-list-header-item:active
     NodeDataInlineCssProperty::Active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
             color: ColorU {
                 r: 206,
                 g: 231,
@@ -273,14 +266,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[NodeDataInlineCssProperty] = 
     ))),
     NodeDataInlineCssProperty::Active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
             color: ColorU {
                 r: 206,
                 g: 231,
@@ -298,14 +284,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[NodeDataInlineCssProperty] = 
     ))),
     NodeDataInlineCssProperty::Active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
             color: ColorU {
                 r: 206,
                 g: 231,
@@ -323,14 +302,7 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[NodeDataInlineCssProperty] = 
     ))),
     NodeDataInlineCssProperty::Active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
             color: ColorU {
                 r: 206,
                 g: 231,
@@ -594,14 +566,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[NodeDataInlineCssProperty] = &
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(3) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(3) },
             color: ColorU {
                 r: 60,
                 g: 94,
@@ -619,14 +584,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[NodeDataInlineCssProperty] = &
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(3) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(3) },
             color: ColorU {
                 r: 60,
                 g: 94,
@@ -644,14 +602,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[NodeDataInlineCssProperty] = &
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(3) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(3) },
             color: ColorU {
                 r: 60,
                 g: 94,
@@ -669,14 +620,7 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[NodeDataInlineCssProperty] = &
     ))),
     NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
         StyleBoxShadow {
-            offset: [
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-            ],
+            offset_x: PixelValueNoPercent { inner: PixelValue::const_px(3) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(3) },
             color: ColorU {
                 r: 60,
                 g: 94,

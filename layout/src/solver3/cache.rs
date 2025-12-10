@@ -47,7 +47,7 @@ use crate::{
         },
         layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
         positioning::get_position_type,
-        scrollbar::ScrollbarInfo,
+        scrollbar::ScrollbarRequirements,
         sizing::calculate_used_size_for_node,
         LayoutContext, LayoutError, LayoutTree, Result,
     },
@@ -618,7 +618,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
 ///
 /// Checks if scrollbars are needed by comparing content size against available space.
 /// For paged media (PDF), scrollbars are never added since they don't exist in print.
-/// Returns the computed ScrollbarInfo with horizontal/vertical needs and dimensions.
+/// Returns the computed ScrollbarRequirements with horizontal/vertical needs and dimensions.
 fn compute_scrollbar_info<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     dom_id: NodeId,
@@ -627,10 +627,10 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     box_props: &crate::solver3::geometry::BoxProps,
     final_used_size: LogicalSize,
     writing_mode: LayoutWritingMode,
-) -> ScrollbarInfo {
+) -> ScrollbarRequirements {
     // Skip scrollbar handling for paged media (PDF)
     if ctx.fragmentation_context.is_some() {
-        return ScrollbarInfo {
+        return ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: false,
             scrollbar_width: 0.0,
@@ -660,7 +660,7 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
 fn check_scrollbar_change(
     tree: &LayoutTree,
     node_index: usize,
-    scrollbar_info: &ScrollbarInfo,
+    scrollbar_info: &ScrollbarRequirements,
     skip_scrollbar_check: bool,
 ) -> bool {
     if skip_scrollbar_check {
@@ -689,14 +689,14 @@ fn check_scrollbar_change(
 fn merge_scrollbar_info(
     tree: &LayoutTree,
     node_index: usize,
-    new_info: &ScrollbarInfo,
-) -> ScrollbarInfo {
+    new_info: &ScrollbarRequirements,
+) -> ScrollbarRequirements {
     let Some(current_node) = tree.get(node_index) else {
         return new_info.clone();
     };
 
     match &current_node.scrollbar_info {
-        Some(old) => ScrollbarInfo {
+        Some(old) => ScrollbarRequirements {
             needs_horizontal: old.needs_horizontal || new_info.needs_horizontal,
             needs_vertical: old.needs_vertical || new_info.needs_vertical,
             scrollbar_width: if old.needs_vertical || new_info.needs_vertical {
