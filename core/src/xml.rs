@@ -485,7 +485,7 @@ impl fmt::Display for XmlError {
             InvalidComment(tp) => write!(f, "invalid comment at {tp}"),
             InvalidCharacterData(tp) => write!(f, "invalid character data at {tp}"),
             UnknownToken(tp) => write!(f, "unknown token at {tp}"),
-            UnexpectedEndOfStream => todo!(),
+            UnexpectedEndOfStream => write!(f, "unexpected end of stream"),
         }
     }
 }
