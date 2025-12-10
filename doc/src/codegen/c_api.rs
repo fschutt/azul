@@ -819,7 +819,13 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 for variant_map in enum_fields {
                     for (variant_name, variant_data) in variant_map {
                         if let Some(variant_type) = &variant_data.r#type {
-                            let (_, base_type, _) = analyze_type(variant_type);
+                            let (prefix, base_type, suffix) = analyze_type(variant_type);
+                            
+                            // Skip array types - they require different handling
+                            // and can cause pointer type mismatches
+                            if variant_type.starts_with('[') || !suffix.is_empty() {
+                                continue;
+                            }
                             
                             // Get proper C type for the variant
                             let c_variant_type = if is_primitive_arg(&base_type) {

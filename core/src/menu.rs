@@ -82,6 +82,12 @@ impl Menu {
             context_mouse_btn: ContextMenuMouseButton::Right,
         }
     }
+
+    /// Builder method to set the popup position.
+    pub fn with_position(mut self, position: MenuPopupPosition) -> Self {
+        self.position = position;
+        self
+    }
 }
 
 impl Menu {
@@ -260,6 +266,14 @@ impl StringMenuItem {
     /// Sets the child menu items for this item, creating a sub-menu.
     pub fn with_children(mut self, children: MenuItemVec) -> Self {
         self.children = children;
+        self
+    }
+
+    /// Adds a single child menu item to this item.
+    pub fn with_child(mut self, child: MenuItem) -> Self {
+        let mut children = self.children.into_library_owned_vec();
+        children.push(child);
+        self.children = children.into();
         self
     }
 

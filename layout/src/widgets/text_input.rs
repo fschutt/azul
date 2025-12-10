@@ -662,10 +662,9 @@ impl TextInput {
         Self::default()
     }
 
-    pub fn with_text(&mut self, text: AzString) -> Self {
-        let mut s = self.swap_with_default();
-        s.set_text(text);
-        s
+    pub fn with_text(mut self, text: AzString) -> Self {
+        self.set_text(text);
+        self
     }
 
     pub fn set_text(&mut self, text: AzString) {
@@ -681,10 +680,9 @@ impl TextInput {
         self.state.inner.placeholder = Some(placeholder).into();
     }
 
-    pub fn with_placeholder(&mut self, placeholder: AzString) -> Self {
-        let mut s = self.swap_with_default();
-        s.set_placeholder(placeholder);
-        s
+    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+        self.set_placeholder(placeholder);
+        self
     }
 
     pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
@@ -693,6 +691,15 @@ impl TextInput {
             data,
         })
         .into();
+    }
+
+    pub fn with_on_text_input(
+        mut self,
+        data: RefAny,
+        callback: TextInputOnTextInputCallbackType,
+    ) -> Self {
+        self.set_on_text_input(data, callback);
+        self
     }
 
     pub fn set_on_virtual_key_down(
@@ -705,6 +712,15 @@ impl TextInput {
             data,
         })
         .into();
+    }
+
+    pub fn with_on_virtual_key_down(
+        mut self,
+        data: RefAny,
+        callback: TextInputOnVirtualKeyDownCallbackType,
+    ) -> Self {
+        self.set_on_virtual_key_down(data, callback);
+        self
     }
 
     pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
@@ -728,12 +744,27 @@ impl TextInput {
         self.placeholder_style = style;
     }
 
+    pub fn with_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_placeholder_style(style);
+        self
+    }
+
     pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.container_style = style;
     }
 
+    pub fn with_container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_container_style(style);
+        self
+    }
+
     pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.label_style = style;
+    }
+
+    pub fn with_label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_label_style(style);
+        self
     }
 
     pub fn swap_with_default(&mut self) -> Self {

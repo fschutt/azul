@@ -94,6 +94,15 @@ impl NumberInput {
         self.text_input.set_on_text_input(data, callback);
     }
 
+    pub fn with_on_text_input(
+        mut self,
+        data: RefAny,
+        callback: TextInputOnTextInputCallbackType,
+    ) -> Self {
+        self.set_on_text_input(data, callback);
+        self
+    }
+
     pub fn set_on_virtual_key_down(
         &mut self,
         data: RefAny,
@@ -102,16 +111,40 @@ impl NumberInput {
         self.text_input.set_on_virtual_key_down(data, callback);
     }
 
+    pub fn with_on_virtual_key_down(
+        mut self,
+        data: RefAny,
+        callback: TextInputOnVirtualKeyDownCallbackType,
+    ) -> Self {
+        self.set_on_virtual_key_down(data, callback);
+        self
+    }
+
     pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.placeholder_style = style;
+    }
+
+    pub fn with_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_placeholder_style(style);
+        self
     }
 
     pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.container_style = style;
     }
 
+    pub fn with_container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_container_style(style);
+        self
+    }
+
     pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.label_style = style;
+    }
+
+    pub fn with_label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+        self.set_label_style(style);
+        self
     }
 
     // Function called when the input has been parsed as a number
@@ -125,6 +158,15 @@ impl NumberInput {
             data,
         })
         .into();
+    }
+
+    pub fn with_on_value_change(
+        mut self,
+        data: RefAny,
+        callback: NumberInputOnValueChangeCallbackType,
+    ) -> Self {
+        self.set_on_value_change(data, callback);
+        self
     }
 
     pub fn set_on_focus_lost(

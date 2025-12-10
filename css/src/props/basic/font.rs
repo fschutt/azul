@@ -826,6 +826,122 @@ impl FontMetrics {
             us_upper_optical_point_size: OptionU16::None,
         }
     }
+
+    /// Returns the ascender value from the hhea table
+    pub fn get_ascender(&self) -> i16 {
+        self.ascender
+    }
+
+    /// Returns the descender value from the hhea table
+    pub fn get_descender(&self) -> i16 {
+        self.descender
+    }
+
+    /// Returns the line gap value from the hhea table
+    pub fn get_line_gap(&self) -> i16 {
+        self.line_gap
+    }
+
+    /// Returns the maximum advance width from the hhea table
+    pub fn get_advance_width_max(&self) -> u16 {
+        self.advance_width_max
+    }
+
+    /// Returns the minimum left side bearing from the hhea table
+    pub fn get_min_left_side_bearing(&self) -> i16 {
+        self.min_left_side_bearing
+    }
+
+    /// Returns the minimum right side bearing from the hhea table
+    pub fn get_min_right_side_bearing(&self) -> i16 {
+        self.min_right_side_bearing
+    }
+
+    /// Returns the x_min value from the head table
+    pub fn get_x_min(&self) -> i16 {
+        self.x_min
+    }
+
+    /// Returns the y_min value from the head table
+    pub fn get_y_min(&self) -> i16 {
+        self.y_min
+    }
+
+    /// Returns the x_max value from the head table
+    pub fn get_x_max(&self) -> i16 {
+        self.x_max
+    }
+
+    /// Returns the y_max value from the head table
+    pub fn get_y_max(&self) -> i16 {
+        self.y_max
+    }
+
+    /// Returns the maximum extent in the x direction from the hhea table
+    pub fn get_x_max_extent(&self) -> i16 {
+        self.x_max_extent
+    }
+
+    /// Returns the average character width from the os/2 table
+    pub fn get_x_avg_char_width(&self) -> i16 {
+        self.x_avg_char_width
+    }
+
+    /// Returns the subscript x size from the os/2 table
+    pub fn get_y_subscript_x_size(&self) -> i16 {
+        self.y_subscript_x_size
+    }
+
+    /// Returns the subscript y size from the os/2 table
+    pub fn get_y_subscript_y_size(&self) -> i16 {
+        self.y_subscript_y_size
+    }
+
+    /// Returns the subscript x offset from the os/2 table
+    pub fn get_y_subscript_x_offset(&self) -> i16 {
+        self.y_subscript_x_offset
+    }
+
+    /// Returns the subscript y offset from the os/2 table
+    pub fn get_y_subscript_y_offset(&self) -> i16 {
+        self.y_subscript_y_offset
+    }
+
+    /// Returns the superscript x size from the os/2 table
+    pub fn get_y_superscript_x_size(&self) -> i16 {
+        self.y_superscript_x_size
+    }
+
+    /// Returns the superscript y size from the os/2 table
+    pub fn get_y_superscript_y_size(&self) -> i16 {
+        self.y_superscript_y_size
+    }
+
+    /// Returns the superscript x offset from the os/2 table
+    pub fn get_y_superscript_x_offset(&self) -> i16 {
+        self.y_superscript_x_offset
+    }
+
+    /// Returns the superscript y offset from the os/2 table
+    pub fn get_y_superscript_y_offset(&self) -> i16 {
+        self.y_superscript_y_offset
+    }
+
+    /// Returns the strikeout size from the os/2 table
+    pub fn get_y_strikeout_size(&self) -> i16 {
+        self.y_strikeout_size
+    }
+
+    /// Returns the strikeout position from the os/2 table
+    pub fn get_y_strikeout_position(&self) -> i16 {
+        self.y_strikeout_position
+    }
+
+    /// Returns whether typographic metrics should be used (from fs_selection flag)
+    pub fn use_typo_metrics(&self) -> bool {
+        // Bit 7 of fs_selection indicates USE_TYPO_METRICS
+        (self.fs_selection & 0x0080) != 0
+    }
 }
 
 #[cfg(all(test, feature = "parser"))]

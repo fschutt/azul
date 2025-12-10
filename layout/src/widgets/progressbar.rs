@@ -221,15 +221,30 @@ impl ProgressBar {
         self.container_background = background;
     }
 
+    pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
+        self.set_container_background(background);
+        self
+    }
+
     pub fn set_bar_background(&mut self, background: StyleBackgroundContentVec) {
         self.bar_background = background;
+    }
+
+    pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
+        self.set_bar_background(background);
+        self
     }
 
     pub fn set_height(&mut self, height: PixelValue) {
         self.height = height;
     }
 
-    pub fn dom(&self) -> Dom {
+    pub fn with_height(mut self, height: PixelValue) -> Self {
+        self.set_height(height);
+        self
+    }
+
+    pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
         // NOTE: This is a hack, but a quite effective one:

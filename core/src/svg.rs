@@ -1187,7 +1187,7 @@ pub struct SvgXmlNode {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Svg {
-    tree: *const c_void, // *mut usvg::Tree,
+    pub tree: *const c_void, // *mut usvg::Tree,
     pub run_destructor: bool,
 }
 

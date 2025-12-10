@@ -2166,9 +2166,55 @@ impl Drop for ParsedSvg {
 pub use azul_core::svg::Svg;
 
 #[cfg(feature = "svg")]
+impl From<ParsedSvg> for azul_core::svg::Svg {
+    fn from(mut parsed: ParsedSvg) -> Self {
+        // Use ManuallyDrop to prevent the ParsedSvg destructor from running
+        // while still allowing us to move out the tree
+        let mut parsed = core::mem::ManuallyDrop::new(parsed);
+        // Take ownership of the tree by replacing it with a dummy
+        let tree = unsafe { 
+            core::ptr::read(&parsed.tree)
+        };
+        let tree_ptr = Box::into_raw(tree) as *const azul_core::svg::c_void;
+        Self {
+            tree: tree_ptr,
+            run_destructor: true,
+        }
+    }
+}
+
+#[cfg(feature = "svg")]
 impl fmt::Debug for ParsedSvg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         svg_to_string(&self, SvgXmlOptions::default()).fmt(f)
+    }
+}
+
+#[cfg(feature = "svg")]
+impl ParsedSvg {
+    /// Parses an SVG from a string
+    pub fn from_string(svg_string: &str, parse_options: SvgParseOptions) -> Result<Self, SvgParseError> {
+        svg_parse(svg_string.as_bytes(), parse_options)
+    }
+
+    /// Parses an SVG from bytes
+    pub fn from_bytes(svg_bytes: &[u8], parse_options: SvgParseOptions) -> Result<Self, SvgParseError> {
+        svg_parse(svg_bytes, parse_options)
+    }
+
+    /// Returns the root XML node of the SVG
+    pub fn get_root(&self) -> ParsedSvgXmlNode {
+        svg_root(self)
+    }
+
+    /// Renders the SVG to a raw image
+    pub fn render(&self, options: SvgRenderOptions) -> Option<RawImage> {
+        svg_render(self, options)
+    }
+
+    /// Converts the SVG back to a string
+    pub fn to_string(&self, options: SvgXmlOptions) -> String {
+        svg_to_string(self, options)
     }
 }
 

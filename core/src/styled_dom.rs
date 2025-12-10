@@ -63,6 +63,7 @@ use crate::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
         NodeId,
     },
+    menu::Menu,
     prop_cache::{CssPropertyCache, CssPropertyCachePtr},
     refany::RefAny,
     resources::{Au, ImageCache, ImageRef, ImmediateFontId, RendererResources},
@@ -811,10 +812,35 @@ impl StyledDom {
     }
 
     /// Same as `append_child()`, but as a builder method
-    pub fn with_child(&mut self, other: Self) -> Self {
-        let mut s = self.swap_with_default();
-        s.append_child(other);
-        s
+    pub fn with_child(mut self, other: Self) -> Self {
+        self.append_child(other);
+        self
+    }
+
+    /// Sets the context menu for the root node
+    pub fn set_context_menu(&mut self, context_menu: Menu) {
+        if let Some(root_id) = self.root.into_crate_internal() {
+            self.node_data.as_container_mut()[root_id].set_context_menu(context_menu);
+        }
+    }
+
+    /// Builder method for setting the context menu
+    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+        self.set_context_menu(context_menu);
+        self
+    }
+
+    /// Sets the menu bar for the root node
+    pub fn set_menu_bar(&mut self, menu_bar: Menu) {
+        if let Some(root_id) = self.root.into_crate_internal() {
+            self.node_data.as_container_mut()[root_id].set_menu_bar(menu_bar);
+        }
+    }
+
+    /// Builder method for setting the menu bar
+    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+        self.set_menu_bar(menu_bar);
+        self
     }
 
     pub fn restyle(&mut self, mut css: CssApiWrapper) {

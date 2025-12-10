@@ -2711,6 +2711,16 @@ impl NodeData {
         self
     }
     #[inline(always)]
+    pub fn with_node_type(mut self, node_type: NodeType) -> Self {
+        self.set_node_type(node_type);
+        self
+    }
+    #[inline(always)]
+    pub fn with_callback(mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) -> Self {
+        self.add_callback(event, data, callback as usize);
+        self
+    }
+    #[inline(always)]
     pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.dataset = data;
         self
@@ -2728,6 +2738,62 @@ impl NodeData {
     #[inline(always)]
     pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self {
         self.inline_css_props = inline_css_props;
+        self
+    }
+
+    /// Sets inline CSS styles for the normal state, parsing from a CSS string
+    pub fn set_inline_style(&mut self, style: &str) {
+        self.set_inline_css_props(
+            self.get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_normal(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the normal state
+    pub fn with_inline_style(mut self, style: &str) -> Self {
+        self.set_inline_style(style);
+        self
+    }
+
+    /// Sets inline CSS styles for the hover state, parsing from a CSS string
+    pub fn set_inline_hover_style(&mut self, style: &str) {
+        self.set_inline_css_props(
+            self.get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_hover(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the hover state
+    pub fn with_inline_hover_style(mut self, style: &str) -> Self {
+        self.set_inline_hover_style(style);
+        self
+    }
+
+    /// Sets inline CSS styles for the active state, parsing from a CSS string
+    pub fn set_inline_active_style(&mut self, style: &str) {
+        self.set_inline_css_props(
+            self.get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_active(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the active state
+    pub fn with_inline_active_style(mut self, style: &str) -> Self {
+        self.set_inline_active_style(style);
+        self
+    }
+
+    /// Sets inline CSS styles for the focus state, parsing from a CSS string
+    pub fn set_inline_focus_style(&mut self, style: &str) {
+        self.set_inline_css_props(
+            self.get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_focus(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the focus state
+    pub fn with_inline_focus_style(mut self, style: &str) -> Self {
+        self.set_inline_focus_style(style);
         self
     }
 
@@ -4447,10 +4513,49 @@ impl Dom {
         self
     }
     #[inline(always)]
-    pub fn with_child(&mut self, child: Self) -> Self {
-        let mut dom = self.swap_with_default();
-        dom.add_child(child);
-        dom
+    pub fn with_child(mut self, child: Self) -> Self {
+        self.add_child(child);
+        self
+    }
+    #[inline(always)]
+    pub fn with_node_type(mut self, node_type: NodeType) -> Self {
+        self.root.set_node_type(node_type);
+        self
+    }
+    #[inline(always)]
+    pub fn with_id(mut self, id: AzString) -> Self {
+        self.root.add_id(id);
+        self
+    }
+    #[inline(always)]
+    pub fn with_class(mut self, class: AzString) -> Self {
+        self.root.add_class(class);
+        self
+    }
+    #[inline(always)]
+    pub fn with_callback(mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) -> Self {
+        self.root.add_callback(event, data, callback as usize);
+        self
+    }
+    #[inline(always)]
+    pub fn with_css_property(mut self, prop: CssProperty) -> Self {
+        self.root.add_normal_css_property(prop);
+        self
+    }
+    #[inline(always)]
+    pub fn with_hover_css_property(mut self, prop: CssProperty) -> Self {
+        self.root.add_hover_css_property(prop);
+        self
+    }
+    #[inline(always)]
+    pub fn with_active_css_property(mut self, prop: CssProperty) -> Self {
+        self.root.add_active_css_property(prop);
+        self
+    }
+    #[inline(always)]
+    pub fn with_focus_css_property(mut self, prop: CssProperty) -> Self {
+        self.root.add_focus_css_property(prop);
+        self
     }
     #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
@@ -4516,15 +4621,72 @@ impl Dom {
         self
     }
 
+    /// Sets inline CSS styles for the hover state on the root node
+    pub fn set_inline_hover_style(&mut self, style: &str) {
+        self.root.set_inline_css_props(
+            self.root
+                .get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_hover(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the hover state
+    pub fn with_inline_hover_style(mut self, style: &str) -> Self {
+        self.set_inline_hover_style(style);
+        self
+    }
+
+    /// Sets inline CSS styles for the active state on the root node
+    pub fn set_inline_active_style(&mut self, style: &str) {
+        self.root.set_inline_css_props(
+            self.root
+                .get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_active(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the active state
+    pub fn with_inline_active_style(mut self, style: &str) -> Self {
+        self.set_inline_active_style(style);
+        self
+    }
+
+    /// Sets inline CSS styles for the focus state on the root node
+    pub fn set_inline_focus_style(&mut self, style: &str) {
+        self.root.set_inline_css_props(
+            self.root
+                .get_inline_css_props()
+                .with_append(NodeDataInlineCssPropertyVec::parse_focus(style)),
+        )
+    }
+
+    /// Builder method for setting inline CSS styles for the focus state
+    pub fn with_inline_focus_style(mut self, style: &str) -> Self {
+        self.set_inline_focus_style(style);
+        self
+    }
+
+    /// Sets the context menu for the root node
+    #[inline]
+    pub fn set_context_menu(&mut self, context_menu: Menu) {
+        self.root.set_context_menu(context_menu);
+    }
+
     #[inline]
     pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
-        self.root.set_context_menu(context_menu);
+        self.set_context_menu(context_menu);
         self
+    }
+
+    /// Sets the menu bar for the root node
+    #[inline]
+    pub fn set_menu_bar(&mut self, menu_bar: Menu) {
+        self.root.set_menu_bar(menu_bar);
     }
 
     #[inline]
     pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
-        self.root.set_menu_bar(menu_bar);
+        self.set_menu_bar(menu_bar);
         self
     }
 

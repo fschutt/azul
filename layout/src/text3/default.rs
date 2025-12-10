@@ -152,6 +152,101 @@ impl ParsedFontTrait for FontRef {
     }
 }
 
+/// Extension trait for FontRef to provide access to font bytes and metrics
+/// 
+/// This trait provides methods that require access to the inner ParsedFont data.
+pub trait FontRefExt {
+    /// Get the original font bytes
+    fn get_bytes(&self) -> &[u8];
+    /// Get the full font metrics (PDF-style metrics from HEAD, HHEA, OS/2 tables)
+    fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics;
+}
+
+impl FontRefExt for FontRef {
+    fn get_bytes(&self) -> &[u8] {
+        &get_parsed_font(self).original_bytes
+    }
+
+    fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {
+        use azul_css::{OptionI16, OptionU16, OptionU32};
+        
+        let parsed = get_parsed_font(self);
+        let pdf = &parsed.pdf_font_metrics;
+        
+        // PdfFontMetrics only has a subset of fields; fill others with defaults
+        azul_css::props::basic::FontMetrics {
+            // HEAD table fields
+            units_per_em: pdf.units_per_em,
+            font_flags: pdf.font_flags,
+            x_min: pdf.x_min,
+            y_min: pdf.y_min,
+            x_max: pdf.x_max,
+            y_max: pdf.y_max,
+            
+            // HHEA table fields
+            ascender: pdf.ascender,
+            descender: pdf.descender,
+            line_gap: pdf.line_gap,
+            advance_width_max: pdf.advance_width_max,
+            min_left_side_bearing: 0,  // Not in PdfFontMetrics
+            min_right_side_bearing: 0, // Not in PdfFontMetrics
+            x_max_extent: 0,           // Not in PdfFontMetrics
+            caret_slope_rise: pdf.caret_slope_rise,
+            caret_slope_run: pdf.caret_slope_run,
+            caret_offset: 0,           // Not in PdfFontMetrics
+            num_h_metrics: 0,          // Not in PdfFontMetrics
+            
+            // OS/2 table fields
+            x_avg_char_width: pdf.x_avg_char_width,
+            us_weight_class: pdf.us_weight_class,
+            us_width_class: pdf.us_width_class,
+            fs_type: 0,                // Not in PdfFontMetrics
+            y_subscript_x_size: 0,     // Not in PdfFontMetrics
+            y_subscript_y_size: 0,     // Not in PdfFontMetrics
+            y_subscript_x_offset: 0,   // Not in PdfFontMetrics
+            y_subscript_y_offset: 0,   // Not in PdfFontMetrics
+            y_superscript_x_size: 0,   // Not in PdfFontMetrics
+            y_superscript_y_size: 0,   // Not in PdfFontMetrics
+            y_superscript_x_offset: 0, // Not in PdfFontMetrics
+            y_superscript_y_offset: 0, // Not in PdfFontMetrics
+            y_strikeout_size: pdf.y_strikeout_size,
+            y_strikeout_position: pdf.y_strikeout_position,
+            s_family_class: 0,         // Not in PdfFontMetrics
+            panose: azul_css::props::basic::Panose::zero(),
+            ul_unicode_range1: 0,      // Not in PdfFontMetrics
+            ul_unicode_range2: 0,      // Not in PdfFontMetrics
+            ul_unicode_range3: 0,      // Not in PdfFontMetrics
+            ul_unicode_range4: 0,      // Not in PdfFontMetrics
+            ach_vend_id: 0,            // Not in PdfFontMetrics
+            fs_selection: 0,           // Not in PdfFontMetrics
+            us_first_char_index: 0,    // Not in PdfFontMetrics
+            us_last_char_index: 0,     // Not in PdfFontMetrics
+            
+            // OS/2 version 0 fields (optional)
+            s_typo_ascender: OptionI16::None,
+            s_typo_descender: OptionI16::None,
+            s_typo_line_gap: OptionI16::None,
+            us_win_ascent: OptionU16::None,
+            us_win_descent: OptionU16::None,
+            
+            // OS/2 version 1 fields (optional)
+            ul_code_page_range1: OptionU32::None,
+            ul_code_page_range2: OptionU32::None,
+            
+            // OS/2 version 2 fields (optional)
+            sx_height: OptionI16::None,
+            s_cap_height: OptionI16::None,
+            us_default_char: OptionU16::None,
+            us_break_char: OptionU16::None,
+            us_max_context: OptionU16::None,
+            
+            // OS/2 version 3 fields (optional)
+            us_lower_optical_point_size: OptionU16::None,
+            us_upper_optical_point_size: OptionU16::None,
+        }
+    }
+}
+
 // ParsedFont helper method for FontRef
 //
 // This allows ParsedFont to create glyphs that use FontRef

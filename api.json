@@ -1599,7 +1599,8 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "c_void", "ref_kind": "mutptr"
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
                 }
               ],
               "returns": null
@@ -1839,7 +1840,8 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "InstantPtr", "ref_kind": "constptr"
+                  "type": "InstantPtr",
+                  "ref_kind": "constptr"
                 }
               ],
               "returns": {
@@ -1852,7 +1854,8 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "InstantPtr", "ref_kind": "mutptr"
+                  "type": "InstantPtr",
+                  "ref_kind": "mutptr"
                 }
               ],
               "returns": null
@@ -2112,7 +2115,7 @@
               "with_node_type": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "node_type": "NodeType"
@@ -2121,7 +2124,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_node_type(node_type); dom"
+                "fn_body": "dom.with_node_type(node_type)"
               },
               "set_dataset": {
                 "fn_args": [
@@ -2137,7 +2140,7 @@
               "with_dataset": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "dataset": "RefAny"
@@ -2146,7 +2149,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_dataset(Some(dataset).into()); dom"
+                "fn_body": "dom.with_dataset(Some(dataset).into())"
               },
               "set_ids_and_classes": {
                 "fn_args": [
@@ -2162,7 +2165,7 @@
               "with_ids_and_classes": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "ids_and_classes": "IdOrClassVec"
@@ -2171,7 +2174,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_ids_and_classes(ids_and_classes); dom"
+                "fn_body": "dom.with_ids_and_classes(ids_and_classes)"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -2187,7 +2190,7 @@
               "with_callbacks": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "callbacks": "CoreCallbackDataVec"
@@ -2196,7 +2199,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_callbacks(callbacks); dom"
+                "fn_body": "dom.with_callbacks(callbacks)"
               },
               "set_inline_css_props": {
                 "fn_args": [
@@ -2212,7 +2215,7 @@
               "with_inline_css_props": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "css_properties": "NodeDataInlineCssPropertyVec"
@@ -2221,7 +2224,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_inline_css_props(css_properties); dom"
+                "fn_body": "dom.with_inline_css_props(css_properties)"
               },
               "add_callback": {
                 "doc": [
@@ -2249,7 +2252,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "event": "EventFilter"
@@ -2264,7 +2267,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_callback(event, data, callback as usize); dom"
+                "fn_body": "dom.with_callback(event, data, callback as usize)"
               },
               "add_child": {
                 "doc": [
@@ -2286,7 +2289,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "child": "Dom"
@@ -2317,7 +2320,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "children": "DomVec"
@@ -2326,7 +2329,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.set_children(children); dom"
+                "fn_body": "dom.with_children(children)"
               },
               "add_id": {
                 "doc": [
@@ -2348,7 +2351,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "id": "String"
@@ -2357,7 +2360,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_id(id); dom"
+                "fn_body": "dom.with_id(id)"
               },
               "add_class": {
                 "doc": [
@@ -2379,7 +2382,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "class": "String"
@@ -2388,7 +2391,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_class(class); dom"
+                "fn_body": "dom.with_class(class)"
               },
               "add_css_property": {
                 "doc": [
@@ -2410,7 +2413,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "prop": "CssProperty"
@@ -2419,7 +2422,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_normal_css_property(prop); dom"
+                "fn_body": "dom.with_css_property(prop)"
               },
               "add_hover_css_property": {
                 "doc": [
@@ -2441,7 +2444,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "prop": "CssProperty"
@@ -2450,7 +2453,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_hover_css_property(prop); dom"
+                "fn_body": "dom.with_hover_css_property(prop)"
               },
               "add_active_css_property": {
                 "doc": [
@@ -2472,7 +2475,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "prop": "CssProperty"
@@ -2481,7 +2484,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_active_css_property(prop); dom"
+                "fn_body": "dom.with_active_css_property(prop)"
               },
               "add_focus_css_property": {
                 "doc": [
@@ -2503,7 +2506,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "prop": "CssProperty"
@@ -2512,7 +2515,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_focus_css_property(prop); dom"
+                "fn_body": "dom.with_focus_css_property(prop)"
               },
               "set_inline_style": {
                 "fn_args": [
@@ -2522,12 +2525,13 @@
                   {
                     "style": "String"
                   }
-                ]
+                ],
+                "fn_body": "object.set_inline_style(style.as_str())"
               },
               "with_inline_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -2535,9 +2539,13 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                }
+                },
+                "fn_body": "object.with_inline_style(style.as_str())"
               },
               "set_inline_hover_style": {
+                "doc": [
+                  "Sets inline CSS styles for the hover state on the root node"
+                ],
                 "fn_args": [
                   {
                     "self": "refmut"
@@ -2545,12 +2553,16 @@
                   {
                     "style": "String"
                   }
-                ]
+                ],
+                "fn_body": "object.set_inline_hover_style(style.as_str())"
               },
               "with_inline_hover_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the hover state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -2558,9 +2570,13 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                }
+                },
+                "fn_body": "object.with_inline_hover_style(style.as_str())"
               },
               "set_inline_active_style": {
+                "doc": [
+                  "Sets inline CSS styles for the active state on the root node"
+                ],
                 "fn_args": [
                   {
                     "self": "refmut"
@@ -2568,12 +2584,16 @@
                   {
                     "style": "String"
                   }
-                ]
+                ],
+                "fn_body": "object.set_inline_active_style(style.as_str())"
               },
               "with_inline_active_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the active state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -2581,19 +2601,13 @@
                 ],
                 "returns": {
                   "type": "Dom"
-                }
+                },
+                "fn_body": "object.with_inline_active_style(style.as_str())"
               },
               "set_inline_focus_style": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "style": "String"
-                  }
-                ]
-              },
-              "with_inline_focus_style": {
+                "doc": [
+                  "Sets inline CSS styles for the focus state on the root node"
+                ],
                 "fn_args": [
                   {
                     "self": "refmut"
@@ -2602,9 +2616,24 @@
                     "style": "String"
                   }
                 ],
+                "fn_body": "object.set_inline_focus_style(style.as_str())"
+              },
+              "with_inline_focus_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the focus state"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
                 "returns": {
                   "type": "Dom"
-                }
+                },
+                "fn_body": "object.with_inline_focus_style(style.as_str())"
               },
               "set_clip_mask": {
                 "doc": [
@@ -2626,7 +2655,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "clip_mask": "ImageMask"
@@ -2635,7 +2664,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_clip_mask(clip_mask); dom"
+                "fn_body": "dom.with_clip_mask(clip_mask)"
               },
               "set_tab_index": {
                 "doc": [
@@ -2657,7 +2686,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "tab_index": "TabIndex"
@@ -2666,7 +2695,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_tab_index(tab_index); dom"
+                "fn_body": "dom.with_tab_index(tab_index)"
               },
               "set_accessibility_info": {
                 "doc": [
@@ -2688,7 +2717,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "accessibility_info": "AccessibilityInfo"
@@ -2697,7 +2726,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_accessibility_info(accessibility_info); dom"
+                "fn_body": "dom.with_accessibility_info(accessibility_info)"
               },
               "set_menu_bar": {
                 "doc": [
@@ -2719,7 +2748,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "menu_bar": "Menu"
@@ -2728,7 +2757,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_menu_bar(menu_bar); dom"
+                "fn_body": "dom.with_menu_bar(menu_bar)"
               },
               "set_context_menu": {
                 "doc": [
@@ -2750,7 +2779,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "context_menu": "Menu"
@@ -2759,7 +2788,7 @@
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_context_menu(context_menu); dom"
+                "fn_body": "dom.with_context_menu(context_menu)"
               },
               "hash": {
                 "doc": [
@@ -2951,7 +2980,7 @@
               "with_node_type": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "node_type": "NodeType"
@@ -2960,7 +2989,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_node_type(node_type); nodedata"
+                "fn_body": "nodedata.with_node_type(node_type)"
               },
               "set_dataset": {
                 "fn_args": [
@@ -2976,7 +3005,7 @@
               "with_dataset": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "dataset": "RefAny"
@@ -2985,7 +3014,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_dataset(Some(dataset).into()); nodedata"
+                "fn_body": "nodedata.with_dataset(Some(dataset).into())"
               },
               "set_ids_and_classes": {
                 "fn_args": [
@@ -3001,7 +3030,7 @@
               "with_ids_and_classes": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "ids_and_classes": "IdOrClassVec"
@@ -3010,7 +3039,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_ids_and_classes(ids_and_classes); nodedata"
+                "fn_body": "nodedata.with_ids_and_classes(ids_and_classes)"
               },
               "add_callback": {
                 "doc": [
@@ -3038,7 +3067,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "event": "EventFilter"
@@ -3053,7 +3082,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.add_callback(event, data, callback as usize); nodedata"
+                "fn_body": "nodedata.with_callback(event, data, callback as usize)"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -3069,7 +3098,7 @@
               "with_callbacks": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "callbacks": "CoreCallbackDataVec"
@@ -3078,7 +3107,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_callbacks(callbacks); nodedata"
+                "fn_body": "nodedata.with_callbacks(callbacks)"
               },
               "set_inline_css_props": {
                 "fn_args": [
@@ -3094,7 +3123,7 @@
               "with_inline_css_props": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "css_properties": "NodeDataInlineCssPropertyVec"
@@ -3103,7 +3132,7 @@
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_inline_css_props(css_properties); nodedata"
+                "fn_body": "nodedata.with_inline_css_props(css_properties)"
               },
               "set_inline_style": {
                 "fn_args": [
@@ -3117,9 +3146,12 @@
                 "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_normal(style.as_str())))"
               },
               "with_inline_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the normal state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -3127,7 +3159,8 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                }
+                },
+                "fn_body": "nodedata.with_inline_style(style.as_str())"
               },
               "set_inline_hover_style": {
                 "fn_args": [
@@ -3141,9 +3174,12 @@
                 "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_hover(style.as_str())))"
               },
               "with_inline_hover_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the hover state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -3151,7 +3187,8 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                }
+                },
+                "fn_body": "nodedata.with_inline_hover_style(style.as_str())"
               },
               "set_inline_active_style": {
                 "fn_args": [
@@ -3165,9 +3202,12 @@
                 "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_active(style.as_str())))"
               },
               "with_inline_active_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the active state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -3175,7 +3215,8 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                }
+                },
+                "fn_body": "nodedata.with_inline_active_style(style.as_str())"
               },
               "set_inline_focus_style": {
                 "fn_args": [
@@ -3189,9 +3230,12 @@
                 "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(azul_core::dom::NodeDataInlineCssPropertyVec::parse_focus(style.as_str())))"
               },
               "with_inline_focus_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the focus state"
+                ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "String"
@@ -3199,7 +3243,8 @@
                 ],
                 "returns": {
                   "type": "NodeData"
-                }
+                },
+                "fn_body": "nodedata.with_inline_focus_style(style.as_str())"
               },
               "set_clip_mask": {
                 "doc": [
@@ -5114,7 +5159,8 @@
             "repr": "C"
           },
           "SvgXmlNode": {
-            "external": "azul_core::svg::SvgXmlNode",
+            "external": "azul_layout::xml::svg::ParsedSvgXmlNode",
+            "is_boxed_object": true,
             "derive": [
               "Debug",
               "Clone"
@@ -6046,7 +6092,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "position": "MenuPopupPosition"
@@ -6055,7 +6101,7 @@
                 "returns": {
                   "type": "Menu"
                 },
-                "fn_body": "let mut menu = menu.swap_with_default(); menu.position = position; menu"
+                "fn_body": "menu.with_position(position)"
               }
             },
             "repr": "C"
@@ -6324,7 +6370,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -6336,7 +6382,7 @@
                 "returns": {
                   "type": "StringMenuItem"
                 },
-                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize } }); stringmenuitem"
+                "fn_body": "stringmenuitem.with_callback(data, callback as usize)"
               },
               "add_child": {
                 "doc": [
@@ -6358,7 +6404,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "child": "MenuItem"
@@ -6367,7 +6413,7 @@
                 "returns": {
                   "type": "StringMenuItem"
                 },
-                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem"
+                "fn_body": "stringmenuitem.with_child(child)"
               },
               "set_children": {
                 "doc": [
@@ -6389,7 +6435,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "children": "MenuItemVec"
@@ -6398,7 +6444,7 @@
                 "returns": {
                   "type": "StringMenuItem"
                 },
-                "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.children = children; stringmenuitem"
+                "fn_body": "stringmenuitem.with_children(children)"
               }
             },
             "repr": "C"
@@ -15743,7 +15789,7 @@
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "dom": "StyledDom"
@@ -15812,61 +15858,65 @@
               },
               "set_menu_bar": {
                 "doc": [
-                  "Adds a menu to the root node"
+                  "Sets the menu bar for the root node"
                 ],
                 "fn_args": [
                   {
                     "self": "refmut"
                   },
                   {
-                    "menu": "Menu"
+                    "menu_bar": "Menu"
                   }
-                ]
+                ],
+                "fn_body": "object.set_menu_bar(menu_bar)"
               },
               "with_menu_bar": {
                 "doc": [
-                  "Adds a menu to the root node (builder method)"
+                  "Builder method for setting the menu bar"
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
-                    "menu": "Menu"
+                    "menu_bar": "Menu"
                   }
                 ],
                 "returns": {
                   "type": "StyledDom"
-                }
+                },
+                "fn_body": "styleddom.with_menu_bar(menu_bar)"
               },
               "set_context_menu": {
                 "doc": [
-                  "Adds a context menu to the root node"
+                  "Sets the context menu for the root node"
                 ],
                 "fn_args": [
                   {
                     "self": "refmut"
                   },
                   {
-                    "menu": "Menu"
+                    "context_menu": "Menu"
                   }
-                ]
+                ],
+                "fn_body": "object.set_context_menu(context_menu)"
               },
               "with_context_menu": {
                 "doc": [
-                  "Adds a context menu to the root node (builder method)"
+                  "Builder method for setting the context menu"
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
-                    "menu": "Menu"
+                    "context_menu": "Menu"
                   }
                 ],
                 "returns": {
                   "type": "StyledDom"
-                }
+                },
+                "fn_body": "styleddom.with_context_menu(context_menu)"
               }
             },
             "repr": "C"
@@ -16575,7 +16625,7 @@
               "with_on_click": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -16587,18 +16637,18 @@
                 "returns": {
                   "type": "Button"
                 },
-                "fn_body": "let mut button = button.swap_with_default(); button.set_on_click(data, callback); button"
+                "fn_body": "button.with_on_click(data, callback)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "button.swap_with_default().dom()"
+                "fn_body": "button.dom()"
               }
             },
             "repr": "C"
@@ -16704,7 +16754,7 @@
               "with_default_text": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "default_text": "String"
@@ -16713,7 +16763,7 @@
                 "returns": {
                   "type": "FileInput"
                 },
-                "fn_body": "let mut fileinput = fileinput.swap_with_default(); fileinput.set_default_text(default_text); fileinput"
+                "fn_body": "fileinput.with_default_text(default_text)"
               },
               "set_on_path_change": {
                 "fn_args": [
@@ -16732,7 +16782,7 @@
               "with_on_path_change": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -16744,18 +16794,18 @@
                 "returns": {
                   "type": "FileInput"
                 },
-                "fn_body": "let mut fileinput = fileinput.swap_with_default(); fileinput.set_on_path_change(data, callback); fileinput"
+                "fn_body": "fileinput.with_on_path_change(data, callback)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "fileinput.swap_with_default().dom()"
+                "fn_body": "fileinput.dom()"
               }
             },
             "repr": "C"
@@ -16894,7 +16944,7 @@
               "with_on_toggle": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -16906,18 +16956,18 @@
                 "returns": {
                   "type": "CheckBox"
                 },
-                "fn_body": "let mut checkbox = checkbox.swap_with_default(); checkbox.set_on_toggle(data, callback); checkbox"
+                "fn_body": "checkbox.with_on_toggle(data, callback)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "checkbox.swap_with_default().dom()"
+                "fn_body": "checkbox.dom()"
               }
             },
             "repr": "C"
@@ -17028,7 +17078,7 @@
               "with_on_value_change": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17040,18 +17090,18 @@
                 "returns": {
                   "type": "ColorInput"
                 },
-                "fn_body": "let mut colorinput = colorinput.swap_with_default(); colorinput.set_on_value_change(data, callback); colorinput"
+                "fn_body": "colorinput.with_on_value_change(data, callback)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "colorinput.swap_with_default().dom()"
+                "fn_body": "colorinput.dom()"
               }
             },
             "repr": "C"
@@ -17185,7 +17235,7 @@
               "with_text": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "text": "String"
@@ -17210,7 +17260,7 @@
               "with_placeholder": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "text": "String"
@@ -17238,7 +17288,7 @@
               "with_on_text_input": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17250,7 +17300,7 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_on_text_input(data, callback); textinput"
+                "fn_body": "textinput.with_on_text_input(data, callback)"
               },
               "set_on_virtual_key_down": {
                 "fn_args": [
@@ -17269,7 +17319,7 @@
               "with_on_virtual_key_down": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17281,7 +17331,7 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_on_virtual_key_down(data, callback); textinput"
+                "fn_body": "textinput.with_on_virtual_key_down(data, callback)"
               },
               "set_on_focus_lost": {
                 "fn_args": [
@@ -17300,7 +17350,7 @@
               "with_on_focus_lost": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17312,7 +17362,7 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_on_focus_lost(data, callback); textinput"
+                "fn_body": "textinput.with_on_focus_lost(data, callback)"
               },
               "set_placeholder_style": {
                 "fn_args": [
@@ -17328,7 +17378,7 @@
               "with_placeholder_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "placeholder_style": "NodeDataInlineCssPropertyVec"
@@ -17337,7 +17387,7 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_placeholder_style(placeholder_style); textinput"
+                "fn_body": "textinput.with_placeholder_style(placeholder_style)"
               },
               "set_container_style": {
                 "fn_args": [
@@ -17353,7 +17403,7 @@
               "with_container_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "container_style": "NodeDataInlineCssPropertyVec"
@@ -17362,7 +17412,7 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_container_style(container_style); textinput"
+                "fn_body": "textinput.with_container_style(container_style)"
               },
               "set_label_style": {
                 "fn_args": [
@@ -17378,7 +17428,7 @@
               "with_label_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "label_style": "NodeDataInlineCssPropertyVec"
@@ -17387,18 +17437,18 @@
                 "returns": {
                   "type": "TextInput"
                 },
-                "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_label_style(label_style); textinput"
+                "fn_body": "textinput.with_label_style(label_style)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "textinput.swap_with_default().dom()"
+                "fn_body": "textinput.dom()"
               }
             },
             "repr": "C"
@@ -17697,7 +17747,7 @@
               "with_on_text_input": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17709,7 +17759,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_text_input(data, callback); numberinput"
+                "fn_body": "numberinput.with_on_text_input(data, callback)"
               },
               "set_on_virtual_key_down": {
                 "fn_args": [
@@ -17728,7 +17778,7 @@
               "with_on_virtual_key_down": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17740,7 +17790,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_virtual_key_down(data, callback); numberinput"
+                "fn_body": "numberinput.with_on_virtual_key_down(data, callback)"
               },
               "set_on_focus_lost": {
                 "fn_args": [
@@ -17759,7 +17809,7 @@
               "with_on_focus_lost": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17771,7 +17821,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput"
+                "fn_body": "numberinput.with_on_focus_lost(data, callback)"
               },
               "set_placeholder_style": {
                 "fn_args": [
@@ -17787,7 +17837,7 @@
               "with_placeholder_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "NodeDataInlineCssPropertyVec"
@@ -17796,7 +17846,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_placeholder_style(style); numberinput"
+                "fn_body": "numberinput.with_placeholder_style(style)"
               },
               "set_container_style": {
                 "fn_args": [
@@ -17812,7 +17862,7 @@
               "with_container_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "NodeDataInlineCssPropertyVec"
@@ -17821,7 +17871,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_container_style(style); numberinput"
+                "fn_body": "numberinput.with_container_style(style)"
               },
               "set_label_style": {
                 "fn_args": [
@@ -17837,7 +17887,7 @@
               "with_label_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "style": "NodeDataInlineCssPropertyVec"
@@ -17846,7 +17896,7 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_label_style(style); numberinput"
+                "fn_body": "numberinput.with_label_style(style)"
               },
               "set_on_value_change": {
                 "fn_args": [
@@ -17865,7 +17915,7 @@
               "with_on_value_change": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -17877,18 +17927,18 @@
                 "returns": {
                   "type": "NumberInput"
                 },
-                "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_value_change(data, callback); numberinput"
+                "fn_body": "numberinput.with_on_value_change(data, callback)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "numberinput.swap_with_default().dom()"
+                "fn_body": "numberinput.dom()"
               }
             },
             "repr": "C"
@@ -18053,7 +18103,7 @@
               "with_height": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "height": "PixelValue"
@@ -18062,7 +18112,7 @@
                 "returns": {
                   "type": "ProgressBar"
                 },
-                "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_height(height); progressbar"
+                "fn_body": "progressbar.with_height(height)"
               },
               "set_container_background": {
                 "fn_args": [
@@ -18078,7 +18128,7 @@
               "with_container_style": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "background": "StyleBackgroundContentVec"
@@ -18087,7 +18137,7 @@
                 "returns": {
                   "type": "ProgressBar"
                 },
-                "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_background(background); progressbar"
+                "fn_body": "progressbar.with_container_background(background)"
               },
               "set_bar_background": {
                 "fn_args": [
@@ -18103,7 +18153,7 @@
               "with_bar_background": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "background": "StyleBackgroundContentVec"
@@ -18112,18 +18162,18 @@
                 "returns": {
                   "type": "ProgressBar"
                 },
-                "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_background(background); progressbar"
+                "fn_body": "progressbar.with_bar_background(background)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "progressbar.swap_with_default().dom()"
+                "fn_body": "progressbar.dom()"
               }
             },
             "repr": "C"
@@ -18199,7 +18249,7 @@
               "with_active_tab": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "active_tab": "usize"
@@ -18227,7 +18277,7 @@
               "with_on_click": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "data": "RefAny"
@@ -18244,7 +18294,7 @@
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
@@ -18319,7 +18369,7 @@
               "with_flex_grow": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "flex_grow": "f32"
@@ -18328,18 +18378,18 @@
                 "returns": {
                   "type": "Frame"
                 },
-                "fn_body": "let mut frame = frame.swap_with_default(); frame.set_flex_grow(flex_grow); frame"
+                "fn_body": "frame.with_flex_grow(flex_grow)"
               },
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "frame.swap_with_default().dom()"
+                "fn_body": "frame.dom()"
               }
             },
             "repr": "C"
@@ -18444,7 +18494,7 @@
               "with_rows": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
                     "rows": "ListViewRowVec"
@@ -18458,13 +18508,13 @@
               "dom": {
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "listview.swap_with_default().dom()"
+                "fn_body": "listview.dom()"
               }
             },
             "repr": "C"
@@ -18738,7 +18788,7 @@
               },
               "draw_tesselated_svg_gpu_node": {
                 "doc": [
-                  "Draws a `&TessellatedGPUSvgNode` with the given color to the texture"
+                  "Draws a `TessellatedGPUSvgNode` with the given color to the texture"
                 ],
                 "fn_args": [
                   {
@@ -18759,11 +18809,12 @@
                 ],
                 "returns": {
                   "type": "bool"
-                }
+                },
+                "fn_body": "object.draw_tesselated_svg_gpu_node(unsafe { &*(node as *const azul_core::svg::TessellatedGPUSvgNode) }, size, color, transforms)"
               },
               "draw_tesselated_colored_svg_gpu_node": {
                 "doc": [
-                  "Draws a `&TessellatedColoredGPUSvgNode` with the given color to the texture"
+                  "Draws a `TessellatedColoredGPUSvgNode` to the texture"
                 ],
                 "fn_args": [
                   {
@@ -18781,7 +18832,8 @@
                 ],
                 "returns": {
                   "type": "bool"
-                }
+                },
+                "fn_body": "object.draw_tesselated_colored_svg_gpu_node(unsafe { &*(node as *const azul_core::svg::TessellatedColoredGPUSvgNode) }, size, transforms)"
               },
               "apply_fxaa": {
                 "doc": [
@@ -31774,17 +31826,15 @@
                 "fn_body": "azul_core::resources::ImageRef::new_gltexture(texture)"
               },
               "callback": {
-                "doc": [
-                  "Creates an image reference from a callback that is going to be rendered with the given nodes computed size"
-                ],
                 "fn_args": [
                   {
-                    "data": "RefAny"
+                    "gl_callback": "RenderImageCallbackType"
                   },
                   {
-                    "callback": "RenderImageCallbackType"
+                    "data": "RefAny"
                   }
-                ]
+                ],
+                "fn_body": "azul_core::resources::ImageRef::callback(gl_callback as usize, data)"
               }
             },
             "functions": {
@@ -32420,7 +32470,7 @@
             "functions": {
               "use_typo_metrics": {
                 "doc": [
-                  "If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height."
+                  "Returns whether typographic metrics should be used (from fs_selection flag)"
                 ],
                 "fn_args": [
                   {
@@ -32429,293 +32479,316 @@
                 ],
                 "returns": {
                   "type": "bool"
-                }
+                },
+                "fn_body": "object.use_typo_metrics()"
               },
               "get_ascender": {
+                "doc": [
+                  "Returns the ascender value from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_ascender()"
               },
               "get_descender": {
+                "doc": [
+                  "Returns the descender value from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_descender()"
               },
               "get_line_gap": {
+                "doc": [
+                  "Returns the line gap value from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_line_gap()"
               },
               "get_x_min": {
+                "doc": [
+                  "Returns the x_min value from the head table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_x_min()"
               },
               "get_y_min": {
+                "doc": [
+                  "Returns the y_min value from the head table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_min()"
               },
               "get_x_max": {
+                "doc": [
+                  "Returns the x_max value from the head table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_x_max()"
               },
               "get_y_max": {
+                "doc": [
+                  "Returns the y_max value from the head table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_max()"
               },
               "get_advance_width_max": {
+                "doc": [
+                  "Returns the maximum advance width from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "u16"
+                },
+                "fn_body": "object.get_advance_width_max()"
               },
               "get_min_left_side_bearing": {
+                "doc": [
+                  "Returns the minimum left side bearing from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_min_left_side_bearing()"
               },
               "get_min_right_side_bearing": {
+                "doc": [
+                  "Returns the minimum right side bearing from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_min_right_side_bearing()"
               },
               "get_x_max_extent": {
+                "doc": [
+                  "Returns the maximum extent in the x direction from the hhea table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_x_max_extent()"
               },
               "get_x_avg_char_width": {
+                "doc": [
+                  "Returns the average character width from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_x_avg_char_width()"
               },
               "get_y_subscript_x_size": {
+                "doc": [
+                  "Returns the subscript x size from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_subscript_x_size()"
               },
               "get_y_subscript_y_size": {
+                "doc": [
+                  "Returns the subscript y size from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_subscript_y_size()"
               },
               "get_y_subscript_x_offset": {
+                "doc": [
+                  "Returns the subscript x offset from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_subscript_x_offset()"
               },
               "get_y_subscript_y_offset": {
+                "doc": [
+                  "Returns the subscript y offset from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_subscript_y_offset()"
               },
               "get_y_superscript_x_size": {
+                "doc": [
+                  "Returns the superscript x size from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_superscript_x_size()"
               },
               "get_y_superscript_y_size": {
+                "doc": [
+                  "Returns the superscript y size from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_superscript_y_size()"
               },
               "get_y_superscript_x_offset": {
+                "doc": [
+                  "Returns the superscript x offset from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_superscript_x_offset()"
               },
               "get_y_superscript_y_offset": {
+                "doc": [
+                  "Returns the superscript y offset from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_superscript_y_offset()"
               },
               "get_y_strikeout_size": {
+                "doc": [
+                  "Returns the strikeout size from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_strikeout_size()"
               },
               "get_y_strikeout_position": {
+                "doc": [
+                  "Returns the strikeout position from the os/2 table"
+                ],
                 "fn_args": [
                   {
                     "self": "ref"
-                  },
-                  {
-                    "target_font_size": "f32"
                   }
                 ],
                 "returns": {
-                  "type": "f32"
-                }
+                  "type": "i16"
+                },
+                "fn_body": "object.get_y_strikeout_position()"
               }
             },
             "repr": "C"
@@ -32782,7 +32855,8 @@
                 ],
                 "returns": {
                   "type": "U8Vec"
-                }
+                },
+                "fn_body": "{ use azul_layout::text3::default::FontRefExt; fontref.get_bytes().to_vec().into() }"
               },
               "get_font_metrics": {
                 "doc": [
@@ -32795,7 +32869,8 @@
                 ],
                 "returns": {
                   "type": "FontMetrics"
-                }
+                },
+                "fn_body": "{ use azul_layout::text3::default::FontRefExt; fontref.get_full_font_metrics() }"
               },
               "get_hash": {
                 "doc": [
@@ -32853,7 +32928,7 @@
         ],
         "classes": {
           "Svg": {
-            "external": "azul_core::svg::Svg",
+            "external": "azul_layout::xml::svg::ParsedSvg",
             "is_boxed_object": true,
             "derive": [
               "Debug",
@@ -32883,7 +32958,7 @@
                 "returns": {
                   "type": "ResultSvgSvgParseError"
                 },
-                "fn_body": "match azul_layout::xml::svg::svg_parse(svg_string.as_ref().as_bytes(), parse_options) { Ok(o) => azul_core::svg::ResultSvgSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_core::svg::ResultSvgSvgParseError::Err(e) }"
+                "fn_body": "azul_layout::xml::svg::ParsedSvg::from_string(svg_string.as_ref(), parse_options).map(|s| s.into()).into()"
               },
               "from_bytes": {
                 "fn_args": [
@@ -32897,7 +32972,7 @@
                 "returns": {
                   "type": "ResultSvgSvgParseError"
                 },
-                "fn_body": "match azul_layout::xml::svg::svg_parse(svg_bytes.as_slice(), parse_options) { Ok(o) => azul_core::svg::ResultSvgSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_core::svg::ResultSvgSvgParseError::Err(e) }"
+                "fn_body": "azul_layout::xml::svg::ParsedSvg::from_bytes(svg_bytes.as_slice(), parse_options).map(|s| s.into()).into()"
               }
             },
             "functions": {
@@ -32909,7 +32984,8 @@
                 ],
                 "returns": {
                   "type": "SvgXmlNode"
-                }
+                },
+                "fn_body": "svg.get_root()"
               },
               "render": {
                 "fn_args": [
@@ -32922,7 +32998,8 @@
                 ],
                 "returns": {
                   "type": "OptionRawImage"
-                }
+                },
+                "fn_body": "svg.render(options).into()"
               },
               "to_string": {
                 "fn_args": [
@@ -32935,7 +33012,8 @@
                 ],
                 "returns": {
                   "type": "String"
-                }
+                },
+                "fn_body": "svg.to_string(options).into()"
               }
             },
             "repr": "C"
@@ -35395,7 +35473,8 @@
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "c_void", "ref_kind": "mutptr"
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
                 }
               ],
               "returns": null

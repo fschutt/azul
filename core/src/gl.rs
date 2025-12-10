@@ -13,6 +13,7 @@ use core::{
 
 use azul_css::{
     props::basic::{ColorF, ColorU},
+    props::style::StyleTransformVec,
     AzString, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
@@ -2696,6 +2697,27 @@ impl Texture {
                 allow_mipmaps: false,
             },
         }
+    }
+
+    /// Draws a `TessellatedGPUSvgNode` with the given color to the texture
+    pub fn draw_tesselated_svg_gpu_node(
+        &mut self,
+        node: &TessellatedGPUSvgNode,
+        size: PhysicalSizeU32,
+        color: ColorU,
+        transforms: StyleTransformVec,
+    ) -> bool {
+        node.draw(self, size, color, transforms)
+    }
+
+    /// Draws a `TessellatedColoredGPUSvgNode` to the texture
+    pub fn draw_tesselated_colored_svg_gpu_node(
+        &mut self,
+        node: &crate::svg::TessellatedColoredGPUSvgNode,
+        size: PhysicalSizeU32,
+        transforms: StyleTransformVec,
+    ) -> bool {
+        node.draw(self, size, transforms)
     }
 }
 

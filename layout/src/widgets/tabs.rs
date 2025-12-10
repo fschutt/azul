@@ -1216,10 +1216,9 @@ impl TabHeader {
         self.active_tab = active_tab;
     }
 
-    pub fn with_active_tab(&mut self, active_tab: usize) -> Self {
-        let mut s = self.swap_with_default();
-        s.set_active_tab(active_tab);
-        s
+    pub fn with_active_tab(mut self, active_tab: usize) -> Self {
+        self.set_active_tab(active_tab);
+        self
     }
 
     pub fn set_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) {
@@ -1230,13 +1229,12 @@ impl TabHeader {
         .into();
     }
 
-    pub fn with_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) -> Self {
-        let mut s = self.swap_with_default();
-        s.set_on_click(data, on_click);
-        s
+    pub fn with_on_click(mut self, data: RefAny, on_click: TabOnClickCallbackType) -> Self {
+        self.set_on_click(data, on_click);
+        self
     }
 
-    pub fn dom(&mut self) -> Dom {
+    pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
 
         let on_click_is_some = self.on_click.is_some();
@@ -1258,22 +1256,20 @@ impl TabHeader {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
                     })];
 
-                let s = self.swap_with_default();
-
                 let dataset = TabLocalDataset {
                     tab_idx: 0,
-                    on_click: s.on_click,
+                    on_click: self.on_click,
                 };
 
-                for (tab_idx, tab) in s.tabs.as_ref().iter().enumerate() {
-                    let next_tab_is_active = s.active_tab == tab_idx.saturating_add(1);
-                    let previous_tab_was_active = if s.active_tab == 0 {
+                for (tab_idx, tab) in self.tabs.as_ref().iter().enumerate() {
+                    let next_tab_is_active = self.active_tab == tab_idx.saturating_add(1);
+                    let previous_tab_was_active = if self.active_tab == 0 {
                         false
                     } else {
-                        s.active_tab == tab_idx.saturating_sub(1)
+                        self.active_tab == tab_idx.saturating_sub(1)
                     };
 
-                    let tab_is_active = s.active_tab == tab_idx;
+                    let tab_is_active = self.active_tab == tab_idx;
 
                     // classes for previous tab
                     const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
@@ -1397,17 +1393,16 @@ impl TabContent {
         default
     }
 
-    pub fn with_padding(&mut self, padding: bool) -> Self {
-        let mut s = self.swap_with_default();
-        s.set_padding(padding);
-        s
+    pub fn with_padding(mut self, padding: bool) -> Self {
+        self.set_padding(padding);
+        self
     }
 
     pub fn set_padding(&mut self, padding: bool) {
         self.has_padding = padding;
     }
 
-    pub fn dom(&mut self) -> Dom {
+    pub fn dom(self) -> Dom {
         const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[Class(
             AzString::from_const_str("__azul-native-tabs-content"),
         )];
@@ -1424,9 +1419,7 @@ impl TabContent {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                     IDS_AND_CLASSES_2989815829020816222,
                 ))
-                .with_children(DomVec::from_vec(vec![self
-                    .content
-                    .swap_with_default()]))]))
+                .with_children(DomVec::from_vec(vec![self.content]))]))
     }
 }
 

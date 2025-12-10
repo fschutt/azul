@@ -264,6 +264,11 @@ impl Frame {
         self.flex_grow = flex_grow;
     }
 
+    pub fn with_flex_grow(mut self, flex_grow: f32) -> Self {
+        self.set_flex_grow(flex_grow);
+        self
+    }
+
     pub fn dom(self) -> Dom {
         Dom::div()
             .with_inline_css_props(CSS_MATCH_8602559445190067154)

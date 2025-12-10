@@ -97,7 +97,9 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 ] }
 
 [features]
-default = ["std", "desktop", "logging", "css_parser", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y"]
+# NOTE: The `c-api` feature MUST be enabled to export the C API functions!
+# Without it, libazul_dll.dylib will not contain any AzXxx symbols.
+default = ["std", "desktop", "logging", "css_parser", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future

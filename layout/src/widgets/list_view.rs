@@ -1489,60 +1489,54 @@ impl ListView {
         m
     }
 
-    pub fn with_columns(&mut self, columns: StringVec) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_columns(columns);
-        m
+    pub fn with_columns(mut self, columns: StringVec) -> Self {
+        self.set_columns(columns);
+        self
     }
 
     pub fn set_columns(&mut self, columns: StringVec) {
         self.columns = columns;
     }
 
-    pub fn with_rows(&mut self, rows: ListViewRowVec) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_rows(rows);
-        m
+    pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
+        self.set_rows(rows);
+        self
     }
 
     pub fn set_rows(&mut self, rows: ListViewRowVec) {
         self.rows = rows;
     }
 
-    pub fn with_sorted_by(&mut self, sorted_by: OptionUsize) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_sorted_by(sorted_by);
-        m
+    pub fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
+        self.set_sorted_by(sorted_by);
+        self
     }
 
     pub fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
         self.sorted_by = sorted_by;
     }
 
-    pub fn with_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_scroll_offset(scroll_offset);
-        m
+    pub fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
+        self.set_scroll_offset(scroll_offset);
+        self
     }
 
     pub fn set_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) {
         self.scroll_offset = scroll_offset;
     }
 
-    pub fn with_content_height(&mut self, content_height: PixelValueNoPercent) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_content_height(content_height);
-        m
+    pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
+        self.set_content_height(content_height);
+        self
     }
 
     pub fn set_content_height(&mut self, content_height: PixelValueNoPercent) {
         self.content_height = Some(content_height).into();
     }
 
-    pub fn with_column_context_menu(&mut self, context_menu: Menu) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_column_context_menu(context_menu);
-        m
+    pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
+        self.set_column_context_menu(context_menu);
+        self
     }
 
     pub fn set_column_context_menu(&mut self, column_context_menu: Menu) {
@@ -1550,13 +1544,12 @@ impl ListView {
     }
 
     pub fn with_on_column_click(
-        &mut self,
+        mut self,
         data: RefAny,
         on_column_click: ListViewOnColumnClickCallbackType,
     ) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_on_column_click(data, on_column_click);
-        m
+        self.set_on_column_click(data, on_column_click);
+        self
     }
 
     pub fn set_on_column_click(
@@ -1574,13 +1567,12 @@ impl ListView {
     }
 
     pub fn with_on_row_click(
-        &mut self,
+        mut self,
         data: RefAny,
         on_row_click: ListViewOnRowClickCallbackType,
     ) -> Self {
-        let mut m = self.swap_with_default();
-        m.set_on_row_click(data, on_row_click);
-        m
+        self.set_on_row_click(data, on_row_click);
+        self
     }
 
     pub fn set_on_row_click(&mut self, data: RefAny, on_row_click: ListViewOnRowClickCallbackType) {
