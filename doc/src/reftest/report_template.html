@@ -1,1239 +1,606 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Azul CSS Reftest Results</title>
+  <meta charset='utf-8'/>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
+  <meta name='description' content='CSS rendering reference tests for azul-layout'>
+  <link rel='shortcut icon' type='image/x-icon' href='https://azul.rs/favicon.ico'>
+  <link rel='stylesheet' type='text/css' href='https://azul.rs/main.css'>
   <style>
-    /* Variables */
+    /* Reftest-specific styles */
     :root {
-      /* Light mode colors (default) */
-      --color-primary: #4a6bdf;
-      --color-primary-light: #6f89e6;
-      --color-secondary: #2ecc71;
+      --color-pass: #2ecc71;
       --color-warning: #f39c12;
-      --color-danger: #e74c3c;
-      --color-dark: #34495e;
-      --color-light: #f5f7fa;
-      --color-gray: #95a5a6;
-      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --color-fail: #e74c3c;
+      --color-primary: #4a6bdf;
       --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      --border-radius: 8px;
-      --shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-      
-      /* Background and text colors */
-      --bg-main: var(--color-light);
-      --text-main: var(--color-dark);
-      --bg-card: white;
-      --bg-button: white;
-      --bg-button-hover: var(--color-light);
-      --bg-overlay: rgba(0, 0, 0, 0.75);
-      --bg-code: #f8f9fa;
-      
-      /* Borders and shadows */
-      --border-color: #eee;
-      --border-color-light: #e0e0e0;
-      --shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-      --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.1);
-      --backdrop-blur: blur(3px);
+      --border-radius: 6px;
     }
 
-    /* Reset and base styles */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body { 
-      font-family: var(--font-main); 
-      line-height: 1.6;
-      color: var(--text-main);
-      background-color: var(--bg-main);
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 2rem 1rem;
-    }
-
-    h1, h2, h3 {
-      color: var(--text-main);
+    /* Summary bar - single compact line */
+    .summary-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      align-items: center;
+      padding: 0.75rem 0;
       margin-bottom: 1rem;
+      border-bottom: 1px solid #ddd;
+      font-size: 0.95rem;
     }
-
-    h1 {
-      font-size: 2rem;
-      border-bottom: 3px solid var(--color-primary);
-      padding-bottom: 0.5rem;
-      margin-bottom: 2rem;
-      display: inline-block;
+    .summary-bar .stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
     }
-
-    h2 {
-      font-size: 1.5rem;
-    }
-
-    h3 {
-      font-size: 1.2rem;
-    }
-
-    /* Summary section */
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .summary-box {
-      background-color: var(--bg-card);
-      border-radius: var(--border-radius);
-      padding: 1rem;
-      text-align: center;
-      box-shadow: var(--shadow);
-      transition: transform 0.2s;
-    }
-
-    .summary-box:hover {
-      transform: translateY(-3px);
-    }
-
-    .summary-box.total {
-      border-top: 4px solid var(--color-primary);
-    }
-
-    .summary-box.passed {
-      border-top: 4px solid var(--color-secondary);
-    }
-
-    .summary-box.failed {
-      border-top: 4px solid var(--color-danger);
-    }
-
-    .summary-number {
-      font-size: 2.5rem;
+    .summary-bar .stat-value {
       font-weight: 700;
-      margin-bottom: 0.5rem;
+    }
+    .summary-bar .stat-value.pass { color: var(--color-pass); }
+    .summary-bar .stat-value.fail { color: var(--color-fail); }
+    .summary-bar .stat-value.warning { color: var(--color-warning); }
+    .summary-bar .meta {
+      color: #666;
+      font-size: 0.85rem;
+    }
+    .summary-bar .meta a { color: var(--color-primary); }
+    .summary-bar .meta code {
+      background: #f0f0f0;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
     }
 
-    .summary-label {
-      font-size: 1rem;
-      color: var(--color-gray);
-    }
-
-    /* Controls */
+    /* Controls row */
     .controls {
       display: flex;
       flex-wrap: wrap;
-      gap: 1rem;
-      margin-bottom: 2rem;
-      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
       align-items: center;
     }
-
-    .search-controls {
-      flex: 1;
-      min-width: 250px;
-      max-width: 500px;
-    }
-
     .search-input {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      font-size: 0.95rem;
-      border: 1px solid var(--border-color-light);
+      flex: 1;
+      min-width: 200px;
+      max-width: 350px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.9rem;
+      border: 1px solid #ccc;
       border-radius: var(--border-radius);
-      background-color: var(--bg-card);
-      color: var(--text-main);
-      font-family: var(--font-main);
+      font-family: inherit;
     }
-
-    .search-input:focus {
-      outline: 2px solid var(--color-primary);
-      outline-offset: 0px;
-    }
-
-    .sort-controls {
+    .search-input:focus { outline: 2px solid var(--color-primary); }
+    .btn-group {
       display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.25rem;
     }
-
-    .button {
-      padding: 0.75rem 1rem;
-      background-color: var(--bg-button);
-      border: 1px solid var(--border-color-light);
+    .btn {
+      padding: 0.5rem 0.75rem;
+      background: #f5f5f5;
+      border: 1px solid #ccc;
       border-radius: var(--border-radius);
       cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.2s;
-      box-shadow: var(--shadow);
+      font-size: 0.85rem;
+      transition: all 0.15s;
     }
+    .btn:hover { background: #e8e8e8; }
+    .btn.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .btn.pass { border-left: 3px solid var(--color-pass); }
+    .btn.warning { border-left: 3px solid var(--color-warning); }
+    .btn.fail { border-left: 3px solid var(--color-fail); }
 
-    .button:hover {
-      background-color: var(--bg-button-hover);
-    }
-
-    .button.active {
-      background-color: var(--color-primary);
-      color: white;
-      border-color: var(--color-primary);
-    }
-
-    .filter-controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-
-    .filter-button.pass {
-      border-left: 4px solid var(--color-secondary);
-    }
-
-    .filter-button.warning {
-      border-left: 4px solid var(--color-warning);
-    }
-
-    .filter-button.fail {
-      border-left: 4px solid var(--color-danger);
-    }
-
-    /* Test grid */
-    .test-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1rem;
-    }
-
+    /* Test list */
+    .test-list { margin-top: 1rem; }
     .category-header {
-      font-size: 1.5rem;
+      font-size: 1.1rem;
       font-weight: 600;
       color: var(--color-primary);
-      margin-top: 1.5rem;
-      margin-bottom: 0.75rem;
-      padding-bottom: 0.5rem;
+      margin: 1.5rem 0 0.5rem 0;
+      padding-bottom: 0.25rem;
       border-bottom: 2px solid var(--color-primary);
-      grid-column: 1 / -1;
     }
-
-    .category-header:first-child {
-      margin-top: 0;
-    }
+    .category-header:first-child { margin-top: 0; }
 
     .test-card {
-      background-color: var(--bg-card);
+      background: #fafafa;
       border-radius: var(--border-radius);
+      margin-bottom: 0.5rem;
+      border-left: 4px solid #ccc;
       overflow: hidden;
-      box-shadow: var(--shadow);
-      transition: transform 0.2s, box-shadow 0.2s;
     }
-
-    .test-card:hover {
-      transform: translateY(-3px);
-      box-shadow: var(--shadow-hover);
-    }
-
-    .test-card.pass {
-      border-left: 5px solid var(--color-secondary);
-      background-color: rgba(46, 204, 113, 0.05);
-    }
-
-    .test-card.warning {
-      border-left: 5px solid var(--color-warning);
-      background-color: rgba(243, 156, 18, 0.05);
-    }
-
-    .test-card.fail {
-      border-left: 5px solid var(--color-danger);
-      background-color: rgba(231, 76, 60, 0.05);
-    }
+    .test-card.pass { border-left-color: var(--color-pass); background: rgba(46, 204, 113, 0.05); }
+    .test-card.warning { border-left-color: var(--color-warning); background: rgba(243, 156, 18, 0.05); }
+    .test-card.fail { border-left-color: var(--color-fail); background: rgba(231, 76, 60, 0.05); }
 
     .test-header {
-      padding: 1rem;
+      padding: 0.6rem 0.8rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       cursor: pointer;
       user-select: none;
     }
-
-    .test-header:hover {
-      background-color: var(--bg-button-hover);
-    }
-
+    .test-header:hover { background: rgba(0,0,0,0.03); }
     .test-header-left {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      flex: 1;
     }
-
     .collapse-icon {
-      font-size: 1.2rem;
-      transition: transform 0.2s;
-      min-width: 24px;
+      font-size: 0.8rem;
+      transition: transform 0.15s;
+      color: #666;
     }
-
-    .test-card.collapsed .collapse-icon {
-      transform: rotate(-90deg);
-    }
-
-    .test-card.collapsed .test-body {
-      display: none;
-    }
-
+    .test-card.collapsed .collapse-icon { transform: rotate(-90deg); }
+    .test-card.collapsed .test-body { display: none; }
     .test-title {
       margin: 0;
-      font-weight: 600;
+      font-size: 0.95rem;
+      font-weight: 500;
     }
-
-    .test-result {
-      padding: 0.25rem 0.75rem;
+    .test-badge {
+      padding: 0.2rem 0.5rem;
       border-radius: 999px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 600;
-    }
-
-    .test-result.pass {
-      background-color: var(--color-secondary);
       color: white;
     }
-
-    .test-result.warning {
-      background-color: var(--color-warning);
-      color: white;
-    }
-
-    .test-result.fail {
-      background-color: var(--color-danger);
-      color: white;
-    }
-
-    .test-metadata {
-      padding: 1rem;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .test-title-full {
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-
-    .test-assert {
-      font-style: italic;
-      color: var(--color-gray);
-      font-size: 0.9rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .test-link {
+    .test-badge.pass { background: var(--color-pass); }
+    .test-badge.warning { background: var(--color-warning); }
+    .test-badge.fail { background: var(--color-fail); }
+    .diff-count {
       font-size: 0.8rem;
-      color: var(--color-primary);
-      text-decoration: none;
+      color: #666;
+      margin-left: 0.5rem;
     }
 
-    .test-link:hover {
-      text-decoration: underline;
-    }
-
-    .test-content {
+    .test-body { padding: 0.8rem; border-top: 1px solid #eee; }
+    .test-images {
       display: grid;
-      grid-template-columns: 1fr;
-      border-bottom: 1px solid var(--border-color);
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-bottom: 0.75rem;
     }
-
-    .test-image-container {
-      padding: 1rem;
-      text-align: center;
-    }
-
-    .test-image {
+    .test-img-box { text-align: center; }
+    .test-img-box img {
       max-width: 100%;
       height: auto;
-      border: 1px solid var(--border-color);
+      border: 1px solid #ddd;
       border-radius: var(--border-radius);
     }
-
-    .test-image-label {
-      margin-top: 0.5rem;
+    .test-img-label {
+      margin-top: 0.3rem;
       font-size: 0.8rem;
-      color: var(--color-gray);
+      color: #666;
     }
-
-    .test-data-buttons {
-      padding: 1rem;
+    .test-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
-
-    .data-button {
-      flex: 1;
-      min-width: 100px;
-      padding: 0.5rem;
-      background-color: var(--bg-code);
-      border: 1px solid var(--border-color-light);
+    .action-btn {
+      padding: 0.35rem 0.6rem;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
       border-radius: var(--border-radius);
       cursor: pointer;
-      font-size: 0.9rem;
-      text-align: center;
-      transition: all 0.2s;
+      font-size: 0.8rem;
+      transition: all 0.15s;
     }
+    .action-btn:hover { background: #e0e0e0; }
+    .action-btn.primary { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .action-btn.primary:hover { background: #3a5bc9; }
 
-    .data-button:hover {
-      background-color: var(--color-primary-light);
-      color: white;
-    }
-
-    /* Overlay */
+    /* Overlay modal */
     .overlay {
       display: none;
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--bg-overlay);
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
       z-index: 1000;
       overflow-y: auto;
-      backdrop-filter: var(--backdrop-blur);
+      backdrop-filter: blur(2px);
     }
-
     .overlay-content {
-      background-color: var(--bg-card);
+      background: white;
       margin: 2rem auto;
-      padding: 1.5rem;
+      padding: 1.25rem;
       max-width: 95%;
-      width: 1000px;
+      width: 900px;
       border-radius: var(--border-radius);
-      position: relative;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
-
     .overlay-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
       padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border-color);
+      border-bottom: 1px solid #ddd;
     }
-
-    .overlay-title {
-      margin: 0;
-      font-size: 1.5rem;
-    }
-
+    .overlay-title { margin: 0; font-size: 1.2rem; }
     .overlay-close {
       font-size: 1.5rem;
       cursor: pointer;
-      width: 32px;
-      height: 32px;
+      width: 28px; height: 28px;
       display: flex;
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      transition: all 0.2s;
     }
-
-    .overlay-close:hover {
-      background-color: var(--bg-button-hover);
-    }
-
+    .overlay-close:hover { background: #f0f0f0; }
     .overlay-data {
-      margin-top: 1rem;
-      max-height: 70vh;
+      max-height: 65vh;
       overflow: auto;
-      background-color: var(--bg-code);
-      padding: 1rem;
+      background: #f8f8f8;
+      padding: 0.75rem;
       border-radius: var(--border-radius);
       font-family: var(--font-mono);
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       white-space: pre-wrap;
       line-height: 1.4;
     }
 
-    /* Empty state */
-    .empty-state {
-      text-align: center;
-      padding: 3rem 1rem;
-      color: var(--color-gray);
-    }
-
-    .empty-icon {
-      font-size: 3rem;
-      margin-bottom: 1rem;
-    }
-
-    /* No test matches filter */
+    /* Empty / no results */
     .no-results {
       display: none;
       text-align: center;
       padding: 2rem;
-      color: var(--color-gray);
-      background-color: var(--bg-card);
+      color: #666;
+      background: #f9f9f9;
       border-radius: var(--border-radius);
-      box-shadow: var(--shadow);
     }
 
-    /* Header styles */
-    .report-header {
-      background-color: var(--bg-card);
-      border-radius: var(--border-radius);
-      padding: 1rem;
-      margin-bottom: 1.5rem;
-      box-shadow: var(--shadow);
-    }
+    /* Override main.css for reftest page */
+    main { min-height: auto; padding: 30px; }
+    main h1 { margin-bottom: 0.5rem; font-size: 1.8rem; }
 
-    .header-metadata {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      align-items: center;
-    }
-
-    .metadata-item {
-      flex: 1;
-      min-width: 200px;
-    }
-
-    .metadata-item p {
-      margin: 0.25rem 0;
-      font-size: 0.9rem;
-    }
-
-    .metadata-item.error {
-      color: var(--color-danger);
-    }
-
-    .metadata-item.success {
-      color: var(--color-secondary);
-    }
-
-    .project-info {
-      margin-top: 0.5rem;
-    }
-
-    .links {
-      font-weight: 500;
-      font-size: 0.9rem;
-    }
-
-    .links a {
-      color: var(--color-primary);
-      text-decoration: none;
-    }
-
-    .links a:hover {
-      text-decoration: underline;
-    }
-
-    code {
-      font-family: var(--font-mono);
-      background-color: var(--bg-code);
-      padding: 0.1rem 0.3rem;
-      border-radius: 3px;
-      font-size: 0.9em;
-    }
-
-    /* Media queries */
-    @media (min-width: 768px) {
-      .test-content {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    @media (min-width: 1024px) {
-      .test-grid {
-        grid-template-columns: repeat(auto-fill, minmax(600px, 1fr));
-      }
-    }
-
-    @media (max-width: 767px) {
-      .controls {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      
-      .sort-controls, .filter-controls {
-        justify-content: center;
-      }
-      
-      .test-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
-      }
-      
-      .test-result {
-        align-self: flex-start;
-      }
-    }
-
-    /* Dark mode styles */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        /* Override colors for dark mode */
-        --color-dark: #f5f7fa;
-        --color-light: #2c3e50;
-        
-        /* Background and text colors */
-        --bg-main: #1a1a1a;
-        --text-main: #f5f7fa;
-        --bg-card: #2c3e50;
-        --bg-button: #34495e;
-        --bg-button-hover: #3d5a76;
-        --bg-overlay: rgba(0, 0, 0, 0.85);
-        --bg-code: #2d3748;
-        
-        /* Borders and shadows */
-        --border-color: #3d5a76;
-        --border-color-light: #3d5a76;
-        --shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-        --shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.3);
-      }
-      
-      /* Override specific elements */
-      body {
-        color: var(--text-main);
-        background-color: var(--bg-main);
-      }
-      
-      .container {
-        background-color: var(--bg-main);
-      }
-      
-      .summary-box, .test-card, .button, .no-results, .report-header, .overlay-content {
-        background-color: var(--bg-card);
-        color: var(--text-main);
-      }
-      
-      .button {
-        background-color: var(--bg-button);
-        border-color: var(--border-color-light);
-      }
-      
-      .button:hover {
-        background-color: var(--bg-button-hover);
-      }
-      
-      .test-header, .test-metadata, .overlay-header {
-        border-color: var(--border-color);
-      }
-      
-      .test-content {
-        border-color: var(--border-color);
-      }
-      
-      .test-image {
-        border-color: var(--border-color);
-      }
-      
-      .test-image-label, .summary-label, .test-assert {
-        color: var(--color-gray);
-      }
-      
-      .data-button {
-        background-color: var(--bg-code);
-        border-color: var(--border-color-light);
-      }
-      
-      .data-button:hover {
-        background-color: var(--color-primary-light);
-      }
-      
-      .overlay-data {
-        background-color: var(--bg-code);
-        color: var(--text-main);
-      }
-      
-      .overlay-close:hover {
-        background-color: var(--bg-button-hover);
-      }
-      
-      /* Improve contrast for code blocks in dark mode */
-      code {
-        background-color: var(--bg-code);
-        color: var(--text-main);
-      }
-      
-      /* Make test status colors more visible in dark mode */
-      .test-card.pass {
-        background-color: rgba(46, 204, 113, 0.1);
-      }
-      
-      .test-card.warning {
-        background-color: rgba(243, 156, 18, 0.1);
-      }
-      
-      .test-card.fail {
-        background-color: rgba(231, 76, 60, 0.1);
-      }
-      
-      /* Style links in dark mode */
-      a, .test-link {
-        color: var(--color-primary-light);
-      }
-      
-      /* Fix the title border in dark mode */
-      h1 {
-        border-bottom-color: var(--color-primary);
-      }
+    @media (max-width: 720px) {
+      .summary-bar { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+      .controls { flex-direction: column; }
+      .search-input { max-width: none; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>azul-layout reftest results</h1>
-      <!-- Header information -->
-      <div class="report-header">
-        <div class="header-metadata">
-            <div class="metadata-item">
-                <strong>CURRENT_TIME (rev <a href="https://github.com/fschutt/azul/commit/GIT_HASH"><code>GIT_HASH</code></a>)</strong>
-                <p>tested against <strong class="metadata-item CHROME_CLASS">CHROME_VERSION</strong></p>
-            </div>
+  <div class="center">
+    <aside>
+      <header>
+        <h1 style="display:none;">Azul GUI Framework</h1>
+        <a href="https://azul.rs"><img src="https://azul.rs/logo.svg" alt="Azul Logo" style="width:100px;height:100px;"></a>
+      </header>
+      <nav>
+        <ul>
+          <li><a href='https://azul.rs'>overview</a></li>
+          <li><a href='https://azul.rs/releases'>releases</a></li>
+          <li><a href='https://github.com/fschutt/azul'>code</a></li>
+          <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>
+          <li><a href='https://azul.rs/guide'>guide</a></li>
+          <li><a href='https://azul.rs/api'>api</a></li>
+          <li class="active"><a href='https://azul.rs/reftest'>reftests</a></li>
+          <li><a href='https://azul.rs/donate'>donate</a></li>
+        </ul>
+      </nav>
+    </aside>
+    <main>
+      <h1>azul-layout reftest results</h1>
+
+      <!-- Compact summary bar -->
+      <div class="summary-bar">
+        <span class="stat"><span class="stat-value" id="totalTests">0</span> tests</span>
+        <span class="stat"><span class="stat-value pass" id="passedTests">0</span> passed (<span id="passPercentage">0</span>%)</span>
+        <span class="stat"><span class="stat-value fail" id="failedTests">0</span> failed (<span id="failPercentage">0</span>%)</span>
+        <span class="stat"><span class="stat-value warning" id="warningTests">0</span> warning (<span id="warnPercentage">0</span>%)</span>
+        <span class="meta">
+          CURRENT_TIME · rev <a href="https://github.com/fschutt/azul/commit/GIT_HASH"><code>GIT_HASH</code></a> · CHROME_VERSION
+        </span>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <input type="text" id="searchInput" class="search-input" placeholder="Search tests...">
+        <div class="btn-group">
+          <button class="btn active" data-filter="all">All</button>
+          <button class="btn pass" data-filter="pass">Passed</button>
+          <button class="btn warning" data-filter="warning">Warning</button>
+          <button class="btn fail" data-filter="fail">Failed</button>
         </div>
-        
-        <div class="project-info">
-            <div class="links">
-                <a href="https://docs.rs/azul-layout" target="_blank">Documentation</a> |
-                <a href="https://azul.rs" target="_blank">Website</a> |
-                <a href="https://github.com/fschutt/azul" target="_blank">GitHub</a> |
-                <a href="https://crates.io/crates/azul-layout" target="_blank">crates.io</a>
-            </div>
+        <div class="btn-group">
+          <button class="btn sort-btn active" data-sort="name">Name</button>
+          <button class="btn sort-btn" data-sort="status">Status</button>
+          <button class="btn sort-btn" data-sort="diff">Diff</button>
         </div>
-    </div>
-    
-    <div class="summary">
-      <div class="summary-box total">
-        <div class="summary-number" id="totalTests">0</div>
-        <div class="summary-label">Total Tests</div>
       </div>
-      <div class="summary-box passed">
-        <div class="summary-number" id="passedTests">0</div>
-        <div class="summary-label">Passed (<span id="passPercentage">0</span>%)</div>
+
+      <!-- Test list -->
+      <div class="test-list" id="testGrid"></div>
+      <div class="no-results" id="noResults">
+        <p>No tests match the current filter</p>
       </div>
-      <div class="summary-box failed">
-        <div class="summary-number" id="failedTests">0</div>
-        <div class="summary-label">Failed (<span id="failPercentage">0</span>%)</div>
-      </div>
-      <div class="summary-box warning">
-        <div class="summary-number" id="warningTests">0</div>
-        <div class="summary-label">Warning (<span id="warnPercentage">0</span>%)</div>
-      </div>
-    </div>
-    
-    <div class="controls">
-      <div class="search-controls">
-        <input type="text" id="searchInput" class="search-input" placeholder="Search tests (e.g., 'grid', 'status:failing', 'status:passing')">
-      </div>
-      
-      <div class="sort-controls">
-        <button class="button sort-button active" data-sort="name">Sort by Name</button>
-        <button class="button sort-button" data-sort="status">Sort by Status</button>
-        <button class="button sort-button" data-sort="diff">Sort by Diff Count</button>
-      </div>
-      
-      <div class="filter-controls">
-        <button class="button filter-button active" data-filter="all">All Tests</button>
-        <button class="button filter-button pass" data-filter="pass">Passed</button>
-        <button class="button filter-button warning" data-filter="warning">Warning</button>
-        <button class="button filter-button fail" data-filter="fail">Failed</button>
-      </div>
-    </div>
-    
-    <div class="test-grid" id="testGrid">
-      <!-- Tests will be inserted here dynamically -->
-    </div>
-    
-    <div class="no-results" id="noResults">
-      <h3>No tests match the current filter</h3>
-      <p>Try changing the filter criteria</p>
-    </div>
+    </main>
   </div>
-  
-  <!-- Overlay for showing data -->
+
+  <!-- Overlay for data viewing -->
   <div class="overlay" id="dataOverlay">
     <div class="overlay-content">
       <div class="overlay-header">
-        <h2 class="overlay-title" id="overlayTitle">Data Title</h2>
+        <h2 class="overlay-title" id="overlayTitle">Data</h2>
         <div class="overlay-close" onclick="closeOverlay()">&times;</div>
       </div>
       <div class="overlay-data" id="overlayData"></div>
     </div>
   </div>
-  
+
   <script>
-    // Test data in JSON format
+    // Test data (base64 encoded JSON)
     const testData = JSON.parse(atob("{TEST_DATA_BASE64}"));
     
-    // DOM elements
-    const testGrid = document.getElementById('testGrid');
-    const noResults = document.getElementById('noResults');
-    const totalTestsEl = document.getElementById('totalTests');
-    const passedTestsEl = document.getElementById('passedTests');
-    const failedTestsEl = document.getElementById('failedTests');
-    const warningTestsEl = document.getElementById('warningTests');
-    const passPercentageEl = document.getElementById('passPercentage');
-    const failPercentageEl = document.getElementById('failPercentage');
-    const warnPercentageEl = document.getElementById('warnPercentage');
-    
-    // Current filter and sort
+    // State
     let currentFilter = 'all';
     let currentSort = 'name';
     let currentSearch = '';
-    let groupedTests = {};
-    
-    // Initialize the page
+
+    // DOM elements
+    const testGrid = document.getElementById('testGrid');
+    const noResults = document.getElementById('noResults');
+
     function initialize() {
-      // Update summary
       updateSummary();
-      
-      // Group tests by category
-      groupTestsByCategory();
-      
-      // Create test cards
-      createTestCards();
-      
-      // Sort initially
-      sortTestCards('name');
-      
-      // Setup event listeners
+      renderTests();
       setupEventListeners();
     }
-    
-    // Update summary statistics
+
     function updateSummary() {
-      const totalTests = testData.length;
-      const passedTests = testData.filter(test => test.passed).length;
-      
-      // Calculate warning tests (passed is false but diff_count is small)
-      const totalPixels = 800 * 600; // Approximate based on default dimensions
-      const warningTests = testData.filter(test => 
-        !test.passed && test.diff_count <= totalPixels * 0.02
-      ).length;
-      
-      const failedTests = totalTests - passedTests - warningTests;
-      
-      const passPercentage = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
-      const failPercentage = totalTests > 0 ? Math.round((failedTests / totalTests) * 100) : 0;
-      const warnPercentage = totalTests > 0 ? Math.round((warningTests / totalTests) * 100) : 0;
-      
-      totalTestsEl.textContent = totalTests;
-      passedTestsEl.textContent = passedTests;
-      failedTestsEl.textContent = failedTests;
-      warningTestsEl.textContent = warningTests;
-      passPercentageEl.textContent = passPercentage;
-      failPercentageEl.textContent = failPercentage;
-      warnPercentageEl.textContent = warnPercentage;
+      const total = testData.length;
+      const passed = testData.filter(t => t.passed).length;
+      const totalPixels = 800 * 600;
+      const warning = testData.filter(t => !t.passed && t.diff_count <= totalPixels * 0.02).length;
+      const failed = total - passed - warning;
+
+      document.getElementById('totalTests').textContent = total;
+      document.getElementById('passedTests').textContent = passed;
+      document.getElementById('failedTests').textContent = failed;
+      document.getElementById('warningTests').textContent = warning;
+      document.getElementById('passPercentage').textContent = total > 0 ? Math.round(passed / total * 100) : 0;
+      document.getElementById('failPercentage').textContent = total > 0 ? Math.round(failed / total * 100) : 0;
+      document.getElementById('warnPercentage').textContent = total > 0 ? Math.round(warning / total * 100) : 0;
     }
-    
-    // Group tests by category and subcategory
-    function groupTestsByCategory() {
-      groupedTests = {};
-      
-      testData.forEach(test => {
-        // Extract category from test name (assumes format like "category-subcategory-test")
-        const parts = test.test_name.split('-');
-        const category = parts.length > 2 ? parts[0] : 'uncategorized';
-        const subcategory = parts.length > 2 ? parts[1] : parts[0];
-        
-        if (!groupedTests[category]) {
-          groupedTests[category] = {};
-        }
-        if (!groupedTests[category][subcategory]) {
-          groupedTests[category][subcategory] = [];
-        }
-        groupedTests[category][subcategory].push(test);
-      });
+
+    function getTestStatus(test) {
+      if (test.passed) return 'pass';
+      const totalPixels = 800 * 600;
+      return test.diff_count <= totalPixels * 0.02 ? 'warning' : 'fail';
     }
-    
-    // Check if test matches search query (supports status: filter)
-    function testMatchesSearch(test, searchQuery) {
-      if (!searchQuery) return true;
-      
-      const query = searchQuery.toLowerCase();
-      
-      // Handle status: filter
-      if (query.startsWith('status:')) {
-        const status = query.substring(7);
-        const totalPixels = 800 * 600;
-        
-        if (status === 'passing' && test.passed) return true;
-        if (status === 'failing' && !test.passed && test.diff_count > totalPixels * 0.02) return true;
-        if (status === 'warning' && !test.passed && test.diff_count <= totalPixels * 0.02) return true;
-        
+
+    function testMatchesSearch(test, query) {
+      if (!query) return true;
+      const q = query.toLowerCase();
+      if (q.startsWith('status:')) {
+        const status = q.substring(7);
+        const testStatus = getTestStatus(test);
+        if (status === 'passing') return testStatus === 'pass';
+        if (status === 'failing') return testStatus === 'fail';
+        if (status === 'warning') return testStatus === 'warning';
         return false;
       }
-      
-      // Regular text search
-      return test.test_name.toLowerCase().includes(query) || 
-             (test.title && test.title.toLowerCase().includes(query)) ||
-             (test.assert_content && test.assert_content.toLowerCase().includes(query));
+      return test.test_name.toLowerCase().includes(q) ||
+             (test.title && test.title.toLowerCase().includes(q));
     }
-    
-    // Create test cards
-    function createTestCards() {
+
+    function sortTests(tests, sortBy) {
+      return [...tests].sort((a, b) => {
+        if (sortBy === 'status') {
+          const statusOrder = { pass: 0, warning: 1, fail: 2 };
+          return statusOrder[getTestStatus(a)] - statusOrder[getTestStatus(b)];
+        }
+        if (sortBy === 'diff') return b.diff_count - a.diff_count;
+        return a.test_name.localeCompare(b.test_name);
+      });
+    }
+
+    function groupTestsByCategory(tests) {
+      const groups = {};
+      tests.forEach(test => {
+        const parts = test.test_name.split('-');
+        const category = parts.length > 2 ? parts[0] : 'other';
+        if (!groups[category]) groups[category] = [];
+        groups[category].push(test);
+      });
+      return groups;
+    }
+
+    function renderTests() {
+      let filtered = testData.filter(t => {
+        const matchesFilter = currentFilter === 'all' || getTestStatus(t) === currentFilter;
+        const matchesSearch = testMatchesSearch(t, currentSearch);
+        return matchesFilter && matchesSearch;
+      });
+
+      filtered = sortTests(filtered, currentSort);
+      const grouped = groupTestsByCategory(filtered);
+
       testGrid.innerHTML = '';
       
-      if (testData.length === 0) {
-        testGrid.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">📝</div>
-            <h3>No tests found</h3>
-            <p>Run some tests to see results here</p>
-          </div>
-        `;
+      if (filtered.length === 0) {
+        noResults.style.display = 'block';
         return;
       }
-      
-      // Sort categories: showcase first, then alphabetically
-      const categories = Object.keys(groupedTests).sort((a, b) => {
+      noResults.style.display = 'none';
+
+      const categories = Object.keys(grouped).sort((a, b) => {
         if (a === 'showcase') return -1;
         if (b === 'showcase') return 1;
         return a.localeCompare(b);
       });
-      
-      categories.forEach(category => {
-        const subcategories = Object.keys(groupedTests[category]).sort();
-        
-        subcategories.forEach(subcategory => {
-          const tests = groupedTests[category][subcategory];
-          const categoryTitle = category === subcategory ? category : `${category} / ${subcategory}`;
-          
-          // Create category header
-          const categoryHeader = document.createElement('div');
-          categoryHeader.className = 'category-header';
-          categoryHeader.textContent = `${categoryTitle} (${tests.length} tests)`;
-          testGrid.appendChild(categoryHeader);
-          
-          tests.forEach(test => {
-            const card = createTestCard(test, category);
-            testGrid.appendChild(card);
-          });
+
+      categories.forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'category-header';
+        header.textContent = `${cat} (${grouped[cat].length})`;
+        testGrid.appendChild(header);
+
+        grouped[cat].forEach(test => {
+          testGrid.appendChild(createTestCard(test));
         });
       });
     }
-    
-    // Create individual test card
-    function createTestCard(test, category) {
-      // Determine status class
-      const totalPixels = 800 * 600;
-      let statusClass = 'pass';
-      let statusValue = 1;
-      let resultText = 'PASS';
-      
-      if (!test.passed) {
-        if (test.diff_count <= totalPixels * 0.02) {
-          statusClass = 'warning';
-          statusValue = 2;
-          resultText = 'WARNING';
-        } else {
-          statusClass = 'fail';
-          statusValue = 3;
-          resultText = 'FAIL';
-        }
-      }
+
+    function createTestCard(test) {
+      const status = getTestStatus(test);
+      const statusLabel = status.toUpperCase();
       
       const card = document.createElement('div');
-      // Only expand showcase by default
-      const isCollapsed = category !== 'showcase';
-      card.className = `test-card ${statusClass}${isCollapsed ? ' collapsed' : ''}`;
+      card.className = `test-card ${status} collapsed`;
       card.dataset.name = test.test_name;
-      card.dataset.status = statusValue;
-      card.dataset.diff = test.diff_count;
-      card.dataset.filter = statusClass;
-      card.dataset.category = category;
-      
+      card.dataset.status = status;
+
       card.innerHTML = `
-        <div class="test-header" onclick="toggleTestCard(this)">
+        <div class="test-header" onclick="toggleCard(this)">
           <div class="test-header-left">
             <span class="collapse-icon">▼</span>
-            <h3 class="test-title">${test.test_name}</h3>
+            <h3 class="test-title">${escapeHtml(test.test_name)}</h3>
           </div>
-          <span class="test-result ${statusClass}">${resultText} // ${test.diff_count} px diff</span>
+          <div>
+            <span class="test-badge ${status}">${statusLabel}</span>
+            <span class="diff-count">${test.diff_count.toLocaleString()} px</span>
+          </div>
         </div>
-        
         <div class="test-body">
-          <div class="test-metadata">
-            <div class="test-title-full">${escapeHtml(test.title || test.test_name)}</div>
-            ${test.assert_content ? `<div class="test-assert">${escapeHtml(test.assert_content)}</div>` : ''}
-            ${test.help_link ? `<a href="${escapeHtml(test.help_link)}" target="_blank" class="test-link">Specification Reference</a>` : ''}
-          </div>
-          
-          <div class="test-content">
-            <div class="test-image-container">
-              <img class="test-image lazy" data-src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome Reference">
-              <div class="test-image-label">Chrome Reference</div>
+          <div class="test-images">
+            <div class="test-img-box">
+              <img class="lazy" data-src="./reftest_img/${test.test_name}_chrome.webp" alt="Chrome">
+              <div class="test-img-label">Chrome (Reference)</div>
             </div>
-            
-            <div class="test-image-container">
-              <img class="test-image lazy" data-src="./reftest_img/${test.test_name}_azul.webp" alt="Azul Rendering">
-              <div class="test-image-label">Azul Rendering</div>
+            <div class="test-img-box">
+              <img class="lazy" data-src="./reftest_img/${test.test_name}_azul.webp" alt="Azul">
+              <div class="test-img-label">Azul (Tested)</div>
             </div>
           </div>
-          
-          <div class="test-data-buttons">
-            <button class="data-button" data-test="${test.test_name}" data-type="xhtml">View XHTML</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="warnings">CSS Warnings</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="xml">Parsed XML</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="dom">Styled DOM</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="layout">Solved Layout</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="display">Display List</button>
-            <button class="data-button" data-test="${test.test_name}" data-type="copy" onclick="copyDebugData('${test.test_name}')">Copy Debug</button>
+          <div class="test-actions">
+            <button class="action-btn" onclick="showData('${test.test_name}', 'xhtml')">XHTML</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'warnings')">CSS Warnings</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'xml')">Parsed XML</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'dom')">Styled DOM</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'layout')">Layout</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'display')">Display List</button>
+            <button class="action-btn" onclick="showData('${test.test_name}', 'chrome_layout')">Chrome Layout</button>
+            <button class="action-btn primary" onclick="copyDebugData('${test.test_name}')">Copy All Debug</button>
           </div>
         </div>
       `;
-      
       return card;
     }
-    
-    // Toggle test card collapse state
-    function toggleTestCard(headerEl) {
+
+    function toggleCard(headerEl) {
       const card = headerEl.closest('.test-card');
       card.classList.toggle('collapsed');
-      
-      // Load images if not already loaded and card is expanded
       if (!card.classList.contains('collapsed')) {
-        loadLazyImages(card);
+        card.querySelectorAll('img.lazy').forEach(img => {
+          if (img.dataset.src && !img.src) img.src = img.dataset.src;
+        });
       }
     }
-    
-    // Load lazy images for a card
-    function loadLazyImages(card) {
-      const lazyImages = card.querySelectorAll('img.lazy');
-      lazyImages.forEach(img => {
-        if (img.dataset.src && !img.src) {
-          img.src = img.dataset.src;
-          img.classList.remove('lazy');
-        }
-      });
-    }
-    
-    // Setup event listeners
+
     function setupEventListeners() {
-      // Search input
-      const searchInput = document.getElementById('searchInput');
-      searchInput.addEventListener('input', (e) => {
+      document.getElementById('searchInput').addEventListener('input', e => {
         currentSearch = e.target.value;
-        filterTestCards(currentFilter, currentSearch);
+        renderTests();
       });
-      
-      // Sort buttons
-      document.querySelectorAll('.sort-button').forEach(button => {
-        button.addEventListener('click', () => {
-          document.querySelectorAll('.sort-button').forEach(b => b.classList.remove('active'));
-          button.classList.add('active');
-          
-          currentSort = button.dataset.sort;
-          sortTestCards(currentSort);
+
+      document.querySelectorAll('.btn[data-filter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.btn[data-filter]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentFilter = btn.dataset.filter;
+          renderTests();
         });
       });
-      
-      // Filter buttons
-      document.querySelectorAll('.filter-button').forEach(button => {
-        button.addEventListener('click', () => {
-          document.querySelectorAll('.filter-button').forEach(b => b.classList.remove('active'));
-          button.classList.add('active');
-          
-          currentFilter = button.dataset.filter;
-          filterTestCards(currentFilter, currentSearch);
-        });
-      });
-      
-      // Data buttons
-      document.querySelectorAll('.data-button').forEach(button => {
-        button.addEventListener('click', () => {
-          const testName = button.dataset.test;
-          const dataType = button.dataset.type;
-          showDataOverlay(testName, dataType);
+
+      document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentSort = btn.dataset.sort;
+          renderTests();
         });
       });
     }
-    
-    // Sort test cards
-    function sortTestCards(sortBy) {
-      // Sorting is now handled by grouping, so we just recreate the cards
-      createTestCards();
-      filterTestCards(currentFilter, currentSearch);
-    }
-    
-    // Filter test cards
-    function filterTestCards(filter, searchQuery = '') {
-      const cards = Array.from(testGrid.querySelectorAll('.test-card'));
-      const categoryHeaders = Array.from(testGrid.querySelectorAll('.category-header'));
-      let visibleCount = 0;
-      
-      // Track which categories have visible tests
-      const visibleCategories = new Set();
-      
-      cards.forEach(card => {
-        const test = testData.find(t => t.test_name === card.dataset.name);
-        const matchesFilter = filter === 'all' || card.dataset.filter === filter;
-        const matchesSearch = testMatchesSearch(test, searchQuery);
-        
-        if (matchesFilter && matchesSearch) {
-          card.style.display = '';
-          visibleCount++;
-          visibleCategories.add(card.dataset.category);
-        } else {
-          card.style.display = 'none';
-        }
-      });
-      
-      // Show/hide category headers based on visible tests
-      categoryHeaders.forEach(header => {
-        const categoryName = header.textContent.split(' (')[0];
-        const hasVisibleTests = Array.from(visibleCategories).some(cat => 
-          categoryName.includes(cat) || categoryName.includes('/')
-        );
-        header.style.display = hasVisibleTests ? '' : 'none';
-      });
-      
-      // Show "no results" message if needed
-      if (visibleCount === 0 && cards.length > 0) {
-        noResults.style.display = 'block';
-      } else {
-        noResults.style.display = 'none';
-      }
-    }
-    
-    // Show data overlay
-    function showDataOverlay(testName, dataType) {
-      const overlay = document.getElementById('dataOverlay');
-      const overlayTitle = document.getElementById('overlayTitle');
-      const overlayData = document.getElementById('overlayData');
-      
-      // Find the test data
+
+    function showData(testName, type) {
       const test = testData.find(t => t.test_name === testName);
-      
-      if (!test) {
-        console.error(`Test not found: ${testName}`);
-        return;
-      }
-      
-      // Set title and data based on type
-      let title;
-      let data;
-      
-      switch (dataType) {
-        case 'xhtml':
-          title = 'XHTML Source';
-          data = test.xhtml_source || 'XHTML source not available.';
-          break;
-        case 'warnings':
-          title = 'CSS Warnings';
-          data = test.css_warnings || 'No CSS warnings.';
-          break;
-        case 'xml':
-          title = 'Parsed XML';
-          data = test.parsed_xml || 'Parsed XML not available.';
-          break;
-        case 'dom':
-          title = 'Styled DOM';
-          data = test.styled_dom || 'Styled DOM not available.';
-          break;
-        case 'layout':
-          title = 'Solved Layout';
-          data = test.solved_layout || 'Solved layout not available.';
-          break;
-        case 'display':
-          title = 'Display List';
-          data = test.display_list || 'Display list not available.';
-          break;
-        case 'copy':
-          // Handled by onclick handler
-          return;
-        default:
-          title = 'Unknown Data Type';
-          data = 'Data not available.';
-      }
-      
-      overlayTitle.textContent = `${title} - ${testName}`;
-      overlayData.textContent = data;
-      
-      // Show the overlay
-      overlay.style.display = 'block';
-      
-      // Disable scrolling on the body
+      if (!test) return;
+
+      const titles = {
+        xhtml: 'XHTML Source',
+        warnings: 'CSS Warnings',
+        xml: 'Parsed XML',
+        dom: 'Styled DOM',
+        layout: 'Solved Layout',
+        display: 'Display List',
+        chrome_layout: 'Chrome Computed Layout'
+      };
+
+      const data = {
+        xhtml: test.xhtml_source,
+        warnings: test.css_warnings,
+        xml: test.parsed_xml,
+        dom: test.styled_dom,
+        layout: test.solved_layout,
+        display: test.display_list,
+        chrome_layout: test.chrome_layout || 'Chrome layout data not available.\n\nTo enable, Chrome DevTools Protocol (CDP) must be used during screenshot capture to extract computed styles and layout information.'
+      };
+
+      document.getElementById('overlayTitle').textContent = `${titles[type]} - ${testName}`;
+      document.getElementById('overlayData').textContent = data[type] || 'Not available';
+      document.getElementById('dataOverlay').style.display = 'block';
       document.body.style.overflow = 'hidden';
     }
-    
-    // Close the overlay
+
     function closeOverlay() {
-      const overlay = document.getElementById('dataOverlay');
-      overlay.style.display = 'none';
-      
-      // Restore scrolling on the body
+      document.getElementById('dataOverlay').style.display = 'none';
       document.body.style.overflow = 'auto';
     }
-    
-    // Helper: Escape HTML
-    function escapeHtml(unsafe) {
-      if (!unsafe) return '';
-      return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-    
-    // Copy all debug data to clipboard
+
     function copyDebugData(testName) {
-      // Find the test data
       const test = testData.find(t => t.test_name === testName);
-      if (!test) {
-        console.error(`Test not found: ${testName}`);
-        return;
-      }
-      
-      // Concatenate all debug data
-      const allData = [
-        "=== XHTML SOURCE ===",
-        test.xhtml_source || "Not available",
-        "\n=== CSS WARNINGS ===",
-        test.css_warnings || "No CSS warnings",
-        "\n=== PARSED XML ===",
-        test.parsed_xml || "Not available",
-        "\n=== STYLED DOM ===",
-        test.styled_dom || "Not available",
-        "\n=== SOLVED LAYOUT ===",
-        test.solved_layout || "Not available",
-        "\n=== DISPLAY LIST ===",
-        test.display_list || "Not available",
-        "\n=== RENDER DEBUG MSGS ===",
-        test.render_warnings || "Not available"
-      ].join("\n");
-      
-      // Copy to clipboard
-      navigator.clipboard.writeText(allData)
-        .then(() => {
-          alert("Debug data copied to clipboard!");
-        })
+      if (!test) return;
+
+      const sections = [
+        ['XHTML SOURCE', test.xhtml_source],
+        ['CSS WARNINGS', test.css_warnings],
+        ['PARSED XML', test.parsed_xml],
+        ['STYLED DOM', test.styled_dom],
+        ['SOLVED LAYOUT', test.solved_layout],
+        ['DISPLAY LIST', test.display_list],
+        ['RENDER DEBUG', test.render_warnings],
+        ['CHROME COMPUTED LAYOUT', test.chrome_layout]
+      ];
+
+      const text = sections
+        .map(([title, content]) => `=== ${title} ===\n${content || 'Not available'}`)
+        .join('\n\n');
+
+      navigator.clipboard.writeText(text)
+        .then(() => alert('Debug data copied to clipboard!'))
         .catch(err => {
-          console.error("Could not copy text: ", err);
-          alert("Failed to copy debug data. See console for details.");
+          console.error('Copy failed:', err);
+          alert('Failed to copy. See console.');
         });
     }
-    
-    // Close overlay when clicking outside the content
-    document.getElementById('dataOverlay').addEventListener('click', (e) => {
-      if (e.target === document.getElementById('dataOverlay')) {
-        closeOverlay();
-      }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    document.getElementById('dataOverlay').addEventListener('click', e => {
+      if (e.target === document.getElementById('dataOverlay')) closeOverlay();
     });
-    
-    // Close overlay with escape key
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        closeOverlay();
-      }
-    });
-    
-    // Initialize on load
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOverlay(); });
+
     document.addEventListener('DOMContentLoaded', initialize);
   </script>
 </body>

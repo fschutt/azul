@@ -756,7 +756,7 @@ fn main() -> anyhow::Result<()> {
             println!("Running headless reftest for: {}", test_name);
 
             let output_dir = PathBuf::from("target").join("reftest_headless");
-            let test_dir = PathBuf::from(manifest_dir).join("src/reftest/working");
+            let test_dir = PathBuf::from(manifest_dir).join("working");
 
             reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir)?;
 
@@ -769,13 +769,14 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["reftest"] => {
+        ["reftest"] | ["reftest", "open"] => {
             println!("Running local reftests...");
+            let open_report = args.get(2) == Some(&"open");
 
             let output_dir = PathBuf::from("target").join("reftest");
             let config = RunRefTestsConfig {
-                // The test files are in `doc/src/reftest/working`
-                test_dir: PathBuf::from(manifest_dir).join("src/reftest/working"),
+                // The test files are in `doc/working`
+                test_dir: PathBuf::from(manifest_dir).join("working"),
                 output_dir: output_dir.clone(),
                 output_filename: "index.html",
             };
@@ -788,12 +789,14 @@ fn main() -> anyhow::Result<()> {
                 report_path.display()
             );
 
-            if args.len() > 2 && args[1] == "open" {
-                if open::that(report_path).is_ok() {
-                    println!("Opened report in default browser.");
-                } else {
-                    eprintln!("Could not open browser. Please open the report manually.");
-                }
+            if open_report && report_path.exists() {
+                println!("Opening report in browser...");
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&report_path).spawn();
+                #[cfg(target_os = "linux")]
+                let _ = std::process::Command::new("xdg-open").arg(&report_path).spawn();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("start").arg(&report_path).spawn();
             }
 
             return Ok(());
@@ -1037,7 +1040,7 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&reftest_output_dir)?;
             
             let reftest_config = RunRefTestsConfig {
-                test_dir: PathBuf::from(manifest_dir).join("src/reftest/working"),
+                test_dir: PathBuf::from(manifest_dir).join("working"),
                 output_dir: reftest_output_dir.clone(),
                 output_filename: "index.html",
             };

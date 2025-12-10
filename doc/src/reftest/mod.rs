@@ -1181,6 +1181,9 @@ pub struct DebugData {
     // Display list information
     pub display_list: String,
 
+    // Chrome computed layout (via CDP, if available)
+    pub chrome_layout: String,
+
     // Rendering information
     pub xml_formatting_time_ms: u64,
     pub layout_time_ms: u64,
@@ -1442,6 +1445,9 @@ pub struct EnhancedTestResult {
     pub solved_layout: String,
     pub display_list: String,
 
+    // Chrome computed layout (via CDP, if available)
+    pub chrome_layout: String,
+
     // Additional stats
     pub xml_formatting_time_ms: u64,
     pub layout_time_ms: u64,
@@ -1467,6 +1473,7 @@ impl EnhancedTestResult {
             styled_dom: String::new(),
             solved_layout: String::new(),
             display_list: String::new(),
+            chrome_layout: String::new(),
             render_warnings: Vec::new(),
             xml_formatting_time_ms: 0,
             layout_time_ms: 0,
@@ -1497,6 +1504,7 @@ impl EnhancedTestResult {
             styled_dom: debug_data.styled_dom,
             solved_layout: debug_data.solved_layout,
             display_list: debug_data.display_list,
+            chrome_layout: debug_data.chrome_layout,
             xml_formatting_time_ms: debug_data.xml_formatting_time_ms,
             layout_time_ms: debug_data.layout_time_ms,
             render_time_ms: debug_data.render_time_ms,
