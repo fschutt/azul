@@ -181,6 +181,11 @@ name = "hello_world_window"
 path = "examples/hello_world_window.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "graphics_stress_test"
+path = "examples/graphics_stress_test.rs"
+required-features = ["desktop"]
+
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
 extended-description = """

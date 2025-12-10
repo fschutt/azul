@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            height: 100vh;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        .calculator {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .display {
+            background: #2d2d2d;
+            color: white;
+            font-size: 72px;
+            text-align: right;
+            padding: 30px 20px;
+            font-weight: 300;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .buttons {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 1px;
+            background: #666;
+            padding: 0;
+        }
+
+        button {
+            border: none;
+            background: #d1d1d6;
+            color: #1d1d1f;
+            font-size: 28px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            filter: brightness(1.1);
+        }
+
+        button:active {
+            filter: brightness(0.9);
+        }
+
+        .operator {
+            background: #ff9f0a;
+            color: white;
+        }
+
+        .zero {
+            grid-column: span 2;
+            text-align: left;
+            padding-left: 28px;
+        }
+    </style>
+</head>
+<body>
+    <div class="calculator">
+        <div class="display">0</div>
+        
+        <div class="buttons">
+            <button>C</button>
+            <button>+/−</button>
+            <button>%</button>
+            <button class="operator">÷</button>
+            
+            <button>7</button>
+            <button>8</button>
+            <button>9</button>
+            <button class="operator">×</button>
+            
+            <button>4</button>
+            <button>5</button>
+            <button>6</button>
+            <button class="operator">−</button>
+            
+            <button>1</button>
+            <button>2</button>
+            <button>3</button>
+            <button class="operator">+</button>
+            
+            <button class="zero">0</button>
+            <button>.</button>
+            <button class="operator">=</button>
+        </div>
+    </div>
+</body>
+</html>
