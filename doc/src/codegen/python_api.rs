@@ -283,10 +283,10 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                             constructor_name, class_name_with_prefix
                         ));
                         code.push_str(
-                            "        // Implementation would convert Python args to Rust types\r\n",
+                            "        // TODO: Implementation would convert Python args to Rust types\r\n",
                         );
                         code.push_str("        // and call the appropriate C function\r\n");
-                        code.push_str("        unimplemented!()\r\n");
+                        code.push_str("        todo!(\"Python bindings not yet implemented\")\r\n");
                         code.push_str("    }\r\n\r\n");
                     }
                 }

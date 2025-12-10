@@ -1018,9 +1018,9 @@ fn generate_dll_module(
         }
     }
 
-    println!("      [TARGET] Generating function stubs...");
+    println!("      [TARGET] Generating function bodies...");
     // Generate function implementations from api.json fn_body
-    // If generate_fn_bodies is false, use unimplemented!() stubs instead
+    // All functions MUST have fn_body defined - missing fn_body will cause an error
     let functions_map_ext = build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
     println!("      [LINK] Found {} functions", functions_map_ext.len());
     dll_code.push_str("\n    // --- C-ABI Functions ---\n");
@@ -1061,8 +1061,8 @@ fn generate_dll_module(
                 // Fallback: just drop directly
                 "core::ptr::drop_in_place(object)".to_string()
             }
-        } else if config.generate_fn_bodies {
-            // Use fn_body from api.json if available
+        } else {
+            // Use fn_body from api.json - REQUIRED for all functions
             if let Some(body) = &fn_info.fn_body {
                 // Transform the fn_body to use transmute for type conversion
                 // The fn_body uses types without Az prefix, we need to add transmutes
@@ -1077,12 +1077,13 @@ fn generate_dll_module(
                     &fn_info.fn_args,
                 )
             } else {
-                // No fn_body in api.json - use unimplemented
-                format!("unimplemented!(\"{}\")", fn_name)
+                // No fn_body in api.json - ERROR! All functions must have fn_body defined
+                return Err(format!(
+                    "ERROR: Function '{}' has no fn_body defined in api.json. \
+                    All functions must have a fn_body to prevent unimplemented!() stubs in generated code.",
+                    fn_name
+                ));
             }
-        } else {
-            // generate_fn_bodies is false - use stubs
-            format!("unimplemented!(\"{}\")", fn_name)
         };
 
         dll_code.push_str(&format!(

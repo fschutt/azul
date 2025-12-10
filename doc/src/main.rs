@@ -855,7 +855,7 @@ fn main() -> anyhow::Result<()> {
             println!("[FIX] Generating Python bindings...\n");
 
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root.join("dll").join("python.rs");
+            let python_api_path = project_root.join("target").join("codegen").join("python_capi.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
@@ -893,7 +893,7 @@ fn main() -> anyhow::Result<()> {
 
             // Generate Python bindings
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root.join("dll").join("python.rs");
+            let python_api_path = project_root.join("target").join("codegen").join("python_capi.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
