@@ -19,8 +19,9 @@ use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transfo
 use crate::{
     font::parsed::ParsedFont,
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
-    text3::cache::FontHash,
+    text3::cache::{FontHash, FontManager},
 };
+use azul_css::props::basic::FontRef;
 
 pub struct RenderOptions {
     pub width: f32,
@@ -46,7 +47,33 @@ pub fn render(
     pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
 
     // Render the display list to the pixmap
-    render_display_list(dl, &mut pixmap, dpi_factor, res)?;
+    render_display_list(dl, &mut pixmap, dpi_factor, res, None)?;
+
+    Ok(pixmap)
+}
+
+/// Render a display list using fonts from FontManager directly
+/// This is used in reftest scenarios where RendererResources doesn't have fonts registered
+pub fn render_with_font_manager(
+    dl: &DisplayList,
+    res: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    opts: RenderOptions,
+) -> Result<Pixmap, String> {
+    let RenderOptions {
+        width,
+        height,
+        dpi_factor,
+    } = opts;
+
+    // Create a pixmap with a white background
+    let mut pixmap = Pixmap::new((width * dpi_factor) as u32, (height * dpi_factor) as u32)
+        .ok_or_else(|| "cannot create pixmap".to_string())?;
+
+    pixmap.fill(Color::from_rgba8(255, 255, 255, 255));
+
+    // Render the display list to the pixmap using FontManager for fonts
+    render_display_list(dl, &mut pixmap, dpi_factor, res, Some(font_manager))?;
 
     Ok(pixmap)
 }
@@ -56,6 +83,7 @@ fn render_display_list(
     pixmap: &mut Pixmap,
     dpi_factor: f32,
     renderer_resources: &RendererResources,
+    font_manager: Option<&FontManager<FontRef>>,
 ) -> Result<(), String> {
     // The display list is already sorted in paint order, so we just render sequentially
     let mut transform_stack = vec![Transform::identity()];
@@ -239,6 +267,7 @@ fn render_display_list(
                     *transform,
                     *clip,
                     renderer_resources,
+                    font_manager,
                     dpi_factor,
                 )?;
             }
@@ -475,6 +504,7 @@ fn render_text(
     transform: Transform,
     _clip: Option<Rect>,
     renderer_resources: &RendererResources,
+    font_manager: Option<&FontManager<FontRef>>,
     dpi_factor: f32,
 ) -> Result<(), String> {
     if color.a == 0 || glyphs.is_empty() {
@@ -484,26 +514,42 @@ fn render_text(
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
 
-    // Look up the FontKey from the font_hash
-    let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
-        Some(k) => k,
-        None => {
-            // Font not found - skip rendering this glyph run
-            return Ok(());
+    // Try to get the parsed font - first from FontManager (for reftests), then from RendererResources
+    let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
+        // Use FontManager directly (reftest path)
+        match fm.get_font_by_hash(font_hash.font_hash) {
+            Some(font_ref) => {
+                // Get the ParsedFont pointer from FontRef
+                unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
+            }
+            None => {
+                eprintln!("[cpurender] Font hash {} not found in FontManager", font_hash.font_hash);
+                return Ok(());
+            }
         }
+    } else {
+        // Use RendererResources (normal rendering path)
+        let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
+            Some(k) => k,
+            None => {
+                eprintln!("[cpurender] Font hash {} not found in font_hash_map (available: {:?})", 
+                    font_hash.font_hash, 
+                    renderer_resources.font_hash_map.keys().collect::<Vec<_>>());
+                return Ok(());
+            }
+        };
+
+        let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
+            Some((font_ref, _instances)) => font_ref,
+            None => {
+                eprintln!("[cpurender] FontKey {:?} not found in currently_registered_fonts", font_key);
+                return Ok(());
+            }
+        };
+
+        unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
     };
 
-    // Look up the FontRef from currently_registered_fonts
-    let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
-        Some((font_ref, _instances)) => font_ref,
-        None => {
-            // Font not registered - skip rendering
-            return Ok(());
-        }
-    };
-
-    // Cast the parsed pointer to ParsedFont
-    let parsed_font = unsafe { &*(font_ref.get_parsed() as *const ParsedFont) };
     let units_per_em = parsed_font.font_metrics.units_per_em as f32;
 
     // Use the actual font size from the display list (already adjusted for DPI)
@@ -616,7 +662,7 @@ fn render_border(
 
     let inner_path = if let Some(ir) = inner_rect {
         if border_radius.is_zero() {
-            build_rect_path(rect, border_radius, dpi_factor)
+            build_rect_path(ir, border_radius, dpi_factor)
         } else {
             let inner_radius = BorderRadius {
                 top_left: (border_radius.top_left * dpi_factor - scaled_width).max(0.0),

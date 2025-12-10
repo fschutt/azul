@@ -31,8 +31,10 @@ use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+pub mod debug;
+
+pub const WIDTH: u32 = 1920;
+pub const HEIGHT: u32 = 1080;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestResults {
@@ -179,7 +181,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         // Compare images and generate diff
         match compare_images(&chrome_img, &azul_img) {
             Ok(diff_count) => {
-                let passed = diff_count < 1000; // Threshold for passing
+                let passed = diff_count <= PASS_THRESHOLD_PIXELS; // 0.5% tolerance
                 println!(
                     "  Comparison complete: {} differing pixels, test {}",
                     diff_count,
@@ -287,6 +289,116 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
     Ok(())
 }
 
+/// Threshold for passing: 0.5% of total pixels (1920 * 1080 = 2,073,600)
+pub const PASS_THRESHOLD_PIXELS: usize = (1920 * 1080) / 200;
+
+/// Run a single reftest and generate HTML report
+pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow::Result<()> {
+    let RunRefTestsConfig {
+        test_dir,
+        output_dir,
+        output_filename,
+    } = config;
+
+    // Create output directory
+    fs::create_dir_all(&output_dir)?;
+    let _ = fs::create_dir_all(output_dir.join("reftest_img"));
+
+    // Find the test file
+    let test_file = find_test_file_by_name(test_name, &test_dir)?;
+    println!("Found test file: {}", test_file.display());
+
+    // Get Chrome info
+    let chrome_path = get_chrome_path();
+    let chrome_version = get_chrome_version(&chrome_path);
+    let is_chrome_installed = !chrome_version.contains("Unknown");
+    let current_time = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let git_hash = get_git_hash();
+
+    if !is_chrome_installed {
+        return Err(anyhow::anyhow!("Chrome not found"));
+    }
+
+    // Generate screenshots
+    let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
+    let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
+    let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
+
+    // Generate Chrome reference
+    println!("Generating Chrome reference...");
+    let chrome_layout_data = generate_chrome_screenshot_with_debug(
+        &chrome_path,
+        &test_file,
+        &chrome_img,
+        &chrome_layout_json,
+        WIDTH,
+        HEIGHT,
+    )?;
+
+    let (chrome_w, chrome_h) = image::open(&chrome_img)?.dimensions();
+    let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
+
+    // Generate Azul rendering  
+    println!("Generating Azul rendering...");
+    let mut debug_data = generate_azul_rendering(&test_file, &azul_img, dpi_factor)?;
+    debug_data.chrome_layout = chrome_layout_data;
+
+    // Compare images
+    let diff_count = compare_images(&chrome_img, &azul_img)?;
+    let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
+    let passed = diff_count <= PASS_THRESHOLD_PIXELS;
+    
+    println!(
+        "Comparison: {} pixels different ({:.3}%), test {}",
+        diff_count,
+        percentage,
+        if passed { "PASSED ✅" } else { "FAILED ❌" }
+    );
+
+    // Read XHTML source
+    let xhtml_source = fs::read_to_string(&test_file).ok();
+
+    // Create result
+    let result = EnhancedTestResult::from_debug_data(
+        test_name.to_string(),
+        diff_count,
+        passed,
+        debug_data,
+    );
+
+    // Generate HTML report
+    generate_enhanced_html_report(
+        &output_dir.join(output_filename),
+        &vec![result],
+        &chrome_version,
+        &current_time,
+        &git_hash,
+        is_chrome_installed,
+    )?;
+
+    Ok(())
+}
+
+/// Find a test file by name (tries .xht, .xhtml, .html extensions)
+fn find_test_file_by_name(test_name: &str, test_dir: &Path) -> anyhow::Result<PathBuf> {
+    for ext in &["xht", "xhtml", "html"] {
+        for entry in walkdir::WalkDir::new(test_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.is_file() {
+                let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let file_ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if file_stem == test_name && file_ext == *ext {
+                    return Ok(path.to_path_buf());
+                }
+            }
+        }
+    }
+    Err(anyhow::anyhow!("Test file not found for: {}", test_name))
+}
+
 /// Runs a single reftest and prints all debug information to stdout.
 /// Designed for headless inspection by an LLM.
 pub fn run_single_reftest_headless(
@@ -351,7 +463,7 @@ pub fn run_single_reftest_headless(
     println!("  Comparing images...");
     match compare_images(&chrome_img_path, &azul_img_path) {
         Ok(diff_count) => {
-            let passed = diff_count < 1000;
+            let passed = diff_count <= PASS_THRESHOLD_PIXELS;
             println!("\n--- COMPARISON RESULT ---");
             println!("Test Name: {}", test_name);
             println!("Result: {}", if passed { "PASSED" } else { "FAILED" });
@@ -396,7 +508,7 @@ fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     Ok(test_files)
 }
 
-fn get_chrome_path() -> String {
+pub fn get_chrome_path() -> String {
     // Check for environment variable override first
     if let Ok(chrome_path) = env::var("CHROME") {
         if !chrome_path.is_empty() {
@@ -517,7 +629,7 @@ fn generate_chrome_screenshot(
 }
 
 /// Generate Chrome screenshot and extract layout debug information
-fn generate_chrome_screenshot_with_debug(
+pub fn generate_chrome_screenshot_with_debug(
     chrome_path: &str,
     test_file: &Path,
     output_file: &Path,
@@ -666,7 +778,7 @@ fn html_decode(s: &str) -> String {
         .replace("&nbsp;", " ")
 }
 
-fn generate_azul_rendering(
+pub fn generate_azul_rendering(
     test_file: &Path,
     output_file: &Path,
     dpi_factor: f32,
@@ -762,7 +874,7 @@ fn styled_dom_to_png_with_debug(
     let mut renderer_resources = azul_core::resources::RendererResources::default();
 
     // Solve layout with debug information (solver3)
-    let (display_list, debug_msg) = solve_layout_with_debug(
+    let (display_list, debug_msg, layout_window) = solve_layout_with_debug(
         styled_dom.clone(),
         &fake_window_state,
         &mut renderer_resources,
@@ -777,10 +889,11 @@ fn styled_dom_to_png_with_debug(
 
     let start_time_render = std::time::Instant::now();
 
-    // Render the display list using the new cpurender module
-    let pixmap = azul_layout::cpurender::render(
+    // Render the display list using the new cpurender module with FontManager
+    let pixmap = azul_layout::cpurender::render_with_font_manager(
         &display_list,
         &renderer_resources,
+        &layout_window.font_manager,
         azul_layout::cpurender::RenderOptions {
             width: width as f32,
             height: height as f32,
@@ -869,7 +982,7 @@ fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) ->
     delta_squared < threshold * threshold && alpha_delta < threshold
 }
 
-fn compare_images(chrome_img_path: &Path, azul_img_path: &Path) -> anyhow::Result<usize> {
+pub fn compare_images(chrome_img_path: &Path, azul_img_path: &Path) -> anyhow::Result<usize> {
     println!(
         "  Comparing images: {} vs {}",
         chrome_img_path.display(),
@@ -1604,7 +1717,7 @@ pub fn solve_layout_with_debug(
     fake_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
-) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>)> {
+) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>, azul_layout::LayoutWindow)> {
     use std::fmt::Write;
 
     // Create LayoutWindow for layout computation
@@ -1677,7 +1790,7 @@ pub fn solve_layout_with_debug(
         layout_stats,
     );
 
-    Ok((display_list, warnings))
+    Ok((display_list, warnings, layout_window))
 }
 
 // Old solve_layout_with_debug that returned LayoutResult - removed

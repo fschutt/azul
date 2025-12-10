@@ -769,6 +769,59 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
+        // Debug a single test with LLM assistance
+        ["debug", test_name] => {
+            let config = reftest::debug::DebugConfig {
+                test_name: test_name.to_string(),
+                question: None,
+                azul_root: project_root.clone(),
+                output_dir: PathBuf::from("target").join("debug"),
+            };
+            
+            reftest::debug::run_debug_analysis(config)?;
+            
+            return Ok(());
+        }
+        ["debug", test_name, question @ ..] => {
+            let question_str = question.join(" ");
+            let config = reftest::debug::DebugConfig {
+                test_name: test_name.to_string(),
+                question: Some(question_str),
+                azul_root: project_root.clone(),
+                output_dir: PathBuf::from("target").join("debug"),
+            };
+            
+            reftest::debug::run_debug_analysis(config)?;
+            
+            return Ok(());
+        }
+        ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
+            // Run single reftest
+            println!("Running reftest for: {}", test_name);
+
+            let output_dir = PathBuf::from("target").join("reftest");
+            let config = RunRefTestsConfig {
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: output_dir.clone(),
+                output_filename: "index.html",
+            };
+
+            reftest::run_single_reftest(test_name, config)?;
+
+            let report_path = output_dir.join("index.html");
+            println!(
+                "\nReftest complete. Report generated at: {}",
+                report_path.display()
+            );
+
+            if report_path.exists() {
+                println!("Opening report in browser...");
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&report_path).spawn();
+            }
+
+            return Ok(());
+        }
         ["reftest"] | ["reftest", "open"] => {
             println!("Running local reftests...");
             let open_report = args.get(2) == Some(&"open");
