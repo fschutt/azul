@@ -48,7 +48,7 @@ use api::{
     PrimitiveFlags, PrimitiveKeyKind, PropertyBinding, QualitySettings, RasterSpace,
     ReferenceFrameDescriptor, ReferenceFrameKind, ReferenceTransformBinding, Rotation,
     ScrollFrameDescriptor, Shadow, SpatialId, SpatialTreeItem, StackingContextFlags,
-    StickyFrameDescriptor, TempFilterData, TransformStyle, YuvColorSpace, YuvData, SVGFE_GRAPH_MAX,
+    StickyFrameDescriptor, TransformStyle, YuvColorSpace, YuvData, SVGFE_GRAPH_MAX,
 };
 use euclid::approxeq::ApproxEq;
 use glyph_rasterizer::{FontInstance, SharedFontResources};
@@ -1727,7 +1727,7 @@ impl<'a> SceneBuilder<'a> {
                 self.clip_tree_builder.define_clip_chain(
                     info.id,
                     info.parent,
-                    item.clip_chain_items().into_iter(),
+                    item.clip_chain_items().iter().copied(),
                 );
             }
             DisplayItem::BackdropFilter(ref info) => {
@@ -2597,7 +2597,7 @@ impl<'a> SceneBuilder<'a> {
         spatial_id: SpatialId,
         image_mask: &ImageMask,
         fill_rule: FillRule,
-        points_range: ItemRange<LayoutPoint>,
+        points_range: &[LayoutPoint],
     ) {
         let spatial_node_index = self.get_space(spatial_id);
         let external_scroll_offset = self.current_external_scroll_offset(spatial_node_index);
@@ -2605,7 +2605,7 @@ impl<'a> SceneBuilder<'a> {
         let mut snapped_mask_rect = self.snap_rect(&image_mask.rect, spatial_node_index);
         snapped_mask_rect = snapped_mask_rect.translate(external_scroll_offset);
 
-        let points: Vec<LayoutPoint> = points_range.iter().collect();
+        let points: Vec<LayoutPoint> = points_range.iter().copied().collect();
 
         // If any points are provided, then intern a polygon with the points and fill rule.
         let mut polygon_handle: Option<PolygonDataHandle> = None;
@@ -3034,7 +3034,7 @@ impl<'a> SceneBuilder<'a> {
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
         border_item: &BorderDisplayItem,
-        gradient_stops: ItemRange<GradientStop>,
+        gradient_stops: &[GradientStop],
     ) {
         match border_item.details {
             BorderDetails::NinePatch(ref border) => {
@@ -3269,7 +3269,7 @@ impl<'a> SceneBuilder<'a> {
         angle: f32,
         start_offset: f32,
         end_offset: f32,
-        stops: ItemRange<GradientStop>,
+        stops: &[GradientStop],
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
@@ -3308,7 +3308,7 @@ impl<'a> SceneBuilder<'a> {
         prim_info: &LayoutPrimitiveInfo,
         font_instance_key: &FontInstanceKey,
         text_color: &ColorF,
-        glyph_range: ItemRange<GlyphInstance>,
+        glyph_range: &[GlyphInstance],
         glyph_options: Option<GlyphOptions>,
         ref_frame_offset: LayoutVector2D,
     ) {
@@ -4570,38 +4570,35 @@ fn create_prim_instance(
     )
 }
 
-fn filter_ops_for_compositing(input_filters: ItemRange<FilterOp>) -> Vec<Filter> {
+fn filter_ops_for_compositing(input_filters: &[FilterOp]) -> Vec<Filter> {
     // TODO(gw): Now that we resolve these later on,
     //           we could probably make it a bit
     //           more efficient than cloning these here.
-    input_filters.iter().map(|filter| filter.into()).collect()
+    input_filters.iter().map(|filter| (*filter).into()).collect()
 }
 
-fn filter_datas_for_compositing(input_filter_datas: &[TempFilterData]) -> Vec<FilterData> {
+fn filter_datas_for_compositing(input_filter_datas: &Vec<&FilterData>) -> Vec<FilterData> {
     // TODO(gw): Now that we resolve these later on,
     //           we could probably make it a bit
     //           more efficient than cloning these here.
     let mut filter_datas = vec![];
-    for temp_filter_data in input_filter_datas {
-        let func_types: Vec<ComponentTransferFuncType> =
-            temp_filter_data.func_types.iter().collect();
-        debug_assert!(func_types.len() == 4);
+    for filter_data in input_filter_datas {
         filter_datas.push(FilterData {
-            func_r_type: func_types[0],
-            r_values: temp_filter_data.r_values.iter().collect(),
-            func_g_type: func_types[1],
-            g_values: temp_filter_data.g_values.iter().collect(),
-            func_b_type: func_types[2],
-            b_values: temp_filter_data.b_values.iter().collect(),
-            func_a_type: func_types[3],
-            a_values: temp_filter_data.a_values.iter().collect(),
+            func_r_type: filter_data.func_r_type,
+            r_values: filter_data.r_values.clone(),
+            func_g_type: filter_data.func_g_type,
+            g_values: filter_data.g_values.clone(),
+            func_b_type: filter_data.func_b_type,
+            b_values: filter_data.b_values.clone(),
+            func_a_type: filter_data.func_a_type,
+            a_values: filter_data.a_values.clone(),
         });
     }
     filter_datas
 }
 
 fn filter_primitives_for_compositing(
-    input_filter_primitives: ItemRange<FilterPrimitive>,
+    input_filter_primitives: &[FilterPrimitive],
 ) -> Vec<FilterPrimitive> {
     // Resolve these in the flattener?
     // TODO(gw): Now that we resolve these later on,
@@ -4609,7 +4606,7 @@ fn filter_primitives_for_compositing(
     //           more efficient than cloning these here.
     input_filter_primitives
         .iter()
-        .map(|primitive| primitive)
+        .copied()
         .collect()
 }
 
@@ -4646,7 +4643,7 @@ fn process_repeat_size(
     )
 }
 
-fn read_gradient_stops(stops: ItemRange<GradientStop>) -> Vec<GradientStopKey> {
+fn read_gradient_stops(stops: &[GradientStop]) -> Vec<GradientStopKey> {
     stops
         .iter()
         .map(|stop| GradientStopKey {
