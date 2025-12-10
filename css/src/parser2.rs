@@ -1209,12 +1209,6 @@ fn parse_declaration_resilient<'a>(
         } else {
             match parse_css_property(normal_key, unparsed_css_value) {
                 Ok(parsed_value) => {
-                    if unparsed_css_key.contains("float") || unparsed_css_key.contains("clear") {
-                        eprintln!(
-                            "[CSS_PARSE] Parsed {}:{} => {:?}",
-                            unparsed_css_key, unparsed_css_value, parsed_value
-                        );
-                    }
                     declarations.push(CssDeclaration::Static(parsed_value));
                 }
                 Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),

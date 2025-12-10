@@ -164,8 +164,7 @@ impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
     pub fn new() -> Self {
-        use std::sync::atomic::Ordering;
-        PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
+        PipelineId(LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32, 0)
     }
 }
 

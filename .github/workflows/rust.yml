@@ -65,7 +65,7 @@ jobs:
           cargo check -p azul-css
           cargo check -p azul-core
           cargo check -p azul-layout
-          cargo check -p azul-dll --no-default-features
+          cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
 
       - name: Run autofix and normalize
         run: |
@@ -110,8 +110,16 @@ jobs:
       - name: Run memtest
         run: cargo run -r -p azul-doc memtest run
 
+      - name: Cache Chrome reference images
+        uses: actions/cache@v4
+        with:
+          path: doc/target/reftest/reftest_img/*_chrome.webp
+          key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}
+          restore-keys: |
+            reftest-chrome-images-
+
       - name: Run reftest
-        run: cargo run -r -p azul-doc reftest run
+        run: cargo run -r -p azul-doc reftest
 
   # ===================================================================
   # ==          FFI SAFETY TESTS (Address Sanitizer + Miri)          ==

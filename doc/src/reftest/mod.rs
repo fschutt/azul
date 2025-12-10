@@ -20,6 +20,7 @@ use azul_css::{
     css::{Css, CssDeclaration},
     parser2::{CssApiWrapper, CssParseWarnMsgOwned},
     props::property::CssProperty,
+    LayoutDebugMessageType,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
@@ -30,8 +31,8 @@ use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 600;
+const WIDTH: u32 = 1920;
+const HEIGHT: u32 = 1080;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestResults {
@@ -114,15 +115,29 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         let chrome_img = output_dir
             .join("reftest_img")
             .join(format!("{}_chrome.webp", test_name));
+        let chrome_layout_json = output_dir
+            .join("reftest_img")
+            .join(format!("{}_chrome_layout.json", test_name));
         let azul_img = output_dir
             .join("reftest_img")
             .join(format!("{}_azul.webp", test_name));
 
-        // Generate Chrome reference if it doesn't exist
+        // Generate Chrome reference and layout data if they don't exist
+        let mut chrome_layout_data = String::new();
         if !chrome_img.exists() {
             println!("  Generating Chrome reference for {}", test_name);
-            match generate_chrome_screenshot(&chrome_path, test_file, &chrome_img, WIDTH, HEIGHT) {
-                Ok(_) => println!("  Chrome screenshot generated successfully"),
+            match generate_chrome_screenshot_with_debug(
+                &chrome_path,
+                test_file,
+                &chrome_img,
+                &chrome_layout_json,
+                WIDTH,
+                HEIGHT,
+            ) {
+                Ok(layout_data) => {
+                    println!("  Chrome screenshot and layout data generated successfully");
+                    chrome_layout_data = layout_data;
+                }
                 Err(e) => {
                     println!("  Failed to generate Chrome screenshot: {}", e);
                     return;
@@ -130,6 +145,10 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
             }
         } else {
             println!("  Using existing Chrome reference for {}", test_name);
+            // Try to read existing layout data
+            if let Ok(data) = fs::read_to_string(&chrome_layout_json) {
+                chrome_layout_data = data;
+            }
         }
 
         let (chrome_w, chrome_h) = match image::open(&chrome_img) {
@@ -145,8 +164,10 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
         // Generate Azul rendering
         let mut debug_data = None;
         match generate_azul_rendering(test_file, &azul_img, dpi_factor) {
-            Ok(data) => {
+            Ok(mut data) => {
                 println!("  Azul rendering generated successfully");
+                // Add Chrome layout data to debug_data
+                data.chrome_layout = chrome_layout_data.clone();
                 debug_data = Some(data);
             }
             Err(e) => {
@@ -214,6 +235,58 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Generate a reftest HTML page without running any tests.
+/// If test_dir exists and contains tests, it will show "X tests found (not run)".
+/// If test_dir doesn't exist or is empty, it will show "0 tests found".
+pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
+    fs::create_dir_all(output_dir)?;
+    
+    // Count tests if directory provided
+    let test_count = test_dir
+        .and_then(|dir| find_test_files(dir).ok())
+        .map(|files| files.len())
+        .unwrap_or(0);
+    
+    // Get Chrome version
+    let chrome_path = get_chrome_path();
+    let chrome_version = get_chrome_version(&chrome_path);
+    let is_chrome_installed = !chrome_version.contains("Unknown");
+    
+    // Current time
+    let current_time = chrono::Local::now().format("%Y-%m-%d").to_string();
+    
+    // Git hash
+    let git_hash = get_git_hash();
+    
+    // Generate report with empty results
+    generate_enhanced_html_report(
+        &output_dir.join("index.html"),
+        &Vec::new(),
+        &chrome_version,
+        &current_time,
+        &git_hash,
+        is_chrome_installed,
+    )?;
+    
+    // Also copy to reftest.html in parent directory if output_dir is named "reftest"
+    if output_dir.file_name().map(|n| n == "reftest").unwrap_or(false) {
+        if let Some(parent) = output_dir.parent() {
+            fs::copy(
+                output_dir.join("index.html"),
+                parent.join("reftest.html"),
+            )?;
+        }
+    }
+    
+    println!(
+        "Reftest page generated at {} ({} tests found, not run)",
+        output_dir.join("index.html").display(),
+        test_count
+    );
+    
+    Ok(())
+}
+
 /// Runs a single reftest and prints all debug information to stdout.
 /// Designed for headless inspection by an LLM.
 pub fn run_single_reftest_headless(
@@ -244,13 +317,25 @@ pub fn run_single_reftest_headless(
 
     let chrome_img_path = output_dir.join(format!("{}_chrome.webp", test_name));
     let azul_img_path = output_dir.join(format!("{}_azul.webp", test_name));
+    let chrome_layout_json_path = output_dir.join(format!("{}_chrome_layout.json", test_name));
 
-    // 1. Generate Chrome screenshot
-    println!("  Generating Chrome reference...");
-    generate_chrome_screenshot(&chrome_path, &test_file, &chrome_img_path, WIDTH, HEIGHT)?;
+    // 1. Generate Chrome screenshot and layout data
+    println!("  Generating Chrome reference and layout data...");
+    let chrome_layout_data = generate_chrome_screenshot_with_debug(
+        &chrome_path,
+        &test_file,
+        &chrome_img_path,
+        &chrome_layout_json_path,
+        WIDTH,
+        HEIGHT,
+    )?;
     println!(
         "  - Chrome screenshot saved to {}",
         chrome_img_path.display()
+    );
+    println!(
+        "  - Chrome layout data saved to {}",
+        chrome_layout_json_path.display()
     );
 
     let (chrome_w, chrome_h) = image::open(&chrome_img_path)?.dimensions();
@@ -258,7 +343,8 @@ pub fn run_single_reftest_headless(
 
     // 2. Generate Azul rendering and collect debug data
     println!("  Generating Azul rendering...");
-    let debug_data = generate_azul_rendering(&test_file, &azul_img_path, dpi_factor)?;
+    let mut debug_data = generate_azul_rendering(&test_file, &azul_img_path, dpi_factor)?;
+    debug_data.chrome_layout = chrome_layout_data;
     println!("  - Azul rendering saved to {}", azul_img_path.display());
 
     // 3. Compare images
@@ -279,9 +365,17 @@ pub fn run_single_reftest_headless(
         }
     }
 
-    // 4. Print all collected debug data to stdout
+    // 4. Print all collected debug data to stdout (including Chrome layout)
     println!("\n--- DEBUG INFORMATION ---");
     println!("{}", debug_data.format());
+    
+    // Print Chrome layout data separately for easier parsing
+    if !debug_data.chrome_layout.is_empty() {
+        println!("\n--- CHROME LAYOUT DATA ---");
+        println!("{}", debug_data.chrome_layout);
+        println!("--- END CHROME LAYOUT DATA ---");
+    }
+    
     println!("--- END DEBUG INFORMATION ---\n");
 
     Ok(())
@@ -396,6 +490,9 @@ fn get_git_hash() -> String {
     "Unknown".to_string()
 }
 
+/// JavaScript to extract layout information from Chrome
+const CHROME_LAYOUT_EXTRACTOR_JS: &str = include_str!("./chrome_layout_extractor.js");
+
 fn generate_chrome_screenshot(
     chrome_path: &str,
     test_file: &Path,
@@ -417,6 +514,156 @@ fn generate_chrome_screenshot(
     }
 
     Ok(())
+}
+
+/// Generate Chrome screenshot and extract layout debug information
+fn generate_chrome_screenshot_with_debug(
+    chrome_path: &str,
+    test_file: &Path,
+    output_file: &Path,
+    layout_output_file: &Path,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<String> {
+    let canonical_path = test_file.canonicalize()?;
+
+    // First, take the screenshot
+    let status = Command::new(chrome_path)
+        .arg("--headless")
+        .arg(format!("--screenshot={}", output_file.display()))
+        .arg(format!("--window-size={},{}", width, height))
+        .arg(format!("file://{}", canonical_path.display()))
+        .status()?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("Chrome screenshot exited with status {}", status));
+    }
+
+    // Extract layout information using dump-dom with inline script
+    // The script must execute synchronously during HTML parsing
+    let layout_json = generate_simple_layout_info(chrome_path, test_file, width, height)
+        .unwrap_or_else(|e| format!("{{\"error\": \"Layout extraction failed: {}\"}}", e));
+    
+    // Save layout JSON to file
+    fs::write(layout_output_file, &layout_json)?;
+    
+    Ok(layout_json)
+}
+
+/// Layout extraction using Chrome's dump-dom with inline script
+fn generate_simple_layout_info(
+    chrome_path: &str,
+    test_file: &Path,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<String> {
+    // Use a script that runs synchronously and stores result in DOM
+    // The key is to NOT use any async operations
+    let simple_script = r#"(function() {
+    var result = { 
+        timestamp: new Date().toISOString(),
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        elements: [] 
+    };
+    var els = document.querySelectorAll('body, body *');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'PRE' && el.id === 'azul-layout-data') continue;
+        var rect = el.getBoundingClientRect();
+        var cs = window.getComputedStyle(el);
+        result.elements.push({
+            i: i,
+            tag: el.tagName.toLowerCase(),
+            id: el.id || null,
+            cls: el.className || null,
+            bounds: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+            margin: { t: parseFloat(cs.marginTop)||0, r: parseFloat(cs.marginRight)||0, b: parseFloat(cs.marginBottom)||0, l: parseFloat(cs.marginLeft)||0 },
+            padding: { t: parseFloat(cs.paddingTop)||0, r: parseFloat(cs.paddingRight)||0, b: parseFloat(cs.paddingBottom)||0, l: parseFloat(cs.paddingLeft)||0 },
+            border: { t: parseFloat(cs.borderTopWidth)||0, r: parseFloat(cs.borderRightWidth)||0, b: parseFloat(cs.borderBottomWidth)||0, l: parseFloat(cs.borderLeftWidth)||0 },
+            display: cs.display,
+            position: cs.position,
+            float: cs.cssFloat || cs.float || 'none',
+            clear: cs.clear
+        });
+    }
+    return JSON.stringify(result, null, 2);
+})()"#;
+    
+    // Create temp HTML with the script embedded
+    let temp_dir = std::env::temp_dir();
+    let temp_html = temp_dir.join("chrome_simple_layout.html");
+    let original_content = fs::read_to_string(test_file)?;
+    
+    // Inject script that writes to a pre element SYNCHRONOUSLY
+    let extraction_html = if original_content.contains("</body>") {
+        original_content.replace(
+            "</body>",
+            &format!(
+                r#"<pre id="azul-layout-data" style="display:none"></pre>
+<script>document.getElementById('azul-layout-data').textContent = {};</script>
+</body>"#,
+                simple_script
+            )
+        )
+    } else {
+        format!(
+            r#"<!DOCTYPE html><html><head></head><body>
+{}
+<pre id="azul-layout-data" style="display:none"></pre>
+<script>document.getElementById('azul-layout-data').textContent = {};</script>
+</body></html>"#,
+            original_content,
+            simple_script
+        )
+    };
+    
+    fs::write(&temp_html, &extraction_html)?;
+    
+    // Use dump-dom - the script runs synchronously during parsing
+    let output = Command::new(chrome_path)
+        .arg("--headless")
+        .arg("--disable-gpu")
+        .arg("--dump-dom")
+        .arg(format!("--window-size={},{}", width, height))
+        .arg(format!("file://{}", temp_html.display()))
+        .output()?;
+    
+    let _ = fs::remove_file(&temp_html);
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Chrome dump-dom failed: {}", stderr));
+    }
+    
+    let dom_output = String::from_utf8_lossy(&output.stdout);
+    
+    // Extract from pre element
+    if let Some(start) = dom_output.find("<pre id=\"azul-layout-data\"") {
+        if let Some(content_start) = dom_output[start..].find('>') {
+            let after_tag = &dom_output[start + content_start + 1..];
+            if let Some(end) = after_tag.find("</pre>") {
+                let json_content = &after_tag[..end];
+                let decoded = html_decode(json_content);
+                if decoded.starts_with('{') && decoded.ends_with('}') {
+                    return Ok(decoded);
+                } else {
+                    return Ok(format!("{{\"error\": \"Invalid JSON\", \"content\": {:?}}}", decoded.chars().take(200).collect::<String>()));
+                }
+            }
+        }
+    }
+    
+    Ok(format!("{{\"error\": \"Could not find layout data element\", \"dom_len\": {}}}", dom_output.len()))
+}
+
+/// Decode basic HTML entities
+fn html_decode(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
 }
 
 fn generate_azul_rendering(
@@ -1226,18 +1473,37 @@ impl DebugData {
         self.add_section(&mut output, "CSS Statistics", &self.css_stats);
         self.add_section(&mut output, "Parsed XML", &self.parsed_xml);
         self.add_section(&mut output, "Styled DOM", &self.styled_dom);
-        self.add_section(&mut output, "Solved Layout", &self.solved_layout);
+        self.add_section(&mut output, "Solved Layout (Azul)", &self.solved_layout);
         self.add_section(&mut output, "Layout Statistics", &self.layout_stats);
-        self.add_section(&mut output, "Display List", &self.display_list);
+        self.add_section(&mut output, "Display List (Azul)", &self.display_list);
 
         // Rendering information
         writeln!(output, "\n# Rendering Information").unwrap();
+        writeln!(output, "XML formatting time: {} ms", self.xml_formatting_time_ms).unwrap();
+        writeln!(output, "Layout time: {} ms", self.layout_time_ms).unwrap();
         writeln!(output, "Render time: {} ms", self.render_time_ms).unwrap();
 
         if !self.render_warnings.is_empty() {
-            writeln!(output, "\n## Render Warnings").unwrap();
+            writeln!(output, "\n## Layout Debug Trace").unwrap();
+            writeln!(output, "The following trace shows the code path taken during layout calculation:").unwrap();
             for (i, warning) in self.render_warnings.iter().enumerate() {
                 writeln!(output, "{}. {}", i + 1, warning).unwrap();
+            }
+        }
+
+        // Chrome layout data (if available)
+        if !self.chrome_layout.is_empty() && self.chrome_layout != "{}" {
+            writeln!(output, "\n# Chrome Layout Data").unwrap();
+            writeln!(output, "The following JSON contains Chrome's computed layout for comparison:").unwrap();
+            // Try to pretty-print if it's valid JSON
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&self.chrome_layout) {
+                if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
+                    writeln!(output, "{}", pretty).unwrap();
+                } else {
+                    writeln!(output, "{}", self.chrome_layout).unwrap();
+                }
+            } else {
+                writeln!(output, "{}", self.chrome_layout).unwrap();
             }
         }
 
@@ -1373,11 +1639,25 @@ pub fn solve_layout_with_debug(
     // End timer
     let elapsed = start.elapsed();
 
-    // Collect layout warnings
-    let warnings = debug_messages
+    // Collect layout warnings with message type
+    let warnings: Vec<String> = debug_messages
         .unwrap_or_default()
         .into_iter()
-        .map(|s| format!("{}: {}", s.location, s.message))
+        .map(|s| {
+            let msg_type = match s.message_type {
+                LayoutDebugMessageType::Info => "INFO",
+                LayoutDebugMessageType::Warning => "WARN",
+                LayoutDebugMessageType::Error => "ERROR",
+                LayoutDebugMessageType::BoxProps => "BOX",
+                LayoutDebugMessageType::CssGetter => "CSS",
+                LayoutDebugMessageType::BfcLayout => "BFC",
+                LayoutDebugMessageType::IfcLayout => "IFC",
+                LayoutDebugMessageType::TableLayout => "TABLE",
+                LayoutDebugMessageType::DisplayType => "DISPLAY",
+                LayoutDebugMessageType::PositionCalculation => "POS",
+            };
+            format!("[{}] {} ({})", msg_type, s.message, s.location)
+        })
         .collect();
 
     // Capture layout statistics

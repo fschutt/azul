@@ -929,7 +929,7 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
-            // Generate releases pages
+            // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
             let versions = api_data.get_sorted_versions();
             
@@ -941,6 +941,22 @@ fn main() -> anyhow::Result<()> {
                 let release_html = dllgen::deploy::generate_release_html(version, &api_data);
                 fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
                 println!("  [OK] Generated: release/{}.html", version);
+                
+                // Generate api.json for this version
+                if let Some(version_data) = api_data.get_version(version) {
+                    let api_json = serde_json::to_string_pretty(&version_data)?;
+                    fs::write(version_dir.join("api.json"), &api_json)?;
+                    println!("  [OK] Generated: release/{}/api.json", version);
+                }
+                
+                // Generate examples.zip for this version
+                let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
+                let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+                if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_api_code) {
+                    eprintln!("  [WARN] Failed to create examples.zip: {}", e);
+                } else {
+                    println!("  [OK] Generated: release/{}/examples.zip", version);
+                }
                 
                 // Create placeholder files for missing build artifacts
                 let placeholder_files = [
@@ -963,6 +979,39 @@ fn main() -> anyhow::Result<()> {
             let releases_index = dllgen::deploy::generate_releases_index(&versions);
             fs::write(output_dir.join("releases.html"), &releases_index)?;
             println!("  [OK] Generated: releases.html");
+
+            // Generate donation page
+            println!("Generating donation page...");
+            let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
+            match docgen::donate::generate_donation_page(funding_yaml_bytes) {
+                Ok(donation_html) => {
+                    fs::write(output_dir.join("donate.html"), &donation_html)?;
+                    println!("  [OK] Generated: donate.html");
+                }
+                Err(e) => {
+                    eprintln!("  [WARN] Failed to generate donation page: {}", e);
+                }
+            }
+
+            // Generate reftest page (without running tests)
+            println!("Generating reftest page...");
+            let reftest_output_dir = output_dir.join("reftest");
+            let test_dir = PathBuf::from(manifest_dir).join("working");
+            match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
+                Ok(_) => {
+                    // Copy to reftest.html in deploy root
+                    if reftest_output_dir.join("index.html").exists() {
+                        fs::copy(
+                            reftest_output_dir.join("index.html"),
+                            output_dir.join("reftest.html"),
+                        )?;
+                        println!("  [OK] Generated: reftest.html");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  [WARN] Failed to generate reftest page: {}", e);
+                }
+            }
 
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;
@@ -996,7 +1045,7 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
-            // Generate releases pages
+            // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
             let versions = api_data.get_sorted_versions();
             
@@ -1008,6 +1057,22 @@ fn main() -> anyhow::Result<()> {
                 let release_html = dllgen::deploy::generate_release_html(version, &api_data);
                 fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
                 println!("  [OK] Generated: release/{}.html", version);
+                
+                // Generate api.json for this version
+                if let Some(version_data) = api_data.get_version(version) {
+                    let api_json = serde_json::to_string_pretty(&version_data)?;
+                    fs::write(version_dir.join("api.json"), &api_json)?;
+                    println!("  [OK] Generated: release/{}/api.json", version);
+                }
+                
+                // Generate examples.zip for this version
+                let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
+                let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+                if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_api_code) {
+                    eprintln!("  [WARN] Failed to create examples.zip: {}", e);
+                } else {
+                    println!("  [OK] Generated: release/{}/examples.zip", version);
+                }
                 
                 // Create placeholder files for missing build artifacts
                 let placeholder_files = [
@@ -1030,6 +1095,19 @@ fn main() -> anyhow::Result<()> {
             let releases_index = dllgen::deploy::generate_releases_index(&versions);
             fs::write(output_dir.join("releases.html"), &releases_index)?;
             println!("  [OK] Generated: releases.html");
+
+            // Generate donation page
+            println!("Generating donation page...");
+            let funding_yaml_bytes = include_str!("../../.github/FUNDING.yml");
+            match docgen::donate::generate_donation_page(funding_yaml_bytes) {
+                Ok(donation_html) => {
+                    fs::write(output_dir.join("donate.html"), &donation_html)?;
+                    println!("  [OK] Generated: donate.html");
+                }
+                Err(e) => {
+                    eprintln!("  [WARN] Failed to generate donation page: {}", e);
+                }
+            }
 
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;

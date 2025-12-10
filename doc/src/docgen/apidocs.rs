@@ -90,11 +90,11 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         format!("<div style='box-shadow:none;padding: 0px; max-width: 700px;'>"),
         format!("<h2>Notes for non-Rust languages</h2>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/NotesForPython'>Notes for Python</a>"),
+        format!("<a href='https://azul.rs/guide/getting-started-python.html'>Notes for Python</a>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/NotesForC'>Notes for C</a>"),
+        format!("<a href='https://azul.rs/guide/getting-started-c.html'>Notes for C</a>"),
         format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/NotesForCpp'>Notes for C++</a>"),
+        format!("<a href='https://azul.rs/guide/getting-started-cpp.html'>Notes for C++</a>"),
         format!("</div>"),
     ]
     .join("\r\n");
@@ -134,7 +134,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
             {content}
             </div>
             <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/api/{version}'>Back to API index</a>
+            <a href='{HTML_ROOT}/api/{version}.html'>Back to API index</a>
             </p>
         </main>
 
@@ -606,7 +606,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            "<li><a href=\"{}/api/{}\">{}</a></li>\n",
+            "<li><a href=\"{}/api/{}.html\">{}</a></li>\n",
             HTML_ROOT, version, version
         ));
     }

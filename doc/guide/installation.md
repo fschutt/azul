@@ -122,7 +122,7 @@ This is what your project should look like:
 
 Now your code should run (if it doesn't, [file a bug](https://github.com/fschutt/azul/issues)).
 
-You can now continue with the [next tutorial](/hello-world), 
+You can now continue with the [Rust Getting Started guide](https://azul.rs/guide/getting-started-rust.html), 
 which will teach you how to create a window.
 
 ### Python

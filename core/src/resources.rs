@@ -478,9 +478,9 @@ impl ImageRef {
         match self.get_data() {
             DecodedImage::Raw((_, image_data)) => match image_data {
                 ImageData::Raw(shared_data) => shared_data.as_ptr(),
-                ImageData::External(_) => std::ptr::null(),
+                ImageData::External(_) => core::ptr::null(),
             },
-            _ => std::ptr::null(),
+            _ => core::ptr::null(),
         }
     }
 

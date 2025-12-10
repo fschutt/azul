@@ -238,7 +238,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let mut version_items = String::new();
     for guide_page in get_guide_list() {
         version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{}\">{}</a></li>\n",
+            "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a></li>\n",
             guide_page.file_name, guide_page.title,
         ));
     }
@@ -283,7 +283,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
     let mut version_items = String::new();
     for version in versions {
         version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{version}\">{version}</a></li>\n",
+            "<li><a href=\"{HTML_ROOT}/guide/{version}.html\">{version}</a></li>\n",
         ));
     }
 
