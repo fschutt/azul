@@ -6,7 +6,7 @@
 
 use azul_core::{
     dom::ScrollbarOrientation,
-    geom::LogicalRect,
+    geom::{LogicalPosition, LogicalRect},
     resources::{
         DecodedImage, FontInstanceKey, GlyphOutlineOperation, ImageKey, ImageRefHash,
         RendererResources,
@@ -353,6 +353,66 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
+
+            // Gradient rendering - simplified for CPU render
+            DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+                // TODO: Implement proper gradient rendering
+                // For now, render a placeholder with the first stop color
+                let color = gradient.stops.as_ref().first()
+                    .map(|s| s.color)
+                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+            }
+            DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+                // TODO: Implement proper radial gradient rendering
+                let color = gradient.stops.as_ref().first()
+                    .map(|s| s.color)
+                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+            }
+            DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+                // TODO: Implement proper conic gradient rendering
+                let color = gradient.stops.as_ref().first()
+                    .map(|s| s.color)
+                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+            }
+
+            // BoxShadow - simplified
+            DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
+                // TODO: Implement proper box shadow rendering
+                // For now, render a slightly offset rectangle with the shadow color
+                let offset_bounds = LogicalRect {
+                    origin: LogicalPosition {
+                        x: bounds.origin.x + shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
+                        y: bounds.origin.y + shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
+                    },
+                    size: bounds.size,
+                };
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                render_rect(pixmap, &offset_bounds, shadow.color, border_radius, *transform, *clip, dpi_factor)?;
+            }
+
+            // Filter effects - not supported in CPU render
+            DisplayListItem::PushFilter { .. } => {
+                // TODO: Implement filter effects for CPU rendering
+            }
+            DisplayListItem::PopFilter => {}
+            DisplayListItem::PushBackdropFilter { .. } => {
+                // Backdrop filter requires compositing - not supported in CPU render
+            }
+            DisplayListItem::PopBackdropFilter => {}
+            DisplayListItem::PushOpacity { bounds, opacity } => {
+                // TODO: Implement opacity layers for CPU rendering
+            }
+            DisplayListItem::PopOpacity => {}
         }
     }
 
