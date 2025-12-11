@@ -396,6 +396,146 @@ fn generate_destructor_body(
 }
 
 // ============================================================================
+// RETURN TYPE CONVERSION FOR FFI
+// ============================================================================
+
+/// Convert Rust return types to api.json format:
+/// - `Result<X, Y>` -> `ResultXY` (with `.into()` added to fn_body)
+/// - `Option<X>` -> `OptionX` (with `.into()` added to fn_body)
+/// - `Self` -> class_name
+/// 
+/// Returns (converted_type, needs_into) where needs_into indicates if `.into()` should be appended
+fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, bool) {
+    let trimmed = return_type.trim();
+    
+    // Handle Result<X, Y> -> ResultXY
+    if trimmed.starts_with("Result<") && trimmed.ends_with('>') {
+        let inner = &trimmed[7..trimmed.len() - 1]; // Remove "Result<" and ">"
+        // Split by comma, handling nested generics
+        if let Some((ok_type, err_type)) = split_generic_args(inner) {
+            let ok_clean = normalize_type_name(&ok_type, class_name);
+            let err_clean = normalize_type_name(&err_type, class_name);
+            return (format!("Result{}{}", ok_clean, err_clean), true);
+        }
+    }
+    
+    // Handle Option<X> -> OptionX
+    if trimmed.starts_with("Option<") && trimmed.ends_with('>') {
+        let inner = &trimmed[7..trimmed.len() - 1]; // Remove "Option<" and ">"
+        let inner_clean = normalize_type_name(inner.trim(), class_name);
+        return (format!("Option{}", inner_clean), true);
+    }
+    
+    // Handle Self -> class_name
+    if trimmed == "Self" {
+        return (class_name.to_string(), false);
+    }
+    
+    // Handle std types that need .into() conversion for FFI
+    // These are Rust std types that have FFI equivalents (e.g., String -> AzString)
+    if trimmed == "String" {
+        return ("String".to_string(), true);
+    }
+    
+    // No conversion needed
+    (trimmed.to_string(), false)
+}
+
+/// Split generic args like "X, Y" handling nested generics
+fn split_generic_args(s: &str) -> Option<(String, String)> {
+    let mut depth = 0;
+    let mut split_pos = None;
+    
+    for (i, c) in s.chars().enumerate() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                split_pos = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    
+    split_pos.map(|pos| {
+        (s[..pos].trim().to_string(), s[pos + 1..].trim().to_string())
+    })
+}
+
+/// Normalize a type name for FFI result types
+/// - Self -> class_name
+/// - Remove leading & or &mut
+/// - Remove leading * or *mut
+fn normalize_type_name(ty: &str, class_name: &str) -> String {
+    let trimmed = ty.trim();
+    
+    // Handle Self
+    if trimmed == "Self" {
+        return class_name.to_string();
+    }
+    
+    // Strip reference prefixes
+    let stripped = trimmed
+        .strip_prefix("&mut ")
+        .or_else(|| trimmed.strip_prefix("& "))
+        .or_else(|| trimmed.strip_prefix("&"))
+        .or_else(|| trimmed.strip_prefix("*mut "))
+        .or_else(|| trimmed.strip_prefix("*const "))
+        .unwrap_or(trimmed);
+    
+    stripped.trim().to_string()
+}
+
+/// Convert a Rust argument type to an FFI-compatible type
+/// Returns (ffi_type, accessor_suffix) where accessor_suffix is appended to the variable in fn_body
+/// e.g. ("String", ".as_str()") for &str
+fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
+    let trimmed = ty.trim();
+    
+    // Handle &str and str -> String (need .as_str() in fn_body)
+    if trimmed == "&str" || trimmed == "str" {
+        return ("String".to_string(), Some(".as_str()".to_string()));
+    }
+    
+    // Handle &[u8] and [u8] -> U8VecRef (need .as_slice() in fn_body)
+    if trimmed == "&[u8]" || trimmed == "[u8]" {
+        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+    }
+    
+    // Handle &String -> String (need .as_str() in fn_body if function expects &str)
+    if trimmed == "&String" {
+        return ("String".to_string(), Some(".as_str()".to_string()));
+    }
+    
+    // Handle &Vec<u8> -> U8VecRef (need .as_slice() in fn_body)
+    if trimmed == "&Vec<u8>" || trimmed == "Vec<u8>" {
+        return ("U8VecRef".to_string(), Some(".as_slice()".to_string()));
+    }
+    
+    // Handle generic slices &[T] -> TypeVecRef with .as_slice()
+    if trimmed.starts_with("&[") && trimmed.ends_with(']') {
+        let inner = &trimmed[2..trimmed.len()-1];
+        let inner_clean = inner.trim();
+        return (format!("{}VecRef", inner_clean), Some(".as_slice()".to_string()));
+    }
+    
+    // Handle reference types - strip the & and use the underlying type
+    if let Some(inner) = trimmed.strip_prefix("&mut ") {
+        return (inner.trim().to_string(), None);
+    }
+    if let Some(inner) = trimmed.strip_prefix("& ") {
+        return (inner.trim().to_string(), None);
+    }
+    if let Some(inner) = trimmed.strip_prefix("&") {
+        return (inner.trim().to_string(), None);
+    }
+    
+    // No conversion needed
+    (trimmed.to_string(), None)
+}
+
+// ============================================================================
 // HELPER FUNCTIONS FOR LIST/ADD/REMOVE
 // ============================================================================
 
@@ -436,10 +576,12 @@ pub struct FunctionListResult {
 
 /// Find dependent types for a method
 /// Returns types that would need to be added to api.json
+/// Uses converted type names (e.g., ResultXY instead of Result<X, Y>)
 pub fn find_method_dependent_types(
     method: &MethodDef,
     api_data: &ApiData,
     version: &str,
+    class_name: &str,
 ) -> Vec<String> {
     let mut missing_types = Vec::new();
     
@@ -450,15 +592,18 @@ pub fn find_method_dependent_types(
     
     // Check argument types
     for arg in &method.args {
-        if find_type_module(&arg.ty, version_data).is_none() && !is_primitive_type(&arg.ty) {
-            missing_types.push(arg.ty.clone());
+        let ty = &arg.ty;
+        // Don't convert argument types - they're used as-is
+        if find_type_module(ty, version_data).is_none() && !is_primitive_type(ty) {
+            missing_types.push(ty.clone());
         }
     }
     
-    // Check return type
+    // Check return type - use converted form for Result/Option
     if let Some(ret_ty) = &method.return_type {
-        if find_type_module(ret_ty, version_data).is_none() && !is_primitive_type(ret_ty) {
-            missing_types.push(ret_ty.clone());
+        let (converted_ty, _needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+        if find_type_module(&converted_ty, version_data).is_none() && !is_primitive_type(&converted_ty) {
+            missing_types.push(converted_ty);
         }
     }
     
@@ -560,8 +705,15 @@ pub fn generate_remove_functions_patch(
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     use super::type_index::SelfKind;
     
+    // Extract class name from full_path for Self replacement
+    let class_name = full_path.rsplit("::").next().unwrap_or(full_path);
+    
     // Build fn_args - first add self if present (non-constructor)
     let mut fn_args: Vec<IndexMap<String, String>> = Vec::new();
+    
+    // Track argument accessors for fn_body generation
+    // Maps arg_name -> accessor_suffix (e.g. "svg_string" -> ".as_str()")
+    let mut arg_accessors: Vec<(String, Option<String>)> = Vec::new();
     
     // Add self parameter for non-static, non-constructor methods
     if !method.is_constructor {
@@ -577,27 +729,72 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         }
     }
     
-    // Add remaining arguments
+    // Add remaining arguments with FFI type conversion
     for arg in &method.args {
         let mut arg_map = IndexMap::new();
-        arg_map.insert(arg.name.clone(), arg.ty.clone());
+        let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
+        arg_map.insert(arg.name.clone(), ffi_type);
         fn_args.push(arg_map);
+        arg_accessors.push((arg.name.clone(), accessor));
     }
     
-    // Build returns - constructors don't need it (implicit Self)
-    let returns = if method.is_constructor {
-        None
-    } else {
-        method.return_type.as_ref().map(|ret_ty| {
-            ReturnTypeData {
-                r#type: ret_ty.clone(),
-                doc: None,
+    // Build returns - convert Result<X, Y> to ResultXY, Option<X> to OptionX
+    // Also track if we need to add .into() to the fn_body
+    let (returns, needs_into) = if method.is_constructor {
+        // Constructors don't specify returns in api.json (implicit Self)
+        // But if they return Result<Self, E>, we need to convert it
+        if let Some(ref ret_ty) = method.return_type {
+            let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+            if converted != class_name && converted != "Self" {
+                // Constructor returns Result or Option - need explicit returns
+                (Some(ReturnTypeData {
+                    r#type: converted,
+                    doc: None,
+                }), needs_into)
+            } else {
+                (None, false)
             }
-        })
+        } else {
+            (None, false)
+        }
+    } else {
+        if let Some(ref ret_ty) = method.return_type {
+            let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+            (Some(ReturnTypeData {
+                r#type: converted,
+                doc: None,
+            }), needs_into)
+        } else {
+            (None, false)
+        }
     };
     
     // Generate fn_body using the full external path
-    let fn_body = Some(generate_fn_body(method, full_path));
+    let mut fn_body_str = generate_fn_body(method, full_path);
+    
+    // Apply argument accessors to fn_body
+    // Replace each argument reference with the accessor version
+    for (arg_name, accessor_opt) in &arg_accessors {
+        if let Some(accessor) = accessor_opt {
+            // Replace "arg_name," or "arg_name)" patterns
+            // This handles cases like func(arg_name, other) or func(arg_name)
+            fn_body_str = fn_body_str.replace(
+                &format!("{},", arg_name),
+                &format!("{}{},", arg_name, accessor)
+            );
+            fn_body_str = fn_body_str.replace(
+                &format!("{})", arg_name),
+                &format!("{}{})", arg_name, accessor)
+            );
+        }
+    }
+    
+    // Add .into() if the return type was converted (Result/Option wrapper types)
+    if needs_into {
+        fn_body_str = format!("{}.into()", fn_body_str);
+    }
+    
+    let fn_body = Some(fn_body_str);
     
     // Build doc
     let doc = if method.doc.is_empty() {
@@ -992,16 +1189,39 @@ pub fn generate_add_type_patches(
                                     type_alias: None,
                                 }));
                                 patches.push(ref_patch);
-                                result.added_types.push((ref_type, module));
+                                result.added_types.push((ref_type.clone(), module));
+                                processed.insert(ref_type); // Mark as processed to avoid duplicates
                             }
                         }
                     }
                 }
                 if let Some(ret) = &method.return_type {
+                    // First, convert the return type to its FFI form (Result<X,Y> -> ResultXY)
+                    let (converted_ret, _needs_into) = convert_return_type_for_ffi(ret, type_name);
+                    
+                    // Collect types from the converted return type
                     let mut refs = Vec::new();
+                    collect_types_from_type_str(&converted_ret, &mut refs);
+                    
+                    // For Result/Option wrapper types, we need to add both:
+                    // 1. The wrapper type itself (ResultXY, OptionX)
+                    // 2. The inner types (X, Y)
+                    if converted_ret.starts_with("Result") && converted_ret != "Result" 
+                       && !converted_ret.starts_with("Result<") {
+                        // This is a ResultXY style type
+                        refs.push(converted_ret.clone());
+                    } else if converted_ret.starts_with("Option") && converted_ret != "Option"
+                       && !converted_ret.starts_with("Option<") {
+                        // This is an OptionX style type
+                        refs.push(converted_ret.clone());
+                    }
+                    
+                    // Also collect types from the original return type for inner types
                     collect_types_from_type_str(ret, &mut refs);
+                    
                     for ref_type in refs {
-                        if !processed.contains(&ref_type) && !primitives.contains(ref_type.as_str()) 
+                        if !processed.contains(&ref_type) && !primitives.contains(ref_type.as_str())
+                           && ref_type != "Result" && ref_type != "Option"
                            && !type_exists_in_api(&ref_type, version_data) {
                             if let Some(ref_type_def) = index.resolve(&ref_type, None) {
                                 let (module, _) = determine_module(&ref_type);
@@ -1020,7 +1240,8 @@ pub fn generate_add_type_patches(
                                     type_alias: None,
                                 }));
                                 patches.push(ref_patch);
-                                result.added_types.push((ref_type, module));
+                                result.added_types.push((ref_type.clone(), module));
+                                processed.insert(ref_type); // Mark as processed to avoid duplicates
                             }
                         }
                     }

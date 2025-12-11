@@ -75,6 +75,7 @@ pub use azul_css::props::basic::animation::{
 use azul_css::{
     props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
     AzString, OptionString, OptionI16, OptionU16, StringVec, U8Vec,
+    impl_result, impl_result_inner,
 };
 #[cfg(feature = "svg")]
 use lyon::{
@@ -2161,6 +2162,15 @@ impl Drop for ParsedSvg {
         self.run_destructor = false;
     }
 }
+
+#[cfg(feature = "svg")]
+impl_result!(
+    ParsedSvg,
+    SvgParseError,
+    ResultParsedSvgSvgParseError,
+    copy = false,
+    [Debug, Clone]
+);
 
 #[cfg(not(feature = "svg"))]
 pub use azul_core::svg::Svg;

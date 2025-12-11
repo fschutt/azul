@@ -2025,13 +2025,29 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
     };
     
     // Determine if this is a constructor
-    // Heuristics: no self parameter AND (returns Self or returns the type name)
+    // Heuristics: no self parameter AND (returns Self, type_name, Result<Self, _>, or Option<Self>)
     let is_constructor = self_kind.is_none() && {
         match &method.sig.output {
             syn::ReturnType::Default => false,
             syn::ReturnType::Type(_, ty) => {
                 let ret_str = extract_type_name(ty);
-                ret_str == "Self" || ret_str == type_name
+                // Direct match: Self or type_name
+                if ret_str == "Self" || ret_str == type_name {
+                    true
+                }
+                // Check for Result<Self, _> or Result<TypeName, _>
+                else if ret_str.starts_with("Result<") {
+                    let inner = &ret_str[7..]; // Skip "Result<"
+                    inner.starts_with("Self,") || inner.starts_with(&format!("{},", type_name))
+                }
+                // Check for Option<Self> or Option<TypeName>
+                else if ret_str.starts_with("Option<") && ret_str.ends_with('>') {
+                    let inner = &ret_str[7..ret_str.len()-1]; // Extract inner type
+                    inner == "Self" || inner == type_name
+                }
+                else {
+                    false
+                }
             }
         }
     };

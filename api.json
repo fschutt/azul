@@ -35005,6 +35005,126 @@
               }
             },
             "repr": "C"
+          },
+          "ParsedSvg": {
+            "external": "azul_layout::xml::svg::ParsedSvg",
+            "struct_fields": [
+              {
+                "tree": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "constructors": {
+              "from_string": {
+                "doc": [
+                  "Parses an SVG from a string"
+                ],
+                "fn_args": [
+                  {
+                    "svg_string": "String"
+                  },
+                  {
+                    "parse_options": "SvgParseOptions"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultParsedSvgSvgParseError"
+                },
+                "fn_body": "azul_layout::xml::svg::ParsedSvg::from_string(svg_string.as_str(), parse_options).into()"
+              },
+              "from_bytes": {
+                "doc": [
+                  "Parses an SVG from bytes"
+                ],
+                "fn_args": [
+                  {
+                    "svg_bytes": "U8VecRef"
+                  },
+                  {
+                    "parse_options": "SvgParseOptions"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultParsedSvgSvgParseError"
+                },
+                "fn_body": "azul_layout::xml::svg::ParsedSvg::from_bytes(svg_bytes.as_slice(), parse_options).into()"
+              }
+            },
+            "functions": {
+              "get_root": {
+                "doc": [
+                  "Returns the root XML node of the SVG"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ParsedSvgXmlNode"
+                },
+                "fn_body": "object.get_root()"
+              },
+              "render": {
+                "doc": [
+                  "Renders the SVG to a raw image"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "options": "SvgRenderOptions"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRawImage"
+                },
+                "fn_body": "object.render(options).into()"
+              },
+              "to_string": {
+                "doc": [
+                  "Converts the SVG back to a string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "options": "SvgXmlOptions"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.to_string(options).into()"
+              }
+            },
+            "repr": "C"
+          },
+          "ParsedSvgXmlNode": {
+            "external": "azul_layout::xml::svg::ParsedSvgXmlNode",
+            "is_boxed_object": true,
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "node": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -39959,6 +40079,26 @@
                 }
               }
             ]
+          },
+          "ResultParsedSvgSvgParseError": {
+            "external": "azul_layout::xml::svg::ResultParsedSvgSvgParseError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "ParsedSvg"
+                }
+              },
+              {
+                "Err": {
+                  "type": "SvgParseError"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
