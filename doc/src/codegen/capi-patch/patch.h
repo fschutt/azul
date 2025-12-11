@@ -134,7 +134,7 @@
     \
     AzRefAny structName##_upcast(structName const s) { \
         AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \
-        return AzRefAny_newC(ptr_wrapper, sizeof(structName), _Alignof(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
+        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
     } \
     \
     /* generate structNameRef and structNameRefMut structs*/ \

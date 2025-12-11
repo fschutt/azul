@@ -186,6 +186,9 @@ fn generate_monomorphized_type(
     target_class: &ClassData,
     version_data: &crate::api::VersionData,
 ) {
+    // Check if the target class has a u8 repr
+    let is_u8_repr = target_class.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+    
     // For CssPropertyValue<T>, the target is an enum with variants like:
     // Auto, None, Inherit, Initial, Exact(T)
     if let Some(enum_fields) = &target_class.enum_fields {
@@ -196,6 +199,10 @@ fn generate_monomorphized_type(
                 for (variant_name, _) in variant_map {
                     code.push_str(&format!("   {}_Tag_{},\r\n", struct_name, variant_name));
                 }
+            }
+            // Add sentinel value to force enum size for u8 repr
+            if is_u8_repr {
+                code.push_str(&format!("   {}_Tag__Force8Bit = 0xFF,\r\n", struct_name));
             }
             code.push_str("};\r\n");
             code.push_str(&format!("typedef enum {}_Tag {}_Tag;\r\n\r\n", struct_name, struct_name));
@@ -250,6 +257,10 @@ fn generate_monomorphized_type(
                     code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
                 }
             }
+            // Add sentinel value to force enum size for u8 repr
+            if is_u8_repr {
+                code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
+            }
             code.push_str("};\r\n\r\n");
         }
     } else if let Some(struct_fields) = &target_class.struct_fields {
@@ -302,13 +313,21 @@ fn generate_tagged_union(
     struct_name: &str,
     enum_fields: &Vec<IndexMap<String, crate::api::EnumVariantData>>,
     version_data: &crate::api::VersionData,
+    repr: Option<&str>,
 ) {
+    // Determine if this is a u8 enum that needs size enforcement
+    let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+    
     // Generate tag enum (use _Tag suffix to avoid clashing with standalone enums)
     code.push_str(&format!("enum {}_Tag {{\r\n", struct_name));
     for variant_map in enum_fields {
         for (variant_name, _) in variant_map {
             code.push_str(&format!("   {}_Tag_{},\r\n", struct_name, variant_name));
         }
+    }
+    // Add sentinel value to force enum size for u8 repr
+    if is_u8_repr {
+        code.push_str(&format!("   {}_Tag__Force8Bit = 0xFF,\r\n", struct_name));
     }
     code.push_str("};\r\n");
     code.push_str(&format!("typedef enum {}_Tag {}_Tag;\r\n\r\n", struct_name, struct_name));
@@ -475,6 +494,30 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("#endif\r\n");
     code.push_str("\r\n");
 
+    // Add _Alignof portability macro for pre-C11 compilers
+    code.push_str("/* Portable _Alignof macro for pre-C11 compilers */\r\n");
+    code.push_str("#ifndef AZ_ALIGNOF\r\n");
+    code.push_str("#  if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\r\n");
+    code.push_str("#    define AZ_ALIGNOF(type) _Alignof(type)\r\n");
+    code.push_str("#  elif defined(__cplusplus) && __cplusplus >= 201103L\r\n");
+    code.push_str("#    define AZ_ALIGNOF(type) alignof(type)\r\n");
+    code.push_str("#  elif defined(__GNUC__) || defined(__clang__)\r\n");
+    code.push_str("#    define AZ_ALIGNOF(type) __alignof__(type)\r\n");
+    code.push_str("#  elif defined(_MSC_VER)\r\n");
+    code.push_str("#    define AZ_ALIGNOF(type) __alignof(type)\r\n");
+    code.push_str("#  else\r\n");
+    code.push_str("#    define AZ_ALIGNOF(type) offsetof(struct { char c; type t; }, t)\r\n");
+    code.push_str("#  endif\r\n");
+    code.push_str("#endif\r\n");
+    code.push_str("\r\n");
+
+    // Add extern "C" wrapper for C++ compatibility
+    code.push_str("/* C++ compatibility wrapper */\r\n");
+    code.push_str("#ifdef __cplusplus\r\n");
+    code.push_str("extern \"C\" {\r\n");
+    code.push_str("#endif\r\n");
+    code.push_str("\r\n");
+
     // Sort structs by dependencies (topological sort)
     // This ensures types are declared before they are used
     let sorted = sort_structs_by_dependencies(api_data, version, PREFIX)
@@ -572,12 +615,19 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     {
                         if let Some(enum_fields) = &target_data.enum_fields {
                             if !enum_is_union(enum_fields) {
+                                // Check if target has u8 repr
+                                let is_u8_repr = target_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+                                
                                 // Simple enum from monomorphized type
                                 code.push_str(&format!("enum {} {{\r\n", struct_name));
                                 for variant_map in enum_fields {
                                     for (variant_name, _) in variant_map {
                                         code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
                                     }
+                                }
+                                // Add sentinel value to force enum size for u8 repr
+                                if is_u8_repr {
+                                    code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
                                 }
                                 code.push_str("};\r\n\r\n");
                                 enums_already_generated.insert(struct_name.clone());
@@ -591,12 +641,19 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         
         // Generate simple enum definitions
         if let Some(enum_fields) = &class_data.enum_fields {
+            // Check if this enum has a u8 repr
+            let is_u8_repr = class_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+            
             if !enum_is_union(enum_fields) {
                 code.push_str(&format!("enum {} {{\r\n", struct_name));
                 for variant_map in enum_fields {
                     for (variant_name, _) in variant_map {
                         code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
                     }
+                }
+                // Add sentinel value to force enum size for u8 repr
+                if is_u8_repr {
+                    code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
                 }
                 code.push_str("};\r\n\r\n");
                 enums_already_generated.insert(struct_name.clone());
@@ -718,6 +775,9 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         }
         // Generate enum definition
         else if let Some(enum_fields) = &class_data.enum_fields {
+            // Check if this enum has a u8 repr
+            let is_u8_repr = class_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+            
             if !enum_is_union(enum_fields) {
                 // Simple enum - skip if already generated in Phase 2.5
                 if !enums_already_generated.contains(struct_name) {
@@ -727,11 +787,15 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                             code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
                         }
                     }
+                    // Add sentinel value to force enum size for u8 repr
+                    if is_u8_repr {
+                        code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
+                    }
                     code.push_str("};\r\n\r\n");
                 }
             } else {
                 // Tagged union
-                generate_tagged_union(&mut code, struct_name, enum_fields, version_data);
+                generate_tagged_union(&mut code, struct_name, enum_fields, version_data, class_data.repr.as_deref());
             }
         }
     }
@@ -1004,8 +1068,15 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     code.push_str(include_str!("./capi-patch/patch.h"));
     code.push_str("\r\n");
 
+    // Close extern "C" for C++
+    code.push_str("/* Close extern \"C\" for C++ */\r\n");
+    code.push_str("#ifdef __cplusplus\r\n");
+    code.push_str("}\r\n");
+    code.push_str("#endif\r\n");
+    code.push_str("\r\n");
+
     // End the header file
-    code.push_str("\r\n#endif /* AZUL_H */\r\n");
+    code.push_str("#endif /* AZUL_H */\r\n");
 
     code
 }
