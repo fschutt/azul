@@ -417,6 +417,18 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     let (explicit_height, has_explicit_height) =
         resolve_explicit_dimension_height(ctx, node, constraints);
 
+    // FIX: Taffy interprets known_dimensions as Border Box size.
+    // CSS width/height properties define Content Box size (by default, box-sizing: content-box).
+    // We must add border and padding to the explicit dimensions to get the correct Border Box size for Taffy.
+    let width_adjustment = node.box_props.border.left + node.box_props.border.right + 
+                          node.box_props.padding.left + node.box_props.padding.right;
+    let height_adjustment = node.box_props.border.top + node.box_props.border.bottom + 
+                           node.box_props.padding.top + node.box_props.padding.bottom;
+
+    // Apply adjustment only if dimensions are explicit (convert content-box to border-box)
+    let adjusted_width = explicit_width.map(|w| w + width_adjustment);
+    let adjusted_height = explicit_height.map(|h| h + height_adjustment);
+
     // CSS Flexbox § 9.2: Use InherentSize when explicit dimensions are set,
     // ContentSize for auto-sizing (shrink-to-fit behavior).
     let sizing_mode = if has_explicit_width || has_explicit_height {
@@ -426,8 +438,8 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     };
 
     let known_dimensions = TaffySize {
-        width: explicit_width,
-        height: explicit_height,
+        width: adjusted_width,
+        height: adjusted_height,
     };
 
     let taffy_inputs = LayoutInput {

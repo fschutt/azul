@@ -537,7 +537,7 @@ pub fn get_ua_property(
 
         // Body Element - CRITICAL for preventing layout collapse
         (NT::Body, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Body, PT::Width) => Some(&WIDTH_100_PERCENT),
+        // NOTE: Body does NOT have width: 100% in standard UA CSS - it inherits from ICB
         // (NT::Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
         (NT::Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
         (NT::Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
@@ -545,32 +545,28 @@ pub fn get_ua_property(
         (NT::Body, PT::MarginRight) => Some(&MARGIN_RIGHT_8PX),
 
         // Block-level Elements
+        // NOTE: Do NOT set width: 100% here! Block elements have width: auto by default
+        // in CSS spec. width: auto for blocks means "fill available width" but it's NOT
+        // the same as width: 100%. The difference is critical for flexbox: width: auto
+        // allows flex-grow/flex-shrink to control sizing, while width: 100% prevents it.
         (NT::Div, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT),
+        // (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT), // REMOVED - blocks have width: auto by default
         (NT::P, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT),
+        // (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT), // REMOVED - blocks have width: auto by default
         (NT::P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
         (NT::P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Main, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Main, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Header, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Header, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Footer, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Footer, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Section, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Section, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Article, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Article, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Aside, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Aside, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Nav, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Nav, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Headings - Chrome UA CSS values
         // Per CSS Fragmentation Level 3: headings should avoid page breaks inside
         // and after them (to keep heading with following content)
         (NT::H1, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H1, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
         (NT::H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H1, PT::MarginTop) => Some(&MARGIN_TOP_0_67EM),
@@ -579,7 +575,6 @@ pub fn get_ua_property(
         (NT::H1, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H2, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H2, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H2, PT::FontSize) => Some(&FONT_SIZE_1_5EM),
         (NT::H2, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H2, PT::MarginTop) => Some(&MARGIN_TOP_0_83EM),
@@ -588,7 +583,6 @@ pub fn get_ua_property(
         (NT::H2, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H3, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H3, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H3, PT::FontSize) => Some(&FONT_SIZE_1_17EM),
         (NT::H3, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H3, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
@@ -597,7 +591,6 @@ pub fn get_ua_property(
         (NT::H3, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H4, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H4, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H4, PT::FontSize) => Some(&FONT_SIZE_1EM),
         (NT::H4, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H4, PT::MarginTop) => Some(&MARGIN_TOP_1_33EM),
@@ -606,7 +599,6 @@ pub fn get_ua_property(
         (NT::H4, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H5, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H5, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H5, PT::FontSize) => Some(&FONT_SIZE_0_83EM),
         (NT::H5, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H5, PT::MarginTop) => Some(&MARGIN_TOP_1_67EM),
@@ -615,7 +607,6 @@ pub fn get_ua_property(
         (NT::H5, PT::BreakAfter) => Some(&BREAK_AFTER_AVOID),
 
         (NT::H6, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::H6, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::H6, PT::FontSize) => Some(&FONT_SIZE_0_67EM),
         (NT::H6, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
         (NT::H6, PT::MarginTop) => Some(&MARGIN_TOP_2_33EM),
@@ -625,22 +616,17 @@ pub fn get_ua_property(
 
         // Lists - padding on container creates gutter for markers
         (NT::Ul, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Ul, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Ul, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DISC),
         (NT::Ul, PT::CounterReset) => Some(&COUNTER_RESET_LIST_ITEM),
         (NT::Ul, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
         (NT::Ol, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Ol, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Ol, PT::ListStyleType) => Some(&LIST_STYLE_TYPE_DECIMAL),
         (NT::Ol, PT::CounterReset) => Some(&COUNTER_RESET_LIST_ITEM),
         (NT::Ol, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
         (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
         (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Dl, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dt, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Dt, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dd, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Dd, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
@@ -663,9 +649,7 @@ pub fn get_ua_property(
 
         // Text Content
         (NT::Pre, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Pre, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::BlockQuote, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Height) => Some(&HEIGHT_ZERO),
@@ -679,7 +663,6 @@ pub fn get_ua_property(
         // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
         // Tables themselves should NOT have break-inside: avoid (they can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
-        (NT::Table, PT::Width) => Some(&WIDTH_100_PERCENT),
         // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
         (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
@@ -710,7 +693,6 @@ pub fn get_ua_property(
 
         // Form Elements
         (NT::Form, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Form, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
@@ -764,19 +746,13 @@ pub fn get_ua_property(
         // Block Container Elements
         // Per CSS Fragmentation Level 3: figures should avoid page breaks inside
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::FieldSet, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Figure, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Figure, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::FigCaption, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::FigCaption, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Details, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Details, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Summary, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Summary, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Dialog, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Table Caption
         (NT::Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
@@ -785,13 +761,11 @@ pub fn get_ua_property(
 
         // Legacy/Deprecated Elements
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Menu, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Dir, PT::Width) => Some(&WIDTH_100_PERCENT),
 
         // Generic Container
+        // NOTE: Html gets its dimensions from the Initial Containing Block, not from CSS
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Html, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // Universal fallback for display property

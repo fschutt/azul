@@ -642,6 +642,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 }
             })
             .unwrap_or(0.0);
+        
         taffy_style.flex_shrink = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
             .and_then(|p| {
@@ -849,6 +850,18 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 ) -> LayoutOutput {
     let children: Vec<usize> = tree.get(node_idx).unwrap().children.clone();
 
+    // DEBUG: Log Taffy inputs
+    if ctx.debug_messages.is_some() {
+        ctx.debug_info_inner(format!(
+            "[TAFFY INPUT] node_idx={} known_dims=({:?}, {:?}) available=({:?}, {:?}) parent_size=({:?}, {:?}) children={:?}",
+            node_idx,
+            inputs.known_dimensions.width, inputs.known_dimensions.height,
+            inputs.available_space.width, inputs.available_space.height,
+            inputs.parent_size.width, inputs.parent_size.height,
+            children
+        ));
+    }
+
     // Clear cache to force re-measure
     for &child_idx in &children {
         if let Some(child) = tree.get_mut(child_idx) {
@@ -869,6 +882,24 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
         FormattingContext::Grid => compute_grid_layout(&mut bridge, node_idx.into(), inputs),
         _ => LayoutOutput::HIDDEN,
     };
+
+    // DEBUG: Log Taffy output
+    if bridge.ctx.debug_messages.is_some() {
+        bridge.ctx.debug_info_inner(format!(
+            "[TAFFY OUTPUT] node_idx={} output_size=({:?}, {:?})",
+            node_idx, output.size.width, output.size.height
+        ));
+        
+        // Log child layout results
+        for &child_idx in &children {
+            if let Some(child) = bridge.tree.get(child_idx) {
+                bridge.ctx.debug_info_inner(format!(
+                    "[TAFFY CHILD RESULT] child_idx={} used_size={:?} relative_pos={:?}",
+                    child_idx, child.used_size, child.relative_position
+                ));
+            }
+        }
+    }
 
     output
 }
@@ -917,9 +948,52 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
+        
+        // FIX: Retrieve parent border/padding to adjust position.
+        // Taffy positions are relative to the parent's Border Box origin.
+        // Azul expects positions relative to the parent's Content Box origin.
+        // We must subtract the parent's border and padding from the Taffy-returned position.
+        let (parent_border_left, parent_border_top, parent_padding_left, parent_padding_top) = {
+            if let Some(child) = self.tree.get(node_idx) {
+                if let Some(parent_idx) = child.parent {
+                    if let Some(parent) = self.tree.get(parent_idx) {
+                        (
+                            parent.box_props.border.left,
+                            parent.box_props.border.top,
+                            parent.box_props.padding.left,
+                            parent.box_props.padding.top
+                        )
+                    } else {
+                        (0.0, 0.0, 0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0, 0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0, 0.0, 0.0)
+            }
+        };
+
         if let Some(node) = self.tree.get_mut(node_idx) {
             let size = translate_taffy_size_back(layout.size);
-            let pos = translate_taffy_point_back(layout.location);
+            let mut pos = translate_taffy_point_back(layout.location);
+            
+            // DEBUG: Log Taffy's raw layout result before adjustment
+            if self.ctx.debug_messages.is_some() {
+                self.ctx.debug_info_inner(format!(
+                    "[TAFFY set_unrounded_layout] node_idx={} taffy_size=({:.2}, {:.2}) taffy_pos=({:.2}, {:.2}) parent_border=({:.2}, {:.2}) parent_padding=({:.2}, {:.2})",
+                    node_idx, layout.size.width, layout.size.height, 
+                    layout.location.x, layout.location.y,
+                    parent_border_left, parent_border_top,
+                    parent_padding_left, parent_padding_top
+                ));
+            }
+            
+            // Subtract parent's border and padding offset to convert 
+            // from border-box-relative to content-box-relative position
+            pos.x -= parent_border_left + parent_padding_left;
+            pos.y -= parent_border_top + parent_padding_top;
+
             node.used_size = Some(size);
             node.relative_position = Some(pos);
         }
@@ -931,6 +1005,18 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         inputs: LayoutInput,
     ) -> LayoutOutput {
         let node_idx: usize = node_id.into();
+
+        // DEBUG: Log the style being used for this child
+        if self.ctx.debug_messages.is_some() {
+            let style = self.get_taffy_style(node_idx);
+            self.ctx.debug_info_inner(format!(
+                "[TAFFY compute_child_layout] node_idx={} flex_grow={} flex_shrink={} flex_basis={:?} size=({:?}, {:?}) inputs.known_dims=({:?}, {:?})",
+                node_idx, 
+                style.flex_grow, style.flex_shrink, style.flex_basis,
+                style.size.width, style.size.height,
+                inputs.known_dimensions.width, inputs.known_dimensions.height
+            ));
+        }
 
         // Get formatting context
         let fc = self
@@ -955,6 +1041,14 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
                 _ => tree.compute_non_flex_layout(node_idx, inputs),
             }
         });
+
+        // DEBUG: Log the computed result
+        if self.ctx.debug_messages.is_some() {
+            self.ctx.debug_info_inner(format!(
+                "[TAFFY compute_child_layout RESULT] node_idx={} result_size=({:?}, {:?})",
+                node_idx, result.size.width, result.size.height
+            ));
+        }
 
         // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
         if let Some(node) = self.tree.get_mut(node_idx) {

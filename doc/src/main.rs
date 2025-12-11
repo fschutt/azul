@@ -1250,7 +1250,12 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    memtest dll                   - Generate DLL API definitions for include!()");
     println!();
     println!("  TESTING:");
-    println!("    reftest [open]                - Run reftests and optionally open report");
+    println!("    reftest                       - Run all reftests");
+    println!("    reftest open                  - Run all reftests and open report in browser");
+    println!("    reftest <test_name>           - Run a single reftest by name");
+    println!("    reftest headless <test_name>  - Run single test without Chrome reference");
+    println!("    debug <test_name>             - Debug test with Gemini LLM analysis");
+    println!("    debug <test_name> <question>  - Debug test with specific question for LLM");
     println!();
     println!("  DEPLOYMENT:");
     println!("    deploy                        - Build and deploy the Azul library");
