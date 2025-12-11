@@ -107,6 +107,9 @@ jobs:
       - name: Run Miri tests on RefAny
         run: cargo +nightly miri test --lib -p azul-core
 
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc memtest dll
+
       - name: Run memtest
         run: cargo run -r -p azul-doc memtest run
 
@@ -291,6 +294,9 @@ jobs:
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc memtest dll
 
       - name: Generate C header for syntax check (Linux)
         if: matrix.os == 'ubuntu-latest'

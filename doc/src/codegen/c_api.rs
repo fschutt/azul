@@ -17,6 +17,59 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
+/// Convert a Rust type (possibly with pointer prefix) to a C type.
+/// 
+/// Handles types like "*mut c_void" -> "void*", "*const InstantPtr" -> "const AzInstantPtr*"
+fn rust_type_to_c_type(rust_type: &str, ref_kind: RefKind) -> String {
+    let trimmed = rust_type.trim();
+    
+    // Check if the type itself contains pointer syntax (e.g., "*mut c_void")
+    let (ptr_prefix, base_type) = if trimmed.starts_with("*mut ") {
+        ("*", trimmed.strip_prefix("*mut ").unwrap().trim())
+    } else if trimmed.starts_with("*const ") {
+        ("const *", trimmed.strip_prefix("*const ").unwrap().trim())
+    } else if trimmed.starts_with("* mut ") {
+        ("*", trimmed.strip_prefix("* mut ").unwrap().trim())
+    } else if trimmed.starts_with("* const ") {
+        ("const *", trimmed.strip_prefix("* const ").unwrap().trim())
+    } else {
+        ("", trimmed)
+    };
+    
+    // Convert the base type to C
+    let c_base_type = if is_primitive_arg(base_type) {
+        replace_primitive_ctype(base_type)
+    } else {
+        format!("{}{}", PREFIX, base_type)
+    };
+    
+    // If the type itself had pointer syntax, apply it
+    let with_embedded_ptr = if !ptr_prefix.is_empty() {
+        if ptr_prefix == "const *" {
+            format!("const {}*", c_base_type)
+        } else {
+            format!("{}*", c_base_type)
+        }
+    } else {
+        c_base_type
+    };
+    
+    // Apply ref_kind only if there was no embedded pointer
+    if !ptr_prefix.is_empty() {
+        // Type already has pointer, ref_kind should be Value
+        with_embedded_ptr
+    } else {
+        match ref_kind {
+            RefKind::Ref => format!("const {}*", with_embedded_ptr),
+            RefKind::RefMut => format!("{}* restrict", with_embedded_ptr),
+            RefKind::ConstPtr => format!("const {}*", with_embedded_ptr),
+            RefKind::MutPtr => format!("{}*", with_embedded_ptr),
+            RefKind::Value => with_embedded_ptr,
+            RefKind::Boxed | RefKind::OptionBoxed => format!("{}*", with_embedded_ptr),
+        }
+    }
+}
+
 /// Generate a C function pointer typedef from a CallbackDefinition
 /// 
 /// Example output: `typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict, AzCallbackInfo* restrict);`
@@ -26,36 +79,16 @@ fn format_c_callback_typedef(
     callback_name: &str,
     callback_def: &CallbackDefinition,
 ) -> String {
-    // Determine return type
+    // Determine return type - returns don't have ref_kind, so use Value
     let return_type = if let Some(ret) = &callback_def.returns {
-        let base = &ret.r#type;
-        if is_primitive_arg(base) {
-            replace_primitive_ctype(base).to_string()
-        } else {
-            format!("{}{}", PREFIX, base)
-        }
+        rust_type_to_c_type(&ret.r#type, RefKind::Value)
     } else {
         "void".to_string()
     };
     
     // Build argument list
     let args: Vec<String> = callback_def.fn_args.iter().map(|arg| {
-        let base_type = &arg.r#type;
-        let c_type = if is_primitive_arg(base_type) {
-            replace_primitive_ctype(base_type).to_string()
-        } else {
-            format!("{}{}", PREFIX, base_type)
-        };
-        
-        // Convert ref_kind to C pointer syntax
-        match arg.ref_kind {
-            RefKind::Ref => format!("const {}*", c_type),
-            RefKind::RefMut => format!("{}* restrict", c_type),
-            RefKind::ConstPtr => format!("const {}*", c_type),
-            RefKind::MutPtr => format!("{}*", c_type),
-            RefKind::Value => c_type,
-            RefKind::Boxed | RefKind::OptionBoxed => format!("{}*", c_type),
-        }
+        rust_type_to_c_type(&arg.r#type, arg.ref_kind)
     }).collect();
     
     let args_str = if args.is_empty() {

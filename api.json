@@ -32962,47 +32962,6 @@
                 "fn_body": "azul_layout::xml::svg::ParsedSvg::from_bytes(svg_bytes.as_slice(), parse_options).map(|s| s.into()).into()"
               }
             },
-            "functions": {
-              "get_root": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "SvgXmlNode"
-                },
-                "fn_body": "svg.get_root()"
-              },
-              "render": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "options": "SvgRenderOptions"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionRawImage"
-                },
-                "fn_body": "svg.render(options).into()"
-              },
-              "to_string": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "options": "SvgXmlOptions"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "svg.to_string(options).into()"
-              }
-            },
             "repr": "C"
           },
           "SvgMultiPolygon": {
