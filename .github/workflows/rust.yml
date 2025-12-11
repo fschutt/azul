@@ -56,17 +56,6 @@ jobs:
         with:
           toolchain: 1.86.0 # Pinning version for consistency
 
-      - name: Generate DLL API bindings
-        run: |
-          cargo run -r -p azul-doc memtest dll
-
-      - name: Check crates
-        run: |
-          cargo check -p azul-css
-          cargo check -p azul-core
-          cargo check -p azul-layout
-          cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
-
       - name: Run autofix and normalize
         run: |
           cargo run -r -p azul-doc autofix
@@ -84,6 +73,17 @@ jobs:
           else
             echo "No uncommitted changes after autofix."
           fi
+
+      - name: Generate DLL API bindings
+        run: |
+          cargo run -r -p azul-doc memtest dll
+
+      - name: Check crates
+        run: |
+          cargo check -p azul-css
+          cargo check -p azul-core
+          cargo check -p azul-layout
+          cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
 
   test_heavy:
     name: Run Heavy Tests
