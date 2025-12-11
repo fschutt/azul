@@ -863,6 +863,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 
     let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
     let node = bridge.tree.get(node_idx).unwrap();
+    
     let output = match node.formatting_context {
         FormattingContext::Flex => compute_flexbox_layout(&mut bridge, node_idx.into(), inputs),
         FormattingContext::Grid => compute_grid_layout(&mut bridge, node_idx.into(), inputs),
@@ -1106,9 +1107,34 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     Some(content_w) => content_w + padding_width + border_width,
                     None => border_box_width,
                 };
+                
+                // For grid items: if known_dimensions.height is None but available_space.height 
+                // is definite, use the available space. This ensures empty grid items stretch 
+                // to fill their grid cell, per CSS Grid spec behavior.
                 let final_height = match inputs.known_dimensions.height {
                     Some(content_h) => content_h + padding_height + border_height,
-                    None => border_box_height,
+                    None => {
+                        // Check if parent is a grid container and available_space is definite
+                        let parent_is_grid = self.tree.get(node_idx)
+                            .and_then(|n| n.parent)
+                            .and_then(|p| self.tree.get(p))
+                            .map(|p| matches!(p.formatting_context, FormattingContext::Grid))
+                            .unwrap_or(false);
+                        
+                        if parent_is_grid {
+                            // For grid items, use available space if content is smaller
+                            match inputs.available_space.height {
+                                AvailableSpace::Definite(h) => {
+                                    // Grid items stretch to fill their cell by default
+                                    // Use the larger of content size or available space
+                                    h.max(border_box_height)
+                                }
+                                _ => border_box_height,
+                            }
+                        } else {
+                            border_box_height
+                        }
+                    }
                 };
 
                 // CRITICAL: Transfer positions from layout_formatting_context to child nodes.

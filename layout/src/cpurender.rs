@@ -639,20 +639,40 @@ fn render_border(
         None => return Ok(()),
     };
 
-    let mut paint = Paint::default();
-    paint.set_color(Color::from_rgba8(color.r, color.g, color.b, color.a));
-    paint.anti_alias = true;
-
     let scaled_width = width * dpi_factor;
+    let mut pb = PathBuilder::new();
 
-    // Build outer path
-    let outer_path = if border_radius.is_zero() {
-        build_rect_path(rect, border_radius, dpi_factor)
+    // 1. Add Outer Path
+    let x = rect.x();
+    let y = rect.y();
+    let w = rect.width();
+    let h = rect.height();
+
+    if border_radius.is_zero() {
+        pb.move_to(x, y);
+        pb.line_to(x + w, y);
+        pb.line_to(x + w, y + h);
+        pb.line_to(x, y + h);
+        pb.close();
     } else {
-        build_rounded_rect_path(rect, border_radius, dpi_factor)
-    };
+        let tl = border_radius.top_left * dpi_factor;
+        let tr = border_radius.top_right * dpi_factor;
+        let br = border_radius.bottom_right * dpi_factor;
+        let bl = border_radius.bottom_left * dpi_factor;
 
-    // Build inner path (shrunk by border width)
+        pb.move_to(x + tl, y);
+        pb.line_to(x + w - tr, y);
+        if tr > 0.0 { pb.quad_to(x + w, y, x + w, y + tr); }
+        pb.line_to(x + w, y + h - br);
+        if br > 0.0 { pb.quad_to(x + w, y + h, x + w - br, y + h); }
+        pb.line_to(x + bl, y + h);
+        if bl > 0.0 { pb.quad_to(x, y + h, x, y + h - bl); }
+        pb.line_to(x, y + tl);
+        if tl > 0.0 { pb.quad_to(x, y, x + tl, y); }
+        pb.close();
+    }
+
+    // 2. Add Inner Path (wound in same direction - EvenOdd fill will create the hole)
     let inner_rect = Rect::from_xywh(
         rect.x() + scaled_width,
         rect.y() + scaled_width,
@@ -660,40 +680,45 @@ fn render_border(
         rect.height() - 2.0 * scaled_width,
     );
 
-    let inner_path = if let Some(ir) = inner_rect {
-        if border_radius.is_zero() {
-            build_rect_path(ir, border_radius, dpi_factor)
-        } else {
-            let inner_radius = BorderRadius {
-                top_left: (border_radius.top_left * dpi_factor - scaled_width).max(0.0),
-                top_right: (border_radius.top_right * dpi_factor - scaled_width).max(0.0),
-                bottom_left: (border_radius.bottom_left * dpi_factor - scaled_width).max(0.0),
-                bottom_right: (border_radius.bottom_right * dpi_factor - scaled_width).max(0.0),
-            };
-            build_rounded_rect_path(ir, &inner_radius, 1.0) // dpi already applied
-        }
-    } else {
-        return Ok(()); // Border too thick for rect
-    };
+    if let Some(ir) = inner_rect {
+        let ix = ir.x();
+        let iy = ir.y();
+        let iw = ir.width();
+        let ih = ir.height();
 
-    // Render outer path
-    if let Some(op) = outer_path {
-        pixmap.fill_path(&op, &paint, FillRule::Winding, Transform::identity(), None);
+        if border_radius.is_zero() {
+            pb.move_to(ix, iy);
+            pb.line_to(ix + iw, iy);
+            pb.line_to(ix + iw, iy + ih);
+            pb.line_to(ix, iy + ih);
+            pb.close();
+        } else {
+            // Inner radius is max(0, outer - width)
+            let tl = (border_radius.top_left * dpi_factor - scaled_width).max(0.0);
+            let tr = (border_radius.top_right * dpi_factor - scaled_width).max(0.0);
+            let br = (border_radius.bottom_right * dpi_factor - scaled_width).max(0.0);
+            let bl = (border_radius.bottom_left * dpi_factor - scaled_width).max(0.0);
+
+            pb.move_to(ix + tl, iy);
+            pb.line_to(ix + iw - tr, iy);
+            if tr > 0.0 { pb.quad_to(ix + iw, iy, ix + iw, iy + tr); }
+            pb.line_to(ix + iw, iy + ih - br);
+            if br > 0.0 { pb.quad_to(ix + iw, iy + ih, ix + iw - br, iy + ih); }
+            pb.line_to(ix + bl, iy + ih);
+            if bl > 0.0 { pb.quad_to(ix, iy + ih, ix, iy + ih - bl); }
+            pb.line_to(ix, iy + tl);
+            if tl > 0.0 { pb.quad_to(ix, iy, ix + tl, iy); }
+            pb.close();
+        }
     }
 
-    // "Erase" inner path by drawing it in the background color
-    // Note: This is a simplification. A proper implementation would use path subtraction.
-    if let Some(ip) = inner_path {
-        let mut bg_paint = Paint::default();
-        bg_paint.set_color(Color::from_rgba8(255, 255, 255, 255)); // White background
-        bg_paint.anti_alias = true;
-        pixmap.fill_path(
-            &ip,
-            &bg_paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
+    // 3. Fill with EvenOdd to create the hole (inner path becomes transparent)
+    let mut paint = Paint::default();
+    paint.set_color(Color::from_rgba8(color.r, color.g, color.b, color.a));
+    paint.anti_alias = true;
+
+    if let Some(path) = pb.finish() {
+        pixmap.fill_path(&path, &paint, FillRule::EvenOdd, Transform::identity(), None);
     }
 
     Ok(())

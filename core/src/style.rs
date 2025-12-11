@@ -289,11 +289,23 @@ pub fn construct_html_cascade_tree(
 /// TODO: This is wrong, but it's fast
 #[inline]
 pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
+    // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
+    // vs "structural" (based on DOM structure only)
+    fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
+        matches!(p, 
+            CssPathPseudoSelector::Hover | 
+            CssPathPseudoSelector::Active | 
+            CssPathPseudoSelector::Focus
+        )
+    }
+    
     match target {
         None => match path.selectors.as_ref().last() {
             None => false,
             Some(q) => match q {
-                CssPathSelector::PseudoSelector(_) => false,
+                // Only reject interactive pseudo-selectors (hover, active, focus)
+                // Structural pseudo-selectors (nth-child, first, last) should be allowed
+                CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
                 _ => true,
             },
         },
@@ -365,6 +377,7 @@ pub fn selector_group_matches(
                     CssPathPseudoSelector::NthChild(x) => {
                         use azul_css::css::CssNthChildPattern;
                         let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
+                        
                         match *x {
                             Number(value) => {
                                 if index_in_parent != value {
@@ -372,19 +385,24 @@ pub fn selector_group_matches(
                                 }
                             }
                             Even => {
-                                if index_in_parent % 2 == 0 {
+                                // nth-child(even) matches 2, 4, 6, ... (index % 2 == 0)
+                                if index_in_parent % 2 != 0 {
                                     return false;
                                 }
                             }
                             Odd => {
-                                if index_in_parent % 2 == 1 {
+                                // nth-child(odd) matches 1, 3, 5, ... (index % 2 == 1)
+                                if index_in_parent % 2 != 1 {
                                     return false;
                                 }
                             }
                             Pattern(CssNthChildPattern { repeat, offset }) => {
-                                if index_in_parent >= offset
-                                    && ((index_in_parent - offset) % repeat != 0)
-                                {
+                                let matches = if repeat == 0 {
+                                    index_in_parent == offset
+                                } else {
+                                    index_in_parent >= offset && ((index_in_parent - offset) % repeat == 0)
+                                };
+                                if !matches {
                                     return false;
                                 }
                             }

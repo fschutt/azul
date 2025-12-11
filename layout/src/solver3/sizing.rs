@@ -90,28 +90,23 @@ use crate::{
 ///
 /// # CSS Specification
 ///
-/// From CSS 2.1 Section 10.3.3 (Block-level, non-replaced elements in normal flow):
-/// > 'margin-left' + 'border-left-width' + 'padding-left' + 'width' +
-/// > 'padding-right' + 'border-right-width' + 'margin-right' = width of containing block
+/// From CSS 2.1 Section 10.2: "If the width is set to a percentage, it is calculated
+/// with respect to the width of the generated box's containing block."
 ///
-/// This function ensures that when `width` is a percentage, it resolves to a value that
-/// satisfies this constraint.
+/// The percentage is resolved against the containing block dimension directly.
+/// Margins, borders, and padding are NOT subtracted from the base for percentage
+/// resolution in content-box sizing. They may cause overflow if the total exceeds
+/// the containing block width.
 pub fn resolve_percentage_with_box_model(
     containing_block_dimension: f32,
     percentage: f32,
-    margins: (f32, f32),
-    borders: (f32, f32),
-    paddings: (f32, f32),
+    _margins: (f32, f32),
+    _borders: (f32, f32),
+    _paddings: (f32, f32),
 ) -> f32 {
-    let available = containing_block_dimension
-        - margins.0
-        - margins.1
-        - borders.0
-        - borders.1
-        - paddings.0
-        - paddings.1;
-
-    (percentage * available).max(0.0)
+    // CSS 2.1 Section 10.2: percentages resolve against containing block,
+    // not available space after margins/borders/padding
+    (containing_block_dimension * percentage).max(0.0)
 }
 
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
@@ -1135,7 +1130,8 @@ mod tests {
     fn test_resolve_percentage_with_box_model_with_margins() {
         // Body element: width: 100%, margin: 20px
         // Containing block (html): 595px wide
-        // Expected: 595 - 20 - 20 = 555px
+        // CSS spec: percentage resolves against containing block, NOT available space
+        // Expected: 595px (margins are ignored for percentage resolution)
         let result = resolve_percentage_with_box_model(
             595.0,
             1.0, // 100%
@@ -1143,14 +1139,15 @@ mod tests {
             (0.0, 0.0),
             (0.0, 0.0),
         );
-        assert_eq!(result, 555.0);
+        assert_eq!(result, 595.0);
     }
 
     #[test]
     fn test_resolve_percentage_with_box_model_with_all_box_properties() {
         // Element with margin: 10px, border: 5px, padding: 8px
         // width: 100% of 500px container
-        // Expected: 500 - 10 - 10 - 5 - 5 - 8 - 8 = 454px
+        // CSS spec: percentage resolves against containing block
+        // Expected: 500px (margins/borders/padding are ignored)
         let result = resolve_percentage_with_box_model(
             500.0,
             1.0, // 100%
@@ -1158,14 +1155,14 @@ mod tests {
             (5.0, 5.0),
             (8.0, 8.0),
         );
-        assert_eq!(result, 454.0);
+        assert_eq!(result, 500.0);
     }
 
     #[test]
     fn test_resolve_percentage_with_box_model_50_percent() {
-        // 50% of 600px with 20px margins on each side
-        // Available: 600 - 20 - 20 = 560px
-        // 50% of 560 = 280px
+        // 50% of 600px containing block
+        // CSS spec: 50% of containing block = 300px
+        // (margins don't affect percentage resolution)
         let result = resolve_percentage_with_box_model(
             600.0,
             0.5, // 50%
@@ -1173,18 +1170,15 @@ mod tests {
             (0.0, 0.0),
             (0.0, 0.0),
         );
-        assert_eq!(result, 280.0);
+        assert_eq!(result, 300.0);
     }
 
     #[test]
     fn test_resolve_percentage_with_box_model_asymmetric() {
         // Asymmetric margins/borders/paddings
         // Container: 1000px
-        // Left margin: 100px, Right margin: 50px
-        // Left border: 10px, Right border: 20px
-        // Left padding: 5px, Right padding: 15px
-        // Available: 1000 - 100 - 50 - 10 - 20 - 5 - 15 = 800px
-        // 100% = 800px
+        // CSS spec: percentage resolves against containing block
+        // 100% of 1000px = 1000px (margins/borders/padding ignored)
         let result = resolve_percentage_with_box_model(
             1000.0,
             1.0,
@@ -1192,21 +1186,22 @@ mod tests {
             (10.0, 20.0),
             (5.0, 15.0),
         );
-        assert_eq!(result, 800.0);
+        assert_eq!(result, 1000.0);
     }
 
     #[test]
     fn test_resolve_percentage_with_box_model_negative_clamping() {
         // Edge case: margins larger than container
-        // Should clamp to 0, not return negative
+        // CSS spec: percentage still resolves against containing block
+        // Result should still be 100px (100% of 100px)
         let result = resolve_percentage_with_box_model(
             100.0,
             1.0,
-            (60.0, 60.0), // Total margins = 120px > 100px container
+            (60.0, 60.0), // margins ignored for percentage resolution
             (0.0, 0.0),
             (0.0, 0.0),
         );
-        assert_eq!(result, 0.0);
+        assert_eq!(result, 100.0);
     }
 
     #[test]
