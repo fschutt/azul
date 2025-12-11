@@ -126,7 +126,10 @@ impl SvgLine {
         offset / self.get_length()
     }
 
-    pub fn get_tangent_vector_at_t(&self, _: f64) -> SvgVector {
+    /// Returns the tangent vector of the line.
+    /// For a line, the tangent is constant (same direction everywhere),
+    /// so no `t` parameter is needed.
+    pub fn get_tangent_vector_at_t(&self) -> SvgVector {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
         SvgVector {
@@ -239,7 +242,7 @@ impl SvgPathElement {
     }
     pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         match self {
-            SvgPathElement::Line(l) => l.get_tangent_vector_at_t(t),
+            SvgPathElement::Line(l) => l.get_tangent_vector_at_t(),
             SvgPathElement::QuadraticCurve(qc) => qc.get_tangent_vector_at_t(t),
             SvgPathElement::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
         }

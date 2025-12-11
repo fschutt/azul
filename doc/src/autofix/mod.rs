@@ -90,7 +90,12 @@ pub fn autofix_api(
     let (diff, index) = analyze_api_diff(project_root, api_data, verbose)?;
     
     // Check FFI safety only for types that exist in api.json
-    let ffi_warnings = check_ffi_safety(&index, api_data);
+    let mut ffi_warnings = check_ffi_safety(&index, api_data);
+    
+    // Also check documentation for invalid characters
+    let doc_warnings = check_doc_characters(api_data);
+    ffi_warnings.extend(doc_warnings);
+    
     print_ffi_safety_warnings(&ffi_warnings);
     
     // Count only critical errors (not informational warnings)
@@ -107,7 +112,7 @@ pub fn autofix_api(
     // Print info about non-critical warnings
     let info_warnings = ffi_warnings.len() - critical_errors.len();
     if info_warnings > 0 {
-        println!("\n{} {} informational warnings (non-blocking)", "ℹ".blue(), info_warnings);
+        println!("\n{} {} informational warnings (non-blocking)", "i".blue(), info_warnings);
     }
 
     // Report results
@@ -902,6 +907,14 @@ pub enum FfiSafetyWarningKind {
         field_name: String,
         array_type: String,
     },
+    /// Documentation contains invalid characters (emojis, non-ASCII symbols)
+    /// These cause encoding issues in generated code and should use ASCII only
+    InvalidDocCharacter {
+        location: String,
+        invalid_char: char,
+        char_code: u32,
+        context: String,
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -917,6 +930,7 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::NonCReprEnum { .. } => true,
             FfiSafetyWarningKind::DuplicateTypeName { .. } => true,
             FfiSafetyWarningKind::BoxCVoidField { .. } => true,
+            FfiSafetyWarningKind::InvalidDocCharacter { .. } => true,
             // Informational only - array types are now handled correctly
             FfiSafetyWarningKind::ArrayTypeField { .. } => false,
         }
@@ -1205,7 +1219,150 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 println!("    {} Verify that extract_array_from_type() handles this type.", "CHECK:".cyan());
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
+            FfiSafetyWarningKind::InvalidDocCharacter { location, invalid_char, char_code, context } => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!("    {} Invalid character '{}' (U+{:04X}) in documentation", 
+                    "→".dimmed(), invalid_char, char_code);
+                println!("    {} Location: {}", "AT:".magenta(), location.yellow());
+                println!("    {} \"{}\"", "CONTEXT:".dimmed(), context.dimmed());
+                println!("    {} Use ASCII-only characters in documentation. Replace with text equivalent.", "FIX:".cyan());
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
         }
         println!();
     }
+}
+
+/// Check for invalid characters in documentation strings
+/// Returns warnings for any non-ASCII characters that could cause encoding issues
+pub fn check_doc_characters(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
+    let mut warnings = Vec::new();
+    
+    // Characters that are not allowed in documentation
+    // We allow basic ASCII printable characters (0x20-0x7E), newlines, tabs
+    fn is_valid_doc_char(c: char) -> bool {
+        matches!(c, ' '..='~' | '\n' | '\r' | '\t')
+    }
+    
+    // Find the first invalid character and some context around it
+    fn find_invalid_char(text: &str) -> Option<(char, u32, String)> {
+        for (i, c) in text.char_indices() {
+            if !is_valid_doc_char(c) {
+                // Get context: up to 20 chars before and after
+                let start = text[..i].chars().rev().take(20).collect::<String>().chars().rev().collect::<String>();
+                let end: String = text[i..].chars().skip(1).take(20).collect();
+                let context = format!("...{}[{}]{}...", start, c, end);
+                return Some((c, c as u32, context));
+            }
+        }
+        None
+    }
+    
+    for (_version_key, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            // Check module documentation
+            if let Some(doc_lines) = &module_data.doc {
+                let doc_text = doc_lines.join("\n");
+                if let Some((invalid_char, char_code, context)) = find_invalid_char(&doc_text) {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: format!("module:{}", module_name),
+                        file_path: format!("api.json - {}.doc", module_name),
+                        kind: FfiSafetyWarningKind::InvalidDocCharacter {
+                            location: format!("module {} documentation", module_name),
+                            invalid_char,
+                            char_code,
+                            context,
+                        },
+                    });
+                }
+            }
+            
+            // Check class documentation and functions
+            for (class_name, class_data) in &module_data.classes {
+                // Check class doc
+                if let Some(doc_lines) = &class_data.doc {
+                    let doc_text = doc_lines.join("\n");
+                    if let Some((invalid_char, char_code, context)) = find_invalid_char(&doc_text) {
+                        warnings.push(FfiSafetyWarning {
+                            type_name: class_name.clone(),
+                            file_path: format!("api.json - {}.{}.doc", module_name, class_name),
+                            kind: FfiSafetyWarningKind::InvalidDocCharacter {
+                                location: format!("{}.{} class documentation", module_name, class_name),
+                                invalid_char,
+                                char_code,
+                                context,
+                            },
+                        });
+                    }
+                }
+                
+                // Check struct fields documentation
+                if let Some(fields_vec) = &class_data.struct_fields {
+                    for field_map in fields_vec {
+                        for (field_name, field_data) in field_map {
+                            if let Some(doc_lines) = &field_data.doc {
+                                let doc_text = doc_lines.join("\n");
+                                if let Some((invalid_char, char_code, context)) = find_invalid_char(&doc_text) {
+                                    warnings.push(FfiSafetyWarning {
+                                        type_name: class_name.clone(),
+                                        file_path: format!("api.json - {}.{}.{}", module_name, class_name, field_name),
+                                        kind: FfiSafetyWarningKind::InvalidDocCharacter {
+                                            location: format!("{}.{}.{} field documentation", module_name, class_name, field_name),
+                                            invalid_char,
+                                            char_code,
+                                            context,
+                                        },
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Check function documentation
+                if let Some(functions) = &class_data.functions {
+                    for (fn_name, fn_data) in functions {
+                        if let Some(doc_lines) = &fn_data.doc {
+                            let doc_text = doc_lines.join("\n");
+                            if let Some((invalid_char, char_code, context)) = find_invalid_char(&doc_text) {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: format!("api.json - {}.{}.{}", module_name, class_name, fn_name),
+                                    kind: FfiSafetyWarningKind::InvalidDocCharacter {
+                                        location: format!("{}.{}.{} function documentation", module_name, class_name, fn_name),
+                                        invalid_char,
+                                        char_code,
+                                        context,
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                // Check constructor documentation
+                if let Some(constructors) = &class_data.constructors {
+                    for (ctor_name, ctor_data) in constructors {
+                        if let Some(doc_lines) = &ctor_data.doc {
+                            let doc_text = doc_lines.join("\n");
+                            if let Some((invalid_char, char_code, context)) = find_invalid_char(&doc_text) {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: format!("api.json - {}.{}.{}", module_name, class_name, ctor_name),
+                                    kind: FfiSafetyWarningKind::InvalidDocCharacter {
+                                        location: format!("{}.{}.{} constructor documentation", module_name, class_name, ctor_name),
+                                        invalid_char,
+                                        char_code,
+                                        context,
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    warnings
 }

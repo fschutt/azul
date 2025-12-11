@@ -755,9 +755,18 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                     (None, None)
                 };
                 
-                // Extract type alias
+                // Extract type alias - reconstruct full type including pointer prefix from ref_kind
                 let (type_alias_target, type_alias_generic_args) = match &class_data.type_alias {
-                    Some(ta) => (Some(ta.target.clone()), ta.generic_args.clone()),
+                    Some(ta) => {
+                        // Reconstruct full type: ref_kind + target
+                        let full_target = match ta.ref_kind {
+                            crate::api::RefKind::ConstPtr => format!("*const {}", ta.target),
+                            crate::api::RefKind::MutPtr => format!("*mut {}", ta.target),
+                            crate::api::RefKind::Value => ta.target.clone(),
+                            _ => ta.target.clone(), // For other ref kinds, just use target
+                        };
+                        (Some(full_target), ta.generic_args.clone())
+                    }
                     None => (None, Vec::new()),
                 };
                 

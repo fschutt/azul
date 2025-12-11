@@ -953,7 +953,7 @@ pub fn svg_node_contains_point(
             path_contains_point(a, point, fill_rule, tolerance)
         }
         SvgNode::Circle(a) => a.contains_point(point.x, point.y),
-        SvgNode::Rect(a) => a.contains_point(point.x, point.y),
+        SvgNode::Rect(a) => a.contains_point(point),
         SvgNode::MultiShape(a) => a.as_ref().iter().any(|e| match e {
             SvgSimpleNode::Path(a) => {
                 if !a.is_closed() {
@@ -962,9 +962,9 @@ pub fn svg_node_contains_point(
                 path_contains_point(a, point, fill_rule, tolerance)
             }
             SvgSimpleNode::Circle(a) => a.contains_point(point.x, point.y),
-            SvgSimpleNode::Rect(a) => a.contains_point(point.x, point.y),
+            SvgSimpleNode::Rect(a) => a.contains_point(point),
             SvgSimpleNode::CircleHole(a) => !a.contains_point(point.x, point.y),
-            SvgSimpleNode::RectHole(a) => !a.contains_point(point.x, point.y),
+            SvgSimpleNode::RectHole(a) => !a.contains_point(point),
         }),
     }
 }

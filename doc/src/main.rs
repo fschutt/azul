@@ -695,7 +695,8 @@ fn main() -> anyhow::Result<()> {
             println!("[CHECK] Running FFI safety checks...\n");
             let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
                 ?;
-            let ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            ffi_warnings.extend(autofix::check_doc_characters(&api_data));
             if !ffi_warnings.is_empty() {
                 autofix::print_ffi_safety_warnings(&ffi_warnings);
                 eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());
@@ -732,7 +733,8 @@ fn main() -> anyhow::Result<()> {
             println!("[CHECK] Running FFI safety checks...\n");
             let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
                 ?;
-            let ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
+            ffi_warnings.extend(autofix::check_doc_characters(&api_data));
             if !ffi_warnings.is_empty() {
                 autofix::print_ffi_safety_warnings(&ffi_warnings);
                 eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());

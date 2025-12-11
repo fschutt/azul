@@ -306,19 +306,19 @@ impl IFrameCallbackInfo {
 /// ## Window Resize Example
 ///
 /// ```text
-/// Frame 0: IFrame bounds = 800×600, scroll_size = 800×600 (perfectly covered)
-/// Frame 1: Window resizes to 1000×700 (larger)
-///   -> IFrame bounds = 1000×700
-///   -> Bounds no longer fully covered by scroll_size (800×600)
-///   -> ✅ RE-INVOKE callback once
+/// Frame 0: IFrame bounds = 800x600, scroll_size = 800x600 (perfectly covered)
+/// Frame 1: Window resizes to 1000x700 (larger)
+///   -> IFrame bounds = 1000x700
+///   -> Bounds no longer fully covered by scroll_size (800x600)
+///   -> [OK] RE-INVOKE callback once
 ///   
-/// Frame 2: Window resizes to 1100×800 (even larger)
-///   -> If callback returned scroll_size = 1100×800, fully covered again
+/// Frame 2: Window resizes to 1100x800 (even larger)
+///   -> If callback returned scroll_size = 1100x800, fully covered again
 ///   -> Do NOT re-invoke (content covers new bounds)
-///   -> If callback returned scroll_size = 1000×700, not fully covered
+///   -> If callback returned scroll_size = 1000x700, not fully covered
 ///   -> RE-INVOKE again (new uncovered area)
 ///
-/// Frame 3: Window resizes to 900×650 (smaller)
+/// Frame 3: Window resizes to 900x650 (smaller)
 ///   -> Bounds now smaller than scroll_size
 ///   -> Do NOT re-invoke (content is just clipped by scrollbars)
 /// ```
@@ -326,19 +326,19 @@ impl IFrameCallbackInfo {
 /// ## Scroll Near Edge Example
 ///
 /// ```text
-/// scroll_size = 1000×2000 (width × height)
-/// Container = 800×600
+/// scroll_size = 1000x2000 (width x height)
+/// Container = 800x600
 /// Threshold = 200px
-/// Current scroll_offset = 0×0
+/// Current scroll_offset = 0x0
 ///
-/// User scrolls to scroll_offset = 0×1500:
+/// User scrolls to scroll_offset = 0x1500:
 ///   -> Bottom edge at 1500 + 600 = 2100
 ///   -> Within 200px of scroll_size.height (2000)
 ///   -> Distance from edge: 2100 - 2000 = 100px < 200px
-///   -> ✅ RE-INVOKE callback to load more content
+///   -> [OK] RE-INVOKE callback to load more content
 ///
 /// Callback returns:
-///   -> New scroll_size = 1000×4000 (doubled)
+///   -> New scroll_size = 1000x4000 (doubled)
 ///   -> Flag reset (edge no longer near)
 ///   -> User continues scrolling without re-invoke until near new edge
 /// ```
@@ -501,7 +501,7 @@ pub struct IFrameCallbackReturn {
     /// `virtual_scroll_size` if only a subset of content is rendered (virtualization).
     ///
     /// **Example**: For a table showing rows 10-30, this might be 600px tall
-    /// (20 rows × 30px each).
+    /// (20 rows x 30px each).
     pub scroll_size: LogicalSize,
 
     /// Offset of the actual rendered content within the virtual coordinate space.
@@ -520,7 +520,7 @@ pub struct IFrameCallbackReturn {
     /// `scroll_size` to enable lazy loading and virtualization.
     ///
     /// **Example**: For a 1000-row table, this might be 30,000px tall
-    /// (1000 rows × 30px each), even though only 20 rows are actually rendered.
+    /// (1000 rows x 30px each), even though only 20 rows are actually rendered.
     pub virtual_scroll_size: LogicalSize,
 
     /// Offset of the virtual content (usually zero).

@@ -112,8 +112,8 @@ impl SvgRect {
 
     /// Note: does not incorporate rounded edges!
     /// Origin of x and y is assumed to be the top left corner
-    pub fn contains_point(&self, x: f32, y: f32) -> bool {
-        x > self.x && x < self.x + self.width && y > self.y && y < self.y + self.height
+    pub fn contains_point(&self, point: SvgPoint) -> bool {
+        point.x > self.x && point.x < self.x + self.width && point.y > self.y && point.y < self.y + self.height
     }
 
     /// Expands the rect with a certain amount of padding
