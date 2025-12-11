@@ -5150,26 +5150,6 @@
             ],
             "repr": "C"
           },
-          "SvgXmlNode": {
-            "external": "azul_core::svg::SvgXmlNode",
-            "is_boxed_object": true,
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "node": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "run_destructor": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "CoreCallbackData": {
             "external": "azul_core::callbacks::CoreCallbackData",
             "derive": [
@@ -35008,6 +34988,11 @@
           },
           "ParsedSvg": {
             "external": "azul_layout::xml::svg::ParsedSvg",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Drop"
+            ],
             "struct_fields": [
               {
                 "tree": {
@@ -35110,6 +35095,10 @@
           "ParsedSvgXmlNode": {
             "external": "azul_layout::xml::svg::ParsedSvgXmlNode",
             "is_boxed_object": true,
+            "custom_impls": [
+              "Clone",
+              "Drop"
+            ],
             "derive": [
               "Debug"
             ],
