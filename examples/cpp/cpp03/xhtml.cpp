@@ -1,13 +1,14 @@
-// XHTML Example - C
-// cc -o xhtml xhtml.c -lazul
+// XHTML Example - C++03
+// g++ -std=c++03 -o xhtml xhtml.cpp -lazul
 
-#include <azul.h>
+#include <azul.hpp>
+using namespace azul;
 
-typedef struct { int x; } AppData;
-void AppData_destructor(AppData* p) { }
+struct AppData { int x; };
+void AppData_destructor(AppData*) { }
 AZ_REFLECT(AppData, AppData_destructor);
 
-static const AzString XHTML = AzString_fromConstStr(
+static const char* XHTML = 
     "<body style='display:flex; flex-direction:column; width:100%; height:100%; padding:40px;'>"
     "  <h1 style='color:#ecf0f1; font-size:48px;'>XHTML Demo</h1>"
     "  <p style='color:#bdc3c7; font-size:18px;'>Loaded from XHTML string</p>"
@@ -16,23 +17,22 @@ static const AzString XHTML = AzString_fromConstStr(
     "    <div style='width:200px; height:150px; background:#e74c3c; border-radius:10px;'/>"
     "    <div style='width:200px; height:150px; background:#2ecc71; border-radius:10px;'/>"
     "  </div>"
-    "</body>"
-);
+    "</body>";
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
-    return AzStyledDom_fromXml(XHTML);
+StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
+    return StyledDom::from_xml(XHTML);
 }
 
 int main() {
     AppData model = { 0 };
-    AzRefAny data = AppData_upcast(model);
+    RefAny data = AppData::upcast(model);
     
-    AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
-    window.state.title = AzString_fromConstStr("XHTML Example");
-    window.state.size.dimensions.width = 800.0;
-    window.state.size.dimensions.height = 400.0;
+    WindowCreateOptions window = WindowCreateOptions::new(layout);
+    window.set_title("XHTML Example");
+    window.set_size(LogicalSize(800, 400));
     
-    AzApp app = AzApp_new(data, AzAppConfig_default());
-    AzApp_run(&app, window);
+    App app = App::new(data, AppConfig::default());
+    app.run(window);
+    
     return 0;
 }

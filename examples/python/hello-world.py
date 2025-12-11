@@ -1,31 +1,35 @@
+# Hello World - Python
+# python hello-world.py
+
 from azul import *
 
 class DataModel:
     def __init__(self, counter):
         self.counter = counter
 
-# model -> view
-def my_layout_func(data, info):
+def layout(data, info):
+    label = Dom.text(str(data.counter))
+    label.set_inline_style("font-size:50px;")
 
-    label = Dom.text("{}".format(data.counter))
-    label.set_inline_style("font-size: 50px")
+    button = Dom.div()
+    button.set_inline_style("flex-grow:1;")
+    button.add_child(Dom.text("Increase counter"))
+    button.set_callback(On.MouseUp, data, on_click)
 
-    button = Button("Update counter")
-    button.set_on_click(data, my_on_click)
-    button = button.dom()
-    button.set_inline_style("flex-grow:1")
+    body = Dom.body()
+    body.add_child(label)
+    body.add_child(button)
 
-    root = Dom.body()
-    root.add_child(label)
-    root.add_child(button)
+    return body.style(Css.empty())
 
-    return root.style(Css.empty())
-
-# model <- view
-def my_on_click(data, info):
+def on_click(data, info):
     data.counter += 1
     return Update.RefreshDom
 
 model = DataModel(5)
-app = App(model, AppConfig(LayoutSolver.Default))
-app.run(WindowCreateOptions(my_layout_func))
+window = WindowCreateOptions(layout)
+window.set_title("Hello World")
+window.set_dimensions(400, 300)
+
+app = App(model, AppConfig.default())
+app.run(window)
