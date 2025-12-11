@@ -149,6 +149,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lldb
 
+      - name: Generate DLL API bindings for c-api feature
+        run: cargo run -r -p azul-doc memtest dll
+
       - name: Build azul-dll with c-api feature (debug)
         run: cargo build -p azul-dll --features c-api
 
@@ -201,6 +204,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.86.0
+
+      - name: Generate DLL API bindings for c-api feature
+        run: cargo run -r -p azul-doc memtest dll
 
       - name: Build azul-dll with c-api feature (debug)
         run: cargo build -p azul-dll --features c-api
@@ -280,15 +286,19 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.80.0
+          toolchain: 1.86.0
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Check azul.h (Linux)
+      - name: Generate C header for syntax check (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: clang api/c/azul.h -ferror-limit=0
+        run: cargo run -r -p azul-doc codegen c
+
+      - name: Check azul.h syntax (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: clang target/codegen/azul.h -ferror-limit=0
 
       - name: Build DLL and Python extension
         run: |
