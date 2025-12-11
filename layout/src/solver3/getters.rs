@@ -858,22 +858,59 @@ pub fn get_background_color(
 
 /// Returns all background content layers for a node (colors, gradients, images).
 /// This is used for rendering backgrounds that may include linear/radial/conic gradients.
+///
+/// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
+/// For HTML documents, if the root `<html>` element has no background (transparent with no image),
+/// propagate the background from the first `<body>` child element.
 pub fn get_background_contents(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
     use azul_css::props::style::StyleBackgroundContent;
+    use azul_core::dom::NodeType;
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_background_content(node_data, &node_id, node_state)
-        .and_then(|bg| bg.get_property())
-        .map(|bg_vec| bg_vec.iter().cloned().collect())
-        .unwrap_or_default()
+    // Helper to get backgrounds for a node
+    let get_node_backgrounds = |nid: NodeId, ndata: &azul_core::dom::NodeData| -> Vec<StyleBackgroundContent> {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_background_content(ndata, &nid, node_state)
+            .and_then(|bg| bg.get_property())
+            .map(|bg_vec| bg_vec.iter().cloned().collect())
+            .unwrap_or_default()
+    };
+
+    let own_backgrounds = get_node_backgrounds(node_id, node_data);
+
+    // CSS Background Propagation: Special handling for <html> root element
+    // Only check propagation if this is an Html node AND has no backgrounds
+    if !matches!(node_data.node_type, NodeType::Html) || !own_backgrounds.is_empty() {
+        return own_backgrounds;
+    }
+
+    // Html node with no backgrounds - check if we should propagate from <body>
+    let first_child = styled_dom
+        .node_hierarchy
+        .as_container()
+        .get(node_id)
+        .and_then(|node| node.first_child_id(node_id));
+
+    let Some(first_child) = first_child else {
+        return own_backgrounds;
+    };
+
+    let first_child_data = &styled_dom.node_data.as_container()[first_child];
+
+    // Check if first child is <body>
+    if !matches!(first_child_data.node_type, NodeType::Body) {
+        return own_backgrounds;
+    }
+
+    // Propagate <body>'s backgrounds to <html> (canvas)
+    get_node_backgrounds(first_child, first_child_data)
 }
 
 /// Information about border rendering

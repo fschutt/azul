@@ -43,16 +43,24 @@ fn pixel_value_to_pixels_fallback(pv: &PixelValue) -> Option<f32> {
 
 pub fn grid_template_rows_to_taffy(
     val: LayoutGridTemplateRowsValue,
-) -> Vec<taffy::TrackSizingFunction> {
+) -> Vec<taffy::GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
-    auto_tracks.tracks.iter().map(translate_track).collect()
+    auto_tracks
+        .tracks
+        .iter()
+        .map(|track| taffy::GridTemplateComponent::Single(translate_track(track)))
+        .collect()
 }
 
 pub fn grid_template_columns_to_taffy(
     val: LayoutGridTemplateColumnsValue,
-) -> Vec<taffy::TrackSizingFunction> {
+) -> Vec<taffy::GridTemplateComponent<String>> {
     let auto_tracks = val.get_property_or_default().unwrap_or_default();
-    auto_tracks.tracks.iter().map(translate_track).collect()
+    auto_tracks
+        .tracks
+        .iter()
+        .map(|track| taffy::GridTemplateComponent::Single(translate_track(track)))
+        .collect()
 }
 
 pub fn grid_auto_rows_to_taffy(
@@ -117,13 +125,13 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
                 taffy::MaxTrackSizingFunction::length(pixels),
             )
         }
-        GridTrackSizing::Fr(_fr) => {
-            // TODO: taffy 0.9.1 doesn't seem to have a direct fr() method for
-            // Min/MaxTrackSizingFunction For now, using auto() as a workaround. This
-            // needs proper investigation.
+        GridTrackSizing::Fr(fr) => {
+            // Fr units: minmax(auto, Xfr) per CSS Grid spec
+            // The min is auto, max is the fractional value
+            // fr is stored as i32 * 100 (e.g., 1fr = 100, 2fr = 200)
             minmax(
                 taffy::MinTrackSizingFunction::auto(),
-                taffy::MaxTrackSizingFunction::auto(),
+                taffy::MaxTrackSizingFunction::fr(*fr as f32 / 100.0),
             )
         }
         GridTrackSizing::Auto => minmax(
@@ -485,43 +493,41 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .unwrap_or_else(Size::zero);
 
-        // TODO: grid_template_rows expects GridTrackVec<GridTemplateComponent>, not
-        // Vec<TrackSizingFunction> Need to properly convert GridTemplate to
-        // GridTemplateComponent taffy_style.grid_template_rows = cache
-        //     .get_property(
-        //         node_data,
-        //         &id,
-        //         node_state,
-        //         &CssPropertyType::GridTemplateRows,
-        //     )
-        //     .and_then(|p| {
-        //         if let CssProperty::GridTemplateRows(v) = p {
-        //             Some(v.clone())
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .map(|v| grid_template_rows_to_taffy(v))
-        //     .unwrap_or_default();
+        // Grid template rows - convert GridTemplate to Vec<GridTemplateComponent>
+        taffy_style.grid_template_rows = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateRows,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateRows(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
+            .map(|v| grid_template_rows_to_taffy(v).into())
+            .unwrap_or_default();
 
-        // TODO: grid_template_columns expects GridTrackVec<GridTemplateComponent>, not
-        // Vec<TrackSizingFunction> Need to properly convert GridTemplate to
-        // GridTemplateComponent taffy_style.grid_template_columns = cache
-        //     .get_property(
-        //         node_data,
-        //         &id,
-        //         node_state,
-        //         &CssPropertyType::GridTemplateColumns,
-        //     )
-        //     .and_then(|p| {
-        //         if let CssProperty::GridTemplateColumns(v) = p {
-        //             Some(v.clone())
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .map(|v| grid_template_columns_to_taffy(v))
-        //     .unwrap_or_default();
+        // Grid template columns - convert GridTemplate to Vec<GridTemplateComponent>
+        taffy_style.grid_template_columns = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateColumns,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateColumns(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
+            .map(|v| grid_template_columns_to_taffy(v).into())
+            .unwrap_or_default();
 
         taffy_style.grid_auto_rows = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoRows)
