@@ -143,6 +143,10 @@ pub struct MemtestConfig {
     /// When true, functions will contain the implementation from api.json
     /// When false, functions will have unimplemented!() stubs (for quick testing)
     pub generate_fn_bodies: bool,
+    /// Whether we're generating for DLL include!() (true) or memtest crate (false)
+    /// When true: azul_dll:: is replaced with crate:: (compiling inside azul-dll)
+    /// When false: azul_dll:: stays as is (memtest uses azul_dll as dependency)
+    pub is_for_dll: bool,
 }
 
 impl Default for MemtestConfig {
@@ -151,6 +155,7 @@ impl Default for MemtestConfig {
             remove_serde: false, // Keep serde lines, we add serde deps to Cargo.toml
             remove_optional_features: vec![],
             generate_fn_bodies: false, // Disabled by default - api.json fn_body needs cleanup
+            is_for_dll: false, // Default is memtest mode
         }
     }
 }
@@ -162,6 +167,7 @@ pub fn generate_dll_api(api_data: &ApiData, project_root: &Path) -> Result<()> {
 
     let mut config = MemtestConfig::default();
     config.generate_fn_bodies = true; // Enable real function bodies for DLL
+    config.is_for_dll = true; // This is for DLL include!(), not memtest crate
     
     let output_path = project_root.join("target").join("memtest").join("dll_api.rs");
 
@@ -718,6 +724,7 @@ fn generate_dll_module(
         no_derive: false,
         wrapper_postfix: String::new(),
         is_memtest: true, // Skip generating custom_impls trait implementations
+        is_for_dll: config.is_for_dll, // Pass through the DLL mode flag
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
@@ -1011,8 +1018,13 @@ fn generate_dll_module(
         for (class_name, class_data) in &module_data.classes {
             if let Some(external) = &class_data.external {
                 let prefixed_name = format!("{}{}", prefix, class_name);
-                // Replace azul_dll:: with crate:: since the generated code runs inside azul-dll
-                let external_fixed = external.replace("azul_dll::", "crate::");
+                // For DLL mode: Replace azul_dll:: with crate:: since the generated code runs inside azul-dll
+                // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
+                let external_fixed = if config.is_for_dll {
+                    external.replace("azul_dll::", "crate::")
+                } else {
+                    external.clone()
+                };
                 type_to_external.insert(prefixed_name, external_fixed);
             }
         }
@@ -1075,6 +1087,7 @@ fn generate_dll_module(
                     prefix,
                     &type_to_external,
                     &fn_info.fn_args,
+                    config.is_for_dll,
                 )
             } else {
                 // No fn_body in api.json - ERROR! All functions must have fn_body defined
@@ -1233,19 +1246,27 @@ fn generate_transmuted_fn_body(
     prefix: &str,
     type_to_external: &std::collections::HashMap<String, String>,
     fn_args: &str,
+    is_for_dll: bool,
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
     
     // Transform the fn_body:
-    // 1. Replace "azul_dll::" with "crate::" (generated code is included in azul-dll crate)
+    // 1. For DLL mode: Replace "azul_dll::" with "crate::" (generated code is included in azul-dll crate)
+    //    For memtest mode: Keep "azul_dll::" as is (memtest uses azul_dll as dependency)
     // 2. Replace "self." with "lowercase(class_name)." (self parameter gets renamed)
     // 3. Replace "object." with "lowercase(class_name)." (legacy naming convention)
     // 4. Replace unqualified "TypeName::method(" with fully qualified path
-    let mut fn_body = fn_body
-        .replace("azul_dll::", "crate::")
-        .replace("self.", &format!("{}.", self_var))
-        .replace("object.", &format!("{}.", self_var));
+    let mut fn_body = if is_for_dll {
+        fn_body
+            .replace("azul_dll::", "crate::")
+            .replace("self.", &format!("{}.", self_var))
+            .replace("object.", &format!("{}.", self_var))
+    } else {
+        fn_body
+            .replace("self.", &format!("{}.", self_var))
+            .replace("object.", &format!("{}.", self_var))
+    };
     
     // For constructors: if fn_body starts with "TypeName::" (no "::" before it),
     // replace with the fully qualified external path
@@ -1260,7 +1281,11 @@ fn generate_transmuted_fn_body(
                 let prefixed_type = format!("{}{}", prefix, potential_type);
                 if let Some(external_path) = type_to_external.get(&prefixed_type) {
                     // Replace "TypeName::" with "external::path::TypeName::"
-                    let replacement = format!("{}::", external_path.replace("azul_dll", "crate"));
+                    let replacement = if is_for_dll {
+                        format!("{}::", external_path.replace("azul_dll", "crate"))
+                    } else {
+                        format!("{}::", external_path)
+                    };
                     fn_body = fn_body.replacen(&format!("{}::", potential_type), &replacement, 1);
                 }
             }
@@ -1274,10 +1299,17 @@ fn generate_transmuted_fn_body(
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
         
         // Get the external type for this argument
-        // Replace azul_dll with crate since generated code is included in azul-dll
-        let external_type = type_to_external.get(&base_type)
-            .map(|s| s.replace("azul_dll", "crate"))
-            .unwrap_or_else(|| base_type.clone());
+        // For DLL mode: Replace azul_dll with crate since generated code is included in azul-dll
+        // For memtest mode: Keep azul_dll as is since memtest uses azul_dll as dependency
+        let external_type = if is_for_dll {
+            type_to_external.get(&base_type)
+                .map(|s| s.replace("azul_dll", "crate"))
+                .unwrap_or_else(|| base_type.clone())
+        } else {
+            type_to_external.get(&base_type)
+                .cloned()
+                .unwrap_or_else(|| base_type.clone())
+        };
         
         // Generate transmute line based on reference type
         let transmute_line = if is_mut {
@@ -1315,10 +1347,18 @@ fn generate_transmuted_fn_body(
         }
     } else {
         // Has return type - need to transmute the result
-        let return_external = type_to_external.get(return_type)
-            .map(|s| s.as_str())
-            .unwrap_or(return_type)
-            .replace("azul_dll", "crate");
+        // For DLL mode: Replace azul_dll with crate since generated code is included in azul-dll
+        // For memtest mode: Keep azul_dll as is since memtest uses azul_dll as dependency
+        let return_external = if is_for_dll {
+            type_to_external.get(return_type)
+                .map(|s| s.as_str())
+                .unwrap_or(return_type)
+                .replace("azul_dll", "crate")
+        } else {
+            type_to_external.get(return_type)
+                .cloned()
+                .unwrap_or_else(|| return_type.to_string())
+        };
         
         if has_statements {
             // fn_body has statements - wrap in block and transmute the final result

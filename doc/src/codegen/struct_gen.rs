@@ -29,6 +29,10 @@ pub struct GenerateConfig {
     /// Whether this is memtest mode - if true, don't generate trait impls that call external functions
     /// (like Clone calling _deepCopy, Drop calling _delete)
     pub is_memtest: bool,
+    /// Whether we're generating for DLL include!() (true) or memtest crate (false)
+    /// When true: azul_dll:: is replaced with crate:: (compiling inside azul-dll)
+    /// When false: azul_dll:: stays as is (memtest uses azul_dll as dependency)
+    pub is_for_dll: bool,
 }
 
 impl Default for GenerateConfig {
@@ -40,6 +44,7 @@ impl Default for GenerateConfig {
             no_derive: false,
             wrapper_postfix: String::new(),
             is_memtest: false,
+            is_for_dll: false,
         }
     }
 }
@@ -957,9 +962,14 @@ fn generate_struct_definition(
         let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
         let has_derive_clone = struct_meta.derive.contains(&"Clone".to_string());
         let can_delegate_clone = has_custom_clone || has_derive_clone;
-        // Replace azul_dll:: with crate:: since we're compiling within the crate
-        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name)
-            .replace("azul_dll::", "crate::");
+        // For DLL mode: Replace azul_dll:: with crate:: since we're compiling within the DLL crate
+        // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
+        let external_path = if config.is_for_dll {
+            struct_meta.external.as_deref().unwrap_or(struct_name)
+                .replace("azul_dll::", "crate::")
+        } else {
+            struct_meta.external.as_deref().unwrap_or(struct_name).to_string()
+        };
         
         // Generate impl Clone for memtest
         // IMPORTANT: Only generate Clone if we have a Clone impl we can delegate to.
@@ -1402,9 +1412,14 @@ fn generate_enum_definition(
         // These need to call the real .clone() method, not just ptr::read
         let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
         let has_derived_clone = struct_meta.derive.contains(&"Clone".to_string());
-        // Replace azul_dll:: with crate:: since we're compiling within the crate
-        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name)
-            .replace("azul_dll::", "crate::");
+        // For DLL mode: Replace azul_dll:: with crate:: since we're compiling within the DLL crate
+        // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
+        let external_path = if config.is_for_dll {
+            struct_meta.external.as_deref().unwrap_or(struct_name)
+                .replace("azul_dll::", "crate::")
+        } else {
+            struct_meta.external.as_deref().unwrap_or(struct_name).to_string()
+        };
         
         // Generate impl Clone for memtest
         // IMPORTANT: Only generate Clone if we have a custom_impls OR derived Clone that we can delegate to.
