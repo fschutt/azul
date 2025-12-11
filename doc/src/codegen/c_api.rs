@@ -17,6 +17,32 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
+/// C++ reserved keywords that cannot be used as identifiers
+const CPP_RESERVED_KEYWORDS: &[&str] = &[
+    "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit", 
+    "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch", 
+    "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", 
+    "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", 
+    "co_return", "co_yield", "decltype", "default", "delete", "do", "double", 
+    "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", 
+    "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", 
+    "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", 
+    "protected", "public", "reflexpr", "register", "reinterpret_cast", "requires", 
+    "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", 
+    "struct", "switch", "synchronized", "template", "this", "thread_local", "throw", 
+    "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", 
+    "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+];
+
+/// Escape C++ reserved keywords by appending an underscore
+pub fn escape_cpp_keyword(name: &str) -> String {
+    if CPP_RESERVED_KEYWORDS.contains(&name) {
+        format!("{}_", name)
+    } else {
+        name.to_string()
+    }
+}
+
 /// Convert a Rust type (possibly with pointer prefix) to a C type.
 /// 
 /// Handles types like "*mut c_void" -> "void*", "*const InstantPtr" -> "const AzInstantPtr*"
@@ -364,17 +390,20 @@ fn format_c_function_args(
                 continue; // Skip self, already handled
             }
 
+            // Escape C++ reserved keywords
+            let safe_arg_name = escape_cpp_keyword(arg_name);
+            
             let (prefix_ptr, base_type, _suffix) = analyze_type(arg_type);
 
             if is_primitive_arg(&base_type) {
                 let c_type = replace_primitive_ctype(&base_type);
 
                 if prefix_ptr == "*const " || prefix_ptr == "&" {
-                    args.push(format!("const {}* {}", c_type, arg_name));
+                    args.push(format!("const {}* {}", c_type, safe_arg_name));
                 } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
-                    args.push(format!("{}* restrict {}", c_type, arg_name));
+                    args.push(format!("{}* restrict {}", c_type, safe_arg_name));
                 } else {
-                    args.push(format!("{} {}", c_type, arg_name));
+                    args.push(format!("{} {}", c_type, safe_arg_name));
                 }
             } else {
                 // Non-primitive type - add PREFIX
@@ -387,7 +416,7 @@ fn format_c_function_args(
                     " "
                 };
 
-                args.push(format!("{}{}{}", c_type, ptr_suffix, arg_name));
+                args.push(format!("{}{}{}", c_type, ptr_suffix, safe_arg_name));
             }
         }
     }
@@ -456,7 +485,11 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     let mut callbacks: Vec<(&String, &CallbackDefinition)> = Vec::new();
     
     // Phase 1: Forward declarations for ALL types (needed for recursive references)
+    // Note: In C++, enum forward declarations are not allowed without a base type,
+    // so we wrap enum forward declarations in #ifndef __cplusplus
     code.push_str("/* FORWARD DECLARATIONS */\r\n\r\n");
+    
+    // First: struct/union forward declarations (valid in both C and C++)
     for (struct_name, class_data) in &structs {
         if class_data.callback_typedef.is_some() {
             continue; // Skip callbacks
@@ -491,10 +524,8 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                             if is_union {
                                 code.push_str(&format!("union {};\r\n", struct_name));
                                 code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
-                            } else {
-                                code.push_str(&format!("enum {};\r\n", struct_name));
-                                code.push_str(&format!("typedef enum {} {};\r\n", struct_name, struct_name));
                             }
+                            // Skip plain enums here - they go in the #ifndef __cplusplus block
                             continue;
                         }
                     }
@@ -515,17 +546,67 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             if is_union {
                 code.push_str(&format!("union {};\r\n", struct_name));
                 code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
-            } else {
-                code.push_str(&format!("enum {};\r\n", struct_name));
-                code.push_str(&format!("typedef enum {} {};\r\n", struct_name, struct_name));
             }
+            // Plain enums: no forward declaration needed - full definition comes in Phase 2.5
         }
     }
     code.push_str("\r\n");
+
+    // Phase 2.5: Simple enum definitions BEFORE callbacks
+    // This is needed because callbacks may use enum types as return values
+    code.push_str("/* SIMPLE ENUM DEFINITIONS (needed before callbacks) */\r\n\r\n");
+    let mut enums_already_generated: std::collections::HashSet<String> = std::collections::HashSet::new();
     
-    // Phase 2: Type aliases (simple typedefs that reference other types)
+    for (struct_name, class_data) in &structs {
+        if class_data.callback_typedef.is_some() {
+            continue;
+        }
+        
+        // Handle enum from type_alias (monomorphized generic)
+        if let Some(type_alias) = &class_data.type_alias {
+            if !type_alias.generic_args.is_empty() {
+                let target = &type_alias.target;
+                if let Some((_, target_class)) = search_for_class_by_class_name(version_data, target) {
+                    if let Some(target_data) = version_data.api.values()
+                        .find_map(|m| m.classes.get(target_class))
+                    {
+                        if let Some(enum_fields) = &target_data.enum_fields {
+                            if !enum_is_union(enum_fields) {
+                                // Simple enum from monomorphized type
+                                code.push_str(&format!("enum {} {{\r\n", struct_name));
+                                for variant_map in enum_fields {
+                                    for (variant_name, _) in variant_map {
+                                        code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
+                                    }
+                                }
+                                code.push_str("};\r\n\r\n");
+                                enums_already_generated.insert(struct_name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        
+        // Generate simple enum definitions
+        if let Some(enum_fields) = &class_data.enum_fields {
+            if !enum_is_union(enum_fields) {
+                code.push_str(&format!("enum {} {{\r\n", struct_name));
+                for variant_map in enum_fields {
+                    for (variant_name, _) in variant_map {
+                        code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
+                    }
+                }
+                code.push_str("};\r\n\r\n");
+                enums_already_generated.insert(struct_name.clone());
+            }
+        }
+    }
+
+    // Phase 3: Type aliases (simple typedefs that reference other types)
     // Skip types that have struct_fields - they will be generated as actual structs
-    code.push_str("/* TYPE ALIASES */\r\n\r\n");
+    code.push_str("/* TYPE ALIASES */\r\n\r\n");;
     for (struct_name, class_data) in &structs {
         // Skip if it has struct_fields - it's a real struct, not just a typedef
         if class_data.struct_fields.is_some() {
@@ -638,14 +719,16 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         // Generate enum definition
         else if let Some(enum_fields) = &class_data.enum_fields {
             if !enum_is_union(enum_fields) {
-                // Simple enum
-                code.push_str(&format!("enum {} {{\r\n", struct_name));
-                for variant_map in enum_fields {
-                    for (variant_name, _) in variant_map {
-                        code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
+                // Simple enum - skip if already generated in Phase 2.5
+                if !enums_already_generated.contains(struct_name) {
+                    code.push_str(&format!("enum {} {{\r\n", struct_name));
+                    for variant_map in enum_fields {
+                        for (variant_name, _) in variant_map {
+                            code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
+                        }
                     }
+                    code.push_str("};\r\n\r\n");
                 }
-                code.push_str("};\r\n\r\n");
             } else {
                 // Tagged union
                 generate_tagged_union(&mut code, struct_name, enum_fields, version_data);
@@ -664,13 +747,13 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     for (variant_name, variant_data) in variant_map {
                         if variant_data.r#type.is_some() {
                             code.push_str(&format!(
-                                "#define {}_{} (v) {{ .{} = {{ .tag = {}Tag_{}, .payload = v }} \
+                                "#define {}_{} (v) {{ .{} = {{ .tag = {}_Tag_{}, .payload = v }} \
                                  }}\r\n",
                                 struct_name, variant_name, variant_name, struct_name, variant_name
                             ));
                         } else {
                             code.push_str(&format!(
-                                "#define {}_{} {{ .{} = {{ .tag = {}Tag_{} }} }}\r\n",
+                                "#define {}_{} {{ .{} = {{ .tag = {}_Tag_{} }} }}\r\n",
                                 struct_name, variant_name, variant_name, struct_name, variant_name
                             ));
                         }
@@ -930,11 +1013,11 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
 /// Collect and sort struct definitions
 /// Structs sorted by their dependencies (topological sort)
 /// This ensures that types are declared before they are used in C headers
-struct SortedStructs<'a> {
+pub struct SortedStructs<'a> {
     /// Structs in dependency order (types with no dependencies first)
-    structs: IndexMap<String, &'a crate::api::ClassData>,
+    pub structs: IndexMap<String, &'a crate::api::ClassData>,
     /// Types that need forward declarations (recursive types like DomVec → Dom)
-    forward_declarations: HashMap<String, String>,
+    pub forward_declarations: HashMap<String, String>,
 }
 
 /// Helper function to check if a type name is a generic type parameter (single uppercase letter)
@@ -1067,7 +1150,7 @@ fn calculate_dependency_depths(
 
 /// Sort structs by their dependencies to avoid forward declarations
 /// Returns structs in topological order: types with no dependencies first
-fn sort_structs_by_dependencies<'a>(
+pub fn sort_structs_by_dependencies<'a>(
     api_data: &'a ApiData,
     version: &str,
     prefix: &str,

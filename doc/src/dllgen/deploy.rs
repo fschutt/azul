@@ -212,16 +212,44 @@ pub fn create_examples(
 
     // -- cpp
 
-    source_zip.start_file("cpp/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/hello-world.cpp"))?;
-    source_zip.start_file("cpp/calculator.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/calculator.cpp"))?;
-    source_zip.start_file("cpp/svg.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/svg.cpp"))?;
-    source_zip.start_file("cpp/table.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/table.cpp"))?;
-    source_zip.start_file("cpp/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/xhtml.cpp"))?;
+    source_zip.start_file("cpp/cpp03/hello-world.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/hello-world.cpp"))?;
+    source_zip.start_file("cpp/cpp03/calculator.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/calculator.cpp"))?;
+    source_zip.start_file("cpp/cpp03/svg.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/svg.cpp"))?;
+    source_zip.start_file("cpp/cpp03/table.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/table.cpp"))?;
+    source_zip.start_file("cpp/cpp03/xhtml.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/xhtml.cpp"))?;
+
+    source_zip.start_file("cpp/cpp11/hello-world.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/hello-world.cpp"))?;
+    source_zip.start_file("cpp/cpp11/graphics.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/graphics.cpp"))?;
+    source_zip.start_file("cpp/cpp11/xhtml.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/xhtml.cpp"))?;
+
+    source_zip.start_file("cpp/cpp14/hello-world.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/hello-world.cpp"))?;
+    source_zip.start_file("cpp/cpp14/graphics.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/graphics.cpp"))?;
+    source_zip.start_file("cpp/cpp14/xhtml.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/xhtml.cpp"))?;
+
+    source_zip.start_file("cpp/cpp17/hello-world.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/hello-world.cpp"))?;
+    source_zip.start_file("cpp/cpp17/graphics.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/graphics.cpp"))?;
+    source_zip.start_file("cpp/cpp17/xhtml.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/xhtml.cpp"))?;
+
+    source_zip.start_file("cpp/cpp23/hello-world.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/hello-world.cpp"))?;
+    source_zip.start_file("cpp/cpp23/graphics.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/graphics.cpp"))?;
+    source_zip.start_file("cpp/cpp23/xhtml.cpp", options)?;
+    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/xhtml.cpp"))?;
 
     // -- rust
 

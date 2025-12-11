@@ -895,15 +895,26 @@ fn main() -> anyhow::Result<()> {
             let api_data = load_api_json(&api_path)?;
             let version = api_data.0.keys().next().expect("No version in api.json");
 
-            println!("[FIX] Generating C++ header file...\n");
+            println!("[FIX] Generating C++ header files for all standards...\n");
 
-            let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-            let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
-            fs::create_dir_all(cpp_api_path.parent().unwrap())?;
-            fs::write(&cpp_api_path, cpp_api_code)?;
-            println!("[OK] Generated: {}", cpp_api_path.display());
+            let cpp_dir = project_root.join("target").join("codegen").join("cpp");
+            fs::create_dir_all(&cpp_dir)?;
+            
+            // Generate all versioned headers
+            let all_headers = codegen::cpp_api::generate_all_cpp_apis(&api_data, version);
+            for (filename, code) in &all_headers {
+                let path = cpp_dir.join(filename);
+                fs::write(&path, code)?;
+                println!("[OK] Generated: {}", path.display());
+            }
+            
+            // Also generate a default azul.hpp that includes the C++11 version
+            let default_path = project_root.join("target").join("codegen").join("azul.hpp");
+            let default_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
+            fs::write(&default_path, &default_code)?;
+            println!("[OK] Generated: {} (default C++11)", default_path.display());
 
-            println!("\nC++ header generation complete.");
+            println!("\nC++ header generation complete. {} headers generated.", all_headers.len() + 1);
             return Ok(());
         }
         ["codegen", "python"] => {

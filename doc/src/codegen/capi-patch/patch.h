@@ -1,3 +1,43 @@
+/* C99 Designated Initializers - only available in C, not C++ */
+#ifndef __cplusplus
+
+/* Macro to create an empty Vec (compile-time initializer)
+ * Used for static initialization of Vec types
+ */
+#define AzIdOrClassVec_empty { \
+    .ptr = 0, \
+    .len = 0, \
+    .cap = 0, \
+    .destructor = { .NoDestructor = { .tag = AzIdOrClassVecDestructor_Tag_NoDestructor } } \
+}
+
+#define AzAttributeVec_empty { \
+    .ptr = 0, \
+    .len = 0, \
+    .cap = 0, \
+    .destructor = { .NoDestructor = { .tag = AzAttributeVecDestructor_Tag_NoDestructor } } \
+}
+
+#define AzCoreCallbackDataVec_empty { \
+    .ptr = 0, \
+    .len = 0, \
+    .cap = 0, \
+    .destructor = { .NoDestructor = { .tag = AzCoreCallbackDataVecDestructor_Tag_NoDestructor } } \
+}
+
+#define AzNodeDataInlineCssPropertyVec_empty { \
+    .ptr = 0, \
+    .len = 0, \
+    .cap = 0, \
+    .destructor = { .NoDestructor = { .tag = AzNodeDataInlineCssPropertyVecDestructor_Tag_NoDestructor } } \
+}
+
+#define AzDomVec_empty { \
+    .ptr = 0, \
+    .len = 0, \
+    .cap = 0, \
+    .destructor = { .NoDestructor = { .tag = AzDomVecDestructor_Tag_NoDestructor } } \
+}
 
 /* Macro to turn a compile-time string into a compile-time AzString
  *
@@ -47,6 +87,11 @@
     .enable_tab_navigation = true, \
     .termination_behavior = AzAppTerminationBehavior_EndProcess, \
 }
+
+#endif /* __cplusplus - end of C99 designated initializer macros */
+
+/* C-only reflection macro - uses C99 designated initializers */
+#ifndef __cplusplus
 
 /* Macro to generate reflection metadata for a given struct - for a "structName" of "foo", generates:
  *
@@ -143,3 +188,5 @@
         AzRefAny_delete(refany); \
         return true; \
     }
+
+#endif /* __cplusplus - end of C-only reflection macro */

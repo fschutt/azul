@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 
 use crate::{
-    api::ApiData,
+    api::{ApiData, ClassData, VersionData},
     utils::{
         analyze::{
             analyze_type, class_is_stack_allocated, enum_is_union, has_recursive_destructor,
@@ -9,288 +9,777 @@ use crate::{
         },
         string::snake_case_to_lower_camel,
     },
+    codegen::c_api::{escape_cpp_keyword, sort_structs_by_dependencies},
 };
 
-const PREFIX: &str = "Az";
+const C_PREFIX: &str = "Az";
 
-/// Generate C++ API code from API data
+/// C++ language version
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CppVersion {
+    Cpp03,
+    Cpp11,
+    Cpp14,
+    Cpp17,
+    Cpp20,
+    Cpp23,
+}
+
+impl CppVersion {
+    /// Get all supported C++ versions
+    pub fn all() -> &'static [CppVersion] {
+        &[
+            CppVersion::Cpp03,
+            CppVersion::Cpp11,
+            CppVersion::Cpp14,
+            CppVersion::Cpp17,
+            CppVersion::Cpp20,
+            CppVersion::Cpp23,
+        ]
+    }
+    
+    /// Get the version number as a string (e.g., "03", "11")
+    pub fn version_number(&self) -> &'static str {
+        match self {
+            CppVersion::Cpp03 => "03",
+            CppVersion::Cpp11 => "11",
+            CppVersion::Cpp14 => "14",
+            CppVersion::Cpp17 => "17",
+            CppVersion::Cpp20 => "20",
+            CppVersion::Cpp23 => "23",
+        }
+    }
+    
+    /// Get the standard flag for the compiler (e.g., "-std=c++11")
+    pub fn standard_flag(&self) -> &'static str {
+        match self {
+            CppVersion::Cpp03 => "-std=c++03",
+            CppVersion::Cpp11 => "-std=c++11",
+            CppVersion::Cpp14 => "-std=c++14",
+            CppVersion::Cpp17 => "-std=c++17",
+            CppVersion::Cpp20 => "-std=c++20",
+            CppVersion::Cpp23 => "-std=c++23",
+        }
+    }
+    
+    /// Get the header filename for this version (just the filename, no path)
+    pub fn header_filename(&self) -> String {
+        format!("azul_cpp{}.hpp", self.version_number())
+    }
+    
+    /// Check if this version supports move semantics (C++11+)
+    pub fn has_move_semantics(&self) -> bool {
+        !matches!(self, CppVersion::Cpp03)
+    }
+    
+    /// Check if this version supports noexcept (C++11+)
+    pub fn has_noexcept(&self) -> bool {
+        !matches!(self, CppVersion::Cpp03)
+    }
+    
+    /// Check if this version supports std::optional (C++17+)
+    pub fn has_optional(&self) -> bool {
+        matches!(self, CppVersion::Cpp17 | CppVersion::Cpp20 | CppVersion::Cpp23)
+    }
+    
+    /// Check if this version supports std::variant (C++17+)
+    pub fn has_variant(&self) -> bool {
+        matches!(self, CppVersion::Cpp17 | CppVersion::Cpp20 | CppVersion::Cpp23)
+    }
+    
+    /// Check if this version supports std::span (C++20+)
+    pub fn has_span(&self) -> bool {
+        matches!(self, CppVersion::Cpp20 | CppVersion::Cpp23)
+    }
+    
+    /// Check if this version supports [[nodiscard]] (C++17+)
+    pub fn has_nodiscard(&self) -> bool {
+        matches!(self, CppVersion::Cpp17 | CppVersion::Cpp20 | CppVersion::Cpp23)
+    }
+    
+    /// Check if this version supports auto return type deduction (C++14+)
+    pub fn has_auto_return(&self) -> bool {
+        !matches!(self, CppVersion::Cpp03 | CppVersion::Cpp11)
+    }
+    
+    /// Check if this version supports std::string_view (C++17+)
+    pub fn has_string_view(&self) -> bool {
+        matches!(self, CppVersion::Cpp17 | CppVersion::Cpp20 | CppVersion::Cpp23)
+    }
+}
+
+/// Generate C++ API code from API data (default version: C++11)
 pub fn generate_cpp_api(api_data: &ApiData, version: &str) -> String {
+    generate_cpp_api_versioned(api_data, version, CppVersion::Cpp11)
+}
+
+/// Check if a class is Copy (can be trivially copied)
+fn class_is_copy(class_data: &ClassData) -> bool {
+    class_data
+        .derive
+        .as_ref()
+        .map_or(false, |d| d.contains(&"Copy".to_string()))
+}
+
+/// Check if a class needs a destructor
+fn class_needs_destructor(class_data: &ClassData, version_data: &VersionData) -> bool {
+    if class_is_copy(class_data) {
+        return false;
+    }
+    
+    let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
+    let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
+    let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
+    let class_has_custom_drop = class_data
+        .custom_impls
+        .as_ref()
+        .map_or(false, |impls| impls.contains(&"Drop".to_string()));
+    
+    class_has_custom_destructor
+        || treat_external_as_ptr
+        || class_has_recursive_destructor
+        || class_has_custom_drop
+}
+
+/// Check if a class has Clone
+fn class_has_clone(class_data: &ClassData) -> bool {
+    class_data
+        .custom_impls
+        .as_ref()
+        .map_or(false, |impls| impls.contains(&"Clone".to_string()))
+        || class_data
+            .derive
+            .as_ref()
+            .map_or(false, |d| d.contains(&"Clone".to_string()))
+}
+
+/// Check if an enum is a "simple" enum (no variants have data)
+fn class_is_simple_enum(class_data: &ClassData) -> bool {
+    if let Some(enum_fields) = &class_data.enum_fields {
+        for variant_map in enum_fields {
+            for (_variant_name, variant_data) in variant_map {
+                if variant_data.r#type.is_some() {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    false
+}
+
+/// Check if a type has a real C++ wrapper class (not a type alias or callback)
+fn type_has_cpp_wrapper(type_name: &str, version_data: &VersionData) -> bool {
+    use crate::utils::analyze::get_class;
+    
+    if let Some((module_name, class_name)) = search_for_class_by_class_name(version_data, type_name) {
+        if let Some(class_data) = get_class(version_data, module_name, class_name) {
+            // Callback typedefs don't get a wrapper
+            if class_data.callback_typedef.is_some() {
+                return false;
+            }
+            // Type aliases without struct fields don't get a wrapper
+            if class_data.type_alias.is_some() && class_data.struct_fields.is_none() {
+                return false;
+            }
+            // Simple enums only get a type alias, not a wrapper class
+            if class_is_simple_enum(class_data) {
+                return false;
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a type needs the Proxy path for C++03 (non-copy wrapper class)
+fn type_needs_proxy_for_cpp03(type_name: &str, version_data: &VersionData) -> bool {
+    use crate::utils::analyze::get_class;
+    
+    if !type_has_cpp_wrapper(type_name, version_data) {
+        return false;
+    }
+    
+    if let Some((module_name, class_name)) = search_for_class_by_class_name(version_data, type_name) {
+        if let Some(class_data) = get_class(version_data, module_name, class_name) {
+            // Copy types don't need Proxy
+            return !class_is_copy(class_data);
+        }
+    }
+    false
+}
+
+/// Generate C++ API code for a specific C++ version
+pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version: CppVersion) -> String {
     let mut code = String::new();
-
-    // Get the latest version
     let version_data = api_data.get_version(version).unwrap();
-
-    // Start C++ header file
-    code.push_str("#ifndef AZUL_H\r\n");
-    code.push_str("#define AZUL_H\r\n");
+    
+    // Header comment
+    code.push_str("// =============================================================================\r\n");
+    code.push_str(&format!("// Azul C++{} API Wrapper\r\n", cpp_version.version_number()));
+    code.push_str("// =============================================================================\r\n");
+    code.push_str("//\r\n");
+    code.push_str(&format!("// Compile with: g++ {} -o myapp myapp.cpp -lazul\r\n", cpp_version.standard_flag()));
+    code.push_str("//\r\n");
+    code.push_str("// This header provides C++ wrapper classes for the Azul C API.\r\n");
+    code.push_str("// All classes use RAII for memory management.\r\n");
+    code.push_str("//\r\n");
+    
+    // Add C++03 specific documentation
+    if !cpp_version.has_move_semantics() {
+        code.push_str("// C++03 MOVE EMULATION (Colvin-Gibbons Trick)\r\n");
+        code.push_str("// ============================================\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// C++03 lacks move semantics, which normally prevents returning non-copyable\r\n");
+        code.push_str("// RAII objects by value. This header uses the \"Colvin-Gibbons trick\" (also\r\n");
+        code.push_str("// known as the \"Move Constructor Idiom\") to work around this limitation.\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// This is essentially a manual, type-safe implementation of std::auto_ptr's\r\n");
+        code.push_str("// ownership transfer semantics, but without auto_ptr's pitfalls.\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// How it works:\r\n");
+        code.push_str("// - Each non-copyable class has a nested 'Proxy' struct\r\n");
+        code.push_str("// - When returning by value, the object converts to Proxy (releasing ownership)\r\n");
+        code.push_str("// - The receiving object constructs from Proxy (acquiring ownership)\r\n");
+        code.push_str("// - Direct copy construction remains private/forbidden\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// Example:\r\n");
+        code.push_str("//   String a = String::fromConstStr(\"hello\");  // OK: uses Proxy path\r\n");
+        code.push_str("//   String b = a;                               // ERROR: copy ctor is private\r\n");
+        code.push_str("//   String c = String::fromConstStr(\"world\");  // OK\r\n");
+        code.push_str("//   a = String::fromConstStr(\"new\");           // OK: uses Proxy assignment\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// Reference: https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Move_Constructor\r\n");
+        code.push_str("//\r\n");
+    }
+    
+    code.push_str("// =============================================================================\r\n");
     code.push_str("\r\n");
-    code.push_str("namespace dll {\r\n");
+    
+    // Include guards
+    code.push_str(&format!("#ifndef AZUL_CPP{}_HPP\r\n", cpp_version.version_number()));
+    code.push_str(&format!("#define AZUL_CPP{}_HPP\r\n", cpp_version.version_number()));
     code.push_str("\r\n");
-    code.push_str("    #include <cstdint>\r\n"); // uint8_t, ...
-    code.push_str("    #include <cstddef>\r\n"); // size_t
-
-    // Collect all structs to be sorted later
-    let structs = collect_structs(api_data);
-
-    // Generate struct definitions - simplified for brevity
-    code.push_str("    /* STRUCT DEFINITIONS */\r\n\r\n");
-
-    for (struct_name, class_data) in &structs {
-        let is_callback_typedef = class_data.callback_typedef.is_some();
-
-        if is_callback_typedef {
-            code.push_str(&format!(
-                "    using {} = /* callback signature */;\r\n\r\n",
-                struct_name
-            ));
+    
+    // Include the C header
+    code.push_str("extern \"C\" {\r\n");
+    code.push_str("#include <azul.h>\r\n");
+    code.push_str("}\r\n");
+    code.push_str("\r\n");
+    
+    // Standard includes
+    code.push_str("#include <cstdint>\r\n");
+    code.push_str("#include <cstddef>\r\n");
+    code.push_str("#include <cstring>\r\n");
+    if cpp_version.has_move_semantics() {
+        code.push_str("#include <utility>\r\n");
+        code.push_str("#include <stdexcept>\r\n");
+    }
+    if cpp_version.has_optional() {
+        code.push_str("#include <optional>\r\n");
+    }
+    if cpp_version.has_variant() {
+        code.push_str("#include <variant>\r\n");
+    }
+    if cpp_version.has_span() {
+        code.push_str("#include <span>\r\n");
+    }
+    code.push_str("\r\n");
+    
+    // Open namespace
+    code.push_str("namespace azul {\r\n");
+    code.push_str("\r\n");
+    
+    // Sort structs by dependencies
+    let sorted = sort_structs_by_dependencies(api_data, version, "").unwrap();
+    
+    // Forward declarations for all classes
+    code.push_str("// Forward declarations\r\n");
+    for (struct_name, class_data) in &sorted.structs {
+        if class_data.callback_typedef.is_some() {
             continue;
         }
-
-        if let Some(struct_fields) = &class_data.struct_fields {
-            code.push_str(&format!("    struct {} {{\r\n", struct_name));
-
-            for field_map in struct_fields {
-                for (field_name, field_data) in field_map {
-                    let field_type = &field_data.r#type;
-                    let (prefix, base_type, suffix) = analyze_type(field_type);
-
-                    if is_primitive_arg(&base_type) {
-                        let c_type = replace_primitive_ctype(&base_type);
-                        code.push_str(&format!(
-                            "        {} {}{} {};\r\n",
-                            c_type,
-                            replace_primitive_ctype(&prefix),
-                            suffix,
-                            field_name
-                        ));
-                    } else if let Some((_, type_class_name)) =
-                        search_for_class_by_class_name(version_data, &base_type)
-                    {
-                        code.push_str(&format!(
-                            "        {}{}{} {};\r\n",
-                            type_class_name,
-                            replace_primitive_ctype(&prefix),
-                            suffix,
-                            field_name
-                        ));
-                    }
-                }
-            }
-
-            // Add C++ specific methods
-            code.push_str("        // C++ specific methods\r\n");
-            code.push_str(&format!(
-                "        {}& operator=(const {}&) = delete; /* disable assignment operator, use \
-                 std::move (default) or .clone() */\r\n",
-                struct_name, struct_name
-            ));
-
-            let class_can_be_copied = class_data
-                .derive
-                .as_ref()
-                .map_or(false, |d| d.contains(&"Copy".to_string()));
-            if !class_can_be_copied {
-                code.push_str(&format!(
-                    "        {}(const {}&) = delete; /* disable copy constructor, use explicit \
-                     .clone() */\r\n",
-                    struct_name, struct_name
-                ));
-            }
-
-            code.push_str(&format!(
-                "        {}() = delete; /* disable default constructor, use C++20 designated \
-                 initializer instead */\r\n",
-                struct_name
-            ));
-
-            code.push_str("    };\r\n\r\n");
-        } else if let Some(enum_fields) = &class_data.enum_fields {
-            if !enum_is_union(enum_fields) {
-                code.push_str(&format!("    enum class {} {{\r\n", struct_name));
-
-                for variant_map in enum_fields {
-                    for (variant_name, _) in variant_map {
-                        code.push_str(&format!("        {},\r\n", variant_name));
-                    }
-                }
-
-                code.push_str("    };\r\n\r\n");
-            } else {
-                // Generate tag enum for tagged union
-                code.push_str(&format!("    enum class {}Tag {{\r\n", struct_name));
-
-                for variant_map in enum_fields {
-                    for (variant_name, _) in variant_map {
-                        code.push_str(&format!("        {},\r\n", variant_name));
-                    }
-                }
-
-                code.push_str("    };\r\n\r\n");
-
-                // Generate variant structs for tagged union
-                for variant_map in enum_fields {
-                    for (variant_name, variant_data) in variant_map {
-                        code.push_str(&format!(
-                            "    struct {}Variant_{} {{ {}Tag tag;",
-                            struct_name, variant_name, struct_name
-                        ));
-
-                        if let Some(variant_type) = &variant_data.r#type {
-                            let (prefix, base_type, suffix) = analyze_type(variant_type);
-
-                            if is_primitive_arg(&base_type) {
-                                let c_type = replace_primitive_ctype(&base_type);
-                                code.push_str(&format!(
-                                    " {}{}{} payload;",
-                                    c_type,
-                                    replace_primitive_ctype(&prefix),
-                                    suffix
-                                ));
-                            } else if let Some((_, type_class_name)) =
-                                search_for_class_by_class_name(version_data, &base_type)
-                            {
-                                code.push_str(&format!(
-                                    " {}{}{} payload;",
-                                    type_class_name,
-                                    replace_primitive_ctype(&prefix),
-                                    suffix
-                                ));
-                            }
-                        }
-
-                        code.push_str(" };\r\n\r\n");
-                    }
-                }
-
-                // Generate the union itself
-                code.push_str(&format!("    union {} {{\r\n", struct_name));
-
-                for variant_map in enum_fields {
-                    for (variant_name, _) in variant_map {
-                        code.push_str(&format!(
-                            "        {}Variant_{} {};\r\n",
-                            struct_name, variant_name, variant_name
-                        ));
-                    }
-                }
-
-                code.push_str("    };\r\n\r\n");
-            }
+        if class_data.type_alias.is_some() && class_data.struct_fields.is_none() {
+            continue;
         }
-    }
-
-    // Generate function declarations
-    code.push_str("    /* FUNCTIONS */\r\n\r\n");
-    code.push_str("    extern \"C\" {\r\n");
-
-    for (module_name, module) in &version_data.api {
-        for (class_name, class_data) in &module.classes {
-            let class_ptr_name = format!("{}", class_name); // No prefix in C++
-            let c_is_stack_allocated = class_is_stack_allocated(class_data);
-            let class_can_be_copied = class_data
-                .derive
-                .as_ref()
-                .map_or(false, |d| d.contains(&"Copy".to_string()));
-            let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
-            let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
-            let treat_external_as_ptr = class_data.external.is_some() && class_data.is_boxed_object;
-            let class_can_be_cloned = class_data.clone.unwrap_or(true);
-
-            // Generate constructors
-            if let Some(constructors) = &class_data.constructors {
-                for (fn_name, constructor) in constructors {
-                    let c_fn_name =
-                        format!("{}_{}", class_name, snake_case_to_lower_camel(fn_name));
-
-                    // Generate simplified function arguments
-                    let fn_args = "/* function args */";
-
-                    // Generate simplified return type
-                    let returns = class_ptr_name.clone();
-
-                    code.push_str(&format!(
-                        "        {} {}({});\r\n",
-                        returns, c_fn_name, fn_args
-                    ));
-                }
-            }
-
-            // Generate methods
-            if let Some(functions) = &class_data.functions {
-                for (fn_name, function) in functions {
-                    let c_fn_name =
-                        format!("{}_{}", class_name, snake_case_to_lower_camel(fn_name));
-
-                    // Generate simplified function arguments
-                    let fn_args = "/* function args */";
-
-                    // Generate simplified return type
-                    let returns = if function.returns.is_some() {
-                        "/* return type */"
-                    } else {
-                        "void"
-                    };
-
-                    code.push_str(&format!(
-                        "        {} {}({});\r\n",
-                        returns, c_fn_name, fn_args
-                    ));
-                }
-            }
-
-            // Generate destructor and deep copy methods
-            if c_is_stack_allocated {
-                if !class_can_be_copied
-                    && (class_has_custom_destructor
-                        || treat_external_as_ptr
-                        || class_has_recursive_destructor)
-                {
-                    code.push_str(&format!(
-                        "        void {}_delete({}* instance);\r\n",
-                        class_name, class_name
-                    ));
-                }
-
-                // Generate deepCopy if the type has custom Clone impl
-                if class_can_be_cloned {
-                    code.push_str(&format!(
-                        "        {} {}_deepCopy(const {}* instance);\r\n",
-                        class_name, class_name, class_name
-                    ));
-                }
-            }
-
-            code.push_str("\r\n");
+        if class_is_simple_enum(class_data) {
+            continue;
         }
+        code.push_str(&format!("class {};\r\n", struct_name));
     }
-
-    code.push_str("    } /* extern \"C\" */\r\n");
-
-    // Close the namespace and header file
     code.push_str("\r\n");
-    code.push_str("} /* namespace dll */\r\n");
-    code.push_str("\r\n#endif /* AZUL_H */\r\n");
-
+    
+    // Generate wrapper classes (declarations only, no method bodies)
+    code.push_str("// Wrapper class declarations\r\n");
+    code.push_str("\r\n");
+    
+    for (struct_name, class_data) in &sorted.structs {
+        generate_cpp_class_declaration(
+            &mut code,
+            struct_name,
+            class_data,
+            version_data,
+            cpp_version,
+        );
+    }
+    
+    // Generate method implementations after all classes are declared
+    code.push_str("// Method implementations\r\n");
+    code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n");
+    code.push_str("\r\n");
+    
+    for (struct_name, class_data) in &sorted.structs {
+        generate_cpp_method_implementations(
+            &mut code,
+            struct_name,
+            class_data,
+            version_data,
+            cpp_version,
+        );
+    }
+    
+    // Close namespace
+    code.push_str("} // namespace azul\r\n");
+    code.push_str("\r\n");
+    
+    // End include guards
+    code.push_str(&format!("#endif // AZUL_CPP{}_HPP\r\n", cpp_version.version_number()));
+    
     code
 }
 
-/// Collect and sort struct definitions
-fn collect_structs(api_data: &ApiData) -> IndexMap<String, &crate::api::ClassData> {
-    let mut structs = IndexMap::new();
-
-    // Get the latest version
-    let latest_version = api_data.get_latest_version_str().unwrap();
-    let version_data = api_data.get_version(latest_version).unwrap();
-
-    // Collect all classes from all modules
-    for (module_name, module) in &version_data.api {
-        for (class_name, class_data) in &module.classes {
-            // In C++, we don't use the prefix in the type name
-            structs.insert(class_name.clone(), class_data);
+/// Generate C++ class declaration (without method bodies)
+fn generate_cpp_class_declaration(
+    code: &mut String,
+    class_name: &str,
+    class_data: &ClassData,
+    version_data: &VersionData,
+    cpp_version: CppVersion,
+) {
+    let c_type_name = format!("{}{}", C_PREFIX, class_name);
+    let needs_destructor = class_needs_destructor(class_data, version_data);
+    let is_copy = class_is_copy(class_data);
+    
+    // Skip callback typedefs
+    if class_data.callback_typedef.is_some() {
+        return;
+    }
+    
+    // Skip type aliases without struct fields
+    if class_data.type_alias.is_some() && class_data.struct_fields.is_none() {
+        return;
+    }
+    
+    if class_is_simple_enum(class_data) {
+        if cpp_version.has_move_semantics() {
+            code.push_str(&format!("using {} = {};\r\n\r\n", class_name, c_type_name));
+        } else {
+            code.push_str(&format!("typedef {} {};\r\n\r\n", c_type_name, class_name));
+        }
+        return;
+    }
+    
+    // Class declaration
+    code.push_str(&format!("class {} {{\r\n", class_name));
+    
+    if !cpp_version.has_move_semantics() && !is_copy {
+        code.push_str("public:\r\n");
+        code.push_str(&format!("    struct Proxy {{ {} inner; Proxy({} p) : inner(p) {{}} }};\r\n", c_type_name, c_type_name));
+        code.push_str("\r\n");
+    }
+    
+    code.push_str("private:\r\n");
+    code.push_str(&format!("    mutable {} inner_;\r\n", c_type_name));
+    code.push_str("\r\n");
+    
+    // Disable copy if not Copy type
+    if !is_copy {
+        if cpp_version.has_move_semantics() {
+            code.push_str(&format!("    {}(const {}&) = delete;\r\n", class_name, class_name));
+            code.push_str(&format!("    {}& operator=(const {}&) = delete;\r\n", class_name, class_name));
+        }
+        // For C++03: Copy constructor is defined in public section with destructive copy semantics
+    }
+    
+    code.push_str("\r\n");
+    code.push_str("public:\r\n");
+    
+    // Constructor from C type (inline - no external dependencies)
+    let noexcept = if cpp_version.has_noexcept() { " noexcept" } else { "" };
+    code.push_str(&format!("    explicit {}({} inner){} : inner_(inner) {{}}\r\n", 
+        class_name, c_type_name, noexcept));
+    
+    // C++03: Destructive copy constructor (like std::auto_ptr)
+    // This is necessary because C++03 requires copy constructor to be accessible for RVO
+    if !cpp_version.has_move_semantics() && !is_copy {
+        code.push_str(&format!("    {}(const {}& other) : inner_(other.inner_) {{ std::memset(&other.inner_, 0, sizeof(other.inner_)); }}\r\n", 
+            class_name, class_name));
+        code.push_str(&format!("    {}& operator=(const {}& other) {{\r\n", class_name, class_name));
+        if needs_destructor {
+            code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+        }
+        code.push_str(&format!("        inner_ = other.inner_;\r\n"));
+        code.push_str(&format!("        std::memset(&other.inner_, 0, sizeof(other.inner_));\r\n"));
+        code.push_str(&format!("        return *this;\r\n"));
+        code.push_str(&format!("    }}\r\n"));
+        code.push_str(&format!("    {}(Proxy p) : inner_(p.inner) {{}}\r\n", class_name));
+        code.push_str(&format!("    operator Proxy() {{\r\n"));
+        code.push_str(&format!("        Proxy p(inner_);\r\n"));
+        code.push_str(&format!("        std::memset(&inner_, 0, sizeof(inner_));\r\n"));
+        code.push_str(&format!("        return p;\r\n"));
+        code.push_str(&format!("    }}\r\n"));
+        code.push_str(&format!("    {}& operator=(Proxy p) {{\r\n", class_name));
+        if needs_destructor {
+            code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
+        }
+        code.push_str(&format!("        inner_ = p.inner;\r\n"));
+        code.push_str(&format!("        return *this;\r\n"));
+        code.push_str(&format!("    }}\r\n"));
+    }
+    
+    // Destructor (inline - no external dependencies)
+    if needs_destructor {
+        code.push_str(&format!("    ~{}() {{ {}_delete(&inner_); }}\r\n", 
+            class_name, c_type_name));
+    } else {
+        code.push_str(&format!("    ~{}() {{}}\r\n", class_name));
+    }
+    
+    // Move semantics (inline - only uses own type) - C++11+ only
+    if cpp_version.has_move_semantics() && !is_copy {
+        code.push_str("\r\n");
+        code.push_str(&format!("    {}({}&& other) noexcept : inner_(other.inner_) {{\r\n", 
+            class_name, class_name));
+        code.push_str("        other.inner_ = {};\r\n");
+        code.push_str("    }\r\n");
+        
+        code.push_str(&format!("    {}& operator=({}&& other) noexcept {{\r\n", 
+            class_name, class_name));
+        code.push_str("        if (this != &other) {\r\n");
+        if needs_destructor {
+            code.push_str(&format!("            {}_delete(&inner_);\r\n", c_type_name));
+        }
+        code.push_str("            inner_ = other.inner_;\r\n");
+        code.push_str("            other.inner_ = {};\r\n");
+        code.push_str("        }\r\n");
+        code.push_str("        return *this;\r\n");
+        code.push_str("    }\r\n");
+    }
+    
+    if let Some(constructors) = &class_data.constructors {
+        code.push_str("\r\n");
+        for (fn_name, constructor) in constructors {
+            let cpp_fn_name = if fn_name == "new" {
+                "new_".to_string()
+            } else if fn_name == "default" {
+                "default_".to_string()
+            } else {
+                snake_case_to_lower_camel(fn_name)
+            };
+            
+            let cpp_args = generate_cpp_args_signature(constructor, version_data, cpp_version, false);
+            let nodiscard = if cpp_version.has_nodiscard() { "[[nodiscard]] " } else { "" };
+            
+            code.push_str(&format!("    {}static {} {}({});\r\n", 
+                nodiscard, class_name, cpp_fn_name, cpp_args));
         }
     }
+    
+    if let Some(functions) = &class_data.functions {
+        code.push_str("\r\n");
+        for (fn_name, function) in functions {
+            // Escape C++ reserved keywords in method names (e.g., "union" -> "union_")
+            let cpp_fn_name = escape_cpp_keyword(&snake_case_to_lower_camel(fn_name));
+            
+            let is_const = function.fn_args.first()
+                .and_then(|arg| arg.iter().next())
+                .map(|(name, typ)| name == "self" && (typ == "ref" || typ == "value"))
+                .unwrap_or(false);
+            
+            let cpp_return_type = if let Some(ret) = &function.returns {
+                get_cpp_return_type(&ret.r#type, version_data)
+            } else {
+                "void".to_string()
+            };
+            
+            let cpp_args = generate_cpp_args_signature(function, version_data, cpp_version, true);
+            let const_suffix = if is_const { " const" } else { "" };
+            
+            code.push_str(&format!("    {} {}({}){};\r\n", 
+                cpp_return_type, cpp_fn_name, cpp_args, const_suffix));
+        }
+    }
+    
+    code.push_str("\r\n");
+    code.push_str(&format!("    const {}& inner() const {{ return inner_; }}\r\n", c_type_name));
+    code.push_str(&format!("    {}* ptr() {{ return &inner_; }}\r\n", c_type_name));
+    
+    // release() implementation depends on C++ version
+    if cpp_version.has_move_semantics() {
+        // C++11+: use brace initialization
+        code.push_str(&format!("    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n", 
+            c_type_name, c_type_name));
+    } else {
+        // C++03: use memset to zero initialize
+        code.push_str(&format!("    {} release() {{ {} result = inner_; std::memset(&inner_, 0, sizeof(inner_)); return result; }}\r\n", 
+            c_type_name, c_type_name));
+    }
+    
+    code.push_str("};\r\n\r\n");
+}
 
-    // This is a simplification - in the real implementation, we'd need to sort
-    // the structs based on dependencies to avoid forward declarations
-    structs
+/// Generate method implementations outside the class
+fn generate_cpp_method_implementations(
+    code: &mut String,
+    class_name: &str,
+    class_data: &ClassData,
+    version_data: &VersionData,
+    cpp_version: CppVersion,
+) {
+    let c_type_name = format!("{}{}", C_PREFIX, class_name);
+    
+    // Skip types that don't get class wrappers
+    if class_data.callback_typedef.is_some() {
+        return;
+    }
+    if class_data.type_alias.is_some() && class_data.struct_fields.is_none() {
+        return;
+    }
+    if class_is_simple_enum(class_data) {
+        return;
+    }
+    
+    // Static constructor implementations
+    if let Some(constructors) = &class_data.constructors {
+        // For C++03 non-copy types, use Proxy path for return values
+        let use_proxy = !cpp_version.has_move_semantics() && !class_is_copy(class_data);
+        
+        for (fn_name, constructor) in constructors {
+            let cpp_fn_name = if fn_name == "new" {
+                "new_".to_string()
+            } else if fn_name == "default" {
+                "default_".to_string()
+            } else {
+                snake_case_to_lower_camel(fn_name)
+            };
+            
+            let c_fn_name = format!("{}_{}", c_type_name, snake_case_to_lower_camel(fn_name));
+            let cpp_args = generate_cpp_args_signature(constructor, version_data, cpp_version, false);
+            let call_args = generate_cpp_call_args(constructor, version_data, false);
+            
+            code.push_str(&format!("inline {} {}::{}({}) {{\r\n", 
+                class_name, class_name, cpp_fn_name, cpp_args));
+            
+            if use_proxy {
+                // C++03: return via Proxy to avoid copy constructor
+                code.push_str(&format!("    return {}::Proxy({}({}));\r\n", 
+                    class_name, c_fn_name, call_args));
+            } else {
+                // C++11+: direct construction with move semantics
+                code.push_str(&format!("    return {}({}({}));\r\n", 
+                    class_name, c_fn_name, call_args));
+            }
+            code.push_str("}\r\n\r\n");
+        }
+    }
+    
+    // Instance method implementations
+    if let Some(functions) = &class_data.functions {
+        for (fn_name, function) in functions {
+            // Escape C++ reserved keywords in method names (e.g., "union" -> "union_")
+            let cpp_fn_name = escape_cpp_keyword(&snake_case_to_lower_camel(fn_name));
+            let c_fn_name = format!("{}_{}", c_type_name, snake_case_to_lower_camel(fn_name));
+            
+            // Determine how self is passed
+            let (is_const, self_is_value) = function.fn_args.first()
+                .and_then(|arg| arg.iter().next())
+                .map(|(name, typ)| {
+                    if name == "self" {
+                        (typ == "ref" || typ == "value", typ == "value")
+                    } else {
+                        (false, false)
+                    }
+                })
+                .unwrap_or((false, false));
+            
+            let cpp_return_type = if let Some(ret) = &function.returns {
+                get_cpp_return_type(&ret.r#type, version_data)
+            } else {
+                "void".to_string()
+            };
+            
+            let cpp_args = generate_cpp_args_signature(function, version_data, cpp_version, true);
+            let const_suffix = if is_const { " const" } else { "" };
+            let call_args = generate_cpp_call_args(function, version_data, true);
+            
+            // Build full call with self argument
+            // If self is "value", we need to pass the inner value (consumes it)
+            // If self is "ref" or "refmut", we pass a pointer
+            let self_arg = if self_is_value { "inner_" } else { "&inner_" };
+            let full_call_args = if call_args.is_empty() {
+                self_arg.to_string()
+            } else {
+                format!("{}, {}", self_arg, call_args)
+            };
+            
+            code.push_str(&format!("inline {} {}::{}({}){} {{\r\n", 
+                cpp_return_type, class_name, cpp_fn_name, cpp_args, const_suffix));
+            
+            if cpp_return_type == "void" {
+                code.push_str(&format!("    {}({});\r\n", c_fn_name, full_call_args));
+            } else {
+                // Check if return type needs wrapping
+                if let Some(ret) = &function.returns {
+                    let (_, base_type, _) = analyze_type(&ret.r#type);
+                    if !is_primitive_arg(&base_type) && type_has_cpp_wrapper(&base_type, version_data) {
+                        // For C++03, check if return type needs Proxy path
+                        if !cpp_version.has_move_semantics() && type_needs_proxy_for_cpp03(&base_type, version_data) {
+                            code.push_str(&format!("    return {}::Proxy({}({}));\r\n", 
+                                base_type, c_fn_name, full_call_args));
+                        } else {
+                            code.push_str(&format!("    return {}({}({}));\r\n", 
+                                base_type, c_fn_name, full_call_args));
+                        }
+                    } else {
+                        code.push_str(&format!("    return {}({});\r\n", c_fn_name, full_call_args));
+                    }
+                } else {
+                    code.push_str(&format!("    return {}({});\r\n", c_fn_name, full_call_args));
+                }
+            }
+            code.push_str("}\r\n\r\n");
+        }
+    }
+}
+
+/// Generate C++ function argument signature
+fn generate_cpp_args_signature(
+    func: &crate::api::FunctionData,
+    version_data: &VersionData,
+    cpp_version: CppVersion,
+    is_method: bool,
+) -> String {
+    let mut args = Vec::new();
+    
+    for (i, arg_map) in func.fn_args.iter().enumerate() {
+        for (arg_name, arg_type) in arg_map {
+            // Skip 'self' for methods
+            if is_method && i == 0 && arg_name == "self" {
+                continue;
+            }
+            
+            let escaped_name = escape_cpp_keyword(arg_name);
+            let (prefix, base_type, _) = analyze_type(arg_type);
+            
+            // Check if this is a pointer type
+            let is_const_ptr = prefix.contains("*const") || prefix.contains("* const");
+            let is_mut_ptr = prefix.contains("*mut") || prefix.contains("* mut");
+            
+            // Determine C++ type
+            let cpp_type = if is_primitive_arg(&base_type) {
+                // Handle primitive pointer types
+                if is_const_ptr {
+                    format!("const {}*", replace_primitive_ctype(&base_type))
+                } else if is_mut_ptr {
+                    format!("{}*", replace_primitive_ctype(&base_type))
+                } else {
+                    replace_primitive_ctype(&base_type)
+                }
+            } else if type_has_cpp_wrapper(&base_type, version_data) {
+                // Use C++ wrapper type
+                if is_const_ptr {
+                    // For const pointer, use reference in C++
+                    format!("{}& ", base_type)
+                } else if is_mut_ptr {
+                    // For mut pointer, use reference in C++
+                    format!("{}&", base_type)
+                } else if cpp_version.has_move_semantics() {
+                    // For value types, use move semantics
+                    format!("{}", base_type)
+                } else {
+                    format!("{}", base_type)
+                }
+            } else {
+                // Use C type for callbacks, simple enums, type aliases, etc.
+                if is_const_ptr {
+                    format!("const {}{}*", C_PREFIX, base_type)
+                } else if is_mut_ptr {
+                    format!("{}{}*", C_PREFIX, base_type)
+                } else {
+                    format!("{}{}", C_PREFIX, base_type)
+                }
+            };
+            
+            args.push(format!("{} {}", cpp_type, escaped_name));
+        }
+    }
+    
+    args.join(", ")
+}
+
+/// Generate C++ function call arguments
+fn generate_cpp_call_args(
+    func: &crate::api::FunctionData,
+    version_data: &VersionData,
+    is_method: bool,
+) -> String {
+    let mut args = Vec::new();
+    
+    for (i, arg_map) in func.fn_args.iter().enumerate() {
+        for (arg_name, arg_type) in arg_map {
+            // Skip 'self' for methods
+            if is_method && i == 0 && arg_name == "self" {
+                continue;
+            }
+            
+            let escaped_name = escape_cpp_keyword(arg_name);
+            let (prefix, base_type, _) = analyze_type(arg_type);
+            
+            // Check if this is a pointer type
+            let is_pointer = prefix.contains("*const") || prefix.contains("* const") 
+                || prefix.contains("*mut") || prefix.contains("* mut");
+            
+            // For wrapper types:
+            // - If pointer type, use .ptr() to get a pointer
+            // - If value type, use .release() to consume and get the C type
+            if !is_primitive_arg(&base_type) && type_has_cpp_wrapper(&base_type, version_data) {
+                if is_pointer {
+                    args.push(format!("{}.ptr()", escaped_name));
+                } else {
+                    args.push(format!("{}.release()", escaped_name));
+                }
+            } else {
+                args.push(escaped_name.to_string());
+            }
+        }
+    }
+    
+    args.join(", ")
+}
+
+/// Get C++ return type for a function
+fn get_cpp_return_type(type_str: &str, version_data: &VersionData) -> String {
+    let (_, base_type, _) = analyze_type(type_str);
+    
+    if is_primitive_arg(&base_type) {
+        replace_primitive_ctype(&base_type)
+    } else if type_has_cpp_wrapper(&base_type, version_data) {
+        base_type
+    } else {
+        // Use C type for callbacks, simple enums, type aliases, etc.
+        format!("{}{}", C_PREFIX, base_type)
+    }
+}
+
+/// Generate all C++ API headers (for all versions)
+pub fn generate_all_cpp_apis(api_data: &ApiData, version: &str) -> Vec<(String, String)> {
+    CppVersion::all()
+        .iter()
+        .map(|&cpp_version| {
+            (
+                cpp_version.header_filename(),
+                generate_cpp_api_versioned(api_data, version, cpp_version),
+            )
+        })
+        .collect()
 }

@@ -85,6 +85,77 @@ jobs:
           cargo check -p azul-layout
           cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
 
+  # ===================================================================
+  # ==         C/C++ HEADER GENERATION & VALIDATION                  ==
+  # ===================================================================
+
+  codegen_headers:
+    name: Generate & Validate C/C++ Headers
+    # This job only requires api.json, no Rust compilation needed
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Generate C header
+        run: cargo run -r -p azul-doc codegen c
+
+      - name: Validate C header syntax
+        run: |
+          cd target/codegen
+          clang -fsyntax-only -std=c99 -x c azul.h
+          echo "C header (C99) compiles successfully"
+
+      - name: Generate C++ headers for all standards
+        run: cargo run -r -p azul-doc codegen cpp
+
+      - name: Validate C++03 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++03 -fsyntax-only -I. cpp/azul_cpp03.hpp
+          echo "C++03 header compiles successfully"
+
+      - name: Validate C++11 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++11 -fsyntax-only -I. cpp/azul_cpp11.hpp
+          echo "C++11 header compiles successfully"
+
+      - name: Validate C++14 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++14 -fsyntax-only -I. cpp/azul_cpp14.hpp
+          echo "C++14 header compiles successfully"
+
+      - name: Validate C++17 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++17 -fsyntax-only -I. cpp/azul_cpp17.hpp
+          echo "C++17 header compiles successfully"
+
+      - name: Validate C++20 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++20 -fsyntax-only -I. cpp/azul_cpp20.hpp
+          echo "C++20 header compiles successfully"
+
+      - name: Validate C++23 header
+        run: |
+          cd target/codegen
+          clang++ -std=c++2b -fsyntax-only -I. cpp/azul_cpp23.hpp
+          echo "C++23 header compiles successfully"
+
   test_heavy:
     name: Run Heavy Tests
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
