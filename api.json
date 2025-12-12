@@ -35560,7 +35560,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "ListViewRow",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35585,7 +35585,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleFilter",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35610,7 +35610,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "AccessibilityState",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35635,7 +35635,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "MenuItem",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35660,7 +35660,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleFontFamily",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35685,7 +35685,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "Dom",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35710,7 +35710,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "IdOrClass",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35735,7 +35735,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NodeDataInlineCssProperty",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35760,7 +35760,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleBackgroundContent",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35785,7 +35785,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleBackgroundPosition",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35810,7 +35810,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleBackgroundRepeat",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35835,7 +35835,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleBackgroundSize",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35860,7 +35860,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyleTransform",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35885,7 +35885,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "SvgMultiPolygon",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35910,7 +35910,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "SvgSimpleNode",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35935,7 +35935,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "SvgPath",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35960,7 +35960,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "SvgPathElement",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -35985,7 +35985,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "SvgVertex",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36010,7 +36010,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "u32",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36035,7 +36035,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "VirtualKeyCode",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36060,7 +36060,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "CascadeInfo",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36085,7 +36085,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "CssDeclaration",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36110,7 +36110,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "CssPathSelector",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36135,7 +36135,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "Stylesheet",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36160,7 +36160,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "CssRuleBlock",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36185,7 +36185,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "u16",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36210,7 +36210,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "f32",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36235,7 +36235,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "u8",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36295,7 +36295,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "GLuint",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36320,7 +36320,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "GLint",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36345,7 +36345,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "String",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36370,7 +36370,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StringPair",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36395,7 +36395,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NormalizedLinearColorStop",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36420,7 +36420,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NormalizedRadialColorStop",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36445,7 +36445,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NodeHierarchyItemId",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36470,7 +36470,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NodeHierarchyItem",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36495,7 +36495,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "StyledNode",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36520,7 +36520,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "TagIdToNodeIdMapping",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36545,7 +36545,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "ParentWithNodeDepth",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36570,7 +36570,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "NodeData",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36595,7 +36595,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "AttributeType",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36620,7 +36620,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "CoreCallbackData",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36645,7 +36645,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "AccessibilityAction",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36670,7 +36670,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "XmlNodeChild",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -36695,7 +36695,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "GridTrackSizing",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38077,7 +38077,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "VertexAttribute",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38121,7 +38121,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "DebugMessage",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38173,7 +38173,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "ShapePoint",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38197,7 +38197,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "Monitor",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38247,7 +38247,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "VideoMode",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38271,7 +38271,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "XWindowType",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -38385,7 +38385,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "c_void",
+                  "type": "ScanCode",
                   "ref_kind": "constptr"
                 },
                 "len": {

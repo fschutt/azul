@@ -199,9 +199,10 @@ impl TypeDefinition {
                         // Destructor is named VecTypeDestructor (e.g. U8Vec -> U8VecDestructor)
                         let destructor_type = format!("{}Destructor", self.type_name);
                         let mut fields = IndexMap::new();
+                        // ptr field type is the element type (base_type), not c_void
                         fields.insert("ptr".to_string(), FieldDef {
                             name: "ptr".to_string(),
-                            ty: "c_void".to_string(),
+                            ty: base_type.clone(),
                             ref_kind: RefKind::ConstPtr,
                             doc: Vec::new(),
                         });

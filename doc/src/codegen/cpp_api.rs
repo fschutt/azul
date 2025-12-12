@@ -121,6 +121,42 @@ fn class_is_copy(class_data: &ClassData) -> bool {
         .map_or(false, |d| d.contains(&"Copy".to_string()))
 }
 
+/// Check if a class is a Vec type (has ptr, len, cap, destructor fields)
+fn class_is_vec_type(class_data: &ClassData) -> bool {
+    if let Some(struct_fields) = &class_data.struct_fields {
+        let field_names: Vec<&str> = struct_fields.iter()
+            .flat_map(|field_map| field_map.keys().map(|s| s.as_str()))
+            .collect();
+        field_names.contains(&"ptr") && field_names.contains(&"len") && 
+            field_names.contains(&"cap") && field_names.contains(&"destructor")
+    } else {
+        false
+    }
+}
+
+/// Get the element type of a Vec type (from the ptr field type)
+fn get_vec_element_type(class_data: &ClassData) -> Option<String> {
+    if let Some(struct_fields) = &class_data.struct_fields {
+        for field_map in struct_fields {
+            if let Some(ptr_field) = field_map.get("ptr") {
+                // The ptr field should have the element type (e.g., "Dom" not "c_void")
+                let elem_type = &ptr_field.r#type;
+                // Skip if it's c_void - this means autofix didn't expand impl_vec! properly
+                if elem_type == "c_void" {
+                    return None;
+                }
+                return Some(elem_type.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Check if a class is a String type
+fn class_is_string_type(class_name: &str) -> bool {
+    class_name == "String"
+}
+
 /// Check if a class needs a destructor
 fn class_needs_destructor(class_data: &ClassData, version_data: &VersionData) -> bool {
     if class_is_copy(class_data) {
@@ -290,6 +326,7 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
     if cpp_version.has_move_semantics() {
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
+        code.push_str("#include <string>\r\n");  // For std::string interop
     }
     if cpp_version.has_optional() {
         code.push_str("#include <optional>\r\n");
@@ -414,7 +451,13 @@ fn generate_cpp_class_declaration(
     }
     
     code.push_str("private:\r\n");
-    code.push_str(&format!("    mutable {} inner_;\r\n", c_type_name));
+    // For C++03 non-Copy types: use mutable to allow "stealing" in const copy constructor (like std::auto_ptr)
+    // For C++11+ and Copy types: no mutable needed
+    if !cpp_version.has_move_semantics() && !is_copy {
+        code.push_str(&format!("    mutable {} inner_;\r\n", c_type_name));
+    } else {
+        code.push_str(&format!("    {} inner_;\r\n", c_type_name));
+    }
     code.push_str("\r\n");
     
     // Disable copy if not Copy type
@@ -434,32 +477,42 @@ fn generate_cpp_class_declaration(
     code.push_str(&format!("    explicit {}({} inner){} : inner_(inner) {{}}\r\n", 
         class_name, c_type_name, noexcept));
     
+    // For Copy types: generate copy constructor and assignment operator
+    if is_copy {
+        code.push_str(&format!("    {}(const {}& other){} : inner_(other.inner_) {{}}\r\n",
+            class_name, class_name, noexcept));
+        code.push_str(&format!("    {}& operator=(const {}& other){} {{ inner_ = other.inner_; return *this; }}\r\n",
+            class_name, class_name, noexcept));
+    }
+    
     // C++03: Destructive copy constructor (like std::auto_ptr)
+    // Uses mutable inner_ so we can "steal" in const& constructor
     // This is necessary because C++03 requires copy constructor to be accessible for RVO
     if !cpp_version.has_move_semantics() && !is_copy {
+        // const& version needed for returning temporaries (RVO requires accessible copy ctor)
         code.push_str(&format!("    {}(const {}& other) : inner_(other.inner_) {{ std::memset(&other.inner_, 0, sizeof(other.inner_)); }}\r\n", 
             class_name, class_name));
         code.push_str(&format!("    {}& operator=(const {}& other) {{\r\n", class_name, class_name));
         if needs_destructor {
             code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
         }
-        code.push_str(&format!("        inner_ = other.inner_;\r\n"));
-        code.push_str(&format!("        std::memset(&other.inner_, 0, sizeof(other.inner_));\r\n"));
-        code.push_str(&format!("        return *this;\r\n"));
-        code.push_str(&format!("    }}\r\n"));
+        code.push_str("        inner_ = other.inner_;\r\n");
+        code.push_str("        std::memset(&other.inner_, 0, sizeof(other.inner_));\r\n");
+        code.push_str("        return *this;\r\n");
+        code.push_str("    }\r\n");
         code.push_str(&format!("    {}(Proxy p) : inner_(p.inner) {{}}\r\n", class_name));
-        code.push_str(&format!("    operator Proxy() {{\r\n"));
-        code.push_str(&format!("        Proxy p(inner_);\r\n"));
-        code.push_str(&format!("        std::memset(&inner_, 0, sizeof(inner_));\r\n"));
-        code.push_str(&format!("        return p;\r\n"));
-        code.push_str(&format!("    }}\r\n"));
+        code.push_str("    operator Proxy() {\r\n");
+        code.push_str("        Proxy p(inner_);\r\n");
+        code.push_str("        std::memset(&inner_, 0, sizeof(inner_));\r\n");
+        code.push_str("        return p;\r\n");
+        code.push_str("    }\r\n");
         code.push_str(&format!("    {}& operator=(Proxy p) {{\r\n", class_name));
         if needs_destructor {
             code.push_str(&format!("        {}_delete(&inner_);\r\n", c_type_name));
         }
-        code.push_str(&format!("        inner_ = p.inner;\r\n"));
-        code.push_str(&format!("        return *this;\r\n"));
-        code.push_str(&format!("    }}\r\n"));
+        code.push_str("        inner_ = p.inner;\r\n");
+        code.push_str("        return *this;\r\n");
+        code.push_str("    }\r\n");
     }
     
     // Destructor (inline - no external dependencies)
@@ -536,7 +589,10 @@ fn generate_cpp_class_declaration(
     }
     
     code.push_str("\r\n");
+    // Const-correct accessor methods
     code.push_str(&format!("    const {}& inner() const {{ return inner_; }}\r\n", c_type_name));
+    code.push_str(&format!("    {}& inner() {{ return inner_; }}\r\n", c_type_name));
+    code.push_str(&format!("    const {}* ptr() const {{ return &inner_; }}\r\n", c_type_name));
     code.push_str(&format!("    {}* ptr() {{ return &inner_; }}\r\n", c_type_name));
     
     // release() implementation depends on C++ version
@@ -548,6 +604,49 @@ fn generate_cpp_class_declaration(
         // C++03: use memset to zero initialize
         code.push_str(&format!("    {} release() {{ {} result = inner_; std::memset(&inner_, 0, sizeof(inner_)); return result; }}\r\n", 
             c_type_name, c_type_name));
+    }
+    
+    // Vec types: add iterator support for range-based for loops
+    let is_vec = class_is_vec_type(class_data);
+    if is_vec {
+        if let Some(elem_type) = get_vec_element_type(class_data) {
+            let c_elem_type = if is_primitive_arg(&elem_type) {
+                replace_primitive_ctype(&elem_type)
+            } else {
+                format!("{}{}", C_PREFIX, elem_type)
+            };
+            
+            code.push_str("\r\n");
+            code.push_str("    // Iterator support for range-based for loops\r\n");
+            // ptr is already `const T*`, so we can use it directly
+            code.push_str(&format!("    const {}* begin() const {{ return inner_.ptr; }}\r\n", c_elem_type));
+            code.push_str(&format!("    const {}* end() const {{ return inner_.ptr + inner_.len; }}\r\n", c_elem_type));
+            // For mutable access, cast away const (the C API uses const ptr for both)
+            code.push_str(&format!("    {}* begin() {{ return const_cast<{}*>(inner_.ptr); }}\r\n", c_elem_type, c_elem_type));
+            code.push_str(&format!("    {}* end() {{ return const_cast<{}*>(inner_.ptr) + inner_.len; }}\r\n", c_elem_type, c_elem_type));
+            code.push_str("    size_t size() const { return inner_.len; }\r\n");
+            code.push_str("    bool empty() const { return inner_.len == 0; }\r\n");
+            code.push_str(&format!("    const {}& operator[](size_t i) const {{ return inner_.ptr[i]; }}\r\n", c_elem_type));
+            code.push_str(&format!("    {}& operator[](size_t i) {{ return const_cast<{}*>(inner_.ptr)[i]; }}\r\n", c_elem_type, c_elem_type));
+        }
+    }
+    
+    // String type: add std::string interop
+    if class_is_string_type(class_name) {
+        code.push_str("\r\n");
+        code.push_str("    // std::string interoperability\r\n");
+        if cpp_version.has_move_semantics() {
+            code.push_str("    String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
+            code.push_str("    String(const std::string& s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s.c_str()), 0, s.size())) {}\r\n");
+        } else {
+            code.push_str("    explicit String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
+        }
+        code.push_str("    const char* c_str() const { return reinterpret_cast<const char*>(inner_.vec.ptr); }\r\n");
+        code.push_str("    size_t length() const { return inner_.vec.len; }\r\n");
+        if cpp_version.has_move_semantics() {
+            code.push_str("    std::string toStdString() const { return std::string(c_str(), length()); }\r\n");
+            code.push_str("    operator std::string() const { return toStdString(); }\r\n");
+        }
     }
     
     code.push_str("};\r\n\r\n");
@@ -602,8 +701,10 @@ fn generate_cpp_method_implementations(
             
             if use_proxy {
                 // C++03: return via Proxy to avoid copy constructor
-                code.push_str(&format!("    return {}::Proxy({}({}));\r\n", 
+                // Use explicit variable to avoid syntax ambiguity with functional cast
+                code.push_str(&format!("    {}::Proxy _p({}({}));\r\n", 
                     class_name, c_fn_name, call_args));
+                code.push_str("    return _p;\r\n");
             } else {
                 // C++11+: direct construction with move semantics
                 code.push_str(&format!("    return {}({}({}));\r\n", 
@@ -664,8 +765,10 @@ fn generate_cpp_method_implementations(
                     if !is_primitive_arg(&base_type) && type_has_cpp_wrapper(&base_type, version_data) {
                         // For C++03, check if return type needs Proxy path
                         if !cpp_version.has_move_semantics() && type_needs_proxy_for_cpp03(&base_type, version_data) {
-                            code.push_str(&format!("    return {}::Proxy({}({}));\r\n", 
+                            // Use explicit variable to avoid syntax ambiguity with functional cast
+                            code.push_str(&format!("    {}::Proxy _p({}({}));\r\n", 
                                 base_type, c_fn_name, full_call_args));
+                            code.push_str("    return _p;\r\n");
                         } else {
                             code.push_str(&format!("    return {}({}({}));\r\n", 
                                 base_type, c_fn_name, full_call_args));

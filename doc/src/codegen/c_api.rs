@@ -261,7 +261,9 @@ fn generate_monomorphized_type(
             if is_u8_repr {
                 code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
             }
-            code.push_str("};\r\n\r\n");
+            code.push_str("};\r\n");
+            // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
+            code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
         }
     } else if let Some(struct_fields) = &target_class.struct_fields {
         // Struct monomorphization - substitute generic type params
@@ -640,7 +642,9 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                                 if is_u8_repr {
                                     code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
                                 }
-                                code.push_str("};\r\n\r\n");
+                                code.push_str("};\r\n");
+                                // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
+                                code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
                                 enums_already_generated.insert(struct_name.clone());
                             }
                         }
@@ -666,7 +670,9 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 if is_u8_repr {
                     code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
                 }
-                code.push_str("};\r\n\r\n");
+                code.push_str("};\r\n");
+                // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
+                code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
                 enums_already_generated.insert(struct_name.clone());
             }
         }
@@ -812,7 +818,9 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     if is_u8_repr {
                         code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
                     }
-                    code.push_str("};\r\n\r\n");
+                    code.push_str("};\r\n");
+                    // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
+                    code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
                 }
             } else {
                 // Tagged union
@@ -1277,10 +1285,33 @@ fn calculate_dependency_depths(
         }
     }
     
-    // Any remaining types without depth get max depth (for safety)
+    // Any remaining types without depth get assigned based on their dependencies
+    // This handles circular dependencies by giving higher depth to types that depend on more unresolved types
     let max_depth = depths.values().copied().max().unwrap_or(0);
-    for struct_name in all_structs.keys() {
-        depths.entry(struct_name.clone()).or_insert(max_depth + 1);
+    let unresolved: Vec<String> = all_structs.keys()
+        .filter(|k| !depths.contains_key(*k))
+        .cloned()
+        .collect();
+    
+    // For unresolved types, try to order them by counting how many other unresolved types they depend on
+    let mut unresolved_order: Vec<(String, usize)> = unresolved.iter().map(|struct_name| {
+        let class_data = all_structs.get(struct_name).unwrap();
+        let deps = get_type_dependencies(class_data, version_data);
+        let unresolved_deps = deps.iter()
+            .filter(|dep| {
+                let dep_name = format!("{}{}", prefix, dep);
+                !depths.contains_key(&dep_name) && unresolved.contains(&dep_name)
+            })
+            .count();
+        (struct_name.clone(), unresolved_deps)
+    }).collect();
+    
+    // Sort by number of unresolved dependencies (fewer = earlier = lower depth)
+    unresolved_order.sort_by_key(|(_, count)| *count);
+    
+    // Assign depths incrementally
+    for (i, (struct_name, _)) in unresolved_order.into_iter().enumerate() {
+        depths.insert(struct_name, max_depth + 1 + i);
     }
     
     depths
@@ -1305,11 +1336,49 @@ pub fn sort_structs_by_dependencies<'a>(
     }
 
     // Forward declarations for recursive types
-    // These must be manually specified as they create cycles
+    // Automatically add all Vec types from the "vec" module - they contain their element type
+    // which may create circular dependencies
     let mut forward_declarations = HashMap::new();
-    forward_declarations.insert(format!("{}DomVec", prefix), "Dom".to_string());
-    forward_declarations.insert(format!("{}MenuItemVec", prefix), "MenuItem".to_string());
-    forward_declarations.insert(format!("{}XmlNodeVec", prefix), "XmlNode".to_string());
+    
+    // Find Vec types and add forward declarations for their element types
+    for (_module_name, module) in &version_data.api {
+        for (class_name, class_data) in &module.classes {
+            // Check if this is a Vec type (has ptr, len, cap, destructor fields)
+            if let Some(struct_fields) = &class_data.struct_fields {
+                let field_names: Vec<&String> = struct_fields.iter()
+                    .flat_map(|m| m.keys())
+                    .collect();
+                
+                let is_vec_type = field_names.contains(&&"ptr".to_string())
+                    && field_names.contains(&&"len".to_string())
+                    && field_names.contains(&&"cap".to_string())
+                    && field_names.contains(&&"destructor".to_string());
+                
+                if is_vec_type {
+                    // Get the element type from the ptr field
+                    if let Some(ptr_field) = struct_fields.iter()
+                        .flat_map(|m| m.iter())
+                        .find(|(name, _)| *name == "ptr")
+                    {
+                        let elem_type = &ptr_field.1.r#type;
+                        // Don't add primitive types or c_void
+                        if !is_primitive_arg(elem_type) && elem_type != "c_void" {
+                            forward_declarations.insert(
+                                format!("{}{}", prefix, class_name),
+                                elem_type.clone()
+                            );
+                        }
+                    }
+                }
+            }
+            
+            // Note: We no longer try to detect circular dependencies in enum types
+            // because the heuristic (name containment) was too aggressive and incorrectly
+            // marked types like NodeDataInlineCssProperty -> CssProperty as circular.
+            // True circular dependencies (like XmlNodeChild -> XmlNode -> XmlNodeChildVec)
+            // are handled by the Vec forward declarations above.
+        }
+    }
 
     // Calculate dependency depths for all types
     let depths = calculate_dependency_depths(&all_structs, version_data, prefix, &forward_declarations);
