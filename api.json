@@ -35434,6 +35434,18 @@
                   }
                 ],
                 "fn_body": "azul_css::corety::AzString::copy_from_bytes(ptr, start, len)"
+              },
+              "from_c_str": {
+                "doc": [
+                  "Creates a new String from a null-terminated C string (const char*).",
+                  "This copies the string data into a new allocation."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const i8"
+                  }
+                ],
+                "fn_body": "azul_css::corety::AzString::from_c_str(ptr)"
               }
             },
             "repr": "C"

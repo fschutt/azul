@@ -161,6 +161,22 @@ impl AzString {
         }
     }
 
+    /// Creates a new AzString from a null-terminated C string (const char*).
+    /// This copies the string data into a new allocation.
+    /// 
+    /// # Safety
+    /// - `ptr` must be a valid pointer to a null-terminated UTF-8 string
+    /// - The string must remain valid for the duration of this call
+    #[inline]
+    pub unsafe fn from_c_str(ptr: *const i8) -> Self {
+        if ptr.is_null() {
+            return Self::default();
+        }
+        let c_str = core::ffi::CStr::from_ptr(ptr);
+        let bytes = c_str.to_bytes();
+        Self::copy_from_bytes(bytes.as_ptr(), 0, bytes.len())
+    }
+
     /// Copies bytes from a pointer into a new AzString.
     /// This is useful for C FFI where you have a char* buffer.
     #[inline]

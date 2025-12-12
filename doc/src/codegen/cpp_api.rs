@@ -241,13 +241,29 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
         code.push_str("// - Each non-copyable class has a nested 'Proxy' struct\r\n");
         code.push_str("// - When returning by value, the object converts to Proxy (releasing ownership)\r\n");
         code.push_str("// - The receiving object constructs from Proxy (acquiring ownership)\r\n");
-        code.push_str("// - Direct copy construction remains private/forbidden\r\n");
+        code.push_str("// - Direct copy construction transfers ownership (like std::auto_ptr)\r\n");
         code.push_str("//\r\n");
         code.push_str("// Example:\r\n");
         code.push_str("//   String a = String::fromConstStr(\"hello\");  // OK: uses Proxy path\r\n");
-        code.push_str("//   String b = a;                               // ERROR: copy ctor is private\r\n");
+        code.push_str("//   String b = a;                               // OK but TRANSFERS ownership from a!\r\n");
+        code.push_str("//   // 'a' is now in a moved-from (zombie) state\r\n");
         code.push_str("//   String c = String::fromConstStr(\"world\");  // OK\r\n");
-        code.push_str("//   a = String::fromConstStr(\"new\");           // OK: uses Proxy assignment\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// WARNING: STL CONTAINER INCOMPATIBILITY\r\n");
+        code.push_str("// =====================================\r\n");
+        code.push_str("// These objects CANNOT be safely stored in C++03 standard containers\r\n");
+        code.push_str("// (std::vector, std::list, std::map, etc.)!\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// C++03 containers require \"Copy Constructible\" and \"Assignable\" semantics\r\n");
+        code.push_str("// where copying A to B leaves both A and B as equivalent copies.\r\n");
+        code.push_str("// These wrappers use destructive copy (like std::auto_ptr), which violates\r\n");
+        code.push_str("// this requirement and WILL cause memory corruption during container\r\n");
+        code.push_str("// operations like resize, sort, or internal reallocation.\r\n");
+        code.push_str("//\r\n");
+        code.push_str("// Safe alternatives:\r\n");
+        code.push_str("// 1. Store raw pointers and manage lifetime manually\r\n");
+        code.push_str("// 2. Use C arrays with manual size tracking\r\n");
+        code.push_str("// 3. Upgrade to C++11 where move semantics work correctly with containers\r\n");
         code.push_str("//\r\n");
         code.push_str("// Reference: https://en.wikibooks.org/wiki/More_C%2B%2B_Idioms/Move_Constructor\r\n");
         code.push_str("//\r\n");
@@ -296,6 +312,10 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
     // Forward declarations for all classes
     code.push_str("// Forward declarations\r\n");
     for (struct_name, class_data) in &sorted.structs {
+        // Skip generic types - they are templates for monomorphized versions
+        if class_data.generic_params.is_some() {
+            continue;
+        }
         if class_data.callback_typedef.is_some() {
             continue;
         }
@@ -359,6 +379,11 @@ fn generate_cpp_class_declaration(
     let c_type_name = format!("{}{}", C_PREFIX, class_name);
     let needs_destructor = class_needs_destructor(class_data, version_data);
     let is_copy = class_is_copy(class_data);
+    
+    // Skip generic types - they are templates for monomorphized versions
+    if class_data.generic_params.is_some() {
+        return;
+    }
     
     // Skip callback typedefs
     if class_data.callback_typedef.is_some() {
@@ -537,6 +562,11 @@ fn generate_cpp_method_implementations(
     cpp_version: CppVersion,
 ) {
     let c_type_name = format!("{}{}", C_PREFIX, class_name);
+    
+    // Skip generic types - they are templates for monomorphized versions
+    if class_data.generic_params.is_some() {
+        return;
+    }
     
     // Skip types that don't get class wrappers
     if class_data.callback_typedef.is_some() {

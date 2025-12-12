@@ -538,6 +538,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             continue; // Skip callbacks
         }
         
+        // Skip generic types - they are templates for monomorphized versions
+        // and have unresolved type parameters like "T"
+        if class_data.generic_params.is_some() {
+            continue;
+        }
+        
         // If it has struct_fields, it's definitely a struct (even if it also has type_alias)
         if class_data.struct_fields.is_some() {
             code.push_str(&format!("struct {};\r\n", struct_name));
@@ -602,6 +608,11 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     
     for (struct_name, class_data) in &structs {
         if class_data.callback_typedef.is_some() {
+            continue;
+        }
+        
+        // Skip generic types - they are templates for monomorphized versions
+        if class_data.generic_params.is_some() {
             continue;
         }
         
@@ -670,6 +681,11 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             continue;
         }
         
+        // Skip generic types - they are templates for monomorphized versions
+        if class_data.generic_params.is_some() {
+            continue;
+        }
+        
         if let Some(type_alias) = &class_data.type_alias {
             let target = &type_alias.target;
             let ref_kind = &type_alias.ref_kind;
@@ -707,6 +723,11 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     for (struct_name, class_data) in &structs {
         // Skip callbacks (already handled)
         if class_data.callback_typedef.is_some() {
+            continue;
+        }
+        
+        // Skip generic types - they are templates for monomorphized versions
+        if class_data.generic_params.is_some() {
             continue;
         }
         
@@ -802,6 +823,9 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
 
     // Generate macro definitions for enum unions and Vector constructors
     code.push_str("/* MACROS for union enum construction and vector initialization */\r\n\r\n");
+    
+    // C99 designated initializer macros - only available in C, not C++
+    code.push_str("#ifndef __cplusplus\r\n\r\n");
 
     // Generate macros for tagged unions
     for (struct_name, class_data) in &structs {
@@ -828,14 +852,57 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         }
     }
 
-    // NOTE: Empty vec constructors removed - they generated invalid C code
-    // In C, empty vecs should be created via API functions or initialized manually
+    // Generate empty Vec macros for all Vec types
+    // Vec types are identified by having: ptr, len, cap, destructor fields
+    // and name ending in "Vec"
+    code.push_str("/* Empty Vec initializer macros */\r\n\r\n");
+    for (struct_name, class_data) in &structs {
+        // Check if this is a Vec type (name ends with Vec and has the right structure)
+        if struct_name.ends_with("Vec") && class_data.struct_fields.is_some() {
+            if let Some(struct_fields) = &class_data.struct_fields {
+                // Check if it has ptr, len, cap, destructor fields
+                let field_names: Vec<&String> = struct_fields.iter()
+                    .flat_map(|m| m.keys())
+                    .collect();
+                
+                let has_vec_structure = field_names.contains(&&"ptr".to_string())
+                    && field_names.contains(&&"len".to_string())
+                    && field_names.contains(&&"cap".to_string())
+                    && field_names.contains(&&"destructor".to_string());
+                
+                if has_vec_structure {
+                    // Find the destructor type name
+                    let destructor_type = struct_fields.iter()
+                        .flat_map(|m| m.iter())
+                        .find(|(name, _)| *name == "destructor")
+                        .map(|(_, data)| &data.r#type);
+                    
+                    if let Some(destr_type) = destructor_type {
+                        // Generate the empty macro
+                        // Format: #define AzXxxVec_empty { .ptr = 0, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzXxxVecDestructor_Tag_NoDestructor } } }
+                        code.push_str(&format!(
+                            "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
+                            struct_name, 
+                            destr_type
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    
+    code.push_str("#endif /* __cplusplus */\r\n\r\n");
 
     // Generate function declarations
     code.push_str("/* FUNCTIONS */\r\n\r\n");
 
     for (module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
+            // Skip generic types - they are templates for monomorphized versions
+            if class_data.generic_params.is_some() {
+                continue;
+            }
+            
             let class_ptr_name = format!("{}{}", PREFIX, class_name);
             let c_is_stack_allocated = class_is_stack_allocated(class_data);
             let class_can_be_copied = class_data
