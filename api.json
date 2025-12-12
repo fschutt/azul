@@ -3,15 +3,319 @@
     "apiversion": 1,
     "git": "0ad5f6d3",
     "date": "2025-04-03",
+    "installation": {
+      "dialects": {
+        "cpp": {
+          "displayName": "C++",
+          "default": "cpp23",
+          "variants": {
+            "cpp23": { "displayName": "C++23", "altText": "Example for C++ 2023 standard" },
+            "cpp20": { "displayName": "C++20", "altText": "Example for C++ 2020 standard" },
+            "cpp17": { "displayName": "C++17", "altText": "Example for C++ 2017 standard" },
+            "cpp14": { "displayName": "C++14", "altText": "Example for C++ 2014 standard" },
+            "cpp11": { "displayName": "C++11", "altText": "Example for C++ 2011 standard" },
+            "cpp03": { "displayName": "C++03", "altText": "Example for C++ 2003 standard" }
+          }
+        }
+      },
+      "languages": {
+        "rust": {
+          "displayName": "Rust",
+          "methods": {
+            "cargo": {
+              "description": "Add to Cargo.toml",
+              "steps": [
+                {
+                  "type": "code",
+                  "language": "toml",
+                  "content": "[dependencies]\nazul = { git = \"$HOSTNAME/$VERSION.git\" }"
+                },
+                {
+                  "type": "command",
+                  "content": "cargo build"
+                }
+              ]
+            }
+          }
+        },
+        "python": {
+          "displayName": "Python",
+          "methods": {
+            "uv": {
+              "displayName": "uv",
+              "description": "Install via uv (fast)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "uv add azul==$VERSION"
+                }
+              ]
+            },
+            "pip": {
+              "displayName": "pip",
+              "description": "Install via pip",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "pip3 install azul==$VERSION"
+                }
+              ]
+            }
+          }
+        },
+        "c": {
+          "displayName": "C",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile with MSVC or MinGW",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "gcc -I. hello-world.c -L. -lazul -o hello-world.exe"
+                }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile with GCC",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "gcc -I. hello-world.c -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile with Clang",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "clang -I. hello-world.c -L. -lazul -o hello-world"
+                }
+              ]
+            }
+          }
+        },
+        "cpp03": {
+          "displayName": "C++03",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++03)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
+                { "type": "command", "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++03)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
+                { "type": "command", "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++03)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
+                { "type": "command", "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        },
+        "cpp11": {
+          "displayName": "C++11",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++11)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
+                { "type": "command", "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++11)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
+                { "type": "command", "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++11)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
+                { "type": "command", "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        },
+        "cpp14": {
+          "displayName": "C++14",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
+                { "type": "command", "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
+                { "type": "command", "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
+                { "type": "command", "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        },
+        "cpp17": {
+          "displayName": "C++17",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++17)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
+                { "type": "command", "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++17)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
+                { "type": "command", "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++17)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
+                { "type": "command", "content": "clang++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        },
+        "cpp20": {
+          "displayName": "C++20",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
+                { "type": "command", "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
+                { "type": "command", "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
+                { "type": "command", "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        },
+        "cpp23": {
+          "displayName": "C++23",
+          "dialectOf": "cpp",
+          "platforms": {
+            "windows": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
+                { "type": "command", "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
+                { "type": "command", "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
+                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
+                { "type": "command", "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world" }
+              ]
+            }
+          }
+        }
+      }
+    },
     "examples": [
       {
         "name": "hello-world",
-        "alt": "Hello World application",
+        "title": "Hello World",
+        "alt": "A minimal Azul application demonstrating the basic structure",
         "code": {
           "c": "c/hello-world.c",
-          "cpp": "cpp/hello-world.cpp",
           "rust": "rust/hello-world.rs",
-          "python": "python/hello-world.py"
+          "python": "python/hello-world.py",
+          "cpp03": "cpp/cpp03/hello-world.cpp",
+          "cpp11": "cpp/cpp11/hello-world.cpp",
+          "cpp14": "cpp/cpp14/hello-world.cpp",
+          "cpp17": "cpp/cpp17/hello-world.cpp",
+          "cpp20": "cpp/cpp20/hello-world.cpp",
+          "cpp23": "cpp/cpp23/hello-world.cpp"
         },
         "screenshot": {
           "windows": "helloworld.png",
@@ -19,38 +323,134 @@
           "mac": "helloworld.png"
         },
         "description": [
+          "This example demonstrates the fundamental structure of an Azul application.",
           "Azul composes objects in a DOM hierarchy with function pointer callbacks attached to nodes.",
-          "The DOM tree only gets re-rendered when any callback returns `RefreshDom`: in difference to IMGUI, this",
+          "The DOM tree only gets re-rendered when any callback returns `RefreshDom`: unlike IMGUI, this",
           "does not happen on every frame. The DOM tree represents valid XHTML and can be styled with CSS."
         ]
       },
       {
-        "name": "calculator",
-        "alt": "Calculator rendered with Azul",
+        "name": "widgets",
+        "title": "Widget Showcase",
+        "alt": "Demonstration of all built-in widgets including buttons, checkboxes, inputs and more",
         "code": {
-          "c": "c/calculator.c",
-          "cpp": "cpp/calculator.cpp",
-          "rust": "rust/calculator.rs",
-          "python": "python/calculator.py"
+          "c": "c/widgets.c",
+          "rust": "rust/widgets.rs",
+          "python": "python/widgets.py",
+          "cpp03": "cpp/cpp03/widgets.cpp",
+          "cpp11": "cpp/cpp11/widgets.cpp",
+          "cpp14": "cpp/cpp14/widgets.cpp",
+          "cpp17": "cpp/cpp17/widgets.cpp",
+          "cpp20": "cpp/cpp20/widgets.cpp",
+          "cpp23": "cpp/cpp23/widgets.cpp"
         },
         "screenshot": {
-          "windows": "calculator.png",
-          "linux": "calculator.png",
-          "mac": "calculator.png"
+          "windows": "widgets.png",
+          "linux": "widgets.png",
+          "mac": "widgets.png"
         },
         "description": [
-          "The UI can be constructed in various ways: serialized to / from a HTML file or composed via functions.",
-          "Your application data never has to hold any references to UI objects, making Azul very non-intrusive."
+          "This example showcases all the built-in widgets available in Azul.",
+          "Included are Button, CheckBox, TextInput, NumberInput, ColorInput, DropDown, ProgressBar,",
+          "TabHeader, Frame, ListView and more. Each widget is fully customizable via CSS.",
+          "Widgets follow the same DOM hierarchy as regular elements and support all standard callbacks."
+        ]
+      },
+      {
+        "name": "opengl",
+        "title": "OpenGL Integration",
+        "alt": "Hardware-accelerated custom rendering with OpenGL textures",
+        "code": {
+          "c": "c/opengl.c",
+          "rust": "rust/opengl.rs",
+          "python": "python/opengl.py",
+          "cpp03": "cpp/cpp03/opengl.cpp",
+          "cpp11": "cpp/cpp11/opengl.cpp",
+          "cpp14": "cpp/cpp14/opengl.cpp",
+          "cpp17": "cpp/cpp17/opengl.cpp",
+          "cpp20": "cpp/cpp20/opengl.cpp",
+          "cpp23": "cpp/cpp23/opengl.cpp"
+        },
+        "screenshot": {
+          "windows": "opengl.png",
+          "linux": "opengl.png",
+          "mac": "opengl.png"
+        },
+        "description": [
+          "Azul integrates seamlessly with OpenGL for hardware-accelerated custom rendering.",
+          "This example demonstrates how to render custom OpenGL content into a texture,",
+          "then composite it with regular UI elements. The OpenGL context is managed by Azul,",
+          "allowing you to mix custom 2D/3D graphics with standard widgets."
+        ]
+      },
+      {
+        "name": "infinity",
+        "title": "Infinite Scrolling",
+        "alt": "Loading and displaying infinite content using IFrameCallbacks",
+        "code": {
+          "c": "c/infinity.c",
+          "rust": "rust/infinity.rs",
+          "python": "python/infinity.py",
+          "cpp03": "cpp/cpp03/infinity.cpp",
+          "cpp11": "cpp/cpp11/infinity.cpp",
+          "cpp14": "cpp/cpp14/infinity.cpp",
+          "cpp17": "cpp/cpp17/infinity.cpp",
+          "cpp20": "cpp/cpp20/infinity.cpp",
+          "cpp23": "cpp/cpp23/infinity.cpp"
+        },
+        "screenshot": {
+          "windows": "infinity.png",
+          "linux": "infinity.png",
+          "mac": "infinity.png"
+        },
+        "description": [
+          "This example demonstrates IFrameCallbacks for virtualized infinite scrolling.",
+          "Images and SVG files from your file system are loaded on-demand as you scroll.",
+          "Only visible items are rendered, making it possible to display millions of items",
+          "without loading them all into memory at once."
+        ]
+      },
+      {
+        "name": "async",
+        "title": "Async Operations",
+        "alt": "Background threads and timers for non-blocking operations",
+        "code": {
+          "c": "c/async.c",
+          "rust": "rust/async.rs",
+          "python": "python/async.py",
+          "cpp03": "cpp/cpp03/async.cpp",
+          "cpp11": "cpp/cpp11/async.cpp",
+          "cpp14": "cpp/cpp14/async.cpp",
+          "cpp17": "cpp/cpp17/async.cpp",
+          "cpp20": "cpp/cpp20/async.cpp",
+          "cpp23": "cpp/cpp23/async.cpp"
+        },
+        "screenshot": {
+          "windows": "async.png",
+          "linux": "async.png",
+          "mac": "async.png"
+        },
+        "description": [
+          "Azul provides built-in support for background threads and timers.",
+          "This example simulates connecting to a database in a background thread,",
+          "with progress updates sent back to the UI. The main thread remains responsive",
+          "while the background task runs, and the UI updates automatically when data arrives."
         ]
       },
       {
         "name": "xhtml",
+        "title": "XHTML Rendering",
         "alt": "XHTML site rendered with Azul",
         "code": {
           "c": "c/xhtml.c",
-          "cpp": "cpp/xhtml.cpp",
           "rust": "rust/xhtml.rs",
-          "python": "python/xhtml.py"
+          "python": "python/xhtml.py",
+          "cpp03": "cpp/cpp03/xhtml.cpp",
+          "cpp11": "cpp/cpp11/xhtml.cpp",
+          "cpp14": "cpp/cpp14/xhtml.cpp",
+          "cpp17": "cpp/cpp17/xhtml.cpp",
+          "cpp20": "cpp/cpp20/xhtml.cpp",
+          "cpp23": "cpp/cpp23/xhtml.cpp"
         },
         "screenshot": {
           "windows": "xhtml.png",
@@ -58,45 +458,33 @@
           "mac": "xhtml.png"
         },
         "description": [
-          "The layout solver (azul-layout) is a CSS2.1 / XHTML4 compliant solver, which is completely detached from a renderer.",
-          "Thanks to the MIT license, you can embed a full HTML layout solver in your custom application, which handles font shaping and layout for you."
+          "Demonstrates loading and rendering XHTML from external files.",
+          "The layout solver (azul-layout) is a CSS2.1 / XHTML4 compliant solver."
         ]
       },
       {
-        "name": "table",
-        "alt": "Large table dataset rendered with Azul",
+        "name": "calc",
+        "title": "CSS Grid Calculator",
+        "alt": "Calculator built with CSS Grid layout",
         "code": {
-          "c": "c/table.c",
-          "cpp": "cpp/table.cpp",
-          "rust": "rust/table.rs",
-          "python": "python/table.py"
+          "c": "c/calc.c",
+          "rust": "rust/calc.rs",
+          "python": "python/calc.py",
+          "cpp03": "cpp/cpp03/calc.cpp",
+          "cpp11": "cpp/cpp11/calc.cpp",
+          "cpp14": "cpp/cpp14/calc.cpp",
+          "cpp17": "cpp/cpp17/calc.cpp",
+          "cpp20": "cpp/cpp20/calc.cpp",
+          "cpp23": "cpp/cpp23/calc.cpp"
         },
         "screenshot": {
-          "windows": "table.png",
-          "linux": "table.png",
-          "mac": "table.png"
+          "windows": "calc.png",
+          "linux": "calc.png",
+          "mac": "calc.png"
         },
         "description": [
-          "For extremely large or sparse datasets, Azul can render only parts",
-          "of a DOM and automatically trigger re-rendering when the user scrolls."
-        ]
-      },
-      {
-        "name": "svg",
-        "alt": "SVG file rendered with Azul",
-        "code": {
-          "c": "c/svg.c",
-          "cpp": "cpp/svg.cpp",
-          "rust": "rust/svg.rs",
-          "python": "python/svg.py"
-        },
-        "screenshot": {
-          "windows": "svg.png",
-          "linux": "svg.png",
-          "mac": "svg.png"
-        },
-        "description": [
-          "Azul exposes Rust utilities for image decoding and encoding, SVG rendering and parsing as well as font loading to C, C++ and Python applications."
+          "A calculator demonstrating CSS Grid for complex layouts.",
+          "Shows component composition and callback-based interactivity."
         ]
       }
     ],
