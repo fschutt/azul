@@ -9,6 +9,185 @@ use anyhow::Result;
 
 use crate::{api::ApiData, dllgen::license::License};
 
+/// Deploy mode controls how missing assets are handled
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DeployMode {
+    /// Local development mode - missing binary assets create placeholders
+    Local,
+    /// CI mode - missing binary assets cause deployment to fail
+    Strict,
+}
+
+/// Binary assets that must be built by CI (cannot be generated on-the-fly)
+#[derive(Debug, Clone)]
+pub struct BinaryAsset {
+    pub filename: &'static str,
+    pub description: &'static str,
+    pub platform: Platform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Platform {
+    Windows,
+    Linux,
+    MacOS,
+    All,
+}
+
+impl BinaryAsset {
+    pub const WINDOWS_ASSETS: &'static [BinaryAsset] = &[
+        BinaryAsset { filename: "azul.dll", description: "Windows 64-bit dynamic library", platform: Platform::Windows },
+        BinaryAsset { filename: "azul.lib", description: "Windows 64-bit static library", platform: Platform::Windows },
+        BinaryAsset { filename: "windows.pyd", description: "Python Extension", platform: Platform::Windows },
+        BinaryAsset { filename: "LICENSE-WINDOWS.txt", description: "Windows License", platform: Platform::Windows },
+    ];
+    
+    pub const LINUX_ASSETS: &'static [BinaryAsset] = &[
+        BinaryAsset { filename: "libazul.so", description: "Linux 64-bit .so", platform: Platform::Linux },
+        BinaryAsset { filename: "libazul.linux.a", description: "Linux 64-bit .a", platform: Platform::Linux },
+        BinaryAsset { filename: "linux.pyd", description: "Python Extension", platform: Platform::Linux },
+        BinaryAsset { filename: "LICENSE-LINUX.txt", description: "Linux License", platform: Platform::Linux },
+    ];
+    
+    pub const MACOS_ASSETS: &'static [BinaryAsset] = &[
+        BinaryAsset { filename: "libazul.dylib", description: "MacOS 64-bit SO", platform: Platform::MacOS },
+        BinaryAsset { filename: "libazul.macos.a", description: "MacOS 64-bit .a", platform: Platform::MacOS },
+        BinaryAsset { filename: "macos.pyd", description: "Python Extension", platform: Platform::MacOS },
+        BinaryAsset { filename: "LICENSE-MACOS.txt", description: "MacOS License", platform: Platform::MacOS },
+    ];
+    
+    pub fn all() -> Vec<&'static BinaryAsset> {
+        Self::WINDOWS_ASSETS.iter()
+            .chain(Self::LINUX_ASSETS.iter())
+            .chain(Self::MACOS_ASSETS.iter())
+            .collect()
+    }
+}
+
+/// Information about an asset file (present or missing)
+#[derive(Debug, Clone)]
+pub struct AssetInfo {
+    pub filename: String,
+    pub description: String,
+    pub size: Option<u64>,
+    pub is_present: bool,
+}
+
+impl AssetInfo {
+    /// Format file size in human-readable form (KB, MB, GB)
+    pub fn humanize_size(&self) -> String {
+        match self.size {
+            None => "N/A".to_string(),
+            Some(bytes) => {
+                if bytes < 1024 {
+                    format!("{}B", bytes)
+                } else if bytes < 1024 * 1024 {
+                    format!("{:.1}KB", bytes as f64 / 1024.0)
+                } else if bytes < 1024 * 1024 * 1024 {
+                    format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
+                } else {
+                    format!("{:.1}GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+                }
+            }
+        }
+    }
+    
+    /// Check if an asset exists and get its size
+    pub fn from_path(path: &Path, description: &str) -> Self {
+        let is_present = path.exists();
+        let size = if is_present {
+            fs::metadata(path).ok().map(|m| m.len())
+        } else {
+            None
+        };
+        
+        AssetInfo {
+            filename: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+            description: description.to_string(),
+            size,
+            is_present,
+        }
+    }
+}
+
+/// Collected asset information for a release version
+#[derive(Debug, Clone)]
+pub struct ReleaseAssets {
+    pub windows: Vec<AssetInfo>,
+    pub linux: Vec<AssetInfo>,
+    pub macos: Vec<AssetInfo>,
+    pub c_header: AssetInfo,
+    pub cpp_headers: Vec<AssetInfo>,
+    pub api_json: AssetInfo,
+    pub examples_zip: AssetInfo,
+}
+
+impl ReleaseAssets {
+    /// Collect asset information from the release directory
+    pub fn collect(version_dir: &Path) -> Self {
+        let mut windows = Vec::new();
+        for asset in BinaryAsset::WINDOWS_ASSETS {
+            windows.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+        }
+        
+        let mut linux = Vec::new();
+        for asset in BinaryAsset::LINUX_ASSETS {
+            linux.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+        }
+        
+        let mut macos = Vec::new();
+        for asset in BinaryAsset::MACOS_ASSETS {
+            macos.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+        }
+        
+        let cpp_headers = vec![
+            AssetInfo::from_path(&version_dir.join("azul_cpp03.hpp"), "C++03 Header"),
+            AssetInfo::from_path(&version_dir.join("azul_cpp11.hpp"), "C++11 Header"),
+            AssetInfo::from_path(&version_dir.join("azul_cpp14.hpp"), "C++14 Header"),
+            AssetInfo::from_path(&version_dir.join("azul_cpp17.hpp"), "C++17 Header"),
+            AssetInfo::from_path(&version_dir.join("azul_cpp20.hpp"), "C++20 Header"),
+            AssetInfo::from_path(&version_dir.join("azul_cpp23.hpp"), "C++23 Header"),
+        ];
+        
+        ReleaseAssets {
+            windows,
+            linux,
+            macos,
+            c_header: AssetInfo::from_path(&version_dir.join("azul.h"), "C Header"),
+            cpp_headers,
+            api_json: AssetInfo::from_path(&version_dir.join("api.json"), "API Description"),
+            examples_zip: AssetInfo::from_path(&version_dir.join("examples.zip"), "Examples"),
+        }
+    }
+    
+    /// Check if all binary assets are present (for strict mode)
+    pub fn validate_binary_assets(&self) -> Result<(), Vec<String>> {
+        let mut missing = Vec::new();
+        
+        for asset in &self.windows {
+            if !asset.is_present {
+                missing.push(asset.filename.clone());
+            }
+        }
+        for asset in &self.linux {
+            if !asset.is_present {
+                missing.push(asset.filename.clone());
+            }
+        }
+        for asset in &self.macos {
+            if !asset.is_present {
+                missing.push(asset.filename.clone());
+            }
+        }
+        
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(missing)
+        }
+    }
+}
+
 pub struct Config {
     pub build_windows: bool,
     pub build_linux: bool,
@@ -17,6 +196,7 @@ pub struct Config {
     pub open: bool,
     pub apply_patch: bool,
     pub print_imports: bool,
+    pub deploy_mode: DeployMode,
 }
 
 impl Config {
@@ -45,6 +225,7 @@ impl Config {
         if self.print_imports {
             v.push("print-imports=true".to_string());
         }
+        v.push(format!("mode={:?}", self.deploy_mode));
         v.join(" ")
     }
 
@@ -58,6 +239,7 @@ impl Config {
             open: false,
             apply_patch: false,
             print_imports: false,
+            deploy_mode: DeployMode::Local,
         };
 
         for arg in &args[1..] {
@@ -78,6 +260,12 @@ impl Config {
 
             if arg == "--print-imports" {
                 config.print_imports = true;
+                continue;
+            }
+            
+            if arg == "--strict" || arg == "--ci" {
+                config.deploy_mode = DeployMode::Strict;
+                continue;
             }
         }
 
@@ -182,11 +370,21 @@ pub fn generate_license_files(version: &str, output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// C++ headers for all supported standards
+pub struct CppHeaders {
+    pub cpp03: String,
+    pub cpp11: String,
+    pub cpp14: String,
+    pub cpp17: String,
+    pub cpp20: String,
+    pub cpp23: String,
+}
+
 pub fn create_examples(
     version: &str,
     output_dir: &Path,
     azul_h: &str,
-    azul_hpp: &str,
+    cpp_headers: &CppHeaders,
 ) -> Result<()> {
     println!("  Creating example packages...");
 
@@ -277,11 +475,23 @@ pub fn create_examples(
     source_zip.start_file("python/xhtml.py", options)?;
     source_zip.write_all(include_bytes!("./../../../examples/python/xhtml.py"))?;
 
+    // C header
     source_zip.start_file("include/azul.h", options)?;
     source_zip.write_all(azul_h.as_bytes())?;
 
-    source_zip.start_file("include/azul.hpp", options)?;
-    source_zip.write_all(azul_hpp.as_bytes())?;
+    // C++ headers for all standards
+    source_zip.start_file("include/cpp/azul_cpp03.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp03.as_bytes())?;
+    source_zip.start_file("include/cpp/azul_cpp11.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp11.as_bytes())?;
+    source_zip.start_file("include/cpp/azul_cpp14.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp14.as_bytes())?;
+    source_zip.start_file("include/cpp/azul_cpp17.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp17.as_bytes())?;
+    source_zip.start_file("include/cpp/azul_cpp20.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp20.as_bytes())?;
+    source_zip.start_file("include/cpp/azul_cpp23.hpp", options)?;
+    source_zip.write_all(cpp_headers.cpp23.as_bytes())?;
 
     // Add some basic source files
     source_zip.start_file("README.md", options)?;
@@ -402,13 +612,78 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
     Ok(())
 }
 
-pub fn generate_release_html(version: &str, api_data: &ApiData) -> String {
+/// Generate a single asset list item HTML
+fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
+    if asset.is_present {
+        format!(
+            "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename} - {size})</a></li>",
+            version = version,
+            filename = asset.filename,
+            description = asset.description,
+            size = asset.humanize_size()
+        )
+    } else {
+        format!(
+            "<li><span style='color: #999;'>{description} ({filename} - not available)</span></li>",
+            filename = asset.filename,
+            description = asset.description
+        )
+    }
+}
+
+pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &ReleaseAssets) -> String {
     let versiondata = api_data.get_version(version).unwrap();
     let common_head_tags = crate::docgen::get_common_head_tags();
     let sidebar = crate::docgen::get_sidebar();
     let releasenotes =
         comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
     let git = &versiondata.git;
+
+    // Generate Windows asset list
+    let windows_assets: String = assets.windows.iter()
+        .map(|a| generate_asset_li(version, a))
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
+    // Generate Linux asset list
+    let linux_assets: String = assets.linux.iter()
+        .map(|a| generate_asset_li(version, a))
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
+    // Generate MacOS asset list
+    let macos_assets: String = assets.macos.iter()
+        .map(|a| generate_asset_li(version, a))
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
+    // Generate C header link
+    let c_header_link = generate_asset_li(version, &assets.c_header);
+
+    // Generate C++ header links
+    let cpp_header_links: String = assets.cpp_headers.iter()
+        .map(|a| {
+            if a.is_present {
+                format!(
+                    "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename})</a></li>",
+                    version = version,
+                    filename = a.filename,
+                    description = a.description
+                )
+            } else {
+                format!(
+                    "<li><span style='color: #999;'>{description} ({filename} - not available)</span></li>",
+                    filename = a.filename,
+                    description = a.description
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
+    // Generate API/examples links
+    let api_json_link = generate_asset_li(version, &assets.api_json);
+    let examples_zip_link = generate_asset_li(version, &assets.examples_zip);
 
     format!(
     "<!DOCTYPE html>
@@ -466,35 +741,34 @@ pub fn generate_release_html(version: &str, api_data: &ApiData) -> String {
               <strong>Files:</strong>
               <br/>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/azul.dll'>Windows 64-bit dynamic library (azul.dll - 2.6Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/azul.lib'>Windows 64-bit static library (azul.lib - 67Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/windows.pyd'>Python Extension (windows.pyd - 978KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/LICENSE-WINDOWS.txt'>LICENSE-WINDOWS.txt (19KB)</a></li>
+                {windows_assets}
               </ul>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/libazul.so'>Linux 64-bit .so (libazul.so - 2.6Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/libazul.linux.a'>Linux 64-bit .a (libazul.linux.a - 2.6Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/linux.pyd'>Python Extension (linux.pyd - 978KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/LICENSE-LINUX.txt'>LICENSE-LINUX.txt (19KB)</a></li>
+                {linux_assets}
               </ul>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/libazul.dylib'>MacOS 64-bit SO (libazul.dylib - 2.6Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/libazul.macos.a'>MacOS 64-bit .a (libazul.macos.a - 2.6Mb)</a></li>
-                <li><a href='https://azul.rs/release/{version}/macos.pyd'>Python Extension (macos.pyd - 978KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/LICENSE-MACOS.txt'>LICENSE-MACOS.txt (19KB)</a></li>
+                {macos_assets}
               </ul>
 
               <br/>
 
-              <strong>Other links:</strong>
+              <strong>C Header:</strong>
+              <br/>
+              <ul>
+                {c_header_link}
+              </ul>
+              
+              <br/>
+              <strong>C++ Headers (choose your standard):</strong>
+              <ul>
+                {cpp_header_links}
+              </ul>
 
               <br/>
-
+              <strong>API Description &amp; Examples:</strong>
               <ul>
-                <li><a href='https://azul.rs/release/{version}/azul.h'>C Header (azul.h - 978KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/azul.hpp'>CPP Header (azul.hpp - 978KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/api.json'>API Description - api.json (714KB)</a></li>
-                <li><a href='https://azul.rs/release/{version}/examples.zip'>Compiled examples w. source code (examples.zip - 154KB)</a></li>
+                {api_json_link}
+                {examples_zip_link}
               </ul>
 
               <br/>

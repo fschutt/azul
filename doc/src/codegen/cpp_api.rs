@@ -309,6 +309,11 @@ fn type_needs_proxy_for_cpp03(type_name: &str, version_data: &VersionData) -> bo
     false
 }
 
+/// Alias for generate_cpp_api_versioned (for compatibility)
+pub fn generate_cpp_api_for_version(api_data: &ApiData, version: &str, cpp_version: CppVersion) -> String {
+    generate_cpp_api_versioned(api_data, version, cpp_version)
+}
+
 /// Generate C++ API code for a specific C++ version
 pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version: CppVersion) -> String {
     let mut code = String::new();

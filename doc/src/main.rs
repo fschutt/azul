@@ -907,14 +907,8 @@ fn main() -> anyhow::Result<()> {
                 fs::write(&path, code)?;
                 println!("[OK] Generated: {}", path.display());
             }
-            
-            // Also generate a default azul.hpp that includes the C++11 version
-            let default_path = project_root.join("target").join("codegen").join("azul.hpp");
-            let default_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-            fs::write(&default_path, &default_code)?;
-            println!("[OK] Generated: {} (default C++11)", default_path.display());
 
-            println!("\nC++ header generation complete. {} headers generated.", all_headers.len() + 1);
+            println!("\nC++ header generation complete. {} headers generated.", all_headers.len());
             return Ok(());
         }
         ["codegen", "python"] => {
@@ -997,51 +991,10 @@ fn main() -> anyhow::Result<()> {
 
             // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
-            let versions = api_data.get_sorted_versions();
-            
-            for version in &versions {
-                let version_dir = releases_dir.join(version);
-                fs::create_dir_all(&version_dir)?;
-                
-                // Generate release HTML page
-                let release_html = dllgen::deploy::generate_release_html(version, &api_data);
-                fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
-                println!("  [OK] Generated: release/{}.html", version);
-                
-                // Generate api.json for this version
-                if let Some(version_data) = api_data.get_version(version) {
-                    let api_json = serde_json::to_string_pretty(&version_data)?;
-                    fs::write(version_dir.join("api.json"), &api_json)?;
-                    println!("  [OK] Generated: release/{}/api.json", version);
-                }
-                
-                // Generate examples.zip for this version
-                let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
-                let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-                if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_api_code) {
-                    eprintln!("  [WARN] Failed to create examples.zip: {}", e);
-                } else {
-                    println!("  [OK] Generated: release/{}/examples.zip", version);
-                }
-                
-                // Create placeholder files for missing build artifacts
-                let placeholder_files = [
-                    "azul.dll", "azul.lib", "windows.pyd", "LICENSE-WINDOWS.txt",
-                    "libazul.so", "libazul.linux.a", "linux.pyd", "LICENSE-LINUX.txt",
-                    "libazul.dylib", "libazul.macos.a", "macos.pyd", "LICENSE-MACOS.txt",
-                    "azul.h", "azul.hpp",
-                ];
-                
-                for filename in &placeholder_files {
-                    let file_path = version_dir.join(filename);
-                    if !file_path.exists() {
-                        println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, filename);
-                        fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, filename))?;
-                    }
-                }
-            }
-            
+            generate_release_pages(&api_data, &releases_dir, config.deploy_mode)?;
+
             // Generate releases index page
+            let versions = api_data.get_sorted_versions();
             let releases_index = dllgen::deploy::generate_releases_index(&versions);
             fs::write(output_dir.join("releases.html"), &releases_index)?;
             println!("  [OK] Generated: releases.html");
@@ -1113,51 +1066,10 @@ fn main() -> anyhow::Result<()> {
 
             // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
-            let versions = api_data.get_sorted_versions();
-            
-            for version in &versions {
-                let version_dir = releases_dir.join(version);
-                fs::create_dir_all(&version_dir)?;
-                
-                // Generate release HTML page
-                let release_html = dllgen::deploy::generate_release_html(version, &api_data);
-                fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
-                println!("  [OK] Generated: release/{}.html", version);
-                
-                // Generate api.json for this version
-                if let Some(version_data) = api_data.get_version(version) {
-                    let api_json = serde_json::to_string_pretty(&version_data)?;
-                    fs::write(version_dir.join("api.json"), &api_json)?;
-                    println!("  [OK] Generated: release/{}/api.json", version);
-                }
-                
-                // Generate examples.zip for this version
-                let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
-                let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-                if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_api_code) {
-                    eprintln!("  [WARN] Failed to create examples.zip: {}", e);
-                } else {
-                    println!("  [OK] Generated: release/{}/examples.zip", version);
-                }
-                
-                // Create placeholder files for missing build artifacts
-                let placeholder_files = [
-                    "azul.dll", "azul.lib", "windows.pyd", "LICENSE-WINDOWS.txt",
-                    "libazul.so", "libazul.linux.a", "linux.pyd", "LICENSE-LINUX.txt",
-                    "libazul.dylib", "libazul.macos.a", "macos.pyd", "LICENSE-MACOS.txt",
-                    "azul.h", "azul.hpp",
-                ];
-                
-                for filename in &placeholder_files {
-                    let file_path = version_dir.join(filename);
-                    if !file_path.exists() {
-                        println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, filename);
-                        fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, filename))?;
-                    }
-                }
-            }
-            
+            generate_release_pages(&api_data, &releases_dir, config.deploy_mode)?;
+
             // Generate releases index page
+            let versions = api_data.get_sorted_versions();
             let releases_index = dllgen::deploy::generate_releases_index(&versions);
             fs::write(output_dir.join("releases.html"), &releases_index)?;
             println!("  [OK] Generated: releases.html");
@@ -1213,6 +1125,101 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Generates release pages for all versions including api.json and examples.zip
+fn generate_release_pages(
+    api_data: &api::ApiData,
+    releases_dir: &std::path::Path,
+    deploy_mode: dllgen::deploy::DeployMode,
+) -> anyhow::Result<()> {
+    use codegen::cpp_api::CppVersion;
+    use dllgen::deploy::{ReleaseAssets, DeployMode};
+    
+    let versions = api_data.get_sorted_versions();
+    
+    for version in &versions {
+        let version_dir = releases_dir.join(version);
+        fs::create_dir_all(&version_dir)?;
+        
+        // Generate C header for this version
+        let c_api_code = codegen::c_api::generate_c_api(api_data, version);
+        fs::write(version_dir.join("azul.h"), &c_api_code)?;
+        println!("  [OK] Generated: release/{}/azul.h", version);
+        
+        // Generate C++ headers for all supported standards
+        let cpp_headers = dllgen::deploy::CppHeaders {
+            cpp03: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp03),
+            cpp11: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp11),
+            cpp14: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp14),
+            cpp17: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp17),
+            cpp20: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp20),
+            cpp23: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp23),
+        };
+        
+        // Write individual C++ header files
+        fs::write(version_dir.join("azul_cpp03.hpp"), &cpp_headers.cpp03)?;
+        fs::write(version_dir.join("azul_cpp11.hpp"), &cpp_headers.cpp11)?;
+        fs::write(version_dir.join("azul_cpp14.hpp"), &cpp_headers.cpp14)?;
+        fs::write(version_dir.join("azul_cpp17.hpp"), &cpp_headers.cpp17)?;
+        fs::write(version_dir.join("azul_cpp20.hpp"), &cpp_headers.cpp20)?;
+        fs::write(version_dir.join("azul_cpp23.hpp"), &cpp_headers.cpp23)?;
+        println!("  [OK] Generated: release/{}/azul_cpp*.hpp (all C++ versions)", version);
+        
+        // Generate api.json for this version
+        if let Some(version_data) = api_data.get_version(version) {
+            let api_json = serde_json::to_string_pretty(&version_data)?;
+            fs::write(version_dir.join("api.json"), &api_json)?;
+            println!("  [OK] Generated: release/{}/api.json", version);
+        }
+        
+        // Generate examples.zip for this version
+        if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_headers) {
+            eprintln!("  [WARN] Failed to create examples.zip: {}", e);
+        } else {
+            println!("  [OK] Generated: release/{}/examples.zip", version);
+        }
+        
+        // Collect asset information (for HTML generation and validation)
+        let assets = ReleaseAssets::collect(&version_dir);
+        
+        // In strict/CI mode, fail if binary assets are missing
+        if deploy_mode == DeployMode::Strict {
+            if let Err(missing) = assets.validate_binary_assets() {
+                anyhow::bail!(
+                    "Deploy failed: Missing binary assets for version {}: {:?}\n\
+                     In CI mode, all binary assets must be present before deployment.",
+                    version, missing
+                );
+            }
+        } else {
+            // In local mode, create placeholder files for missing build artifacts
+            for asset in dllgen::deploy::BinaryAsset::all() {
+                let file_path = version_dir.join(asset.filename);
+                if !file_path.exists() {
+                    println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, asset.filename);
+                    fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, asset.filename))?;
+                }
+            }
+            // Re-collect assets after creating placeholders
+            let assets = ReleaseAssets::collect(&version_dir);
+            
+            // Generate release HTML page with dynamic sizes
+            let release_html = dllgen::deploy::generate_release_html(version, api_data, &assets);
+            fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+            println!("  [OK] Generated: release/{}.html", version);
+        }
+        
+        // Generate release HTML page with dynamic sizes (for strict mode, after validation)
+        if deploy_mode == DeployMode::Strict {
+            let assets = ReleaseAssets::collect(&version_dir);
+            let release_html = dllgen::deploy::generate_release_html(version, api_data, &assets);
+            fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
+            println!("  [OK] Generated: release/{}.html", version);
+        }
+    }
+    
     Ok(())
 }
 
