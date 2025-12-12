@@ -1,26 +1,26 @@
-// XHTML Example - C++03
+// XHTML file loading and rendering example - C++03
 // g++ -std=c++03 -o xhtml xhtml.cpp -lazul
 
 #include <azul.hpp>
+#include <fstream>
+#include <sstream>
+#include <string>
 using namespace azul;
 
 struct AppData { int x; };
 void AppData_destructor(AppData*) { }
 AZ_REFLECT(AppData, AppData_destructor);
 
-static const char* XHTML = 
-    "<body style='display:flex; flex-direction:column; width:100%; height:100%; padding:40px;'>"
-    "  <h1 style='color:#ecf0f1; font-size:48px;'>XHTML Demo</h1>"
-    "  <p style='color:#bdc3c7; font-size:18px;'>Loaded from XHTML string</p>"
-    "  <div style='display:flex; gap:20px;'>"
-    "    <div style='width:200px; height:150px; background:#3498db; border-radius:10px;'/>"
-    "    <div style='width:200px; height:150px; background:#e74c3c; border-radius:10px;'/>"
-    "    <div style='width:200px; height:150px; background:#2ecc71; border-radius:10px;'/>"
-    "  </div>"
-    "</body>";
+std::string read_file(const char* path) {
+    std::ifstream file(path);
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 
 StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    return StyledDom::from_xml(XHTML);
+    std::string xhtml = read_file("assets/spreadsheet.xhtml");
+    return StyledDom::from_xml(xhtml);
 }
 
 int main() {
@@ -28,8 +28,7 @@ int main() {
     RefAny data = AppData::upcast(model);
     
     WindowCreateOptions window = WindowCreateOptions::new(layout);
-    window.set_title("XHTML Example");
-    window.set_size(LogicalSize(800, 400));
+    window.set_title("XHTML Spreadsheet");
     
     App app = App::new(data, AppConfig::default());
     app.run(window);

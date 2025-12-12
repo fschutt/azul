@@ -1,0 +1,91 @@
+// Widgets Showcase - C++17
+// g++ -std=c++17 -o widgets widgets.cpp -lazul
+
+#include <azul.hpp>
+#include <string>
+
+using namespace azul;
+
+struct WidgetShowcase {
+    bool enable_padding = true;
+    size_t active_tab = 0;
+    float progress_value = 25.0f;
+    bool checkbox_checked = false;
+    std::string text_input;
+};
+
+Update on_button_click(RefAny& data, CallbackInfo& info);
+
+StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
+    auto d = WidgetShowcase::downcast_ref(data);
+    if (!d) return StyledDom::default_value();
+    
+    // Create button
+    auto button = Dom::div()
+        .with_inline_style("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white; cursor: pointer;")
+        .with_child(Dom::text("Click me!"))
+        .with_callback(On::MouseUp, data.clone(), on_button_click);
+
+    // Create checkbox
+    auto checkbox = CheckBox::create(d->checkbox_checked)
+        .dom()
+        .with_inline_style("margin-bottom: 10px;");
+
+    // Create progress bar
+    auto progress = ProgressBar::create(d->progress_value)
+        .dom()
+        .with_inline_style("margin-bottom: 10px;");
+
+    // Create text input
+    auto text_input = TextInput::create()
+        .with_placeholder("Enter text here...")
+        .dom()
+        .with_inline_style("margin-bottom: 10px;");
+
+    // Create color input
+    auto color_input = ColorInput::create(ColorU{100, 150, 200, 255})
+        .dom()
+        .with_inline_style("margin-bottom: 10px;");
+
+    // Create number input
+    auto number_input = NumberInput::create(42.0)
+        .dom()
+        .with_inline_style("margin-bottom: 10px;");
+
+    // Compose body
+    auto title = Dom::text("Widget Showcase")
+        .with_inline_style("font-size: 24px; margin-bottom: 20px;");
+
+    auto body = Dom::body()
+        .with_inline_style("padding: 20px; font-family: sans-serif;")
+        .with_child(title)
+        .with_child(button)
+        .with_child(checkbox)
+        .with_child(progress)
+        .with_child(text_input)
+        .with_child(color_input)
+        .with_child(number_input);
+
+    return body.style(Css::empty());
+}
+
+Update on_button_click(RefAny& data, CallbackInfo& info) {
+    auto d = WidgetShowcase::downcast_mut(data);
+    if (!d) return Update::DoNothing;
+    d->progress_value += 10.0f;
+    if (d->progress_value > 100.0f) {
+        d->progress_value = 0.0f;
+    }
+    return Update::RefreshDom;
+}
+
+int main() {
+    auto data = RefAny::create(WidgetShowcase{});
+    
+    auto window = WindowCreateOptions::create(layout);
+    window.set_title("Widget Showcase");
+    window.set_size(LogicalSize(600, 500));
+    
+    auto app = App::create(data, AppConfig::default_value());
+    app.run(window);
+}

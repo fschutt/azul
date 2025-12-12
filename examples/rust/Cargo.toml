@@ -15,70 +15,40 @@ repository = "https://github.com/maps4print/azul"
 edition = "2021"
 publish = false
 
-[[example]]
-name = "test"
-path = "test.rs"
-
-[[example]]
-name = "async"
-path = "async.rs"
-
-[[example]]
-name = "hello-world"
-path = "hello-world.rs"
-
-[[example]]
-name = "fontdebug"
-path = "fontdebug.rs"
-
-[[example]]
-name = "widgets"
-path = "widgets.rs"
-
-[[example]]
-name = "opengl"
-path = "opengl.rs"
-required-features = ["serde_support"]
-
-[[example]]
-name = "calculator"
-path = "calculator.rs"
-
-[[example]]
-name = "nodegraph"
-path = "nodegraph.rs"
-
-[[example]]
-name = "spreadsheet"
-path = "spreadsheet.rs"
-
-[[example]]
-name = "svg"
-path = "svg.rs"
-
-[[example]]
-name = "xhtml"
-path = "xhtml.rs"
-
-[[example]]
-name = "a11y_helpers_demo"
-path = "a11y_helpers_demo.rs"
-
-# [[example]]
-# name = "table"
-# path = "table.rs"
-
-# [[example]]
-# name = "udp-chat"
-# path = "udp-chat.rs"
-
 [dependencies]
 azul = { path = "../../api/rust" }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
-# libc_alloc = { version = "1.0.2", default-features = false }
 
 [features]
 default = []
 serde_support = ["azul/serde", "serde", "serde_derive", "serde_json"]
+
+[[example]]
+name = "async"
+path = "src/async.rs"
+
+[[example]]
+name = "calc"
+path = "src/calc.rs"
+
+[[example]]
+name = "hello-world"
+path = "src/hello-world.rs"
+
+[[example]]
+name = "infinity"
+path = "src/infinity.rs"
+
+[[example]]
+name = "opengl"
+path = "src/opengl.rs"
+
+[[example]]
+name = "widgets"
+path = "src/widgets.rs"
+
+[[example]]
+name = "xhtml"
+path = "src/xhtml.rs"
