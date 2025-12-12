@@ -156,6 +156,169 @@ jobs:
           clang++ -std=c++2b -fsyntax-only -I. cpp/azul_cpp23.hpp
           echo "C++23 header compiles successfully"
 
+  # ===================================================================
+  # ==         VERIFY EXAMPLES COMPILE (All Languages/Standards)     ==
+  # ===================================================================
+
+  verify_examples:
+    name: Verify Examples Compile (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    needs: codegen_headers
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # Windows is handled separately due to different compiler commands
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Install clang (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc memtest dll
+
+      - name: Build azul-dll (for linking)
+        run: cargo build -p azul-dll --release
+
+      - name: Generate all headers
+        run: |
+          cargo run -r -p azul-doc codegen c
+          cargo run -r -p azul-doc codegen cpp
+
+      - name: Compile C examples
+        run: |
+          cd examples/c
+          for example in *.c; do
+            if [ -f "$example" ]; then
+              echo "Compiling C: $example"
+              clang -fsyntax-only -std=c99 \
+                -I../../target/codegen \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+      - name: Compile C++03 examples
+        run: |
+          cd examples/cpp/cpp03
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Compiling C++03: $example"
+              clang++ -fsyntax-only -std=c++03 \
+                -I../../../target/codegen \
+                -I../../../target/codegen/cpp \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+      - name: Compile C++11 examples
+        run: |
+          cd examples/cpp/cpp11
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Compiling C++11: $example"
+              clang++ -fsyntax-only -std=c++11 \
+                -I../../../target/codegen \
+                -I../../../target/codegen/cpp \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+      - name: Compile C++14 examples
+        run: |
+          cd examples/cpp/cpp14
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Compiling C++14: $example"
+              clang++ -fsyntax-only -std=c++14 \
+                -I../../../target/codegen \
+                -I../../../target/codegen/cpp \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+      - name: Compile C++17 examples
+        run: |
+          cd examples/cpp/cpp17
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Compiling C++17: $example"
+              clang++ -fsyntax-only -std=c++17 \
+                -I../../../target/codegen \
+                -I../../../target/codegen/cpp \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+      - name: Compile C++23 examples
+        run: |
+          cd examples/cpp/cpp23
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Compiling C++23: $example"
+              clang++ -fsyntax-only -std=c++2b \
+                -I../../../target/codegen \
+                -I../../../target/codegen/cpp \
+                "$example" && echo "  ✓ $example"
+            fi
+          done
+
+  verify_examples_windows:
+    name: Verify Examples Compile (Windows)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    needs: codegen_headers
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc memtest dll
+
+      - name: Generate all headers
+        run: |
+          cargo run -r -p azul-doc codegen c
+          cargo run -r -p azul-doc codegen cpp
+
+      - name: Compile C examples (syntax check)
+        shell: bash
+        run: |
+          cd examples/c
+          for example in *.c; do
+            if [ -f "$example" ]; then
+              echo "Checking C: $example"
+              cl.exe /Zs /I..\\..\\target\\codegen "$example" 2>&1 || echo "  Note: cl.exe may not be available"
+            fi
+          done
+        continue-on-error: true
+
+      - name: Compile C++17 examples (MSVC default)
+        shell: bash
+        run: |
+          cd examples/cpp/cpp17
+          for example in *.cpp; do
+            if [ -f "$example" ]; then
+              echo "Checking C++17: $example"
+              cl.exe /Zs /std:c++17 /I..\\..\\..\\target\\codegen /I..\\..\\..\\target\\codegen\\cpp "$example" 2>&1 || echo "  Note: cl.exe may not be available"
+            fi
+          done
+        continue-on-error: true
+
   test_heavy:
     name: Run Heavy Tests
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'

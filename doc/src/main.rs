@@ -989,9 +989,15 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
+            // Verify all example files exist before proceeding
+            let examples_dir = project_root.join("examples");
+            println!("Verifying example files...");
+            let strict_examples = config.deploy_mode == dllgen::deploy::DeployMode::Strict;
+            dllgen::deploy::verify_examples(&api_data, &examples_dir, strict_examples)?;
+
             // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
-            generate_release_pages(&api_data, &releases_dir, config.deploy_mode)?;
+            generate_release_pages(&api_data, &releases_dir, config.deploy_mode, &examples_dir)?;
 
             // Generate releases index page
             let versions = api_data.get_sorted_versions();
@@ -1064,9 +1070,15 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
+            // Verify all example files exist before proceeding
+            let examples_dir = project_root.join("examples");
+            println!("Verifying example files...");
+            let strict_examples = config.deploy_mode == dllgen::deploy::DeployMode::Strict;
+            dllgen::deploy::verify_examples(&api_data, &examples_dir, strict_examples)?;
+
             // Generate releases pages with api.json and examples.zip
             println!("Generating releases pages...");
-            generate_release_pages(&api_data, &releases_dir, config.deploy_mode)?;
+            generate_release_pages(&api_data, &releases_dir, config.deploy_mode, &examples_dir)?;
 
             // Generate releases index page
             let versions = api_data.get_sorted_versions();
@@ -1133,6 +1145,7 @@ fn generate_release_pages(
     api_data: &api::ApiData,
     releases_dir: &std::path::Path,
     deploy_mode: dllgen::deploy::DeployMode,
+    examples_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     use codegen::cpp_api::CppVersion;
     use dllgen::deploy::{ReleaseAssets, DeployMode};
@@ -1174,8 +1187,8 @@ fn generate_release_pages(
             println!("  [OK] Generated: release/{}/api.json", version);
         }
         
-        // Generate examples.zip for this version
-        if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_headers) {
+        // Generate examples.zip for this version (reads paths from api.json)
+        if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_headers, api_data, examples_dir) {
             eprintln!("  [WARN] Failed to create examples.zip: {}", e);
         } else {
             println!("  [OK] Generated: release/{}/examples.zip", version);

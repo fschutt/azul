@@ -1,23 +1,40 @@
-<section class="feature">
-  <div class="col-1">
-    <img class="showcase linux showcase-image" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-    <img class="showcase mac showcase-image" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-    <img class="showcase windows showcase-image" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-    <div>
-      <div class="description">
-        <p id="showcase-description">$$EXAMPLE_DESCRIPTION$$</p>
+<section class="feature-section grid-row" data-example-id="$$EXAMPLE_ID$$" data-is-first="$$IS_FIRST$$">
+  <div class="feature-image">
+    <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$">
+    <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$">
+    <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$">
+    <div class="description">$$EXAMPLE_DESCRIPTION$$</div>
+  </div>
+  <div class="feature-code">
+    <div class="tab-bar">
+      <div class="lang-grid">
+        <button data-lang="rust" onclick="selectLanguage('rust')">Rust</button>
+        <button data-lang="python" onclick="selectLanguage('python')">Python</button>
+        <button data-lang="cpp" onclick="selectLanguage(currentCppVersion)">C++</button>
+        <button data-lang="c" onclick="selectLanguage('c')">C</button>
+        <button data-lang="js" onclick="selectLanguage('js')" class="lang-disabled">JS</button>
+      </div>
+      <div class="install-controls" style="$$INSTALL_DISPLAY$$">
+        <select class="cpp-version" onchange="selectLanguage(this.value)">
+          <!-- Populated dynamically by JavaScript from dialects config -->
+        </select>
+        <select class="method-select" onchange="selectInstallMethod(this.value)">
+          <!-- Populated dynamically by JavaScript -->
+        </select>
+        <select class="os-select" onchange="selectOS(this.value)">
+          <option value="linux">Linux</option>
+          <option value="macos">macOS</option>
+          <option value="windows">Windows</option>
+        </select>
       </div>
     </div>
-  </div>
-  <div class="col-2">
-    <div class="code-container">
-      <div class="select-language">
-        <button id="select-language-python-$$EXAMPLE_ID$$" class="select-language-btn-$$EXAMPLE_ID$$ active" onclick="select_python_code('$$EXAMPLE_ID$$')">Python</button>
-        <button id="select-language-cpp-$$EXAMPLE_ID$$" class="select-language-btn-$$EXAMPLE_ID$$" onclick="select_cpp_code('$$EXAMPLE_ID$$')">C++</button>
-        <button id="select-language-rust-$$EXAMPLE_ID$$" class="select-language-btn-$$EXAMPLE_ID$$" onclick="select_rust_code('$$EXAMPLE_ID$$')">Rust</button>
-        <button id="select-language-c-$$EXAMPLE_ID$$" class="select-language-btn-$$EXAMPLE_ID$$" onclick="select_c_code('$$EXAMPLE_ID$$')">C</button>
+    <div class="code-panel">
+      <div class="install-commands" style="$$INSTALL_DISPLAY$$">
+        <!-- Populated by JavaScript -->
       </div>
-      <code class="language-c" id="code-$$EXAMPLE_ID$$">$$EXAMPLE_CODE$$</code>
+      <div class="example-code" id="example-code-$$EXAMPLE_ID$$">
+        <pre>$$EXAMPLE_CODE$$</pre>
+      </div>
     </div>
   </div>
 </section>

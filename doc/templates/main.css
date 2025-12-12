@@ -1,12 +1,30 @@
 @media screen {
   @font-face {
-      font-family: "EB Garamond SemiBold";
-      src: url("./fonts/EBGaramond-SemiBold.ttf");
+      font-family: "Instrument Serif";
+      src: url("./fonts/InstrumentSerif-Regular.ttf");
   }
 
   @font-face {
-      font-family: "EB Garamond";
-      src: url("./fonts/EBGaramond-Medium.ttf");
+      font-family: "Instrument Serif";
+      font-style: italic;
+      src: url("./fonts/InstrumentSerif-Italic.ttf");
+  }
+
+  @font-face {
+      font-family: "Atkinson Hyperlegible Next";
+      src: url("./fonts/AtkinsonHyperlegibleNext-Regular.ttf");
+  }
+
+  @font-face {
+      font-family: "Atkinson Hyperlegible Next";
+      font-weight: bold;
+      src: url("./fonts/AtkinsonHyperlegibleNext-Bold.ttf");
+  }
+
+  @font-face {
+      font-family: "Atkinson Hyperlegible Next";
+      font-style: italic;
+      src: url("./fonts/AtkinsonHyperlegibleNext-Italic.ttf");
   }
 
   @font-face {
@@ -65,7 +83,9 @@ body {
     background: linear-gradient(135deg, #004e92 0%,#000428 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#004e92', endColorstr='#000428',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
     min-height: 100%;
-    font-family: "EB Garamond", "Source Serif Pro", serif;
+    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
 }
 
 body .center {
@@ -89,23 +109,18 @@ aside {
   top: 0;
 }
 
-body .center main header {
-  display: flex;
-  flex-direction: row;
+#latestrelease {
+    padding: 20px;
+    background: aliceblue;
+    font-size: 1.2em;
+    border-radius: 10px;
+    font-weight: bold;
+    line-height: 1.5;
+    min-width: 150px;
 }
 
-#latestrelease {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
-  background: aliceblue;
-  font-size: 1.2em;
-  margin: 20px;
-  margin-left: 60px;
-  border-radius: 10px;
-  font-weight: bold;
-  line-height: 1.5;
+#latestrelease p, #latestrelease a {
+    display: block;
 }
 
 img.showcase {
@@ -117,16 +132,15 @@ img.showcase.windows {
 }
 
 @media screen and (max-width: 720px) {
-  aside { position: static; flex-direction: row; }
+  aside { position: static; flex-direction: row; align-items: flex-start; }
   body main { padding: 37.5px; clear: both; }
-  body .center aside { min-height: 150px; min-width: 100%; padding: 25px; }
-  body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; }
-  body .center aside header img { width: 75px; height: 75px;}
-  body .center aside nav { display: inline-block; max-width: 190px; float: right; overflow: hidden; margin: 0px; }
-  body .center aside nav ul li { display: inline-block; width: 50px; font-size: 1em; }
-  body .center aside nav ul li:nth-child(odd) { float: right; }
+  body .center aside { min-height: auto; min-width: 100%; padding: 25px; }
+  body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; vertical-align: top; }
+  body .center aside header img { width: 75px; height: 75px; }
+  body .center aside nav { display: inline-block; vertical-align: top; margin-left: 20px; }
+  body .center aside nav ul.nav-grid { grid-template-columns: repeat(3, 1fr); gap: 6px 10px; }
+  body .center aside nav ul.nav-grid li { font-size: 0.85em; padding-left: 18px; background-size: 12px 12px; }
   body .center aside nav ul li ul { display: none; }
-  body .center main header { flex-direction: column; }
   #latestrelease { margin: 0px; margin-top: 20px; margin-bottom: 20px; }
 }
 
@@ -137,35 +151,48 @@ aside header {
 
 aside nav {
   padding: 10px;
-  max-width: 230px;
   margin-top: 10px;
 }
 
-aside nav ul {
-  line-height: 1.5;
+aside nav ul.nav-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
   color: white;
 }
 
-aside nav ul li {
-  background: url("./images/fleur-de-lis.svg") no-repeat 0px 0px transparent;
+aside nav ul.nav-grid li {
+  background: url("./images/fleur-de-lis.svg") no-repeat 0px center transparent;
+  background-size: 14px 14px;
   list-style-type: none;
   margin: 0;
-  padding: 0px 0px 0px 30px;
-  vertical-align: middle;
+  padding: 0px 0px 0px 20px;
+  font-size: 0.9em;
+  white-space: nowrap;
 }
 
-aside nav ul li a {
+aside nav ul.nav-grid li a {
   color: white;
   text-decoration: none;
 }
+
+aside nav ul.nav-grid li a:hover {
+  text-decoration: underline;
+}
+
 aside nav ul li.active {
   text-decoration: underline;
 }
+
 aside nav ul li ul a {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
 aside nav ul li ul {
   width: 120px;
   white-space: nowrap;
@@ -191,8 +218,50 @@ main {
   }
 }
 
+main h1, main h2, h1, h2 {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+}
+
 main h1 {
     margin-bottom: 20px;
+    font-size: 2.5em;
+}
+
+main h2 {
+    font-size: 3em;
+    font-weight: normal;
+    line-height: 1.1;
+    margin-bottom: 20px;
+    white-space: nowrap;
+}
+
+main h3, h3 {
+    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 1.15em;
+    font-weight: normal;
+    line-height: 1.6;
+    color: #333;
+}
+
+main p, p {
+    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 1em;
+    line-height: 1.6;
+    color: #444;
+}
+
+.tagline {
+    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 1.2em;
+    font-weight: normal;
+    line-height: 1.5;
+    color: #333;
+    max-width: 600px;
+}
+
+.first-letter {
+  font-family: "Instrument Serif", serif;
+  font-size: 1em;
 }
 
 .flower {

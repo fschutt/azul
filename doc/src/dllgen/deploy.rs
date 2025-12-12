@@ -1,13 +1,116 @@
 use std::{
+    collections::BTreeMap,
     env,
     fs::{self, File},
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Result;
 
 use crate::{api::ApiData, dllgen::license::License};
+
+/// Verifies that all example files referenced in api.json exist on the filesystem.
+/// 
+/// Returns Ok(()) if all examples exist, or an error listing all missing files.
+/// Use `strict` mode to fail the build, or non-strict to just print warnings.
+pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) -> Result<()> {
+    let mut missing_files: Vec<String> = Vec::new();
+    
+    // Get all versions and their examples
+    for version in api_data.get_sorted_versions() {
+        if let Some(version_data) = api_data.get_version(&version) {
+            for example in &version_data.examples {
+                // Check required languages (c, rust, python)
+                let c_path = examples_dir.join(&example.code.c);
+                if !c_path.exists() {
+                    missing_files.push(format!("[{}] {}: C example missing: {}", version, example.name, example.code.c));
+                }
+                
+                let rust_path = examples_dir.join(&example.code.rust);
+                if !rust_path.exists() {
+                    missing_files.push(format!("[{}] {}: Rust example missing: {}", version, example.name, example.code.rust));
+                }
+                
+                let python_path = examples_dir.join(&example.code.python);
+                if !python_path.exists() {
+                    missing_files.push(format!("[{}] {}: Python example missing: {}", version, example.name, example.code.python));
+                }
+                
+                // Check C++ dialects (optional fields)
+                if let Some(ref cpp03) = example.code.cpp03 {
+                    let cpp_path = examples_dir.join(cpp03);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++03 example missing: {}", version, example.name, cpp03));
+                    }
+                }
+                if let Some(ref cpp11) = example.code.cpp11 {
+                    let cpp_path = examples_dir.join(cpp11);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++11 example missing: {}", version, example.name, cpp11));
+                    }
+                }
+                if let Some(ref cpp14) = example.code.cpp14 {
+                    let cpp_path = examples_dir.join(cpp14);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++14 example missing: {}", version, example.name, cpp14));
+                    }
+                }
+                if let Some(ref cpp17) = example.code.cpp17 {
+                    let cpp_path = examples_dir.join(cpp17);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++17 example missing: {}", version, example.name, cpp17));
+                    }
+                }
+                if let Some(ref cpp20) = example.code.cpp20 {
+                    let cpp_path = examples_dir.join(cpp20);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++20 example missing: {}", version, example.name, cpp20));
+                    }
+                }
+                if let Some(ref cpp23) = example.code.cpp23 {
+                    let cpp_path = examples_dir.join(cpp23);
+                    if !cpp_path.exists() {
+                        missing_files.push(format!("[{}] {}: C++23 example missing: {}", version, example.name, cpp23));
+                    }
+                }
+                
+                // Check legacy cpp field if no per-version paths exist
+                if example.code.cpp03.is_none() && 
+                   example.code.cpp11.is_none() && 
+                   example.code.cpp14.is_none() &&
+                   example.code.cpp17.is_none() &&
+                   example.code.cpp20.is_none() &&
+                   example.code.cpp23.is_none() {
+                    if let Some(ref cpp) = example.code.cpp {
+                        let cpp_path = examples_dir.join(cpp);
+                        if !cpp_path.exists() {
+                            missing_files.push(format!("[{}] {}: C++ example missing: {}", version, example.name, cpp));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if missing_files.is_empty() {
+        println!("  [OK] All example files verified");
+        Ok(())
+    } else {
+        let error_msg = format!(
+            "Missing {} example file(s):\n  {}",
+            missing_files.len(),
+            missing_files.join("\n  ")
+        );
+        
+        if strict {
+            anyhow::bail!("{}", error_msg);
+        } else {
+            eprintln!("  [WARN] {}", error_msg);
+            Ok(())
+        }
+    }
+}
 
 /// Deploy mode controls how missing assets are handled
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -380,100 +483,93 @@ pub struct CppHeaders {
     pub cpp23: String,
 }
 
+/// Creates examples.zip by reading example paths from api.json and loading files from disk.
+/// This ensures the zip always matches the examples defined in api.json.
 pub fn create_examples(
     version: &str,
     output_dir: &Path,
     azul_h: &str,
     cpp_headers: &CppHeaders,
+    api_data: &ApiData,
+    examples_dir: &Path,
 ) -> Result<()> {
     println!("  Creating example packages...");
 
-    // Create a temporary directory for the examples
     let source_zip_path = output_dir.join("examples.zip");
     let source_zip_file = File::create(&source_zip_path)?;
 
     let mut source_zip = zip::ZipWriter::new(source_zip_file);
     let options = zip::write::SimpleFileOptions::default();
 
-    // -- c
+    // Get examples from api.json for this version
+    let version_data = api_data.get_version(version)
+        .ok_or_else(|| anyhow::anyhow!("Version {} not found in api.json", version))?;
 
-    source_zip.start_file("c/hello-world.c", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/c/hello-world.c"))?;
-    source_zip.start_file("c/calculator.c", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/c/calculator.c"))?;
-    source_zip.start_file("c/svg.c", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/c/svg.c"))?;
-    source_zip.start_file("c/table.c", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/c/table.c"))?;
-    source_zip.start_file("c/xhtml.c", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/c/xhtml.c"))?;
+    // Track which files we've already added (to avoid duplicates)
+    let mut added_files: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // -- cpp
+    for example in &version_data.examples {
+        // Add C example
+        let c_path = &example.code.c;
+        if !added_files.contains(c_path) {
+            let full_path = examples_dir.join(c_path);
+            if full_path.exists() {
+                let content = fs::read(&full_path)?;
+                source_zip.start_file(c_path, options)?;
+                source_zip.write_all(&content)?;
+                added_files.insert(c_path.clone());
+            }
+        }
 
-    source_zip.start_file("cpp/cpp03/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/hello-world.cpp"))?;
-    source_zip.start_file("cpp/cpp03/calculator.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/calculator.cpp"))?;
-    source_zip.start_file("cpp/cpp03/svg.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/svg.cpp"))?;
-    source_zip.start_file("cpp/cpp03/table.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/table.cpp"))?;
-    source_zip.start_file("cpp/cpp03/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp03/xhtml.cpp"))?;
+        // Add Rust example
+        let rust_path = &example.code.rust;
+        if !added_files.contains(rust_path) {
+            let full_path = examples_dir.join(rust_path);
+            if full_path.exists() {
+                let content = fs::read(&full_path)?;
+                source_zip.start_file(rust_path, options)?;
+                source_zip.write_all(&content)?;
+                added_files.insert(rust_path.clone());
+            }
+        }
 
-    source_zip.start_file("cpp/cpp11/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/hello-world.cpp"))?;
-    source_zip.start_file("cpp/cpp11/graphics.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/graphics.cpp"))?;
-    source_zip.start_file("cpp/cpp11/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp11/xhtml.cpp"))?;
+        // Add Python example
+        let python_path = &example.code.python;
+        if !added_files.contains(python_path) {
+            let full_path = examples_dir.join(python_path);
+            if full_path.exists() {
+                let content = fs::read(&full_path)?;
+                source_zip.start_file(python_path, options)?;
+                source_zip.write_all(&content)?;
+                added_files.insert(python_path.clone());
+            }
+        }
 
-    source_zip.start_file("cpp/cpp14/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/hello-world.cpp"))?;
-    source_zip.start_file("cpp/cpp14/graphics.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/graphics.cpp"))?;
-    source_zip.start_file("cpp/cpp14/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp14/xhtml.cpp"))?;
+        // Add C++ examples for each standard
+        let cpp_paths = [
+            &example.code.cpp03,
+            &example.code.cpp11,
+            &example.code.cpp14,
+            &example.code.cpp17,
+            &example.code.cpp20,
+            &example.code.cpp23,
+            &example.code.cpp, // legacy fallback
+        ];
 
-    source_zip.start_file("cpp/cpp17/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/hello-world.cpp"))?;
-    source_zip.start_file("cpp/cpp17/graphics.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/graphics.cpp"))?;
-    source_zip.start_file("cpp/cpp17/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp17/xhtml.cpp"))?;
-
-    source_zip.start_file("cpp/cpp23/hello-world.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/hello-world.cpp"))?;
-    source_zip.start_file("cpp/cpp23/graphics.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/graphics.cpp"))?;
-    source_zip.start_file("cpp/cpp23/xhtml.cpp", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/cpp/cpp23/xhtml.cpp"))?;
-
-    // -- rust
-
-    source_zip.start_file("rust/hello-world.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/rust/hello-world.rs"))?;
-    source_zip.start_file("rust/calculator.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/rust/calculator.rs"))?;
-    source_zip.start_file("rust/svg.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/rust/svg.rs"))?;
-    source_zip.start_file("rust/table.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/rust/table.rs"))?;
-    source_zip.start_file("rust/xhtml.rs", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/rust/xhtml.rs"))?;
-
-    // -- python
-
-    source_zip.start_file("python/hello-world.py", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/python/hello-world.py"))?;
-    source_zip.start_file("python/calculator.py", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/python/calculator.py"))?;
-    source_zip.start_file("python/svg.py", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/python/svg.py"))?;
-    source_zip.start_file("python/table.py", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/python/table.py"))?;
-    source_zip.start_file("python/xhtml.py", options)?;
-    source_zip.write_all(include_bytes!("./../../../examples/python/xhtml.py"))?;
+        for cpp_opt in cpp_paths.iter() {
+            if let Some(cpp_path) = cpp_opt {
+                if !added_files.contains(cpp_path) {
+                    let full_path = examples_dir.join(cpp_path);
+                    if full_path.exists() {
+                        let content = fs::read(&full_path)?;
+                        source_zip.start_file(cpp_path, options)?;
+                        source_zip.write_all(&content)?;
+                        added_files.insert(cpp_path.clone());
+                    }
+                }
+            }
+        }
+    }
 
     // C header
     source_zip.start_file("include/azul.h", options)?;
@@ -493,7 +589,7 @@ pub fn create_examples(
     source_zip.start_file("include/cpp/azul_cpp23.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp23.as_bytes())?;
 
-    // Add some basic source files
+    // Add README
     source_zip.start_file("README.md", options)?;
     source_zip.write_all(
         format!(
@@ -506,7 +602,7 @@ pub fn create_examples(
     // Finalize source zip
     source_zip.finish()?;
 
-    println!("  - Created example packages");
+    println!("  - Created example packages ({} files from api.json)", added_files.len());
 
     Ok(())
 }
@@ -840,56 +936,64 @@ pub fn generate_releases_index(versions: &[String]) -> String {
 pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     println!("Copying static assets...");
 
+    // Get the templates directory (relative to the doc crate root)
+    let templates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let fonts_source_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
+
     // Create assets directories
     let fonts_dir = output_dir.join("fonts");
     let images_dir = output_dir.join("images");
     fs::create_dir_all(&fonts_dir)?;
     fs::create_dir_all(&images_dir)?;
 
-    // Copy CSS file
-    fs::write(
+    // Copy CSS file at runtime (so edits take effect without recompiling)
+    fs::copy(
+        templates_dir.join("main.css"),
         output_dir.join("main.css"),
-        include_str!("./../../templates/main.css"),
     )?;
 
-    // Copy JavaScript file
-    fs::write(
+    // Copy JavaScript file at runtime
+    fs::copy(
+        templates_dir.join("prism_code_highlighter.js"),
         output_dir.join("prism_code_highlighter.js"),
-        include_str!("./../../templates/prism_code_highlighter.js"),
     )?;
 
-    // Copy logo SVG
-    fs::write(
+    // Copy logo SVG at runtime
+    fs::copy(
+        templates_dir.join("logo.svg"),
         output_dir.join("logo.svg"),
-        include_str!("./../../templates/logo.svg"),
     )?;
 
-    // Copy fleur-de-lis SVG (for navigation)
-    fs::write(
+    // Copy fleur-de-lis SVG (for navigation) at runtime
+    fs::copy(
+        templates_dir.join("fleur-de-lis.svg"),
         images_dir.join("fleur-de-lis.svg"),
-        include_str!("./../../templates/fleur-de-lis.svg"),
     )?;
 
-    // Copy font files
-    fs::write(
-        fonts_dir.join("SourceSerifPro-Regular.ttf"),
-        include_bytes!("./../../fonts/SourceSerifPro-Regular.ttf"),
+    // Copy font files at runtime
+    fs::copy(
+        fonts_source_dir.join("AtkinsonHyperlegibleNext-Regular.ttf"),
+        fonts_dir.join("AtkinsonHyperlegibleNext-Regular.ttf"),
     )?;
-    fs::write(
+    fs::copy(
+        fonts_source_dir.join("AtkinsonHyperlegibleNext-Bold.ttf"),
+        fonts_dir.join("AtkinsonHyperlegibleNext-Bold.ttf"),
+    )?;
+    fs::copy(
+        fonts_source_dir.join("AtkinsonHyperlegibleNext-Italic.ttf"),
+        fonts_dir.join("AtkinsonHyperlegibleNext-Italic.ttf"),
+    )?;
+    fs::copy(
+        fonts_source_dir.join("InstrumentSerif-Regular.ttf"),
+        fonts_dir.join("InstrumentSerif-Regular.ttf"),
+    )?;
+    fs::copy(
+        fonts_source_dir.join("InstrumentSerif-Italic.ttf"),
+        fonts_dir.join("InstrumentSerif-Italic.ttf"),
+    )?;
+    fs::copy(
+        fonts_source_dir.join("Morris Jenson Initialen.ttf"),
         fonts_dir.join("Morris Jenson Initialen.ttf"),
-        include_bytes!("./../../fonts/Morris Jenson Initialen.ttf"),
-    )?;
-    fs::write(
-        fonts_dir.join("EBGaramond-Medium.ttf"),
-        include_bytes!("./../../fonts/EBGaramond-Medium.ttf"),
-    )?;
-    fs::write(
-        fonts_dir.join("EBGaramond-SemiBold.ttf"),
-        include_bytes!("./../../fonts/EBGaramond-SemiBold.ttf"),
-    )?;
-    fs::write(
-        fonts_dir.join("SourceSerifPro-OFL.txt"),
-        include_bytes!("./../../fonts/SourceSerifPro-OFL.txt"),
     )?;
 
     // Create favicon

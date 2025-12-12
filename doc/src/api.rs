@@ -200,6 +200,9 @@ pub struct VersionData {
     pub git: String,
     /// Required: release date
     pub date: String,
+    /// Installation instructions per language/OS
+    #[serde(default)]
+    pub installation: Installation,
     /// Examples to view on the frontpage
     #[serde(default)]
     pub examples: Vec<Example>,
@@ -214,74 +217,472 @@ pub type OsId = String;
 pub type ImageFilePathRelative = String;
 pub type ExampleSrcFileRelative = String;
 
+/// Operating system identifiers for platform-specific content
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Os {
+    Windows,
+    Linux,
+    #[serde(alias = "mac")]
+    Macos,
+}
+
+impl Os {
+    pub fn all() -> &'static [Os] {
+        &[Os::Windows, Os::Linux, Os::Macos]
+    }
+    
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Os::Windows => "windows",
+            Os::Linux => "linux",
+            Os::Macos => "macos",
+        }
+    }
+}
+
+/// Supported programming languages
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    Rust,
+    C,
+    Cpp03,
+    Cpp11,
+    Cpp14,
+    Cpp17,
+    Cpp20,
+    Cpp23,
+    Python,
+}
+
+impl Language {
+    pub fn all() -> &'static [Language] {
+        &[
+            Language::Rust,
+            Language::C,
+            Language::Cpp03,
+            Language::Cpp11,
+            Language::Cpp14,
+            Language::Cpp17,
+            Language::Cpp20,
+            Language::Cpp23,
+            Language::Python,
+        ]
+    }
+    
+    pub fn cpp_versions() -> &'static [Language] {
+        &[
+            Language::Cpp03,
+            Language::Cpp11,
+            Language::Cpp14,
+            Language::Cpp17,
+            Language::Cpp20,
+            Language::Cpp23,
+        ]
+    }
+    
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Language::Rust => "rust",
+            Language::C => "c",
+            Language::Cpp03 => "cpp03",
+            Language::Cpp11 => "cpp11",
+            Language::Cpp14 => "cpp14",
+            Language::Cpp17 => "cpp17",
+            Language::Cpp20 => "cpp20",
+            Language::Cpp23 => "cpp23",
+            Language::Python => "python",
+        }
+    }
+    
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Language::Rust => "Rust",
+            Language::C => "C",
+            Language::Cpp03 => "C++03",
+            Language::Cpp11 => "C++11",
+            Language::Cpp14 => "C++14",
+            Language::Cpp17 => "C++17",
+            Language::Cpp20 => "C++20",
+            Language::Cpp23 => "C++23",
+            Language::Python => "Python",
+        }
+    }
+    
+    pub fn is_cpp(&self) -> bool {
+        matches!(self, 
+            Language::Cpp03 | Language::Cpp11 | Language::Cpp14 |
+            Language::Cpp17 | Language::Cpp20 | Language::Cpp23
+        )
+    }
+    
+    pub fn cpp_std_flag(&self) -> Option<&'static str> {
+        match self {
+            Language::Cpp03 => Some("-std=c++03"),
+            Language::Cpp11 => Some("-std=c++11"),
+            Language::Cpp14 => Some("-std=c++14"),
+            Language::Cpp17 => Some("-std=c++17"),
+            Language::Cpp20 => Some("-std=c++20"),
+            Language::Cpp23 => Some("-std=c++23"),
+            _ => None,
+        }
+    }
+}
+
+/// Dialect configuration for language groups (e.g., C++ with multiple standards)
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DialectConfig {
+    /// Display name for the dialect group (e.g., "C++")
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    /// Default variant to use (e.g., "cpp23")
+    pub default: String,
+    /// Available variants with their display names and alt texts
+    pub variants: std::collections::HashMap<String, DialectVariant>,
+}
+
+/// A specific dialect variant (e.g., C++23)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DialectVariant {
+    /// Display name (e.g., "C++23")
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    /// Alt text for accessibility (e.g., "Example for C++ 2023 standard")
+    #[serde(rename = "altText", default)]
+    pub alt_text: String,
+}
+
+/// Language installation configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LanguageInstallConfig {
+    /// Display name for the language
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    /// If this is a dialect of another language group (e.g., "cpp" for cpp23)
+    #[serde(rename = "dialectOf", default, skip_serializing_if = "Option::is_none")]
+    pub dialect_of: Option<String>,
+    /// Installation methods (for languages like Python with pip/uv)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub methods: Option<std::collections::HashMap<String, MethodConfig>>,
+    /// Platform-specific installation (for C/C++)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<std::collections::HashMap<String, InstallationSteps>>,
+}
+
+/// Configuration for an installation method
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MethodConfig {
+    /// Display name for the method (e.g., "pip")
+    #[serde(rename = "displayName", default)]
+    pub display_name: Option<String>,
+    /// Description of the method
+    pub description: String,
+    /// Installation steps
+    pub steps: Vec<InstallationStep>,
+}
+
+/// Installation instructions with new structure
+/// Supports dialects (language groups like C++) and multiple methods per language
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Installation {
+    /// Dialect configurations (e.g., cpp -> { displayName: "C++", default: "cpp23", variants: {...} })
+    #[serde(default)]
+    pub dialects: std::collections::HashMap<String, DialectConfig>,
+    /// Language-specific installation instructions
+    #[serde(default)]
+    pub languages: std::collections::HashMap<String, LanguageInstallConfig>,
+}
+
+impl Installation {
+    /// Get the list of top-level languages (excluding dialect variants shown separately)
+    pub fn get_top_level_languages(&self) -> Vec<&str> {
+        let mut langs: Vec<&str> = Vec::new();
+        let dialect_keys: std::collections::HashSet<&str> = self.dialects.keys().map(|s| s.as_str()).collect();
+        
+        for (key, config) in &self.languages {
+            // Skip if this is a dialect variant (has dialectOf set)
+            if config.dialect_of.is_some() {
+                continue;
+            }
+            langs.push(key.as_str());
+        }
+        
+        // Add dialect groups
+        for key in &dialect_keys {
+            langs.push(key);
+        }
+        
+        langs
+    }
+    
+    /// Get installation steps for a specific language and OS
+    pub fn get_steps(&self, lang: &str, os: &str) -> Option<&InstallationSteps> {
+        let lang_config = self.languages.get(lang)?;
+        
+        // If the language has platform-specific installation
+        if let Some(platforms) = &lang_config.platforms {
+            return platforms.get(os);
+        }
+        
+        // If the language has methods, return the first method's steps wrapped
+        // (This is a simplified view - for methods, use get_method_steps)
+        None
+    }
+    
+    /// Get the methods available for a language
+    pub fn get_methods(&self, lang: &str) -> Vec<&str> {
+        self.languages
+            .get(lang)
+            .and_then(|c| c.methods.as_ref())
+            .map(|m| m.keys().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    }
+    
+    /// Get installation steps for a specific method
+    pub fn get_method_steps(&self, lang: &str, method: &str) -> Option<InstallationSteps> {
+        let lang_config = self.languages.get(lang)?;
+        let methods = lang_config.methods.as_ref()?;
+        let method_config = methods.get(method)?;
+        
+        Some(InstallationSteps {
+            description: method_config.description.clone(),
+            steps: method_config.steps.clone(),
+        })
+    }
+    
+    /// Get dialect configuration for a language group
+    pub fn get_dialect(&self, group: &str) -> Option<&DialectConfig> {
+        self.dialects.get(group)
+    }
+    
+    /// Check if a language is a dialect of a group
+    pub fn is_dialect(&self, lang: &str) -> bool {
+        self.languages
+            .get(lang)
+            .and_then(|c| c.dialect_of.as_ref())
+            .is_some()
+    }
+    
+    /// Get the dialect group for a language (if any)
+    pub fn get_dialect_group(&self, lang: &str) -> Option<&str> {
+        self.languages
+            .get(lang)
+            .and_then(|c| c.dialect_of.as_ref())
+            .map(|s| s.as_str())
+    }
+}
+
+/// OS-specific installation instructions
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct OsSpecificInstallation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<InstallationSteps>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linux: Option<InstallationSteps>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub macos: Option<InstallationSteps>,
+}
+
+impl OsSpecificInstallation {
+    pub fn get_for_os(&self, os: Os) -> Option<&InstallationSteps> {
+        match os {
+            Os::Windows => self.windows.as_ref(),
+            Os::Linux => self.linux.as_ref(),
+            Os::Macos => self.macos.as_ref(),
+        }
+    }
+}
+
+/// Installation steps with description
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstallationSteps {
+    pub description: String,
+    pub steps: Vec<InstallationStep>,
+}
+
+/// A single installation step
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum InstallationStep {
+    /// A code block to show (not executable)
+    Code {
+        language: String,
+        content: String,
+    },
+    /// A shell command to run
+    Command {
+        content: String,
+    },
+    /// Descriptive text
+    Text {
+        content: String,
+    },
+}
+
+impl InstallationStep {
+    /// Apply variable interpolation to the step content
+    pub fn interpolate(&self, hostname: &str, version: &str) -> Self {
+        let do_interpolate = |s: &str| {
+            s.replace("$HOSTNAME", hostname)
+             .replace("$VERSION", version)
+        };
+        
+        match self {
+            InstallationStep::Code { language, content } => InstallationStep::Code {
+                language: language.clone(),
+                content: do_interpolate(content),
+            },
+            InstallationStep::Command { content } => InstallationStep::Command {
+                content: do_interpolate(content),
+            },
+            InstallationStep::Text { content } => InstallationStep::Text {
+                content: do_interpolate(content),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Example {
     pub name: String,
     pub alt: String,
-    pub code: LangDepFilesPaths,
+    /// Whether to show this example on the index page
+    #[serde(default = "default_true")]
+    pub show_on_index: bool,
+    pub code: ExampleCodePaths,
     pub screenshot: OsDepFilesPaths,
     pub description: Vec<String>,
 }
 
+fn default_true() -> bool { true }
+
+/// Paths to example source files for each language
+/// Supports both old format (single cpp) and new format (per-C++ standard)
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LangDepFilesPaths {
+pub struct ExampleCodePaths {
     pub c: String,
-    pub cpp: String,
     pub rust: String,
     pub python: String,
+    /// Legacy: single C++ path (deprecated, use cpp11/cpp14/etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp: Option<String>,
+    /// C++03 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp03: Option<String>,
+    /// C++11 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp11: Option<String>,
+    /// C++14 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp14: Option<String>,
+    /// C++17 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp17: Option<String>,
+    /// C++20 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp20: Option<String>,
+    /// C++23 example path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpp23: Option<String>,
+}
+
+impl ExampleCodePaths {
+    /// Get the path for a specific language
+    pub fn get_path(&self, lang: Language) -> Option<&str> {
+        match lang {
+            Language::C => Some(&self.c),
+            Language::Rust => Some(&self.rust),
+            Language::Python => Some(&self.python),
+            Language::Cpp03 => self.cpp03.as_deref().or(self.cpp.as_deref()),
+            Language::Cpp11 => self.cpp11.as_deref().or(self.cpp.as_deref()),
+            Language::Cpp14 => self.cpp14.as_deref().or(self.cpp.as_deref()),
+            Language::Cpp17 => self.cpp17.as_deref().or(self.cpp.as_deref()),
+            Language::Cpp20 => self.cpp20.as_deref().or(self.cpp.as_deref()),
+            Language::Cpp23 => self.cpp23.as_deref().or(self.cpp.as_deref()),
+        }
+    }
+    
+    /// Get the best available C++ path (prefer cpp23, fall back to legacy cpp)
+    pub fn get_default_cpp_path(&self) -> Option<&str> {
+        self.cpp23.as_deref()
+            .or(self.cpp20.as_deref())
+            .or(self.cpp17.as_deref())
+            .or(self.cpp14.as_deref())
+            .or(self.cpp11.as_deref())
+            .or(self.cpp03.as_deref())
+            .or(self.cpp.as_deref())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OsDepFilesPaths {
     pub windows: String,
     pub linux: String,
+    #[serde(alias = "macos")]
     pub mac: String,
 }
 
 impl Example {
+    /// Load example files from disk
+    /// The `filerelativepath` is the base path for example source files
+    /// The `imagerelativepath` is the base path for screenshots
     pub fn load(
         &self,
         filerelativepath: &str,
         imagerelativepath: &str,
     ) -> anyhow::Result<LoadedExample> {
+        let base_path = Path::new(filerelativepath);
+        let img_path = Path::new(imagerelativepath);
+        
+        // Load required language files
+        let c = std::fs::read(base_path.join(&self.code.c))
+            .context(format!("failed to load C code for example {}", self.name))?;
+        let rust = std::fs::read(base_path.join(&self.code.rust))
+            .context(format!("failed to load Rust code for example {}", self.name))?;
+        let python = std::fs::read(base_path.join(&self.code.python))
+            .context(format!("failed to load Python code for example {}", self.name))?;
+        
+        // Load C++ code - try versioned paths first, then fall back to legacy
+        let cpp = self.code.get_default_cpp_path()
+            .and_then(|p| std::fs::read(base_path.join(p)).ok())
+            .unwrap_or_default();
+        
+        // Load C++ versions (optional - may not all exist)
+        let load_cpp_version = |path: &Option<String>| -> Vec<u8> {
+            path.as_ref()
+                .and_then(|p| std::fs::read(base_path.join(p)).ok())
+                .unwrap_or_default()
+        };
+        
+        let cpp_versions = CppVersionedCode {
+            cpp03: load_cpp_version(&self.code.cpp03),
+            cpp11: load_cpp_version(&self.code.cpp11),
+            cpp14: load_cpp_version(&self.code.cpp14),
+            cpp17: load_cpp_version(&self.code.cpp17),
+            cpp20: load_cpp_version(&self.code.cpp20),
+            cpp23: load_cpp_version(&self.code.cpp23),
+        };
+        
         Ok(LoadedExample {
             name: self.name.clone(),
             alt: self.alt.clone(),
+            show_on_index: self.show_on_index,
             description: self.description.clone(),
             code: LangDepFiles {
-                c: std::fs::read(&Path::new(filerelativepath).join(&self.code.c)).context(
-                    format!("failed to load c code for example {}", self.name.clone()),
-                )?,
-                cpp: std::fs::read(&Path::new(filerelativepath).join(&self.code.cpp)).context(
-                    format!("failed to load cpp code for example {}", self.name.clone()),
-                )?,
-                rust: std::fs::read(&Path::new(filerelativepath).join(&self.code.rust)).context(
-                    format!("failed to load rust code for example {}", self.name.clone()),
-                )?,
-                python: std::fs::read(&Path::new(filerelativepath).join(&self.code.python))
-                    .context(format!(
-                        "failed to load python code for example {}",
-                        self.name.clone()
-                    ))?,
+                c,
+                cpp,
+                cpp_versions,
+                rust,
+                python,
             },
             screenshot: OsDepFiles {
-                windows: std::fs::read(
-                    &Path::new(imagerelativepath).join(&self.screenshot.windows),
-                )
-                .context(format!(
-                    "failed to load windows screenshot for example {}",
-                    self.name.clone()
-                ))?,
-                linux: std::fs::read(&Path::new(imagerelativepath).join(&self.screenshot.linux))
-                    .context(format!(
-                        "failed to load linux screenshot for example {}",
-                        self.name.clone()
-                    ))?,
-                mac: std::fs::read(&Path::new(imagerelativepath).join(&self.screenshot.mac))
-                    .context(format!(
-                        "failed to load mac screenshot for example {}",
-                        self.name.clone()
-                    ))?,
+                windows: std::fs::read(img_path.join(&self.screenshot.windows))
+                    .context(format!("failed to load Windows screenshot for example {}", self.name))?,
+                linux: std::fs::read(img_path.join(&self.screenshot.linux))
+                    .context(format!("failed to load Linux screenshot for example {}", self.name))?,
+                mac: std::fs::read(img_path.join(&self.screenshot.mac))
+                    .context(format!("failed to load macOS screenshot for example {}", self.name))?,
             },
         })
     }
@@ -289,15 +690,17 @@ impl Example {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoadedExample {
-    /// Id of the examples
+    /// Id of the example
     pub name: String,
     /// Short description of the image
     pub alt: String,
+    /// Whether to show on index page
+    pub show_on_index: bool,
     /// Markdown description of the example
     pub description: Vec<String>,
-    /// Code example loaded to string
+    /// Code examples loaded to bytes
     pub code: LangDepFiles,
-    /// Image file loaded to string
+    /// Screenshot images loaded to bytes
     pub screenshot: OsDepFiles,
 }
 
@@ -308,12 +711,81 @@ pub struct OsDepFiles {
     pub mac: Vec<u8>,
 }
 
+/// Code for each C++ standard version
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CppVersionedCode {
+    pub cpp03: Vec<u8>,
+    pub cpp11: Vec<u8>,
+    pub cpp14: Vec<u8>,
+    pub cpp17: Vec<u8>,
+    pub cpp20: Vec<u8>,
+    pub cpp23: Vec<u8>,
+}
+
+impl CppVersionedCode {
+    /// Get code for a specific C++ version
+    pub fn get(&self, lang: Language) -> Option<&[u8]> {
+        let code = match lang {
+            Language::Cpp03 => &self.cpp03,
+            Language::Cpp11 => &self.cpp11,
+            Language::Cpp14 => &self.cpp14,
+            Language::Cpp17 => &self.cpp17,
+            Language::Cpp20 => &self.cpp20,
+            Language::Cpp23 => &self.cpp23,
+            _ => return None,
+        };
+        if code.is_empty() { None } else { Some(code) }
+    }
+    
+    /// Get the best available C++ code (prefer newest standard)
+    pub fn get_best(&self) -> &[u8] {
+        if !self.cpp23.is_empty() { &self.cpp23 }
+        else if !self.cpp20.is_empty() { &self.cpp20 }
+        else if !self.cpp17.is_empty() { &self.cpp17 }
+        else if !self.cpp14.is_empty() { &self.cpp14 }
+        else if !self.cpp11.is_empty() { &self.cpp11 }
+        else if !self.cpp03.is_empty() { &self.cpp03 }
+        else { &[] }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LangDepFiles {
     pub c: Vec<u8>,
+    /// Legacy/default C++ code (for backwards compatibility)
     pub cpp: Vec<u8>,
+    /// C++ code per standard version
+    #[serde(default)]
+    pub cpp_versions: CppVersionedCode,
     pub rust: Vec<u8>,
     pub python: Vec<u8>,
+}
+
+impl LangDepFiles {
+    /// Get code for a specific language
+    pub fn get(&self, lang: Language) -> Option<&[u8]> {
+        match lang {
+            Language::C => Some(&self.c),
+            Language::Rust => Some(&self.rust),
+            Language::Python => Some(&self.python),
+            Language::Cpp03 | Language::Cpp11 | Language::Cpp14 |
+            Language::Cpp17 | Language::Cpp20 | Language::Cpp23 => {
+                // Try versioned code first, fall back to legacy cpp
+                self.cpp_versions.get(lang)
+                    .or(if self.cpp.is_empty() { None } else { Some(&self.cpp[..]) })
+            }
+        }
+    }
+    
+    /// Get the best available C++ code
+    pub fn get_cpp(&self) -> &[u8] {
+        let versioned = self.cpp_versions.get_best();
+        if !versioned.is_empty() {
+            versioned
+        } else {
+            &self.cpp
+        }
+    }
 }
 
 impl VersionData {
