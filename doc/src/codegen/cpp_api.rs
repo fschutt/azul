@@ -157,6 +157,70 @@ fn class_is_string_type(class_name: &str) -> bool {
     class_name == "String"
 }
 
+/// Check if a class is an Option type (starts with "Option" and has Some/None variants)
+fn class_is_option_type(class_name: &str, class_data: &ClassData) -> bool {
+    if !class_name.starts_with("Option") {
+        return false;
+    }
+    if let Some(enum_fields) = &class_data.enum_fields {
+        let variant_names: Vec<&str> = enum_fields.iter()
+            .flat_map(|field_map| field_map.keys().map(|s| s.as_str()))
+            .collect();
+        variant_names.contains(&"Some") && variant_names.contains(&"None")
+    } else {
+        false
+    }
+}
+
+/// Get the inner type of an Option type (from the Some variant)
+fn get_option_inner_type(class_data: &ClassData) -> Option<String> {
+    if let Some(enum_fields) = &class_data.enum_fields {
+        for field_map in enum_fields {
+            if let Some(some_variant) = field_map.get("Some") {
+                if let Some(ty) = &some_variant.r#type {
+                    return Some(ty.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a class is a Result type (starts with "Result" and has Ok/Err variants)
+fn class_is_result_type(class_name: &str, class_data: &ClassData) -> bool {
+    if !class_name.starts_with("Result") {
+        return false;
+    }
+    if let Some(enum_fields) = &class_data.enum_fields {
+        let variant_names: Vec<&str> = enum_fields.iter()
+            .flat_map(|field_map| field_map.keys().map(|s| s.as_str()))
+            .collect();
+        variant_names.contains(&"Ok") && variant_names.contains(&"Err")
+    } else {
+        false
+    }
+}
+
+/// Get the Ok and Err types of a Result type
+fn get_result_types(class_data: &ClassData) -> Option<(String, String)> {
+    if let Some(enum_fields) = &class_data.enum_fields {
+        let mut ok_type = None;
+        let mut err_type = None;
+        for field_map in enum_fields {
+            if let Some(ok_variant) = field_map.get("Ok") {
+                ok_type = ok_variant.r#type.clone();
+            }
+            if let Some(err_variant) = field_map.get("Err") {
+                err_type = err_variant.r#type.clone();
+            }
+        }
+        if let (Some(ok), Some(err)) = (ok_type, err_type) {
+            return Some((ok, err));
+        }
+    }
+    None
+}
+
 /// Check if a class needs a destructor
 fn class_needs_destructor(class_data: &ClassData, version_data: &VersionData) -> bool {
     if class_is_copy(class_data) {
@@ -327,6 +391,7 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
         code.push_str("#include <string>\r\n");  // For std::string interop
+        code.push_str("#include <vector>\r\n");  // For toStdVector()
     }
     if cpp_version.has_optional() {
         code.push_str("#include <optional>\r\n");
@@ -628,6 +693,12 @@ fn generate_cpp_class_declaration(
             code.push_str("    bool empty() const { return inner_.len == 0; }\r\n");
             code.push_str(&format!("    const {}& operator[](size_t i) const {{ return inner_.ptr[i]; }}\r\n", c_elem_type));
             code.push_str(&format!("    {}& operator[](size_t i) {{ return const_cast<{}*>(inner_.ptr)[i]; }}\r\n", c_elem_type, c_elem_type));
+            
+            // C++11+: add toStdVector() helper for conversion to std::vector
+            if cpp_version.has_move_semantics() {
+                code.push_str(&format!("    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); }}\r\n", 
+                    c_elem_type, c_elem_type));
+            }
         }
     }
     
@@ -646,6 +717,72 @@ fn generate_cpp_class_declaration(
         if cpp_version.has_move_semantics() {
             code.push_str("    std::string toStdString() const { return std::string(c_str(), length()); }\r\n");
             code.push_str("    operator std::string() const { return toStdString(); }\r\n");
+        }
+    }
+    
+    // Option types: add convenience methods
+    if class_is_option_type(class_name, class_data) {
+        if let Some(inner_type) = get_option_inner_type(class_data) {
+            let c_inner_type = if is_primitive_arg(&inner_type) {
+                replace_primitive_ctype(&inner_type)
+            } else {
+                format!("{}{}", C_PREFIX, inner_type)
+            };
+            
+            code.push_str("\r\n");
+            code.push_str("    // Option convenience methods\r\n");
+            // The tag is stored in the None/Some variant structs, but at the same offset
+            // So we can access it via either variant (using Some.tag here)
+            code.push_str(&format!("    bool isSome() const {{ return inner_.Some.tag == {}_Tag_Some; }}\r\n", c_type_name));
+            code.push_str(&format!("    bool isNone() const {{ return inner_.Some.tag == {}_Tag_None; }}\r\n", c_type_name));
+            
+            // For C++11+, provide explicit bool conversion
+            if cpp_version.has_move_semantics() {
+                code.push_str("    explicit operator bool() const { return isSome(); }\r\n");
+            }
+            
+            // unwrap() - returns the inner value, undefined behavior if None
+            code.push_str(&format!("    const {}& unwrap() const {{ return inner_.Some.payload; }}\r\n", c_inner_type));
+            code.push_str(&format!("    {}& unwrap() {{ return inner_.Some.payload; }}\r\n", c_inner_type));
+            
+            // unwrapOr() - returns the inner value or a default
+            code.push_str(&format!("    {} unwrapOr(const {}& defaultValue) const {{ return isSome() ? inner_.Some.payload : defaultValue; }}\r\n", 
+                c_inner_type, c_inner_type));
+        }
+    }
+    
+    // Result types: add convenience methods
+    if class_is_result_type(class_name, class_data) {
+        if let Some((ok_type, err_type)) = get_result_types(class_data) {
+            let c_ok_type = if is_primitive_arg(&ok_type) {
+                replace_primitive_ctype(&ok_type)
+            } else {
+                format!("{}{}", C_PREFIX, ok_type)
+            };
+            let c_err_type = if is_primitive_arg(&err_type) {
+                replace_primitive_ctype(&err_type)
+            } else {
+                format!("{}{}", C_PREFIX, err_type)
+            };
+            
+            code.push_str("\r\n");
+            code.push_str("    // Result convenience methods\r\n");
+            // The tag is stored in the Ok/Err variant structs, but at the same offset
+            code.push_str(&format!("    bool isOk() const {{ return inner_.Ok.tag == {}_Tag_Ok; }}\r\n", c_type_name));
+            code.push_str(&format!("    bool isErr() const {{ return inner_.Ok.tag == {}_Tag_Err; }}\r\n", c_type_name));
+            
+            // For C++11+, provide explicit bool conversion (true = Ok)
+            if cpp_version.has_move_semantics() {
+                code.push_str("    explicit operator bool() const { return isOk(); }\r\n");
+            }
+            
+            // unwrap() - returns the Ok value, undefined behavior if Err
+            code.push_str(&format!("    const {}& unwrap() const {{ return inner_.Ok.payload; }}\r\n", c_ok_type));
+            code.push_str(&format!("    {}& unwrap() {{ return inner_.Ok.payload; }}\r\n", c_ok_type));
+            
+            // unwrapErr() - returns the Err value, undefined behavior if Ok
+            code.push_str(&format!("    const {}& unwrapErr() const {{ return inner_.Err.payload; }}\r\n", c_err_type));
+            code.push_str(&format!("    {}& unwrapErr() {{ return inner_.Err.payload; }}\r\n", c_err_type));
         }
     }
     
