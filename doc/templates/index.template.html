@@ -3,264 +3,6 @@
 <head>
   <title>Azul GUI Framework</title>
   <!-- HEAD -->
-  <style>
-    * { box-sizing: border-box; }
-    
-    /* Shared grid layout for header and features */
-    .grid-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      align-items: start;
-    }
-    
-    /* Main header */
-    main > header {
-      margin-bottom: 40px;
-    }
-
-    main > header h2 {
-      padding-top: 10px;
-      margin-bottom: 20px;
-      font-size: 30px;
-      font-weight: 100;
-      line-height: 0.9;
-      font-family: "Instrument Serif", serif;
-    }
-
-    main > header h2 .first-letter {
-      float: left;
-      margin-right: 5px;
-      font-family: "Morris Jenson Initialen", serif;
-      font-weight: 500;
-      font-size: 2.25em;
-    }
-  
-    main > header h3 {
-      margin-top: 15px;
-      font-size: 1.2rem;
-      font-weight: normal;
-    }
-
-    /* Feature sections - uses shared grid */
-    .feature-section {
-      margin-bottom: 50px;
-    }
-    
-    .feature-image {
-      min-width: 0;
-    }
-    
-    .feature-image img {
-      width: 100%;
-      height: auto;
-      display: block;
-    }
-    
-    .feature-image .description {
-      margin-top: 12px;
-      font-size: 0.88em;
-      color: #555;
-      line-height: 1.5;
-    }
-    
-    .feature-code {
-      min-width: 0;
-    }
-
-    /* Tab bar - Flexbox */
-    .tab-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      align-items: center;
-      margin-bottom: 0;
-    }
-    
-    /* Language grid - 5 columns for future expansion */
-    .lang-grid {
-      display: grid;
-      grid-template-columns: repeat(5, auto);
-      gap: 2px;
-    }
-    
-    .lang-grid button {
-      padding: 4px 10px;
-      border: none;
-      background: #e0e0e0;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 11px;
-      font-weight: bold;
-    }
-    
-    .lang-grid button.active {
-      background: #0084ff;
-      color: white;
-    }
-    
-    .lang-grid button:hover:not(.active):not(.lang-disabled) {
-      background: #d0d0d0;
-    }
-    
-    .lang-grid button.lang-disabled {
-      background: #f0f0f0;
-      color: #aaa;
-      cursor: not-allowed;
-    }
-    
-    /* Install controls - grouped together */
-    .install-controls {
-      display: flex;
-      gap: 4px;
-      align-items: center;
-      margin-left: auto;
-    }
-
-    .tab-bar select {
-      padding: 4px 6px;
-      border: 1px solid #ccc;
-      background: #f8f8f8;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 11px;
-      font-weight: bold;
-    }
-
-    /* Code panel */
-    .code-panel {
-      background: #fafafa;
-      border: 1px solid #ddd;
-      font-family: monospace;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    
-    /* Install commands - dark */
-    .install-commands {
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 10px 12px;
-    }
-    
-    .install-step {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-      white-space: nowrap;
-      overflow-x: auto;
-    }
-    
-    .install-step:last-child {
-      margin-bottom: 0;
-    }
-    
-    .install-step .command {
-      flex: 1;
-      min-width: 0;
-    }
-    
-    /* Copy button */
-    .copy-btn {
-      flex-shrink: 0;
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      padding: 2px;
-      width: 16px;
-      height: 16px;
-      border-radius: 3px;
-      position: relative;
-    }
-    
-    .copy-btn:hover { opacity: 1; }
-    
-    .copy-btn::before,
-    .copy-btn::after {
-      content: '';
-      position: absolute;
-      width: 8px;
-      height: 8px;
-      opacity: 0.5;
-      border: 1.5px solid #888;
-    }
-    
-    .copy-btn::before {
-      top: 0;
-      right: 0;
-      background: transparent;
-    }
-    
-    .copy-btn::after {
-      bottom: 0;
-      left: 0;
-      background: #1e1e1e;
-    }
-
-    /* Example code - light */
-    .example-code {
-      position: relative;
-      padding: 12px;
-      max-height: 380px;
-      overflow: auto;
-      background: #fafafa;
-      color: #333;
-    }
-    
-    .example-code pre {
-      margin: 0;
-      white-space: pre;
-    }
-    
-    .example-code > .copy-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      opacity: 0.3;
-    }
-    
-    .example-code > .copy-btn::after {
-      background: #fafafa;
-    }
-    
-    .example-code > .copy-btn:hover {
-      opacity: 1;
-    }
-
-    /* Responsive - stack early at 700px */
-    @media screen and (max-width: 700px) {
-      .grid-row {
-        grid-template-columns: 1fr;
-      }
-      
-      .feature-image {
-        max-width: 280px;
-      }
-      
-      main > header h2 {
-        font-size: 28px;
-      }
-      
-      #latestrelease {
-        margin-top: 20px;
-      }
-      
-      .tab-bar {
-        gap: 3px;
-      }
-      
-      .lang-tabs button {
-        padding: 3px 6px;
-        font-size: 10px;
-      }
-      
-      .tab-bar select {
-        padding: 3px 4px;
-        font-size: 10px;
-      }
-    }
-  </style>
 </head>
 
 <body>
@@ -275,7 +17,7 @@
   <main>
     <header class="grid-row">
       <div>
-        <h2>Built for beauty and speed</h2>
+        <h1>Built for beauty and speed.</h1>
         <p class="tagline">Cross-platform MIT-licensed Desktop GUI framework for C, C++, Python and Rust, using the Mozilla WebRender rendering engine</p>
       </div>
       <div id="latestrelease">
@@ -318,11 +60,9 @@
     })();
     
     function detectOS() {
-      var platform = window.navigator?.userAgentData?.platform || window.navigator.platform;
-      var mac = ['macOS', 'Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
-      var win = ['Win32', 'Win64', 'Windows', 'WinCE'];
-      if (mac.indexOf(platform) !== -1) return 'macos';
-      if (win.indexOf(platform) !== -1) return 'windows';
+      var platform = (window.navigator?.userAgentData?.platform || window.navigator.platform || '').toLowerCase();
+      if (platform.indexOf('mac') !== -1) return 'macos';
+      if (platform.indexOf('win') !== -1) return 'windows';
       return 'linux';
     }
     
@@ -394,7 +134,7 @@
     }
     
     function updateAllUI() {
-      // Update language buttons
+      // Update language buttons and dialect dropdowns
       document.querySelectorAll('.lang-grid button').forEach(function(btn) {
         var lang = btn.getAttribute('data-lang');
         btn.classList.remove('active');
@@ -406,25 +146,27 @@
         }
       });
       
-      // Show/hide dialect version selects (e.g., C++ version dropdown)
+      // Update dialect dropdown tabs (e.g., C++ with version selector)
+      document.querySelectorAll('.lang-tab-dropdown').forEach(function(dropdown) {
+        var lang = dropdown.getAttribute('data-lang');
+        dropdown.classList.remove('active');
+        if (lang === currentLang || (isDialect(currentLang) && lang === getBaseLang(currentLang))) {
+          dropdown.classList.add('active');
+        }
+        // Update the dialect select value
+        var sel = dropdown.querySelector('.dialect-select');
+        if (sel && isDialect(currentLang) && lang === getBaseLang(currentLang)) {
+          sel.value = currentLang;
+        }
+      });
+      
+      // Show/hide dialect version selects in install-controls (legacy, can be removed)
       var dialectGroup = getBaseLang(currentLang);
       var isCurrentDialect = isDialect(currentLang);
       
       document.querySelectorAll('select.cpp-version').forEach(function(sel) {
-        if (isCurrentDialect || installationConfig.dialects[currentLang]) {
-          sel.style.display = 'inline-block';
-          // Populate with variants from dialects config
-          var variants = getDialectVariants(dialectGroup);
-          var html = '';
-          Object.keys(variants).forEach(function(varKey) {
-            var v = variants[varKey];
-            html += '<option value="' + varKey + '">' + v.displayName + '</option>';
-          });
-          sel.innerHTML = html;
-          sel.value = currentCppVersion;
-        } else {
-          sel.style.display = 'none';
-        }
+        // Hide these - dialect is now selected via the tab dropdown
+        sel.style.display = 'none';
       });
       
       // Update OS selects
@@ -447,8 +189,8 @@
         }
       });
       
-      // Update install commands (only on first section)
-      document.querySelectorAll('.feature-section[data-is-first="true"] .install-commands').forEach(updateInstallCommands);
+      // Update install commands (on all sections that have install-commands visible)
+      document.querySelectorAll('.feature-section .install-commands').forEach(updateInstallCommands);
       
       // Update example code
       Object.keys(examples).forEach(updateExampleCode);
@@ -513,10 +255,30 @@
       }
       if (!code) code = '';
       
+      // Map language to Prism language class
+      var prismLang = currentLang;
+      if (currentLang.startsWith('cpp')) prismLang = 'cpp';
+      if (currentLang === 'c') prismLang = 'c';
+      if (currentLang === 'python') prismLang = 'python';
+      if (currentLang === 'rust') prismLang = 'rust';
+      
       var el = document.getElementById('example-code-' + id);
       if (el) {
-        el.innerHTML = '<pre>' + escHtml(code) + '</pre>' +
-          '<button class="copy-btn" onclick="copyExampleCode(\'' + id + '\')"></button>';
+        var codeEl = document.createElement('code');
+        codeEl.className = 'language-' + prismLang;
+        codeEl.textContent = code;
+        
+        var preEl = document.createElement('pre');
+        preEl.appendChild(codeEl);
+        
+        el.innerHTML = '';
+        el.appendChild(preEl);
+        el.insertAdjacentHTML('beforeend', '<button class="copy-btn" onclick="copyExampleCode(\'' + id + '\')"></button>');
+        
+        // Apply Prism highlighting
+        if (typeof Prism !== 'undefined') {
+          Prism.highlightElement(codeEl);
+        }
       }
     }
     
@@ -550,5 +312,6 @@
     
     document.addEventListener("DOMContentLoaded", updateAllUI);
   </script>
+  <!-- PRISM_SCRIPT -->
 </body>
 </html>

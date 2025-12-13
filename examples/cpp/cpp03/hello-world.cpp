@@ -1,9 +1,3 @@
-// Hello World with Button - C++03
-// g++ -std=c++03 -o hello-world hello-world.cpp -lazul
-
-#include <azul.hpp>
-using namespace azul;
-
 struct MyDataModel {
     uint32_t counter;
 };

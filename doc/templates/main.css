@@ -11,25 +11,8 @@
   }
 
   @font-face {
-      font-family: "Atkinson Hyperlegible Next";
-      src: url("./fonts/AtkinsonHyperlegibleNext-Regular.ttf");
-  }
-
-  @font-face {
-      font-family: "Atkinson Hyperlegible Next";
-      font-weight: bold;
-      src: url("./fonts/AtkinsonHyperlegibleNext-Bold.ttf");
-  }
-
-  @font-face {
-      font-family: "Atkinson Hyperlegible Next";
-      font-style: italic;
-      src: url("./fonts/AtkinsonHyperlegibleNext-Italic.ttf");
-  }
-
-  @font-face {
-      font-family: "Morris Jenson Initialen";
-      src: url("./fonts/Morris Jenson Initialen.ttf");
+      font-family: "Source Serif Pro";
+      src: url("./fonts/SourceSerifPro-Regular.ttf");
   }
 }
 
@@ -83,7 +66,7 @@ body {
     background: linear-gradient(135deg, #004e92 0%,#000428 100%); /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#004e92', endColorstr='#000428',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
     min-height: 100%;
-    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
     font-size: 16px;
     line-height: 1.6;
 }
@@ -92,21 +75,23 @@ body .center {
   margin: 0 auto;
   max-width: 1400px;
   min-height: 100%;
-  min-height: 100%;
+  display: flex;
+  flex-direction: row;
 }
 
 aside {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  flex-grow: 1;
+  justify-content: flex-start;
   align-items: center;
-  max-width: 200px;
-  padding: 50px;
-  float: left;
+  width: 200px;
+  min-width: 200px;
+  padding: 50px 30px;
   box-sizing: border-box;
   position: sticky;
   top: 0;
+  align-self: flex-start;
+  height: fit-content;
 }
 
 #latestrelease {
@@ -123,25 +108,19 @@ aside {
     display: block;
 }
 
+/* Fake bold for version number using text-shadow */
+#latestrelease p strong {
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-weight: normal;
+    text-shadow: 0.013em 0 0 currentColor, -0.013em 0 0 currentColor;
+}
+
 img.showcase {
   display: none;
 }
 
 img.showcase.windows {
   display: initial;
-}
-
-@media screen and (max-width: 720px) {
-  aside { position: static; flex-direction: row; align-items: flex-start; }
-  body main { padding: 37.5px; clear: both; }
-  body .center aside { min-height: auto; min-width: 100%; padding: 25px; }
-  body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; vertical-align: top; }
-  body .center aside header img { width: 75px; height: 75px; }
-  body .center aside nav { display: inline-block; vertical-align: top; margin-left: 20px; }
-  body .center aside nav ul.nav-grid { grid-template-columns: repeat(3, 1fr); gap: 6px 10px; }
-  body .center aside nav ul.nav-grid li { font-size: 0.85em; padding-left: 18px; background-size: 12px 12px; }
-  body .center aside nav ul li ul { display: none; }
-  #latestrelease { margin: 0px; margin-top: 20px; margin-bottom: 20px; }
 }
 
 aside header {
@@ -156,8 +135,8 @@ aside nav {
 
 aside nav ul.nav-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px 12px;
+  grid-template-columns: 1fr; /* Vertical list on desktop */
+  gap: 4px 12px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -210,6 +189,7 @@ main {
   box-shadow: 0px 0px 100px 0px rgba(0, 0, 0, 0.5);
   padding: 50px;
   box-sizing: border-box;
+  flex: 1; /* Take remaining space in flex container */
 }
 
 @media print {
@@ -222,21 +202,47 @@ main h1, main h2, h1, h2 {
     font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 
+/* Main page h1 - large eye-catcher with smooth scaling */
 main h1 {
+    /* clamp(min, preferred, max) for smooth font scaling */
+    font-size: clamp(2.2em, 4.5vw, 3.5em);
+    font-weight: normal;
+    line-height: 1.0;
     margin-bottom: 20px;
-    font-size: 2.5em;
+    /* Fake bold using text-shadow with em units for consistent boldness */
+    text-shadow: 0.02em 0 0 currentColor, -0.02em 0 0 currentColor;
+    letter-spacing: 0.02em;
 }
 
-main h2 {
-    font-size: 3em;
+/* Section h2 - overlaid on screenshot */
+.feature-image .screenshot-wrapper {
+    position: relative;
+    display: inline-block;
+    /* Reduce to ~80% size */
+    max-width: 80%;
+}
+
+.feature-image h2.feature-title {
+    position: absolute;
+    bottom: 10px;
+    left: 0;
+    margin: 0;
+    padding: 8px 15px;
+    /* Responsive font-size with clamp for smooth scaling */
+    /* min 1.8em on mobile, scales up to 3em on large screens */
+    font-size: clamp(1.8em, 3vw, 3em);
     font-weight: normal;
-    line-height: 1.1;
-    margin-bottom: 20px;
-    white-space: nowrap;
+    line-height: 1.0;
+    color: #000;
+    background: #fff;
+    /* Lighter fake bold than h1 */
+    text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
+    letter-spacing: 0.01em;
+    z-index: 10;
 }
 
 main h3, h3 {
-    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
     font-size: 1.15em;
     font-weight: normal;
     line-height: 1.6;
@@ -244,14 +250,14 @@ main h3, h3 {
 }
 
 main p, p {
-    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
     font-size: 1em;
     line-height: 1.6;
     color: #444;
 }
 
 .tagline {
-    font-family: "Atkinson Hyperlegible Next", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
     font-size: 1.2em;
     font-weight: normal;
     line-height: 1.5;
@@ -262,12 +268,6 @@ main p, p {
 .first-letter {
   font-family: "Instrument Serif", serif;
   font-size: 1em;
-}
-
-.flower {
-  font-family: "Morris Jenson Initialen", serif;
-  letter-spacing: -0.1em;
-  font-style: unset;
 }
 
 .horizontal-flip {
@@ -404,5 +404,332 @@ code {
   aside { display: none !important; }
   a[href]:after {
     content: none !important;
+  }
+}
+
+/* ========================= INDEX PAGE STYLES ========================= */
+/* Shared grid layout for header and features */
+.grid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* Main header on index page */
+main > header {
+  margin-bottom: 40px;
+}
+
+main > header h2 {
+  padding-top: 10px;
+  margin-bottom: 20px;
+  font-size: 30px;
+  font-weight: 100;
+  line-height: 0.9;
+  font-family: "Instrument Serif", serif;
+}
+
+main > header h2 .first-letter {
+  float: left;
+  margin-right: 5px;
+  font-family: "Morris Jenson Initialen", serif;
+  font-weight: 500;
+  font-size: 2.25em;
+}
+
+main > header h3 {
+  margin-top: 15px;
+  font-size: 1.2rem;
+  font-weight: normal;
+}
+
+/* Feature sections - uses shared grid */
+.feature-section {
+  margin-bottom: 50px;
+}
+
+.feature-image {
+  min-width: 0;
+}
+
+.feature-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.feature-image .description {
+  margin-top: 12px;
+  font-size: 0.88em;
+  color: #555;
+  line-height: 1.5;
+  max-width: 80%;  /* Limit width on desktop */
+}
+
+.feature-code {
+  min-width: 0;
+}
+
+/* Tab bar - Flexbox */
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+/* Language grid - 5 columns for future expansion */
+.lang-grid {
+  display: grid;
+  grid-template-columns: repeat(5, auto);
+  gap: 2px;
+}
+
+.lang-grid button {
+  padding: 4px 10px;
+  border: 1px solid #ccc;
+  background: #e0e0e0;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 0;
+}
+
+.lang-grid button.active {
+  background: #0084ff;
+  color: white;
+}
+
+.lang-grid button:hover:not(.active):not(.lang-disabled) {
+  background: #d0d0d0;
+}
+
+.lang-grid button.lang-disabled {
+  background: #f0f0f0;
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+/* Dialect dropdown within lang-grid (e.g., C++ with version selector) */
+.lang-tab-dropdown {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.lang-tab-dropdown .dialect-select {
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  background: #e0e0e0;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4'%3E%3Cpath d='M0 0l4 4 4-4z' fill='%23666'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 16px;
+}
+
+.lang-tab-dropdown.active .dialect-select {
+  background-color: #0084ff;
+  color: white;
+  border-color: #0084ff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4'%3E%3Cpath d='M0 0l4 4 4-4z' fill='white'/%3E%3C/svg%3E");
+}
+
+/* Install controls - grouped together */
+.install-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.tab-bar select {
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4'%3E%3Cpath d='M0 0l4 4 4-4z' fill='%23666'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 16px;
+}
+
+/* Code panel */
+.code-panel {
+  background: #fafafa;
+  border: 1px solid #ddd;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Install commands - dark */
+.install-commands {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 10px 12px;
+  overflow-x: auto;
+  /* Hide scrollbar but keep functionality */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.install-commands::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+.install-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+
+.install-step:last-child {
+  margin-bottom: 0;
+}
+
+.install-step .command {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Copy button */
+.copy-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  position: relative;
+}
+
+.copy-btn:hover { opacity: 1; }
+
+.copy-btn::before,
+.copy-btn::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  opacity: 0.5;
+  border: 1.5px solid #888;
+}
+
+.copy-btn::before {
+  top: 0;
+  right: 0;
+  background: transparent;
+}
+
+.copy-btn::after {
+  bottom: 0;
+  left: 0;
+  background: #1e1e1e;
+}
+
+/* Example code - light */
+.example-code {
+  position: relative;
+  min-height: 450px;
+  max-height: 500px;
+  overflow: auto;
+  background: #fafafa;
+  color: #333;
+}
+
+.example-code pre {
+  margin: 0;
+  white-space: pre;
+}
+
+.example-code > .copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  opacity: 0.3;
+}
+
+.example-code > .copy-btn::after {
+  background: #fafafa;
+}
+
+.example-code > .copy-btn:hover {
+  opacity: 1;
+}
+
+/* ========================= MOBILE RESPONSIVE ========================= */
+/* This MUST be at the end of the file to override earlier rules */
+@media screen and (max-width: 1024px) {
+  /* Main layout - stack vertically */
+  body .center { flex-direction: column; }
+  aside { position: static; flex-direction: row; align-items: flex-start; width: 100%; min-width: 100%; }
+  body main { padding: 37.5px; }
+  body .center aside { min-height: auto; padding: 25px; }
+  body .center aside header { display: inline-block; width: 75px; height: 75px; padding: 12.5px; vertical-align: top; }
+  body .center aside header img { width: 75px; height: 75px; }
+  body .center aside nav { display: inline-block; vertical-align: top; margin-left: 20px; }
+  body .center aside nav ul.nav-grid { grid-template-columns: repeat(3, 1fr); gap: 6px 10px; }
+  body .center aside nav ul.nav-grid li { font-size: 0.85em; padding-left: 18px; background-size: 12px 12px; }
+  body .center aside nav ul li ul { display: none; }
+  #latestrelease { margin: 0px; margin-top: 20px; margin-bottom: 20px; }
+  
+  /* Stack grid-rows vertically on mobile - MUST override .grid-row display:grid */
+  .grid-row { 
+    display: block !important; 
+  }
+  
+  .grid-row > * {
+    margin-bottom: 20px;
+  }
+  
+  /* Screenshot full width on mobile/tablet */
+  .feature-image .screenshot-wrapper {
+    max-width: 100%;
+  }
+  
+  .feature-image {
+    max-width: 100%;
+  }
+  
+  /* Description full width on mobile */
+  .feature-image .description {
+    max-width: 100%;
+  }
+  
+  /* Smaller tabs on mobile */
+  .tab-bar {
+    gap: 3px;
+  }
+  
+  .lang-grid button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  
+  .tab-bar select {
+    padding: 4px 6px;
+    font-size: 11px;
   }
 }

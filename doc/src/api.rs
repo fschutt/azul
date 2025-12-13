@@ -114,6 +114,52 @@ where
     deserializer.deserialize_any(DocVisitor)
 }
 
+/// Deserializes a title field that can be either a String or Vec<String>.
+/// Returns Vec<String> (never None) - single string becomes a one-element vector.
+fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, SeqAccess, Visitor};
+
+    struct StringOrVecVisitor;
+
+    impl<'de> Visitor<'de> for StringOrVecVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or an array of strings")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![v.to_string()])
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![v])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(item) = seq.next_element::<String>()? {
+                vec.push(item);
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrVecVisitor)
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiData(
     // BTreeMap ensures versions are sorted alphabetically/numerically by key.
@@ -391,6 +437,10 @@ pub struct MethodConfig {
 /// Supports dialects (language groups like C++) and multiple methods per language
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Installation {
+    /// Order of language tabs to display (e.g., ["rust", "python", "cpp", "c"])
+    /// Languages not in this list will be appended at the end
+    #[serde(default, rename = "tabOrder")]
+    pub tab_order: Vec<String>,
     /// Dialect configurations (e.g., cpp -> { displayName: "C++", default: "cpp23", variants:
     /// {...} })
     #[serde(default)]
@@ -546,6 +596,9 @@ impl InstallationStep {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Example {
     pub name: String,
+    /// Title for display - can be single line or multiple lines for wrapping
+    #[serde(default, deserialize_with = "deserialize_string_or_vec")]
+    pub title: Vec<String>,
     pub alt: String,
     /// Whether to show this example on the index page
     #[serde(default = "default_true")]
@@ -673,8 +726,24 @@ impl Example {
             cpp23: load_cpp_version(&self.code.cpp23),
         };
 
+        // Load screenshots with fallback to calculator.png if missing
+        let fallback_screenshot = "calculator.png";
+        let load_screenshot = |path: &str| -> Vec<u8> {
+            std::fs::read(img_path.join(path))
+                .or_else(|_| {
+                    eprintln!("  [WARN] Screenshot '{}' not found, using fallback '{}'", path, fallback_screenshot);
+                    std::fs::read(img_path.join(fallback_screenshot))
+                })
+                .unwrap_or_default()
+        };
+
         Ok(LoadedExample {
             name: self.name.clone(),
+            title: if self.title.is_empty() { 
+                vec![self.name.replace('-', " ")] 
+            } else { 
+                self.title.clone() 
+            },
             alt: self.alt.clone(),
             show_on_index: self.show_on_index,
             description: self.description.clone(),
@@ -686,20 +755,9 @@ impl Example {
                 python,
             },
             screenshot: OsDepFiles {
-                windows: std::fs::read(img_path.join(&self.screenshot.windows)).context(
-                    format!(
-                        "failed to load Windows screenshot for example {}",
-                        self.name
-                    ),
-                )?,
-                linux: std::fs::read(img_path.join(&self.screenshot.linux)).context(format!(
-                    "failed to load Linux screenshot for example {}",
-                    self.name
-                ))?,
-                mac: std::fs::read(img_path.join(&self.screenshot.mac)).context(format!(
-                    "failed to load macOS screenshot for example {}",
-                    self.name
-                ))?,
+                windows: load_screenshot(&self.screenshot.windows),
+                linux: load_screenshot(&self.screenshot.linux),
+                mac: load_screenshot(&self.screenshot.mac),
             },
         })
     }
@@ -709,6 +767,8 @@ impl Example {
 pub struct LoadedExample {
     /// Id of the example
     pub name: String,
+    /// Title for display - can be multiple lines for wrapping
+    pub title: Vec<String>,
     /// Short description of the image
     pub alt: String,
     /// Whether to show on index page

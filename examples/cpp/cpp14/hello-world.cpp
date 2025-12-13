@@ -1,9 +1,3 @@
-// Hello World - C++14
-// g++ -std=c++14 -o hello-world hello-world.cpp -lazul
-
-#include <azul.hpp>
-#include <string>
-using namespace azul;
 
 struct MyDataModel { uint32_t counter; };
 AZ_REFLECT(MyDataModel);

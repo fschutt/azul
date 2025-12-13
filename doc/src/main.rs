@@ -1056,13 +1056,28 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["deploy"] | ["deploy", ..] => {
-            println!("Starting Azul Build and Deploy System...");
+            // Check for debug mode: "deploy debug" uses external CSS, "deploy" inlines CSS
+            let is_debug = args.len() > 2 && args[2] == "debug";
+            
+            if is_debug {
+                println!("Starting Azul Fast Deploy (debug mode - external CSS)...");
+            } else {
+                println!("Starting Azul Build and Deploy System (production - inline CSS)...");
+            }
+            
             let api_data = load_api_json(&api_path)?;
             let config = Config::from_args();
             println!("CONFIG={}", config.print());
 
             // Create output directory structure
             let output_dir = project_root.join("doc").join("target").join("deploy");
+            
+            // Remove stale deploy folder before generating new content
+            if output_dir.exists() {
+                println!("Removing stale deploy folder...");
+                fs::remove_dir_all(&output_dir)?;
+            }
+            
             let image_path = output_dir.join("images");
             let releases_dir = output_dir.join("release");
 
@@ -1071,9 +1086,12 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&releases_dir)?;
 
             // Generate documentation (API docs, guide, etc.)
-            println!("Generating documentation...");
+            // In debug mode, use external stylesheet and relative paths. In production, inline CSS and absolute URLs.
+            let inline_css = !is_debug;
+            let image_url = if is_debug { "./images" } else { "https://azul.rs/images" };
+            println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
-                docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")?
+                docgen::generate_docs(&api_data, &image_path, image_url, inline_css)?
             {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {
@@ -1149,6 +1167,13 @@ fn main() -> anyhow::Result<()> {
 
             // Create output directory structure
             let output_dir = project_root.join("doc").join("target").join("deploy");
+            
+            // Remove stale deploy folder before generating new content
+            if output_dir.exists() {
+                println!("Removing stale deploy folder...");
+                fs::remove_dir_all(&output_dir)?;
+            }
+            
             let image_path = output_dir.join("images");
             let releases_dir = output_dir.join("release");
 
@@ -1157,9 +1182,10 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&releases_dir)?;
 
             // Generate documentation (API docs, guide, etc.)
-            println!("Generating documentation...");
+            // Fast deploy uses external stylesheet (no inline CSS) and relative image paths
+            println!("Generating documentation (external CSS for fast deploy)...");
             for (path, html) in
-                docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")?
+                docgen::generate_docs(&api_data, &image_path, "./images", false)?
             {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {

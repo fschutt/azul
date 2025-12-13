@@ -4,6 +4,7 @@
     "git": "0ad5f6d3",
     "date": "2025-04-03",
     "installation": {
+      "tabOrder": ["python", "c", "cpp", "rust"],
       "dialects": {
         "cpp": {
           "displayName": "C++",
@@ -484,11 +485,11 @@
     "examples": [
       {
         "name": "hello-world",
-        "title": "Hello World",
+        "title": ["Hello World", "Goodbye, Electron"],
         "alt": "A minimal Azul application demonstrating the basic structure",
         "code": {
           "c": "c/hello-world.c",
-          "rust": "rust/hello-world.rs",
+          "rust": "rust/src/hello-world.rs",
           "python": "python/hello-world.py",
           "cpp03": "cpp/cpp03/hello-world.cpp",
           "cpp11": "cpp/cpp11/hello-world.cpp",
@@ -515,7 +516,7 @@
         "alt": "Demonstration of all built-in widgets including buttons, checkboxes, inputs and more",
         "code": {
           "c": "c/widgets.c",
-          "rust": "rust/widgets.rs",
+          "rust": "rust/src/widgets.rs",
           "python": "python/widgets.py",
           "cpp03": "cpp/cpp03/widgets.cpp",
           "cpp11": "cpp/cpp11/widgets.cpp",
@@ -542,7 +543,7 @@
         "alt": "Hardware-accelerated custom rendering with OpenGL textures",
         "code": {
           "c": "c/opengl.c",
-          "rust": "rust/opengl.rs",
+          "rust": "rust/src/opengl.rs",
           "python": "python/opengl.py",
           "cpp03": "cpp/cpp03/opengl.cpp",
           "cpp11": "cpp/cpp11/opengl.cpp",
@@ -569,7 +570,7 @@
         "alt": "Loading and displaying infinite content using IFrameCallbacks",
         "code": {
           "c": "c/infinity.c",
-          "rust": "rust/infinity.rs",
+          "rust": "rust/src/infinity.rs",
           "python": "python/infinity.py",
           "cpp03": "cpp/cpp03/infinity.cpp",
           "cpp11": "cpp/cpp11/infinity.cpp",
@@ -596,7 +597,7 @@
         "alt": "Background threads and timers for non-blocking operations",
         "code": {
           "c": "c/async.c",
-          "rust": "rust/async.rs",
+          "rust": "rust/src/async.rs",
           "python": "python/async.py",
           "cpp03": "cpp/cpp03/async.cpp",
           "cpp11": "cpp/cpp11/async.cpp",
@@ -623,7 +624,7 @@
         "alt": "XHTML site rendered with Azul",
         "code": {
           "c": "c/xhtml.c",
-          "rust": "rust/xhtml.rs",
+          "rust": "rust/src/xhtml.rs",
           "python": "python/xhtml.py",
           "cpp03": "cpp/cpp03/xhtml.cpp",
           "cpp11": "cpp/cpp11/xhtml.cpp",
@@ -648,7 +649,7 @@
         "alt": "Calculator built with CSS Grid layout",
         "code": {
           "c": "c/calc.c",
-          "rust": "rust/calc.rs",
+          "rust": "rust/src/calc.rs",
           "python": "python/calc.py",
           "cpp03": "cpp/cpp03/calc.cpp",
           "cpp11": "cpp/cpp11/calc.cpp",

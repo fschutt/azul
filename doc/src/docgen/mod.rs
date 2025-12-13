@@ -1,4 +1,5 @@
 mod apidocs;
+pub mod blog;
 pub mod donate;
 mod guide;
 use std::{
@@ -13,17 +14,22 @@ use crate::api::{ApiData, Language, LoadedExample};
 const HTML_ROOT: &str = "https://azul.rs";
 
 /// Generate all documentation files
+/// 
+/// # Arguments
+/// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC.
+///                  If false, only a link to main.css is used (faster for development).
 pub fn generate_docs(
     api_data: &ApiData,
     imageoutput_path: &Path,
     imageoutput_url: &str,
+    inline_css: bool,
 ) -> anyhow::Result<HashMap<String, String>> {
     let mut docs = HashMap::new();
 
     // Generate main index.html
     docs.insert(
         "index.html".to_string(),
-        generate_index_html(&api_data, imageoutput_path, imageoutput_url)?,
+        generate_index_html(&api_data, imageoutput_path, imageoutput_url, inline_css)?,
     );
 
     // Generate API documentation for each version
@@ -52,7 +58,74 @@ pub fn generate_docs(
         guide::generate_guide_mainpage(latest_version),
     );
 
+    // Generate blog posts
+    for post in blog::get_blog_list() {
+        let post_html = blog::generate_blog_post_html(&post);
+        docs.insert(format!("blog/{}.html", post.file_name), post_html);
+    }
+
+    // Generate blog index page
+    docs.insert(
+        "blog.html".to_string(),
+        blog::generate_blog_index(),
+    );
+
     Ok(docs)
+}
+
+/// Generate the HTML for language tabs based on tabOrder configuration
+fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
+    let mut tabs = Vec::new();
+    
+    // Use tabOrder if specified, otherwise use default order
+    let tab_order: Vec<String> = if installation.tab_order.is_empty() {
+        // Default order: rust, python, cpp, c
+        vec!["rust".to_string(), "python".to_string(), "cpp".to_string(), "c".to_string()]
+    } else {
+        installation.tab_order.clone()
+    };
+    
+    for lang in &tab_order {
+        // Check if this is a dialect group (has variants)
+        if let Some(dialect) = installation.dialects.get(lang) {
+            // Generate dropdown for dialect - user must select a variant
+            let default_variant = &dialect.default;
+            
+            // Build options HTML for the dropdown - sorted by version (newest first)
+            let mut variants: Vec<_> = dialect.variants.iter().collect();
+            variants.sort_by(|a, b| b.0.cmp(a.0)); // Reverse sort: cpp23 > cpp20 > cpp17...
+            
+            let mut options_html = String::new();
+            for (var_key, var_config) in variants {
+                options_html.push_str(&format!(
+                    "<option value=\"{}\"{}>{}</option>",
+                    var_key,
+                    if var_key == default_variant { " selected" } else { "" },
+                    var_config.display_name
+                ));
+            }
+            
+            // Dropdown-only tab for dialects (no separate button - select IS the tab)
+            tabs.push(format!(
+                r#"<div class="lang-tab-dropdown" data-lang="{}">
+                    <select class="dialect-select" onchange="selectLanguage(this.value)">{}</select>
+                </div>"#,
+                lang, options_html
+            ));
+        } else if let Some(lang_config) = installation.languages.get(lang) {
+            // Skip dialect variants - they're handled by the parent dialect group
+            if lang_config.dialect_of.is_some() {
+                continue;
+            }
+            // Simple button for non-dialect languages
+            tabs.push(format!(
+                r#"<button data-lang="{}" onclick="selectLanguage('{}')">{}</button>"#,
+                lang, lang, lang_config.display_name
+            ));
+        }
+    }
+    
+    tabs.join("\n        ")
 }
 
 /// Rendered example with all code variants for JavaScript
@@ -61,6 +134,8 @@ pub fn generate_docs(
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ExampleRendered {
     id: String,
+    #[serde(skip)]
+    title: String,  // Joined with <br> for multiline display
     #[serde(skip)]
     description: String,
     alt: String,
@@ -113,6 +188,7 @@ impl ExampleRendered {
 
         ExampleRendered {
             id: name.clone(),
+            title: e.title.join("<br>"),  // Join multiline titles with <br>
             description: comrak::markdown_to_html(
                 &e.description.join("\r\n"),
                 &comrak::Options::default(),
@@ -137,10 +213,15 @@ impl ExampleRendered {
 }
 
 /// Generate the main index.html page - imageoutput_path is the folder where all the screenshots go
+/// 
+/// # Arguments
+/// * `inline_css` - If true, CSS from main.css will be inlined into a <style> tag.
+///                  If false, only a <link> to main.css is used.
 fn generate_index_html(
     api_data: &ApiData,
     imageoutput_path: &Path,
     imageoutput_url: &str,
+    inline_css: bool,
 ) -> anyhow::Result<String> {
     let latest_version_str = api_data.get_latest_version_str().unwrap();
     let latest_version = api_data.get_version(latest_version_str).unwrap();
@@ -173,11 +254,16 @@ fn generate_index_html(
 
     let index_html_template = include_str!("../../templates/index.template.html")
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("<!-- HEAD -->", &get_common_head_tags())
-        .replace("<!-- SIDEBAR -->", &get_sidebar());
+        .replace("<!-- HEAD -->", &get_common_head_tags(inline_css))
+        .replace("<!-- SIDEBAR -->", &get_sidebar())
+        .replace("<!-- PRISM_SCRIPT -->", &get_prism_script());
+
+    // Generate language tabs HTML from configuration
+    let language_tabs_html = generate_language_tabs_html(&latest_version.installation);
 
     let index_example_html_template = include_str!("../../templates/index.section.template.html")
-        .replace("$$ROOT_RELATIVE$$", "https://azul.rs");
+        .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
+        .replace("$$LANGUAGE_TABS$$", &language_tabs_html);
 
     let examples_html = index_examples
         .iter()
@@ -185,6 +271,7 @@ fn generate_index_html(
         .map(|(idx, ex)| {
             let is_first = idx == 0;
             index_example_html_template
+                .replace("$$EXAMPLE_TITLE$$", &ex.title)
                 .replace("$$EXAMPLE_DESCRIPTION$$", &ex.description)
                 .replace("$$EXAMPLE_ID$$", &ex.id)
                 .replace("$$EXAMPLE_CODE$$", &escape_code(&ex.code_python))
@@ -229,6 +316,9 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
     struct InstallationConfig {
         version: String,
         hostname: String,
+        /// Order of language tabs
+        #[serde(rename = "tabOrder")]
+        tab_order: Vec<String>,
         /// Dialect groups (e.g., cpp -> { displayName, default, variants })
         dialects: BTreeMap<String, DialectJson>,
         /// Language configurations
@@ -385,6 +475,7 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
     let config = InstallationConfig {
         version: version.to_string(),
         hostname: hostname.to_string(),
+        tab_order: installation.tab_order.clone(),
         dialects,
         languages,
     };
@@ -396,7 +487,38 @@ fn escape_code(s: &str) -> String {
     s.replace("<", "&lt;").replace(">", "&gt;")
 }
 
-pub fn get_common_head_tags() -> String {
+/// Get the Prism.js syntax highlighting script tag.
+/// Uses CDN-hosted Prism with autoloader for automatic language loading.
+/// Should be included at the end of the body for code highlighting.
+pub fn get_prism_script() -> String {
+    r#"<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>"#.to_string()
+}
+
+/// Generate common head tags for HTML pages.
+/// 
+/// # Arguments
+/// * `inline_css` - If true, the CSS from main.css is inlined in a <style> tag
+///                  to prevent flash of unstyled content (FOUC).
+///                  If false, only a <link> to main.css is used (faster for development).
+pub fn get_common_head_tags(inline_css: bool) -> String {
+    // Base URL - use absolute paths for both production and development
+    // This ensures subpages like /blog/foo.html correctly reference /fonts, /main.css etc.
+    let base_url = if inline_css {
+        "https://azul.rs"
+    } else {
+        "" // Root-relative paths like /fonts/..., /main.css
+    };
+    
+    let css_tag = if inline_css {
+        // Read and inline the CSS file to prevent FOUC
+        let css_content = include_str!("../../templates/main.css");
+        format!("<style>\n{}\n</style>", css_content)
+    } else {
+        // Link to local stylesheet for development (main.css is copied to deploy folder)
+        "<link rel='stylesheet' type='text/css' href='/main.css'>".to_string()
+    };
+    
     format!("
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
@@ -404,13 +526,12 @@ pub fn get_common_head_tags() -> String {
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
   
-      <link rel='preload' as='font' href='https://azul.rs/fonts/AtkinsonHyperlegibleNext-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='https://azul.rs/fonts/AtkinsonHyperlegibleNext-Bold.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='https://azul.rs/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='https://azul.rs/fonts/Morris%20Jenson%20Initialen.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='shortcut icon' type='image/x-icon' href='https://azul.rs/favicon.ico'>
-      <link rel='stylesheet' type='text/css' href='https://azul.rs/main.css'>
-    ")
+      <link rel='preload' as='font' href='{base_url}/fonts/SourceSerifPro-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
+      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      {css_tag}
+    ", base_url=base_url, css_tag=css_tag)
 }
 
 pub fn get_sidebar() -> String {

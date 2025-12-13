@@ -1,9 +1,3 @@
-// Hello World - C++23
-// g++ -std=c++23 -o hello-world hello-world.cpp -lazul
-
-#include <azul.hpp>
-#include <format>
-
 using namespace azul;
 using namespace std::string_view_literals;
 

@@ -1,23 +1,19 @@
 <section class="feature-section grid-row" data-example-id="$$EXAMPLE_ID$$" data-is-first="$$IS_FIRST$$">
   <div class="feature-image">
-    <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-    <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-    <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$">
+    <div class="screenshot-wrapper">
+      <img class="showcase linux" src="$$EXAMPLE_IMAGE_SOURCE_LINUX$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+      <img class="showcase mac" src="$$EXAMPLE_IMAGE_SOURCE_MAC$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+      <img class="showcase windows" src="$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$" alt="$$EXAMPLE_IMAGE_ALT$$" loading="lazy">
+      <h2 class="feature-title">$$EXAMPLE_TITLE$$</h2>
+    </div>
     <div class="description">$$EXAMPLE_DESCRIPTION$$</div>
   </div>
   <div class="feature-code">
     <div class="tab-bar">
       <div class="lang-grid">
-        <button data-lang="rust" onclick="selectLanguage('rust')">Rust</button>
-        <button data-lang="python" onclick="selectLanguage('python')">Python</button>
-        <button data-lang="cpp" onclick="selectLanguage(currentCppVersion)">C++</button>
-        <button data-lang="c" onclick="selectLanguage('c')">C</button>
-        <button data-lang="js" onclick="selectLanguage('js')" class="lang-disabled">JS</button>
+        $$LANGUAGE_TABS$$
       </div>
-      <div class="install-controls" style="$$INSTALL_DISPLAY$$">
-        <select class="cpp-version" onchange="selectLanguage(this.value)">
-          <!-- Populated dynamically by JavaScript from dialects config -->
-        </select>
+      <div class="install-controls">
         <select class="method-select" onchange="selectInstallMethod(this.value)">
           <!-- Populated dynamically by JavaScript -->
         </select>

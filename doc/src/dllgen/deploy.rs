@@ -827,8 +827,9 @@ fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
 
 pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &ReleaseAssets) -> String {
     let versiondata = api_data.get_version(version).unwrap();
-    let common_head_tags = crate::docgen::get_common_head_tags();
+    let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+    let prism_script = crate::docgen::get_prism_script();
     let releasenotes =
         comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
     let git = &versiondata.git;
@@ -1020,6 +1021,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
           </div>
         </main>
       </div>
+      {prism_script}
     </body>
     </html>"
     )
@@ -1034,8 +1036,9 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         ));
     }
 
-    let header_tags = crate::docgen::get_common_head_tags();
+    let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+    let prism_script = crate::docgen::get_prism_script();
 
     format!(
         r#"<!DOCTYPE html>
@@ -1064,7 +1067,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     </div>
   </main>
   </div>
-  <script async type="text/javascript" src="https://azul.rs/prism_code_highlighter.js"></script>
+  {prism_script}
 </body>
 </html>"#,
         version_items
@@ -1096,6 +1099,15 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // Copy logo SVG at runtime
     fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;
 
+    // Copy favicon.ico for local development
+    let favicon_source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("examples/assets/images/favicon.ico");
+    if favicon_source.exists() {
+        fs::copy(&favicon_source, output_dir.join("favicon.ico"))?;
+    }
+
     // Copy fleur-de-lis SVG (for navigation) at runtime
     fs::copy(
         templates_dir.join("fleur-de-lis.svg"),
@@ -1103,18 +1115,6 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     )?;
 
     // Copy font files at runtime
-    fs::copy(
-        fonts_source_dir.join("AtkinsonHyperlegibleNext-Regular.ttf"),
-        fonts_dir.join("AtkinsonHyperlegibleNext-Regular.ttf"),
-    )?;
-    fs::copy(
-        fonts_source_dir.join("AtkinsonHyperlegibleNext-Bold.ttf"),
-        fonts_dir.join("AtkinsonHyperlegibleNext-Bold.ttf"),
-    )?;
-    fs::copy(
-        fonts_source_dir.join("AtkinsonHyperlegibleNext-Italic.ttf"),
-        fonts_dir.join("AtkinsonHyperlegibleNext-Italic.ttf"),
-    )?;
     fs::copy(
         fonts_source_dir.join("InstrumentSerif-Regular.ttf"),
         fonts_dir.join("InstrumentSerif-Regular.ttf"),
@@ -1124,8 +1124,8 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         fonts_dir.join("InstrumentSerif-Italic.ttf"),
     )?;
     fs::copy(
-        fonts_source_dir.join("Morris Jenson Initialen.ttf"),
-        fonts_dir.join("Morris Jenson Initialen.ttf"),
+        fonts_source_dir.join("SourceSerifPro-Regular.ttf"),
+        fonts_dir.join("SourceSerifPro-Regular.ttf"),
     )?;
 
     // Create favicon

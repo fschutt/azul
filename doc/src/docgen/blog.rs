@@ -2,39 +2,69 @@ use comrak::options::{Extension, Parse, Plugins, Render, RenderPlugins};
 
 use super::HTML_ROOT;
 
-/// Guide information structure
-pub struct Guide {
-    /// Title for navigation (from api.json or hardcoded)
+/// Blog post information structure
+pub struct BlogPost {
+    /// Title for the post (extracted from first H1 or filename)
     pub title: String,
     /// File name derived from the .md filename (for URL)
     pub file_name: String,
+    /// Date of the post (extracted from filename: YYYY-MM-DD-title.md)
+    pub date: String,
     /// Raw markdown content
     pub content: String,
 }
 
-/// Create a Guide from a markdown file path, content, and explicit title
-fn guide_from_md(md_filename: &str, title: &str, content: &'static str) -> Guide {
-    // Remove .md extension for URL
+/// Create a BlogPost from a markdown file path, content
+fn blog_post_from_md(md_filename: &str, content: &'static str) -> BlogPost {
+    // Expected format: YYYY-MM-DD-title.md
     let file_name = md_filename.trim_end_matches(".md").to_string();
+    
+    // Extract date from filename (first 10 chars: YYYY-MM-DD)
+    let date = if file_name.len() >= 10 && file_name.chars().nth(4) == Some('-') && file_name.chars().nth(7) == Some('-') {
+        file_name[0..10].to_string()
+    } else {
+        "Unknown".to_string()
+    };
+    
+    // Extract title from first H1 header in content
+    let title = content
+        .lines()
+        .find(|line| line.starts_with("# "))
+        .map(|line| line.trim_start_matches("# ").to_string())
+        .unwrap_or_else(|| {
+            // Fallback: derive title from filename after date
+            if file_name.len() > 11 {
+                file_name[11..].replace('-', " ")
+            } else {
+                file_name.clone()
+            }
+        });
 
-    Guide {
-        title: title.to_string(),
+    BlogPost {
+        title,
         file_name,
+        date,
         content: content.to_string(),
     }
 }
 
 /// Pre-process markdown content:
+/// - Remove first H1 header (we display it separately)
 /// - Remove mermaid code blocks (not supported in HTML output)
-/// Note: We keep the first H1 header now since that's the real title
 fn preprocess_markdown_content(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
-
-    // Remove mermaid code blocks
     let mut result = Vec::new();
     let mut in_mermaid_block = false;
+    let mut removed_first_h1 = false;
 
     for line in lines {
+        // Remove first H1 header
+        if !removed_first_h1 && line.starts_with("# ") {
+            removed_first_h1 = true;
+            continue;
+        }
+        
+        // Remove mermaid code blocks
         if line.trim().starts_with("```mermaid") {
             in_mermaid_block = true;
             continue;
@@ -51,83 +81,27 @@ fn preprocess_markdown_content(content: &str) -> String {
     result.join("\n")
 }
 
-/// Get a list of all guides
-pub fn get_guide_list() -> Vec<Guide> {
+/// Get a list of all blog posts
+pub fn get_blog_list() -> Vec<BlogPost> {
     vec![
-        guide_from_md(
-            "installation",
-            "Installation",
+        blog_post_from_md(
+            "2025-12-13-hello-world",
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/guide/installation.md"
+                "/blog/2025-12-13-hello-world.md"
             )),
-        ),
-        guide_from_md(
-            "getting-started-rust",
-            "Getting Started (Rust)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-rust.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-c",
-            "Getting Started (C)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-c.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-cpp",
-            "Getting Started (C++)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-cpp.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-python",
-            "Getting Started (Python)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-python.md"
-            )),
-        ),
-        guide_from_md(
-            "css-styling",
-            "CSS Styling",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/css-styling.md")),
-        ),
-        guide_from_md(
-            "widgets",
-            "Widgets",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/widgets.md")),
-        ),
-        guide_from_md(
-            "architecture",
-            "Architecture",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/architecture.md"
-            )),
-        ),
-        guide_from_md(
-            "comparison",
-            "Comparison with Other Frameworks",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/comparison.md")),
         ),
     ]
 }
 
-/// Generate HTML for a specific guide
-pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
+/// Generate HTML for a specific blog post
+pub fn generate_blog_post_html(post: &BlogPost) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
 
-    // Pre-process content: remove first H1 header (we add our own) and mermaid diagrams
-    let processed_content = preprocess_markdown_content(&guide.content);
+    // Pre-process content
+    let processed_content = preprocess_markdown_content(&post.content);
 
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
@@ -165,7 +139,9 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             },
         },
     );
-    let title = &guide.title;
+
+    let title = &post.title;
+    let date = &post.date;
 
     let css = "
         h1 { 
@@ -189,28 +165,27 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         h3 { margin-top: 25px; margin-bottom: 5px; }
         h4 { margin-top: 20px; margin-bottom: 5px; }
-        #guide { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
-        #guide img { max-width: 700px; margin-top: 10px; margin-bottom: 10px;}
-        #guide ul, #guide ol {
+        #blog { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
+        #blog img { max-width: 700px; margin-top: 10px; margin-bottom: 10px;}
+        #blog ul, #blog ol {
             margin-top: 10px;
             margin-bottom: 10px;
             margin-left: 30px;
         }
-        #guide li {
+        #blog li {
             font-size: 1em;
         }
-        #guide p {
+        #blog p {
             margin-bottom: 15px;
             margin-top: 10px;
         }
-        #guide code {
+        #blog code {
             font-family: monospace;
             font-weight: bold;
             border-radius: 3px;
             padding: 2.5px 10px;
-            border-radius: 3px;
         }
-        #guide pre code {
+        #blog pre code {
             font-weight: bold;
             font-family: monospace;
             margin-top: 10px;
@@ -220,19 +195,10 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             padding: 10px;
             border-radius: 3px;
         }
-        .markdown-alert-warning {
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px dashed #facb26;
-            margin-top: 20px;
+        .blog-date {
+            color: #666;
+            font-style: italic;
             margin-bottom: 20px;
-            background: #fff8be;
-            color: #222;
-            box-shadow: 0px 0px 20px #facb2655;
-        }
-        .markdown-alert-warning .markdown-alert-title {
-            font-weight: bold;
-            font-size: 1.2em;
         }
     ";
 
@@ -240,7 +206,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         "<!DOCTYPE html>
         <html lang='en'>
         <head>
-        <title>{title}</title>
+        <title>{title} - Azul Blog</title>
 
         {header_tags}
         </head>
@@ -259,14 +225,16 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         </aside>
 
         <main>
-            <div id='guide'>
+            <div id='blog'>
             <style>
                 {css}
             </style>
+            <h1>{title}</h1>
+            <p class='blog-date'>Posted on {date}</p>
             {content}
             </div>
             <p style='font-size:1.2em;margin-top:20px;'>
-            <a href='{HTML_ROOT}/guide'>Back to guide index</a>
+            <a href='{HTML_ROOT}/blog.html'>Back to blog index</a>
             </p>
         </main>
 
@@ -277,23 +245,52 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     )
 }
 
-pub fn generate_guide_mainpage(version: &str) -> String {
-    let mut version_items = String::new();
-    for guide_page in get_guide_list() {
-        version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a></li>\n",
-            guide_page.file_name, guide_page.title,
+/// Generate the blog index page listing all posts
+pub fn generate_blog_index() -> String {
+    let header_tags = crate::docgen::get_common_head_tags(false);
+    let sidebar = crate::docgen::get_sidebar();
+
+    // Get all blog posts, sorted by date (newest first)
+    let mut posts = get_blog_list();
+    posts.sort_by(|a, b| b.date.cmp(&a.date));
+
+    let mut post_items = String::new();
+    for post in &posts {
+        post_items.push_str(&format!(
+            "<li class='blog-item'>
+                <span class='blog-date'>{}</span>
+                <a href='{HTML_ROOT}/blog/{}.html'>{}</a>
+            </li>\n",
+            post.date, post.file_name, post.title,
         ));
     }
 
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
+    let css = "
+        #blog-index { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
+        #blog-index ul { list-style: none; margin-left: 0; }
+        #blog-index .blog-item {
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+        #blog-index .blog-date {
+            color: #666;
+            font-size: 0.9em;
+            margin-right: 15px;
+        }
+        #blog-index a {
+            color: #0446bf;
+            text-decoration: none;
+        }
+        #blog-index a:hover {
+            text-decoration: underline;
+        }
+    ";
 
     format!(
         "<!DOCTYPE html>
         <html lang='en'>
         <head>
-        <title>User guide for azul v{version}</title>
+        <title>Blog - Azul GUI Framework</title>
 
         {header_tags}
         </head>
@@ -310,53 +307,13 @@ pub fn generate_guide_mainpage(version: &str) -> String {
             {sidebar}
         </aside>
         <main>
-            <h1>User guide for azul v{version}</h1>
-            <div>
-            <ul>{version_items}</ul>
-            </div>
-        </main>
-        </div>
-        </body>
-        </html>"
-    )
-}
-
-/// Generate a combined guide index page
-pub fn generate_guide_index(versions: &[String]) -> String {
-    let mut version_items = String::new();
-    for version in versions {
-        version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{version}.html\">{version}</a></li>\n",
-        ));
-    }
-
-    let header_tags = crate::docgen::get_common_head_tags(false);
-    let sidebar = crate::docgen::get_sidebar();
-
-    format!(
-        "<!DOCTYPE html>
-        <html lang='en'>
-        <head>
-        <title>Choose guide version</title>
-
-        {header_tags}
-        </head>
-
-        <body>
-        <div class='center'>
-        <aside>
-            <header>
-            <h1 style='display:none;'>Azul GUI Framework</h1>
-            <a href='{HTML_ROOT}'>
-                <img src='{HTML_ROOT}/logo.svg'>
-            </a>
-            </header>
-            {sidebar}
-        </aside>
-        <main>
-            <h1>Choose guide version</h1>
-            <div>
-            <ul>{version_items}</ul>
+            <div id='blog-index'>
+            <style>
+                {css}
+            </style>
+            <h1>Blog</h1>
+            <p>News, updates, and tutorials for the Azul GUI Framework.</p>
+            <ul>{post_items}</ul>
             </div>
         </main>
         </div>

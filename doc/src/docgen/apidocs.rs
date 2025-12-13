@@ -101,8 +101,9 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
 
     let title = format!("Azul API docs for version {version}");
     let content = generate_api_content(&version_data);
-    let header_tags = crate::docgen::get_common_head_tags();
+    let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+    let prism_script = crate::docgen::get_prism_script();
 
     format!(
         "<!DOCTYPE html>
@@ -139,6 +140,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         </main>
 
         </div>
+        {prism_script}
         </body>
         </html>"
     )
@@ -647,8 +649,9 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         ));
     }
 
-    let header_tags = crate::docgen::get_common_head_tags();
+    let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+    let prism_script = crate::docgen::get_prism_script();
 
     format!(
         "<!DOCTYPE html>
@@ -682,6 +685,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         </main>
 
         </div>
+        {prism_script}
         </body>
         </html>"
     )

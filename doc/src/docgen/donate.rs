@@ -79,8 +79,9 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
     }
 
     // Get common head tags and sidebar
-    let common_head_tags = crate::docgen::get_common_head_tags();
+    let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+    let prism_script = crate::docgen::get_prism_script();
 
     // Additional CSS for the donation page
     let donation_css = r#"
@@ -216,14 +217,15 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       </div>
     </main>
   </div>
-  <script async type="text/javascript" src="{html_root}/prism_code_highlighter.js"></script>
+  {prism_script}
 </body>
 </html>"#,
         common_head_tags = common_head_tags,
         donation_css = donation_css,
         html_root = crate::docgen::HTML_ROOT,
         sidebar = sidebar,
-        donation_options = donation_options
+        donation_options = donation_options,
+        prism_script = prism_script
     );
 
     Ok(html)

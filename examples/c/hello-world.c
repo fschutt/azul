@@ -1,6 +1,3 @@
-// Hello World - C
-// cc -o hello-world hello-world.c -lazul
-
 #include <azul.h>
 #include <stdio.h>
 
