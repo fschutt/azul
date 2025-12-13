@@ -77,16 +77,19 @@ pub enum StubEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_core::refany::RefAny;
 
     #[test]
     fn test_stub_window_creation() {
-        let window = StubWindow::new(WindowCreateOptions::default()).unwrap();
+        let app_data = RefAny::new(());
+        let window = StubWindow::new(WindowCreateOptions::default(), app_data).unwrap();
         assert!(window.is_open());
     }
 
     #[test]
     fn test_stub_window_close() {
-        let mut window = StubWindow::new(WindowCreateOptions::default()).unwrap();
+        let app_data = RefAny::new(());
+        let mut window = StubWindow::new(WindowCreateOptions::default(), app_data).unwrap();
         window.close();
         assert!(!window.is_open());
     }

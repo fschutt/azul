@@ -1299,7 +1299,11 @@ mod linux {
 mod tests {
     use super::*;
 
+    // NOTE: These tests require the main thread on macOS and real display hardware.
+    // They are marked as #[ignore] for regular unit testing but can be run manually.
+
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_get_displays() {
         let displays = get_displays();
         assert!(!displays.is_empty(), "Should have at least one display");
@@ -1317,6 +1321,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_get_primary_display() {
         let primary = get_primary_display();
         assert!(primary.is_some(), "Should have a primary display");
@@ -1329,6 +1334,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_get_display_at_point() {
         let displays = get_displays();
         if displays.is_empty() {

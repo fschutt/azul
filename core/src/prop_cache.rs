@@ -4583,15 +4583,16 @@ mod tests {
             }
         }
 
-        // Test that <p> has width: 100% from UA CSS
+        // NOTE: <p> does NOT have width: 100% in standard UA CSS
+        // Block elements have width: auto by default, which means "fill available width"
+        // but it's not the same as width: 100%. The difference is critical for flexbox.
         let width = cache.get_width(&node_data, &node_id, &node_state);
+        // Width should be None because <p> should use auto width (no explicit width property)
         assert!(
-            width.is_some(),
-            "Expected <p> to have width property from UA CSS"
+            width.is_none(),
+            "Expected <p> to NOT have explicit width (should be auto), but got {:?}",
+            width
         );
-        if let Some(w) = width {
-            println!("Width value: {:?}", w);
-        }
 
         // Test that <p> does NOT have a default height from UA CSS
         // (height should be auto, which means None)
@@ -4615,11 +4616,14 @@ mod tests {
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();
 
-        // Test that <body> has width: 100% from UA CSS
+        // NOTE: <body> does NOT have width: 100% in standard UA CSS
+        // It inherits from the Initial Containing Block (ICB) and has width: auto
         let width = cache.get_width(&node_data, &node_id, &node_state);
+        // Width should be None because <body> should use auto width (no explicit width property)
         assert!(
-            width.is_some(),
-            "Expected <body> to have width: 100% from UA CSS"
+            width.is_none(),
+            "Expected <body> to NOT have explicit width (should be auto), but got {:?}",
+            width
         );
 
         // Note: height: 100% was removed from UA CSS (ua_css.rs:506 commented out)

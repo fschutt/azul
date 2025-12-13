@@ -75,7 +75,6 @@ pub struct TRACKMOUSEEVENT {
 
 /// Win32 MSG structure
 #[repr(C)]
-#[derive(Default)]
 pub struct MSG {
     pub hwnd: HWND,
     pub message: u32,
@@ -83,6 +82,19 @@ pub struct MSG {
     pub lParam: LPARAM,
     pub time: u32,
     pub pt: POINT,
+}
+
+impl Default for MSG {
+    fn default() -> Self {
+        Self {
+            hwnd: core::ptr::null_mut(),
+            message: 0,
+            wParam: 0,
+            lParam: 0,
+            time: 0,
+            pt: POINT { x: 0, y: 0 },
+        }
+    }
 }
 
 /// Win32 WNDCLASSW structure

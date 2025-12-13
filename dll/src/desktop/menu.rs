@@ -531,7 +531,12 @@ pub fn spawn_menu_from_callback(
 mod tests {
     use super::*;
 
+    // NOTE: These tests require the main thread on macOS and real display hardware
+    // because calculate_menu_position calls get_displays() internally.
+    // They are marked as #[ignore] for regular unit testing.
+
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_menu_position_auto_cursor_default() {
         let cursor_pos = LogicalPosition::new(100.0, 100.0);
         let menu_size = LogicalSize::new(150.0, 200.0);
@@ -551,6 +556,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_menu_position_auto_hit_rect_default() {
         let trigger_rect = LogicalRect::new(
             LogicalPosition::new(100.0, 100.0),
@@ -573,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_menu_position_overflow_right() {
         let trigger_rect = LogicalRect::new(
             LogicalPosition::new(1800.0, 100.0),
@@ -594,6 +601,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_menu_position_overflow_bottom() {
         let trigger_rect = LogicalRect::new(
             LogicalPosition::new(100.0, 1000.0),
@@ -615,6 +623,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires main thread and real display hardware"]
     fn test_submenu_positioning_right() {
         let trigger_rect = LogicalRect::new(
             LogicalPosition::new(100.0, 50.0),

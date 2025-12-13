@@ -485,7 +485,7 @@
     "examples": [
       {
         "name": "hello-world",
-        "title": ["Hello World", "Goodbye, Electron"],
+        "title": ["Hello, World.", "Goodbye, Electron."],
         "alt": "A minimal Azul application demonstrating the basic structure",
         "code": {
           "c": "c/hello-world.c",
@@ -512,7 +512,7 @@
       },
       {
         "name": "widgets",
-        "title": "Widget Showcase",
+        "title": ["Massive Widget", "library"],
         "alt": "Demonstration of all built-in widgets including buttons, checkboxes, inputs and more",
         "code": {
           "c": "c/widgets.c",
@@ -539,7 +539,7 @@
       },
       {
         "name": "opengl",
-        "title": "OpenGL Integration",
+        "title": ["OpenGL", "Integration"],
         "alt": "Hardware-accelerated custom rendering with OpenGL textures",
         "code": {
           "c": "c/opengl.c",
@@ -566,7 +566,7 @@
       },
       {
         "name": "infinity",
-        "title": "Infinite Scrolling",
+        "title": ["Infinite", "Scrolling"],
         "alt": "Loading and displaying infinite content using IFrameCallbacks",
         "code": {
           "c": "c/infinity.c",
@@ -593,7 +593,7 @@
       },
       {
         "name": "async",
-        "title": "Async Operations",
+        "title": ["Built-in", "threading support"],
         "alt": "Background threads and timers for non-blocking operations",
         "code": {
           "c": "c/async.c",
@@ -620,7 +620,7 @@
       },
       {
         "name": "xhtml",
-        "title": "XHTML Rendering",
+        "title": ["XHTML", "Rendering"],
         "alt": "XHTML site rendered with Azul",
         "code": {
           "c": "c/xhtml.c",
@@ -645,7 +645,7 @@
       },
       {
         "name": "calc",
-        "title": "CSS Grid Calculator",
+        "title": ["CSS Grid", "Support"],
         "alt": "Calculator built with CSS Grid layout",
         "code": {
           "c": "c/calc.c",

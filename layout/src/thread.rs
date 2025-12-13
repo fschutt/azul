@@ -829,9 +829,9 @@ mod tests {
     use super::*;
 
     extern "C" fn test_writeback_callback(
-        _thread_data: &mut RefAny,
-        _writeback_data: &mut RefAny,
-        _callback_info: &mut CallbackInfo,
+        _thread_data: RefAny,
+        _writeback_data: RefAny,
+        _callback_info: CallbackInfo,
     ) -> Update {
         Update::DoNothing
     }
