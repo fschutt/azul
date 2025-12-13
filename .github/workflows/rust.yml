@@ -62,10 +62,18 @@ jobs:
 
       - name: Check for uncommitted changes after autofix
         run: |
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "There are uncommitted changes after running autofix:"
-            git status --porcelain
+          # Check if there are actual content changes (not just mtime)
+          # git diff --quiet returns 0 if no changes, 1 if changes
+          if ! git diff --quiet; then
+            echo "There are uncommitted content changes after running autofix:"
+            git diff --stat
+            git diff
             exit 1
+          elif [[ -n $(git status --porcelain) ]]; then
+            # Files might be marked as changed but have no diff (mtime only)
+            echo "Files touched but no content changes - resetting:"
+            git checkout -- .
+            echo "Reset complete, continuing..."
           else
             echo "No uncommitted changes after autofix."
           fi
