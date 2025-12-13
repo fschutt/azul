@@ -35,6 +35,9 @@ fn main() -> anyhow::Result<()> {
         }
         ["normalize"] => {
             println!("[REFRESH] Normalizing api.json...\n");
+            
+            // Read original content first
+            let original_content = fs::read_to_string(&api_path)?;
             let mut api_data = load_api_json(&api_path)?;
 
             // Normalize array types: [T; N] -> type: T, arraysize: N
@@ -53,8 +56,14 @@ fn main() -> anyhow::Result<()> {
             }
 
             let api_json = serde_json::to_string_pretty(&api_data)?;
-            fs::write(&api_path, api_json)?;
-            println!("[SAVE] Saved normalized api.json\n");
+            
+            // Only write if content actually changed
+            if api_json != original_content {
+                fs::write(&api_path, api_json)?;
+                println!("[SAVE] Saved normalized api.json\n");
+            } else {
+                println!("[OK] api.json already normalized, no changes needed\n");
+            }
             return Ok(());
         }
         ["dedup"] => {

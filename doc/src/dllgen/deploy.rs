@@ -894,67 +894,56 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         "<!DOCTYPE html>
     <html lang='en'>
     <head>
-        <title>Azul GUI v{version} (git {git}) \
-         - Release Notes</title>
+        <title>Azul GUI v{version} (git {git}) - Release Notes</title>
         {common_head_tags}
     </head>
 
     <body>
-      <div class='center'>\
-         
+      <div class='center'>
         <aside>
           <header>
             <a href='https://azul.rs/'>
-              <img \
-         src='https://azul.rs/logo.svg'>
+              <img src='https://azul.rs/logo.svg'>
             </a>
           </header>
           {sidebar}
-        \
-         </aside>
+        </aside>
 
         <main>
           <h1>Azul GUI v{version}</h1>
-          <a href='https://github.com/fschutt/azul/commit/{git}'>(git \
-         {git})</a>
+          <a href='https://github.com/fschutt/azul/commit/{git}'>(git {git})</a>
           <style>
             main h1 {{ margin-bottom: none; }}
-            ul {{ \
-         margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
-            nav ul {{ margin: \
-         0px; }} 
+            ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
+            nav ul {{ margin: 0px; }} 
             #releasenotes {{ margin-top: 20px; max-width: 700px; }}
-            #releasenotes \
-         ul {{ list-style-type: initial; }} 
-            #releasenotes ul li {{ margin-bottom: 2px; \
-         }} 
+            #releasenotes ul {{ list-style-type: initial; }} 
+            #releasenotes ul li {{ margin-bottom: 2px; }} 
             #releasenotes p {{ margin-bottom: 10px; margin-top: 10px; }}
-            </style>\
-         
+          </style>
           <div>
               
               <div id='releasenotes'>
-              {releasenotes}\
-         
+              {releasenotes}
               </div>
 
               <br/>
 
               <strong>Links:</strong>
-         <ul>
+              <ul>
                 <li><a href='https://azul.rs/api/{version}.html'>Documentation for this release</a></li>
                 <li><a href='https://azul.rs/guide'>Guide</a></li>
-         <br/>
+                <br/>
                 <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
                 <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
                 <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
-         </ul>
+              </ul>
 
               <br/>
 
               <strong>Files:</strong>
               <br/>
-         <ul>
+              <ul>
                 {windows_assets}
               </ul>
               <ul>
@@ -964,46 +953,38 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 {macos_assets}
               </ul>
 
-         <br/>
+              <br/>
 
               <strong>C Header:</strong>
               <br/>
               <ul>
-         {c_header_link}
+                {c_header_link}
               </ul>
               
               <br/>
               <strong>C++ Headers:</strong>
               <ul>
-                {cpp_header_links}\
-         
+                {cpp_header_links}
               </ul>
 
               <br/>
-              <strong>API Description &amp; Examples:</strong>\
-         
+              <strong>API Description &amp; Examples:</strong>
               <ul>
                 {api_json_link}
                 {examples_zip_link}
-              \
-         </ul>
+              </ul>
 
               <br/>
               <strong>Use Azul as Rust dependency:</strong>
-              \
-         <br/>
+              <br/>
 
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>\
-         
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>
                   <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
-                  \
-         <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
-                  <p \
-         style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
+                  <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
+                  <p style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
                   <br/>
                   <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
-                  <p style='color:grey;font-family:monospace;'># export \
-         AZUL_LINK_PATH=/path/to/azul.dll</p>
+                  <p style='color:grey;font-family:monospace;'># export AZUL_LINK_PATH=/path/to/azul.dll</p>
                   <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
               </div>
           </div>
