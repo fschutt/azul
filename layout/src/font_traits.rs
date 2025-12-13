@@ -10,9 +10,9 @@ pub use crate::text3::script::Language;
 #[cfg(feature = "text_layout")]
 pub use crate::text3::{
     cache::{
-        AvailableSpace, BidiDirection, ContentIndex, FontHash, FontManager, FontSelector, FontStyle,
-        Glyph, ImageSource, InlineContent, InlineImage, InlineShape, LayoutCache, LayoutError,
-        LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
+        AvailableSpace, BidiDirection, ContentIndex, FontHash, FontManager, FontSelector,
+        FontStyle, Glyph, ImageSource, InlineContent, InlineImage, InlineShape, LayoutCache,
+        LayoutError, LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
         ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, UnifiedConstraints,
         UnifiedLayout, VerticalMetrics,
     },

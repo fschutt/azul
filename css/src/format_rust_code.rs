@@ -821,7 +821,9 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format!("StyleFilter::Opacity({})", format_percentage_value(pct))
         }
         StyleFilter::ColorMatrix(cm) => format!(
-            "StyleFilter::ColorMatrix(StyleColorMatrix {{ m0: {}, m1: {}, m2: {}, m3: {}, m4: {}, m5: {}, m6: {}, m7: {}, m8: {}, m9: {}, m10: {}, m11: {}, m12: {}, m13: {}, m14: {}, m15: {}, m16: {}, m17: {}, m18: {}, m19: {} }})",
+            "StyleFilter::ColorMatrix(StyleColorMatrix {{ m0: {}, m1: {}, m2: {}, m3: {}, m4: {}, \
+             m5: {}, m6: {}, m7: {}, m8: {}, m9: {}, m10: {}, m11: {}, m12: {}, m13: {}, m14: {}, \
+             m15: {}, m16: {}, m17: {}, m18: {}, m19: {} }})",
             format_float_value(&cm.m0),
             format_float_value(&cm.m1),
             format_float_value(&cm.m2),
@@ -871,7 +873,8 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format!("StyleFilter::Composite(StyleCompositeFilter::Lighter)")
         }
         StyleFilter::Composite(StyleCompositeFilter::Arithmetic(fv)) => format!(
-            "StyleFilter::Composite(StyleCompositeFilter::Arithmetic(ArithmeticCoefficients {{ k1: {}, k2: {}, k3: {}, k4: {} }}))",
+            "StyleFilter::Composite(StyleCompositeFilter::Arithmetic(ArithmeticCoefficients {{ \
+             k1: {}, k2: {}, k3: {}, k4: {} }}))",
             format_float_value(&fv.k1),
             format_float_value(&fv.k2),
             format_float_value(&fv.k3),

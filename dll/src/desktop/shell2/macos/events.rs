@@ -1123,10 +1123,7 @@ impl MacOSWindow {
 
                         // Set keyboard shortcut if present
                         if let Some(ref accelerator) = string_item.accelerator.into_option() {
-                            menu::set_menu_item_accelerator(
-                                &menu_item,
-                                accelerator,
-                            );
+                            menu::set_menu_item_accelerator(&menu_item, accelerator);
                         }
                     }
 

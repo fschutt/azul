@@ -168,7 +168,7 @@ impl ClassPatch {
     pub fn is_removal(&self) -> bool {
         self.remove == Some(true)
     }
-    
+
     /// Check if this patch is a module move patch
     pub fn is_move(&self) -> bool {
         self.move_to_module.is_some()
@@ -206,7 +206,9 @@ impl ApiPatch {
             .with_context(|| format!("Failed to read patch file: {}", path.display()))?;
 
         // Try parsing as AutofixPatch first (new format)
-        if let Ok(autofix_patch) = serde_json::from_str::<crate::autofix::patch_format::AutofixPatch>(&content) {
+        if let Ok(autofix_patch) =
+            serde_json::from_str::<crate::autofix::patch_format::AutofixPatch>(&content)
+        {
             return Ok(autofix_patch.to_api_patch());
         }
 
@@ -298,7 +300,8 @@ pub struct PatchStats {
     pub failed: usize,
     pub total_changes: usize,
     pub failed_patches: Vec<(String, String)>, // (filename, error) - complete failures
-    pub patch_errors: Vec<(String, String)>,   // (filename, error) - partial failures (module not found, etc.)
+    pub patch_errors: Vec<(String, String)>,   /* (filename, error) - partial failures (module
+                                                * not found, etc.) */
 }
 
 impl PatchStats {
@@ -456,7 +459,10 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
 
     // Show structural patches
     if !structural_patches.is_empty() {
-        println!("\n[BUILD]  STRUCTURAL PATCHES ({})", structural_patches.len());
+        println!(
+            "\n[BUILD]  STRUCTURAL PATCHES ({})",
+            structural_patches.len()
+        );
         println!("   These patches add new types or modify structures.\n");
 
         for (filename, patch) in structural_patches.iter().take(10) {
@@ -533,39 +539,43 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
 /// Uses determine_module to figure out where each type should be
 /// Returns the number of duplicates removed
 pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
-    use crate::autofix::module_map::determine_module;
     use std::collections::HashMap;
-    
+
+    use crate::autofix::module_map::determine_module;
+
     let mut removed = 0;
-    
+
     for (_version_name, version_data) in &mut api_data.0 {
         // First pass: collect all locations for each type name
         let mut type_locations: HashMap<String, Vec<String>> = HashMap::new();
-        
+
         for (module_name, module_data) in &version_data.api {
             for class_name in module_data.classes.keys() {
-                type_locations.entry(class_name.clone())
+                type_locations
+                    .entry(class_name.clone())
                     .or_default()
                     .push(module_name.clone());
             }
         }
-        
+
         // Second pass: for types that exist in multiple modules, remove from wrong modules
         for (class_name, modules) in type_locations {
             if modules.len() <= 1 {
                 continue; // No duplicate
             }
-            
+
             // Determine the correct module for this type
             let (correct_module, _) = determine_module(&class_name);
-            
+
             // Remove from all modules except the correct one
             for module_name in &modules {
                 if *module_name != correct_module {
                     if let Some(module_data) = version_data.api.get_mut(module_name) {
                         if module_data.classes.shift_remove(&class_name).is_some() {
-                            println!("  [DEDUP] Removed duplicate {} from '{}' (correct: '{}')", 
-                                class_name, module_name, correct_module);
+                            println!(
+                                "  [DEDUP] Removed duplicate {} from '{}' (correct: '{}')",
+                                class_name, module_name, correct_module
+                            );
                             removed += 1;
                         }
                     }
@@ -573,7 +583,7 @@ pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
             }
         }
     }
-    
+
     removed
 }
 
@@ -606,7 +616,10 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     }
 
     if path_only_patches.is_empty() {
-        println!("[INFO]  No path-only patches found in {}", dir_path.display());
+        println!(
+            "[INFO]  No path-only patches found in {}",
+            dir_path.display()
+        );
         println!(
             "   All {} patches contain structural changes",
             stats.total_patches
@@ -699,7 +712,8 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
     }
 
     // Post-process: Rename all Az* types to remove the Az prefix
-    // This ensures no types in api.json have the Az prefix which would cause AzAz* in generated code
+    // This ensures no types in api.json have the Az prefix which would cause AzAz* in generated
+    // code
     let renamed = normalize_az_prefixes(api_data);
     if renamed > 0 {
         println!("\n[FIX] Renamed {} types to remove Az prefix", renamed);
@@ -712,7 +726,12 @@ pub fn apply_path_only_patches(api_data: &mut ApiData, dir_path: &Path) -> Resul
 fn normalize_type_name(name: &str) -> Option<String> {
     if name.starts_with("Az") && name.len() > 2 {
         let rest = &name[2..];
-        if rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if rest
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             return Some(rest.to_string());
         }
     }
@@ -724,15 +743,16 @@ fn normalize_type_name(name: &str) -> Option<String> {
 /// Also normalizes type references in struct_fields, enum_fields, and vec_element_type.
 pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
     let mut renamed_count = 0;
-    
+
     for (_version_name, version_data) in api_data.0.iter_mut() {
         for (_module_name, module_data) in version_data.api.iter_mut() {
             // Collect types to rename (can't modify while iterating)
-            let types_to_rename: Vec<(String, String)> = module_data.classes
+            let types_to_rename: Vec<(String, String)> = module_data
+                .classes
                 .keys()
                 .filter_map(|name| normalize_type_name(name).map(|new| (name.clone(), new)))
                 .collect();
-            
+
             // Rename the types
             for (old_name, new_name) in types_to_rename {
                 if !module_data.classes.contains_key(&new_name) {
@@ -748,7 +768,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                     renamed_count += 1;
                 }
             }
-            
+
             // Normalize type references in struct_fields, enum_fields, and vec_element_type
             for (_class_name, class_data) in module_data.classes.iter_mut() {
                 // Normalize struct_fields type references
@@ -762,7 +782,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Normalize enum_fields type references
                 if let Some(ref mut variants) = class_data.enum_fields {
                     for variant_map in variants.iter_mut() {
@@ -776,7 +796,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Normalize vec_element_type
                 if let Some(ref mut vec_elem) = class_data.vec_element_type {
                     if let Some(normalized) = normalize_type_name(vec_elem) {
@@ -784,7 +804,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         renamed_count += 1;
                     }
                 }
-                
+
                 // Normalize callback_typedef argument and return types
                 if let Some(ref mut callback) = class_data.callback_typedef {
                     for arg in &mut callback.fn_args {
@@ -800,7 +820,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Normalize function argument and return types
                 if let Some(ref mut functions) = class_data.functions {
                     for (_fn_name, fn_data) in functions.iter_mut() {
@@ -823,7 +843,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Normalize constructor argument and return types
                 if let Some(ref mut constructors) = class_data.constructors {
                     for (_ctor_name, ctor_data) in constructors.iter_mut() {
@@ -845,7 +865,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Normalize vec_ref_element_type
                 if let Some(ref mut vec_ref_elem) = class_data.vec_ref_element_type {
                     if let Some(normalized) = normalize_type_name(vec_ref_elem) {
@@ -856,7 +876,7 @@ pub fn normalize_az_prefixes(api_data: &mut ApiData) -> usize {
             }
         }
     }
-    
+
     renamed_count
 }
 
@@ -869,47 +889,58 @@ pub struct PatchResult {
 
 fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> PatchResult {
     let mut result = PatchResult::default();
-    
+
     // First pass: collect all move operations
     let mut moves: Vec<(String, String, String, ClassPatch)> = Vec::new(); // (from_module, class_name, to_module, patch)
-    
+
     for (module_name, module_patch) in &patch.modules {
         for (class_name, class_patch) in &module_patch.classes {
             if let Some(to_module) = &class_patch.move_to_module {
-                moves.push((module_name.clone(), class_name.clone(), to_module.clone(), class_patch.clone()));
+                moves.push((
+                    module_name.clone(),
+                    class_name.clone(),
+                    to_module.clone(),
+                    class_patch.clone(),
+                ));
             }
         }
     }
-    
+
     // Execute moves
     for (from_module, class_name, to_module, mut patch) in moves {
         // Remove move_to_module from patch so we don't process it again
         patch.move_to_module = None;
-        
+
         // Try to find the class in the source module
         let class_data = if let Some(source_module) = version_data.api.get_mut(&from_module) {
             source_module.classes.shift_remove(&class_name)
         } else {
             None
         };
-        
+
         if let Some(mut class_data) = class_data {
             // Apply any additional patches to the class
             if !patch.is_empty() {
                 let _ = apply_class_patch(&mut class_data, &patch, &to_module, &class_name);
             }
-            
+
             // Insert into target module (create if needed)
-            let target_module = version_data.api.entry(to_module.clone()).or_insert_with(|| {
-                println!("  [ADD] Creating new module '{}' for move", to_module);
-                crate::api::ModuleData {
-                    doc: None,
-                    classes: indexmap::IndexMap::new(),
-                }
-            });
-            
+            let target_module = version_data
+                .api
+                .entry(to_module.clone())
+                .or_insert_with(|| {
+                    println!("  [ADD] Creating new module '{}' for move", to_module);
+                    crate::api::ModuleData {
+                        doc: None,
+                        classes: indexmap::IndexMap::new(),
+                    }
+                });
+
             target_module.classes.insert(class_name.clone(), class_data);
-            println!("  [MOVE] Moved class {} from '{}' to '{}'", class_name, from_module, to_module);
+            println!(
+                "  [MOVE] Moved class {} from '{}' to '{}'",
+                class_name, from_module, to_module
+            );
             result.patches_applied += 1;
         } else {
             result.errors.push(format!(
@@ -922,16 +953,18 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
     for (module_name, module_patch) in &patch.modules {
         // Skip patches that only contain moves (already processed)
         let non_move_patches: ModulePatch = ModulePatch {
-            classes: module_patch.classes.iter()
+            classes: module_patch
+                .classes
+                .iter()
                 .filter(|(_, cp)| cp.move_to_module.is_none())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         };
-        
+
         if non_move_patches.classes.is_empty() {
             continue;
         }
-        
+
         if let Some(module_data) = version_data.api.get_mut(module_name) {
             match apply_module_patch(module_data, &non_move_patches, module_name) {
                 Ok(count) => result.patches_applied += count,
@@ -981,7 +1014,7 @@ fn apply_module_patch(
             }
             continue;
         }
-        
+
         if let Some(class_data) = module_data.classes.get_mut(class_name) {
             // Update existing class
             patches_applied += apply_class_patch(class_data, class_patch, module_name, class_name)?;
@@ -1084,7 +1117,11 @@ fn apply_class_patch(
             println!("     Old: {:?}", class_data.derive);
             println!("     Removing: {:?}", derives_to_remove);
             println!("     Result: {:?}", new_derives);
-            class_data.derive = if new_derives.is_empty() { None } else { Some(new_derives) };
+            class_data.derive = if new_derives.is_empty() {
+                None
+            } else {
+                Some(new_derives)
+            };
             patches_applied += 1;
         }
     }
@@ -1165,7 +1202,11 @@ fn apply_class_patch(
             println!("     Old: {:?}", class_data.custom_impls);
             println!("     Removing: {:?}", impls_to_remove);
             println!("     Result: {:?}", new_impls);
-            class_data.custom_impls = if new_impls.is_empty() { None } else { Some(new_impls) };
+            class_data.custom_impls = if new_impls.is_empty() {
+                None
+            } else {
+                Some(new_impls)
+            };
             patches_applied += 1;
         }
     }
@@ -1198,7 +1239,10 @@ fn apply_class_patch(
     }
 
     if let Some(new_constants) = &patch.constants {
-        println!("  [NOTE] Patching {}.{}: constants", module_name, class_name);
+        println!(
+            "  [NOTE] Patching {}.{}: constants",
+            module_name, class_name
+        );
         class_data.constants = Some(new_constants.clone());
         patches_applied += 1;
     }
@@ -1255,7 +1299,10 @@ fn apply_class_patch(
             );
             class_data.enum_fields = None;
         } else if patch.add_enum_fields.unwrap_or(false) {
-            println!("  [NOTE] Patching {}.{}: enum_fields (merge)", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: enum_fields (merge)",
+                module_name, class_name
+            );
             // Merge new variants into existing variants
             if let Some(ref mut existing_fields) = class_data.enum_fields {
                 // Flatten existing variants into a single IndexMap
@@ -1277,7 +1324,10 @@ fn apply_class_patch(
                 class_data.enum_fields = Some(new_enum_fields.clone());
             }
         } else {
-            println!("  [NOTE] Patching {}.{}: enum_fields (replace)", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: enum_fields (replace)",
+                module_name, class_name
+            );
             class_data.enum_fields = Some(new_enum_fields.clone());
         }
         patches_applied += 1;
@@ -1300,11 +1350,17 @@ fn apply_class_patch(
             for (name, data) in new_constructors {
                 existing.insert(name.clone(), data.clone());
             }
-            println!("  [NOTE] Patching {}.{}: constructors (merge)", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: constructors (merge)",
+                module_name, class_name
+            );
             class_data.constructors = Some(existing);
         } else {
             // Replace mode
-            println!("  [NOTE] Patching {}.{}: constructors", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: constructors",
+                module_name, class_name
+            );
             class_data.constructors = Some(new_constructors.clone());
         }
         patches_applied += 1;
@@ -1341,11 +1397,17 @@ fn apply_class_patch(
             for (name, data) in new_functions {
                 existing.insert(name.clone(), data.clone());
             }
-            println!("  [NOTE] Patching {}.{}: functions (merge)", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: functions (merge)",
+                module_name, class_name
+            );
             class_data.functions = Some(existing);
         } else {
             // Replace mode
-            println!("  [NOTE] Patching {}.{}: functions", module_name, class_name);
+            println!(
+                "  [NOTE] Patching {}.{}: functions",
+                module_name, class_name
+            );
             class_data.functions = Some(new_functions.clone());
         }
         patches_applied += 1;
@@ -1375,7 +1437,10 @@ fn apply_class_patch(
     }
 
     if let Some(new_type_alias) = &patch.type_alias {
-        println!("  [NOTE] Patching {}.{}: type_alias", module_name, class_name);
+        println!(
+            "  [NOTE] Patching {}.{}: type_alias",
+            module_name, class_name
+        );
         println!("     Old: {:?}", class_data.type_alias);
         println!("     New: {:?}", new_type_alias);
         class_data.type_alias = Some(new_type_alias.clone());
@@ -1383,7 +1448,10 @@ fn apply_class_patch(
     }
 
     if let Some(new_generic_params) = &patch.generic_params {
-        println!("  [NOTE] Patching {}.{}: generic_params", module_name, class_name);
+        println!(
+            "  [NOTE] Patching {}.{}: generic_params",
+            module_name, class_name
+        );
         println!("     Old: {:?}", class_data.generic_params);
         println!("     New: {:?}", new_generic_params);
         class_data.generic_params = Some(new_generic_params.clone());
@@ -1694,7 +1762,7 @@ mod tests {
 /// This updates all references throughout the API
 pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
     let mut renames = Vec::new();
-    
+
     // The prefix used in generated code
     const PREFIX: &str = "Az";
 
@@ -1712,10 +1780,11 @@ pub fn normalize_class_names(api_data: &mut ApiData) -> Result<usize> {
                         // because that would cause double-prefixing (AzAzString)
                         // The api.json should use the UNPREFIXED name (String, not AzString)
                         if external_name.starts_with(PREFIX) {
-                            // Skip - the external path has prefix, api.json name should be without prefix
+                            // Skip - the external path has prefix, api.json name should be without
+                            // prefix
                             continue;
                         }
-                        
+
                         renames.push((
                             version_name.clone(),
                             module_name.clone(),

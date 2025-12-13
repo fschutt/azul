@@ -15,9 +15,11 @@ use anyhow::Result;
 
 use crate::{
     api::ApiData,
-    autofix::message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
-    autofix::module_map::{get_correct_module, MODULES},
-    autofix::unified_index::TypeLookup,
+    autofix::{
+        message::{AutofixMessage, AutofixMessages, ClassAdded, PatchSummary, SkipReason},
+        module_map::{get_correct_module, MODULES},
+        unified_index::TypeLookup,
+    },
     patch::{
         index::{ParsedTypeInfo, TypeKind, WorkspaceIndex},
         ApiPatch, ClassPatch, ModulePatch, VersionPatch,
@@ -337,9 +339,7 @@ pub fn collect_referenced_types_from_type_info(
             }
         }
         TypeKind::CallbackTypedef {
-            fn_args,
-            returns,
-            ..
+            fn_args, returns, ..
         } => {
             // Add all argument types
             for arg in fn_args {
@@ -462,38 +462,44 @@ pub fn generate_patches<T: TypeLookup>(
         let module = infer_module_from_path(&type_info.full_path);
         // Normalize the type name - remove "Az" prefix if present
         // The code generator adds "Az" prefix, so it should never be in api.json
-        let class_name = if crate::autofix::utils::should_normalize_az_prefix(&type_info.type_name) {
+        let class_name = if crate::autofix::utils::should_normalize_az_prefix(&type_info.type_name)
+        {
             normalize_type_name_for_api(&type_info.type_name)
         } else {
             type_info.type_name.clone()
         };
 
         let class_patch = convert_type_info_to_class_patch(type_info);
-        
+
         // Extract derives from the type_info for passing to synthetic type generators
         let source_derives = match &type_info.kind {
             crate::patch::index::TypeKind::Struct { derives, .. } => Some(derives),
             crate::patch::index::TypeKind::Enum { derives, .. } => Some(derives),
             _ => None,
         };
-        
+
         all_patches.insert((module.clone(), class_name.clone()), class_patch);
 
         // If this is a Vec type, generate the synthetic Destructor and DestructorType
         if is_vec_type(&class_name) {
-            generate_synthetic_vec_types(&class_name, &type_info.full_path, source_derives, &mut all_patches);
+            generate_synthetic_vec_types(
+                &class_name,
+                &type_info.full_path,
+                source_derives,
+                &mut all_patches,
+            );
         }
-        
+
         // If this is a VecDestructor enum, ensure it has proper enum_fields
         if is_vec_destructor_type(&class_name) {
             ensure_vec_destructor_enum_fields(&class_name, &type_info.full_path, &mut all_patches);
         }
-        
+
         // If this is a VecDestructorType callback, ensure it has proper callback_typedef
         if is_vec_destructor_callback_type(&class_name) {
             ensure_vec_destructor_callback_typedef(&class_name, &mut all_patches);
         }
-        
+
         // If this is an Option type, generate the synthetic Option enum in the "option" module
         if is_option_type(&class_name) {
             generate_synthetic_option_type(&class_name, &type_info.full_path, &mut all_patches);
@@ -544,7 +550,7 @@ pub fn generate_patches<T: TypeLookup>(
                     &mut all_patches,
                 );
             }
-            
+
             // If this is a VecDestructor enum, ensure it has proper enum_fields
             if is_vec_destructor_type(&change.class_name) {
                 ensure_vec_destructor_enum_fields(
@@ -553,12 +559,12 @@ pub fn generate_patches<T: TypeLookup>(
                     &mut all_patches,
                 );
             }
-            
+
             // If this is a VecDestructorType callback, ensure it has proper callback_typedef
             if is_vec_destructor_callback_type(&change.class_name) {
                 ensure_vec_destructor_callback_typedef(&change.class_name, &mut all_patches);
             }
-            
+
             // If this is an Option type, generate the synthetic Option enum in the "option" module
             if is_option_type(&change.class_name) {
                 generate_synthetic_option_type(
@@ -570,7 +576,7 @@ pub fn generate_patches<T: TypeLookup>(
         } else {
             // Fallback: just update external path if type not found in workspace
             all_patches.entry(key.clone()).or_default().external = Some(change.new_path.clone());
-            
+
             // Even for fallback cases, generate synthetic types for Vec, VecDestructor, etc.
             // These types are defined via impl_vec! macros and may not be in the workspace index
             if is_vec_type(&change.class_name) {
@@ -582,7 +588,7 @@ pub fn generate_patches<T: TypeLookup>(
                     &mut all_patches,
                 );
             }
-            
+
             // Even for fallback cases, ensure VecDestructor types have proper enum_fields
             if is_vec_destructor_type(&change.class_name) {
                 ensure_vec_destructor_enum_fields(
@@ -591,7 +597,7 @@ pub fn generate_patches<T: TypeLookup>(
                     &mut all_patches,
                 );
             }
-            
+
             if is_vec_destructor_callback_type(&change.class_name) {
                 ensure_vec_destructor_callback_typedef(&change.class_name, &mut all_patches);
             }
@@ -631,18 +637,24 @@ pub fn generate_patches<T: TypeLookup>(
             // Only process Vec types (not VecDestructor or VecDestructorType)
             if is_vec_type(class_name) {
                 let key = (module_name.clone(), class_name.clone());
-                
+
                 // Check if this Vec type is missing required derives (Clone AND Debug)
                 let current_derives = class_data.derive.as_ref();
-                let has_clone = current_derives.map(|d| d.iter().any(|x| x == "Clone")).unwrap_or(false);
-                let has_debug = current_derives.map(|d| d.iter().any(|x| x == "Debug")).unwrap_or(false);
+                let has_clone = current_derives
+                    .map(|d| d.iter().any(|x| x == "Clone"))
+                    .unwrap_or(false);
+                let has_debug = current_derives
+                    .map(|d| d.iter().any(|x| x == "Debug"))
+                    .unwrap_or(false);
                 let needs_derive_update = !has_clone || !has_debug;
-                
+
                 if needs_derive_update {
                     // Get external path from API or use a placeholder
-                    let external_path = class_data.external.clone()
+                    let external_path = class_data
+                        .external
+                        .clone()
                         .unwrap_or_else(|| format!("unknown::{}", class_name));
-                    
+
                     // Generate synthetic types with default derives (Clone + Debug)
                     // These go to the "vec" module where they belong
                     generate_synthetic_vec_types(
@@ -653,31 +665,37 @@ pub fn generate_patches<T: TypeLookup>(
                     );
                 }
             }
-            
+
             // Also fix VecDestructor enums that have inline "extern C fn(...)" signatures
             // These should reference the *VecDestructorType callback type instead
             if is_vec_destructor_type(class_name) {
                 // Check if any variant has an inline extern signature
-                let has_inline_extern = class_data.enum_fields.as_ref()
+                let has_inline_extern = class_data
+                    .enum_fields
+                    .as_ref()
                     .map(|fields| {
                         fields.iter().any(|variant| {
                             variant.values().any(|vdata| {
-                                vdata.r#type.as_ref()
+                                vdata
+                                    .r#type
+                                    .as_ref()
                                     .map(|t| t.starts_with("extern"))
                                     .unwrap_or(false)
                             })
                         })
                     })
                     .unwrap_or(false);
-                
+
                 if has_inline_extern {
-                    let external_path = class_data.external.clone()
+                    let external_path = class_data
+                        .external
+                        .clone()
                         .unwrap_or_else(|| format!("unknown::{}", class_name));
-                    
+
                     // Use the SAME module as in api.json, not "vec"
                     ensure_vec_destructor_enum_fields_in_module(
                         class_name,
-                        module_name,  // Use the module from api.json
+                        module_name, // Use the module from api.json
                         &external_path,
                         &mut all_patches,
                     );
@@ -690,40 +708,52 @@ pub fn generate_patches<T: TypeLookup>(
     // This ensures that types like CssDeclaration get their derives from the source code
     // Also updates existing derives and struct/enum fields to match the actual source code
     for (module_name, module_data) in &version_data.api {
-        for (class_name, class_data) in &module_data.classes {            
+        for (class_name, class_data) in &module_data.classes {
             // Skip callback_typedef types (they don't have derives or fields)
             if class_data.callback_typedef.is_some() {
                 continue;
             }
-            
+
             // Try to find this type in the workspace by its external path
             if let Some(external_path) = &class_data.external {
                 if let Some(type_info) = workspace_index.find_type_by_path(external_path) {
                     // Convert type info to a full class patch to get struct/enum fields
                     let full_patch = convert_type_info_to_class_patch(&type_info);
-                    
+
                     // Extract derives and implemented_traits from the workspace type
                     let (derives, implemented_traits) = match &type_info.kind {
-                        crate::patch::index::TypeKind::Struct { derives, implemented_traits, .. } => 
-                            (derives.clone(), implemented_traits.clone()),
-                        crate::patch::index::TypeKind::Enum { derives, implemented_traits, .. } => 
-                            (derives.clone(), implemented_traits.clone()),
+                        crate::patch::index::TypeKind::Struct {
+                            derives,
+                            implemented_traits,
+                            ..
+                        } => (derives.clone(), implemented_traits.clone()),
+                        crate::patch::index::TypeKind::Enum {
+                            derives,
+                            implemented_traits,
+                            ..
+                        } => (derives.clone(), implemented_traits.clone()),
                         _ => (Vec::new(), Vec::new()),
                     };
-                    
+
                     // Check if we need to update derives or custom_impls
                     let api_derives = class_data.derive.clone().unwrap_or_default();
                     let api_custom_impls = class_data.custom_impls.clone().unwrap_or_default();
-                    
+
                     let derives_changed = derives != api_derives;
                     let custom_impls_changed = implemented_traits != api_custom_impls;
-                    
+
                     // Check if struct_fields or enum_fields are missing or need update
-                    let struct_fields_missing = class_data.struct_fields.is_none() && full_patch.struct_fields.is_some();
-                    let enum_fields_missing = class_data.enum_fields.is_none() && full_patch.enum_fields.is_some();
-                    
+                    let struct_fields_missing =
+                        class_data.struct_fields.is_none() && full_patch.struct_fields.is_some();
+                    let enum_fields_missing =
+                        class_data.enum_fields.is_none() && full_patch.enum_fields.is_some();
+
                     // Create a patch if anything differs from api.json
-                    if derives_changed || custom_impls_changed || struct_fields_missing || enum_fields_missing {
+                    if derives_changed
+                        || custom_impls_changed
+                        || struct_fields_missing
+                        || enum_fields_missing
+                    {
                         let key = (module_name.clone(), class_name.clone());
                         all_patches
                             .entry(key)
@@ -768,8 +798,9 @@ pub fn generate_patches<T: TypeLookup>(
         }
     }
 
-    // 5.1. Ensure all Vec/VecDestructor/VecDestructorType types have proper struct_fields/enum_fields
-    // This handles macro-generated types that weren't properly resolved in step 5
+    // 5.1. Ensure all Vec/VecDestructor/VecDestructorType types have proper
+    // struct_fields/enum_fields This handles macro-generated types that weren't properly
+    // resolved in step 5
     for (module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
             // Get external path for generating synthetic types
@@ -777,14 +808,18 @@ pub fn generate_patches<T: TypeLookup>(
                 Some(p) => p.clone(),
                 None => continue,
             };
-            
+
             // Handle Vec types missing struct_fields
             if is_vec_type(class_name) && class_data.struct_fields.is_none() {
-                eprintln!("[DEBUG 5.1] Vec type '{}' missing struct_fields, generating...", class_name);
-                // Extract element type from the Vec type name (e.g., "DebugMessageVec" -> "DebugMessage")
+                eprintln!(
+                    "[DEBUG 5.1] Vec type '{}' missing struct_fields, generating...",
+                    class_name
+                );
+                // Extract element type from the Vec type name (e.g., "DebugMessageVec" ->
+                // "DebugMessage")
                 let element_type = class_name.trim_end_matches("Vec");
                 let generated = generate_vec_structure(class_name, element_type, &external_path);
-                
+
                 let key = (module_name.clone(), class_name.clone());
                 all_patches
                     .entry(key)
@@ -795,7 +830,9 @@ pub fn generate_patches<T: TypeLookup>(
                             p.custom_destructor = generated.custom_destructor;
                             p.vec_element_type = generated.vec_element_type.clone();
                         }
-                        if p.derive.is_none() || p.derive.as_ref().map(|d| d.is_empty()).unwrap_or(true) {
+                        if p.derive.is_none()
+                            || p.derive.as_ref().map(|d| d.is_empty()).unwrap_or(true)
+                        {
                             p.derive = Some(vec!["Clone".to_string(), "Debug".to_string()]);
                         }
                     })
@@ -804,18 +841,19 @@ pub fn generate_patches<T: TypeLookup>(
                         patch.derive = Some(vec!["Clone".to_string(), "Debug".to_string()]);
                         patch
                     });
-                    
+
                 // Also ensure VecDestructor and VecDestructorType exist
                 generate_synthetic_vec_types(class_name, &external_path, None, &mut all_patches);
             }
-            
+
             // Handle VecDestructor types missing enum_fields
             if is_vec_destructor_type(class_name) && class_data.enum_fields.is_none() {
                 ensure_vec_destructor_enum_fields(class_name, &external_path, &mut all_patches);
             }
-            
+
             // Handle VecDestructorType types missing callback_typedef
-            if is_vec_destructor_callback_type(class_name) && class_data.callback_typedef.is_none() {
+            if is_vec_destructor_callback_type(class_name) && class_data.callback_typedef.is_none()
+            {
                 ensure_vec_destructor_callback_typedef(class_name, &mut all_patches);
             }
         }
@@ -829,9 +867,10 @@ pub fn generate_patches<T: TypeLookup>(
             if let Some(correct_module) = get_correct_module(class_name, module_name) {
                 // Type is in wrong module, generate move patch
                 let key = (module_name.clone(), class_name.clone());
-                all_patches.entry(key).or_insert_with(|| {
-                    ClassPatch::default()
-                }).move_to_module = Some(correct_module);
+                all_patches
+                    .entry(key)
+                    .or_insert_with(|| ClassPatch::default())
+                    .move_to_module = Some(correct_module);
             }
         }
     }
@@ -1000,7 +1039,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
             doc: None,
         },
     );
-    
+
     let mut no_destructor = IndexMap::new();
     no_destructor.insert(
         "NoDestructor".to_string(),
@@ -1009,7 +1048,7 @@ fn generate_vec_destructor(type_name: &str, external_path: &str) -> ClassPatch {
             doc: None,
         },
     );
-    
+
     let mut external = IndexMap::new();
     external.insert(
         "External".to_string(),
@@ -1039,7 +1078,7 @@ fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
         callback_typedef: Some(CallbackDefinition {
             fn_args: vec![CallbackArgData {
                 r#type: vec_type_name.to_string(),
-                ref_kind: RefKind::MutPtr,  // *mut VecType
+                ref_kind: RefKind::MutPtr, // *mut VecType
                 doc: None,
             }],
             returns: None,
@@ -1050,7 +1089,8 @@ fn generate_vec_destructor_callback(vec_type_name: &str) -> ClassPatch {
 
 /// Generate all three synthetic types for a Vec: Vec, VecDestructor, VecDestructorType
 /// Adds them to the all_patches map
-/// The `source_derives` parameter contains the derives extracted from impl_vec_*! macros in the source file
+/// The `source_derives` parameter contains the derives extracted from impl_vec_*! macros in the
+/// source file
 fn generate_synthetic_vec_types(
     vec_type_name: &str,
     vec_external_path: &str,
@@ -1060,7 +1100,7 @@ fn generate_synthetic_vec_types(
     // Extract element type and crate from external path
     // e.g. "azul_core::callbacks::CoreCallbackDataVec" -> "CoreCallbackData"
     let base_name = vec_type_name.trim_end_matches("Vec");
-    
+
     // Map Pascal-case primitive types to lowercase Rust primitives
     let element_type = match base_name {
         "U8" => "u8",
@@ -1100,7 +1140,7 @@ fn generate_synthetic_vec_types(
     // These are the most common traits needed, as parent types often derive them
     // Additional derives come from source_derives (impl_vec_*! macros)
     let default_vec_derives = vec!["Clone".to_string(), "Debug".to_string()];
-    
+
     let effective_derives = if let Some(derives) = source_derives {
         if !derives.is_empty() {
             // Merge source derives with defaults to ensure Clone and Debug are always present
@@ -1125,13 +1165,15 @@ fn generate_synthetic_vec_types(
         .entry(vec_key)
         .and_modify(|patch| {
             // Always ensure derives are set for Vec types
-            if patch.derive.is_none() || patch.derive.as_ref().map(|d| d.is_empty()).unwrap_or(true) {
+            if patch.derive.is_none() || patch.derive.as_ref().map(|d| d.is_empty()).unwrap_or(true)
+            {
                 patch.derive = Some(effective_derives.clone());
             }
-            
+
             if patch.struct_fields.is_none() {
                 // Only add struct_fields, keep existing derives
-                let generated = generate_vec_structure(vec_type_name, element_type, vec_external_path);
+                let generated =
+                    generate_vec_structure(vec_type_name, element_type, vec_external_path);
                 patch.struct_fields = generated.struct_fields;
                 patch.doc = generated.doc;
                 patch.custom_destructor = generated.custom_destructor;
@@ -1142,7 +1184,8 @@ fn generate_synthetic_vec_types(
             }
         })
         .or_insert_with(|| {
-            let mut generated = generate_vec_structure(vec_type_name, element_type, vec_external_path);
+            let mut generated =
+                generate_vec_structure(vec_type_name, element_type, vec_external_path);
             generated.derive = Some(effective_derives.clone());
             generated
         });
@@ -1182,14 +1225,14 @@ fn ensure_vec_destructor_enum_fields(
     // e.g., "DebugMessageVecDestructor" -> "DebugMessageVec"
     let vec_type_name = destructor_type_name.trim_end_matches("Destructor");
     let destructor_callback_type = format!("{}DestructorType", vec_type_name);
-    
+
     let key = ("vec".to_string(), destructor_type_name.to_string());
-    
+
     // ALWAYS generate fresh enum_fields to fix inline "extern C fn(...)" signatures
     // The old api.json has inline signatures like "extern \"C\" fn(*mut FooVec)"
     // which should be replaced with "FooVecDestructorType" callback references
     let full_patch = generate_vec_destructor(destructor_type_name, external_path);
-    
+
     all_patches
         .entry(key)
         .and_modify(|existing| {
@@ -1202,7 +1245,7 @@ fn ensure_vec_destructor_enum_fields(
             }
         })
         .or_insert(full_patch);
-    
+
     // Also ensure the callback type exists
     let callback_key = ("vec".to_string(), destructor_callback_type.clone());
     all_patches
@@ -1228,13 +1271,13 @@ fn ensure_vec_destructor_enum_fields_in_module(
     // e.g., "StyleBackgroundContentVecDestructor" -> "StyleBackgroundContentVec"
     let vec_type_name = destructor_type_name.trim_end_matches("Destructor");
     let destructor_callback_type = format!("{}DestructorType", vec_type_name);
-    
+
     // Use the module from api.json, not "vec"
     let key = (module_name.to_string(), destructor_type_name.to_string());
-    
+
     // ALWAYS generate fresh enum_fields to fix inline "extern C fn(...)" signatures
     let full_patch = generate_vec_destructor(destructor_type_name, external_path);
-    
+
     all_patches
         .entry(key)
         .and_modify(|existing| {
@@ -1247,7 +1290,7 @@ fn ensure_vec_destructor_enum_fields_in_module(
             }
         })
         .or_insert(full_patch);
-    
+
     // Also ensure the callback type exists (in same module)
     let callback_key = (module_name.to_string(), destructor_callback_type.clone());
     all_patches
@@ -1269,7 +1312,7 @@ fn ensure_vec_destructor_callback_typedef(
     // Extract the Vec type name from the callback type name
     // e.g., "DebugMessageVecDestructorType" -> "DebugMessageVec"
     let vec_type_name = destructor_callback_type_name.trim_end_matches("DestructorType");
-    
+
     let key = ("vec".to_string(), destructor_callback_type_name.to_string());
     all_patches
         .entry(key)
@@ -1290,15 +1333,16 @@ fn generate_synthetic_option_type(
     all_patches: &mut std::collections::BTreeMap<(String, String), crate::patch::ClassPatch>,
 ) {
     use indexmap::IndexMap;
+
     use crate::api::EnumVariantData;
 
     // Extract the inner type from OptionFoo -> Foo
     let inner_type_raw = option_type_name.trim_start_matches("Option");
-    
+
     if inner_type_raw.is_empty() {
         return; // Invalid option type name
     }
-    
+
     // Map Pascal-case primitive types to lowercase Rust primitives
     // These are special because api.json should use lowercase for primitives
     let inner_type = match inner_type_raw {
@@ -1323,7 +1367,7 @@ fn generate_synthetic_option_type(
 
     // All Option types go into the "option" module
     let option_key = ("option".to_string(), option_type_name.to_string());
-    
+
     // Check if already exists with proper enum_fields
     if let Some(existing) = all_patches.get(&option_key) {
         if existing.enum_fields.is_some() {
@@ -1355,15 +1399,37 @@ fn generate_synthetic_option_type(
     // For complex types, we can't know if they're Copy without checking all_patches
     // Use lowercase for primitives (matching what we normalized above)
     let primitive_copy_types = [
-        "f32", "f64", "i8", "i16", "i32", "i64", "i128",
-        "u8", "u16", "u32", "u64", "u128", "usize", "isize",
-        "bool", "char",
+        "f32",
+        "f64",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "usize",
+        "isize",
+        "bool",
+        "char",
         // Also some specific types we know are Copy
-        "NodeId", "DomNodeId", "ThreadId", "TimerId", "ColorU",
-        "LayoutRect", "LayoutPoint", "LogicalPosition", "LogicalSize",
-        "PhysicalPosition", "PhysicalSize", "WindowTheme",
+        "NodeId",
+        "DomNodeId",
+        "ThreadId",
+        "TimerId",
+        "ColorU",
+        "LayoutRect",
+        "LayoutPoint",
+        "LogicalPosition",
+        "LogicalSize",
+        "PhysicalPosition",
+        "PhysicalSize",
+        "WindowTheme",
     ];
-    
+
     // Empty derive list = don't generate any #[derive(...)] attributes
     // The impl_option! macro provides Debug, Clone, PartialEq, PartialOrd, Default
     let derive = if primitive_copy_types.contains(&inner_type) {
@@ -1394,17 +1460,24 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
     };
 
     match &type_info.kind {
-        TypeKind::Struct { fields, doc, generic_params, derives, implemented_traits, .. } => {
+        TypeKind::Struct {
+            fields,
+            doc,
+            generic_params,
+            derives,
+            implemented_traits,
+            ..
+        } => {
             class_patch.doc = doc.clone();
-            
+
             // Set derives from source code (always set, even if empty, to be explicit)
             class_patch.derive = Some(derives.clone());
-            
+
             // Set custom_impls from implemented_traits (manual impl Trait for Type blocks)
             if !implemented_traits.is_empty() {
                 class_patch.custom_impls = Some(implemented_traits.clone());
             }
-            
+
             // Set generic_params if not empty
             if !generic_params.is_empty() {
                 class_patch.generic_params = Some(generic_params.clone());
@@ -1439,17 +1512,24 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
                 class_patch.struct_fields = Some(struct_fields);
             }
         }
-        TypeKind::Enum { variants, doc, generic_params, derives, implemented_traits, .. } => {
+        TypeKind::Enum {
+            variants,
+            doc,
+            generic_params,
+            derives,
+            implemented_traits,
+            ..
+        } => {
             class_patch.doc = doc.clone();
-            
+
             // Set derives from source code (always set, even if empty, to be explicit)
             class_patch.derive = Some(derives.clone());
-            
+
             // Set custom_impls from implemented_traits (manual impl Trait for Type blocks)
             if !implemented_traits.is_empty() {
                 class_patch.custom_impls = Some(implemented_traits.clone());
             }
-            
+
             // Set generic_params if not empty
             if !generic_params.is_empty() {
                 class_patch.generic_params = Some(generic_params.clone());
@@ -1521,36 +1601,47 @@ pub fn convert_type_info_to_class_patch(type_info: &ParsedTypeInfo) -> ClassPatc
             doc,
         } => {
             // For callback typedefs, create the callback_typedef structure
-            use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData};
-            
-            let callback_args: Vec<CallbackArgData> = fn_args.iter().map(|arg| {
-                CallbackArgData {
-                    r#type: arg.ty.clone(),
-                    ref_kind: arg.ref_kind,  // BorrowMode is Copy
-                    doc: None,
-                }
-            }).collect();
-            
-            let return_data = returns.as_ref().map(|ret| {
-                ReturnTypeData {
-                    r#type: ret.clone(),
-                    doc: None,
-                }
+            use crate::api::{CallbackArgData, CallbackDefinition, ReturnTypeData};
+
+            let callback_args: Vec<CallbackArgData> = fn_args
+                .iter()
+                .map(|arg| {
+                    CallbackArgData {
+                        r#type: arg.ty.clone(),
+                        ref_kind: arg.ref_kind, // BorrowMode is Copy
+                        doc: None,
+                    }
+                })
+                .collect();
+
+            let return_data = returns.as_ref().map(|ret| ReturnTypeData {
+                r#type: ret.clone(),
+                doc: None,
             });
-            
+
             class_patch.callback_typedef = Some(CallbackDefinition {
                 fn_args: callback_args,
                 returns: return_data,
             });
-            
+
             // Don't set type_alias for callbacks - it would be corrupt anyway
             class_patch.type_alias = None;
-            
+
             // Use existing doc or create one describing the callback
             class_patch.doc = doc.clone().or_else(|| {
-                let args_str = fn_args.iter().map(|a| format!("{} {}", a.ref_kind, a.ty)).collect::<Vec<_>>().join(", ");
-                let ret_str = returns.as_ref().map(|r| format!(" -> {}", r)).unwrap_or_default();
-                Some(vec![format!("Callback function: fn({}){}", args_str, ret_str)])
+                let args_str = fn_args
+                    .iter()
+                    .map(|a| format!("{} {}", a.ref_kind, a.ty))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ret_str = returns
+                    .as_ref()
+                    .map(|r| format!(" -> {}", r))
+                    .unwrap_or_default();
+                Some(vec![format!(
+                    "Callback function: fn({}){}",
+                    args_str, ret_str
+                )])
             });
         }
     }
@@ -1851,7 +1942,10 @@ pub fn has_field_changes(
             // Check if API has callback_typedef field
             if api_class.callback_typedef.is_none() {
                 messages.push(AutofixMessage::GenericWarning {
-                    message: format!("{}: API missing callback_typedef field, will update", class_name),
+                    message: format!(
+                        "{}: API missing callback_typedef field, will update",
+                        class_name
+                    ),
                 });
                 return true;
             }

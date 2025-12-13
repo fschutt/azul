@@ -16,11 +16,13 @@ use azul_css::{
     },
     *,
 };
-use crate::callbacks::{Callback, CallbackInfo};
 
-use crate::widgets::text_input::{
-    OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
-    TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::text_input::{
+        OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
+        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+    },
 };
 
 pub type NumberInputOnValueChangeCallbackType =
@@ -229,9 +231,9 @@ extern "C" fn on_focus_lost(
         let inner = number_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(NumberInputOnFocusLost { callback, data }) => (callback.cb)(
-                data.clone(), info.clone(), inner
-            ),
+            Some(NumberInputOnFocusLost { callback, data }) => {
+                (callback.cb)(data.clone(), info.clone(), inner)
+            }
             None => Update::DoNothing,
         }
     };
@@ -283,9 +285,9 @@ extern "C" fn validate_text_input(
         let inner_clone = inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(
-                data.clone(), info.clone(), inner_clone
-            ),
+            Some(NumberInputOnValueChange { callback, data }) => {
+                (callback.cb)(data.clone(), info.clone(), inner_clone)
+            }
             None => Update::DoNothing,
         }
     };

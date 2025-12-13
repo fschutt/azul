@@ -867,21 +867,22 @@ pub fn get_background_contents(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    use azul_css::props::style::StyleBackgroundContent;
     use azul_core::dom::NodeType;
+    use azul_css::props::style::StyleBackgroundContent;
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     // Helper to get backgrounds for a node
-    let get_node_backgrounds = |nid: NodeId, ndata: &azul_core::dom::NodeData| -> Vec<StyleBackgroundContent> {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_background_content(ndata, &nid, node_state)
-            .and_then(|bg| bg.get_property())
-            .map(|bg_vec| bg_vec.iter().cloned().collect())
-            .unwrap_or_default()
-    };
+    let get_node_backgrounds =
+        |nid: NodeId, ndata: &azul_core::dom::NodeData| -> Vec<StyleBackgroundContent> {
+            styled_dom
+                .css_property_cache
+                .ptr
+                .get_background_content(ndata, &nid, node_state)
+                .and_then(|bg| bg.get_property())
+                .map(|bg_vec| bg_vec.iter().cloned().collect())
+                .unwrap_or_default()
+        };
 
     let own_backgrounds = get_node_backgrounds(node_id, node_data);
 

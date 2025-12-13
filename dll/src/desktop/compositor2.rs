@@ -26,17 +26,14 @@ use webrender::{
             DeviceIntRect, DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
             LayoutVector2D,
         },
-        ExtendMode as WrExtendMode,
-        Gradient as WrGradient,
-        RadialGradient as WrRadialGradient,
-        ConicGradient as WrConicGradient,
-        GradientStop as WrGradientStop,
         APZScrollGeneration, AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
         BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
         ClipMode as WrClipMode, ColorF, CommonItemProperties,
-        ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
-        DocumentId, Epoch, ExternalScrollId, HasScrollLinkedEffect, ItemTag, PipelineId,
-        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind, SpaceAndClipInfo,
+        ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
+        DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ExtendMode as WrExtendMode,
+        ExternalScrollId, Gradient as WrGradient, GradientStop as WrGradientStop,
+        HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
+        PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind, SpaceAndClipInfo,
         SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
@@ -758,17 +755,24 @@ pub fn translate_displaylist_to_wr(
             }
 
             // ============ GRADIENT RENDERING ============
-            DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::LinearGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 eprintln!("[compositor2] LinearGradient: bounds={:?}", bounds);
-                
+
                 // Convert CSS gradient to WebRender gradient
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                
+
                 // Create layout rect for computing gradient points
-                use azul_css::props::basic::{LayoutRect as CssLayoutRect, LayoutPoint as CssLayoutPoint, LayoutSize as CssLayoutSize};
+                use azul_css::props::basic::{
+                    LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
+                    LayoutSize as CssLayoutSize,
+                };
                 let layout_rect = CssLayoutRect {
                     origin: CssLayoutPoint::new(0, 0),
                     size: CssLayoutSize {
@@ -776,137 +780,189 @@ pub fn translate_displaylist_to_wr(
                         height: bounds.size.height as isize,
                     },
                 };
-                
+
                 // Get start and end points from direction
                 let (start, end) = gradient.direction.to_points(&layout_rect);
                 let start_point = LayoutPoint::new(start.x as f32, start.y as f32);
                 let end_point = LayoutPoint::new(end.x as f32, end.y as f32);
-                
+
                 // Convert extend mode
                 let extend_mode = match gradient.extend_mode {
                     azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
                     azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
                 };
-                
+
                 // Convert gradient stops
-                let wr_stops: Vec<WrGradientStop> = gradient.stops.as_ref().iter().map(|stop| {
-                    WrGradientStop {
-                        offset: stop.offset.normalized(), // normalized() returns 0-1 range
-                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(stop.color)),
-                    }
-                }).collect();
-                
+                let wr_stops: Vec<WrGradientStop> = gradient
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|stop| {
+                        WrGradientStop {
+                            offset: stop.offset.normalized(), // normalized() returns 0-1 range
+                            color: wr_translate_color_f(
+                                azul_css::props::basic::color::ColorF::from(stop.color),
+                            ),
+                        }
+                    })
+                    .collect();
+
                 // Push stops first
                 builder.push_stops(&wr_stops);
-                
+
                 // Create WebRender gradient
                 let wr_gradient = WrGradient {
                     start_point,
                     end_point,
                     extend_mode,
                 };
-                
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
-                
+
                 // Push gradient (tile_size = bounds size, tile_spacing = 0 for no tiling)
                 let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
 
-            DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::RadialGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 eprintln!("[compositor2] RadialGradient: bounds={:?}", bounds);
-                
+
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                
+
                 // Compute center based on background position
-                use azul_css::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+                use azul_css::props::style::background::{
+                    BackgroundPositionHorizontal, BackgroundPositionVertical,
+                };
                 let center_x = match &gradient.position.horizontal {
                     BackgroundPositionHorizontal::Left => 0.0,
                     BackgroundPositionHorizontal::Center => bounds.size.width / 2.0,
                     BackgroundPositionHorizontal::Right => bounds.size.width,
-                    BackgroundPositionHorizontal::Exact(px) => px.to_pixels_internal(bounds.size.width, 16.0),
+                    BackgroundPositionHorizontal::Exact(px) => {
+                        px.to_pixels_internal(bounds.size.width, 16.0)
+                    }
                 };
                 let center_y = match &gradient.position.vertical {
                     BackgroundPositionVertical::Top => 0.0,
                     BackgroundPositionVertical::Center => bounds.size.height / 2.0,
                     BackgroundPositionVertical::Bottom => bounds.size.height,
-                    BackgroundPositionVertical::Exact(px) => px.to_pixels_internal(bounds.size.height, 16.0),
+                    BackgroundPositionVertical::Exact(px) => {
+                        px.to_pixels_internal(bounds.size.height, 16.0)
+                    }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
-                
+
                 // Compute radius based on shape and size keyword
                 use azul_css::props::style::background::RadialGradientSize;
                 let radius = match (&gradient.shape, &gradient.size) {
                     // Circle: same radius in both directions
-                    (azul_css::props::style::background::Shape::Circle, RadialGradientSize::ClosestSide) => {
-                        let r = center_x.min(center_y).min(bounds.size.width - center_x).min(bounds.size.height - center_y);
+                    (
+                        azul_css::props::style::background::Shape::Circle,
+                        RadialGradientSize::ClosestSide,
+                    ) => {
+                        let r = center_x
+                            .min(center_y)
+                            .min(bounds.size.width - center_x)
+                            .min(bounds.size.height - center_y);
                         LayoutSize::new(r, r)
                     }
-                    (azul_css::props::style::background::Shape::Circle, RadialGradientSize::FarthestSide) => {
-                        let r = center_x.max(center_y).max(bounds.size.width - center_x).max(bounds.size.height - center_y);
+                    (
+                        azul_css::props::style::background::Shape::Circle,
+                        RadialGradientSize::FarthestSide,
+                    ) => {
+                        let r = center_x
+                            .max(center_y)
+                            .max(bounds.size.width - center_x)
+                            .max(bounds.size.height - center_y);
                         LayoutSize::new(r, r)
                     }
-                    (azul_css::props::style::background::Shape::Circle, RadialGradientSize::ClosestCorner) => {
+                    (
+                        azul_css::props::style::background::Shape::Circle,
+                        RadialGradientSize::ClosestCorner,
+                    ) => {
                         let dx = center_x.min(bounds.size.width - center_x);
                         let dy = center_y.min(bounds.size.height - center_y);
                         let r = (dx * dx + dy * dy).sqrt();
                         LayoutSize::new(r, r)
                     }
-                    (azul_css::props::style::background::Shape::Circle, RadialGradientSize::FarthestCorner) => {
+                    (
+                        azul_css::props::style::background::Shape::Circle,
+                        RadialGradientSize::FarthestCorner,
+                    ) => {
                         let dx = center_x.max(bounds.size.width - center_x);
                         let dy = center_y.max(bounds.size.height - center_y);
                         let r = (dx * dx + dy * dy).sqrt();
                         LayoutSize::new(r, r)
                     }
                     // Ellipse: different radius for x and y
-                    (azul_css::props::style::background::Shape::Ellipse, RadialGradientSize::ClosestSide) => {
+                    (
+                        azul_css::props::style::background::Shape::Ellipse,
+                        RadialGradientSize::ClosestSide,
+                    ) => {
                         let rx = center_x.min(bounds.size.width - center_x);
                         let ry = center_y.min(bounds.size.height - center_y);
                         LayoutSize::new(rx, ry)
                     }
-                    (azul_css::props::style::background::Shape::Ellipse, RadialGradientSize::FarthestSide) => {
+                    (
+                        azul_css::props::style::background::Shape::Ellipse,
+                        RadialGradientSize::FarthestSide,
+                    ) => {
                         let rx = center_x.max(bounds.size.width - center_x);
                         let ry = center_y.max(bounds.size.height - center_y);
                         LayoutSize::new(rx, ry)
                     }
-                    (azul_css::props::style::background::Shape::Ellipse, RadialGradientSize::ClosestCorner) => {
+                    (
+                        azul_css::props::style::background::Shape::Ellipse,
+                        RadialGradientSize::ClosestCorner,
+                    ) => {
                         // For ellipse, scale to reach corner while maintaining aspect ratio
                         let dx = center_x.min(bounds.size.width - center_x);
                         let dy = center_y.min(bounds.size.height - center_y);
                         LayoutSize::new(dx, dy)
                     }
-                    (azul_css::props::style::background::Shape::Ellipse, RadialGradientSize::FarthestCorner) => {
+                    (
+                        azul_css::props::style::background::Shape::Ellipse,
+                        RadialGradientSize::FarthestCorner,
+                    ) => {
                         let dx = center_x.max(bounds.size.width - center_x);
                         let dy = center_y.max(bounds.size.height - center_y);
                         LayoutSize::new(dx, dy)
                     }
                 };
-                
+
                 // Convert extend mode
                 let extend_mode = match gradient.extend_mode {
                     azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
                     azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
                 };
-                
+
                 // Convert gradient stops
-                let wr_stops: Vec<WrGradientStop> = gradient.stops.as_ref().iter().map(|stop| {
-                    WrGradientStop {
+                let wr_stops: Vec<WrGradientStop> = gradient
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|stop| WrGradientStop {
                         offset: stop.offset.normalized(),
-                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(stop.color)),
-                    }
-                }).collect();
-                
+                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(
+                            stop.color,
+                        )),
+                    })
+                    .collect();
+
                 builder.push_stops(&wr_stops);
-                
+
                 let wr_gradient = WrRadialGradient {
                     center,
                     radius,
@@ -914,64 +970,82 @@ pub fn translate_displaylist_to_wr(
                     end_offset: 1.0,
                     extend_mode,
                 };
-                
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
-                
+
                 let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
 
-            DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::ConicGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 eprintln!("[compositor2] ConicGradient: bounds={:?}", bounds);
-                
+
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(bounds.origin.x, bounds.origin.y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                
+
                 // Compute center based on CSS position (default is center)
-                use azul_css::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+                use azul_css::props::style::background::{
+                    BackgroundPositionHorizontal, BackgroundPositionVertical,
+                };
                 let center_x = match &gradient.center.horizontal {
                     BackgroundPositionHorizontal::Left => 0.0,
                     BackgroundPositionHorizontal::Center => bounds.size.width / 2.0,
                     BackgroundPositionHorizontal::Right => bounds.size.width,
-                    BackgroundPositionHorizontal::Exact(px) => px.to_pixels_internal(bounds.size.width, 16.0),
+                    BackgroundPositionHorizontal::Exact(px) => {
+                        px.to_pixels_internal(bounds.size.width, 16.0)
+                    }
                 };
                 let center_y = match &gradient.center.vertical {
                     BackgroundPositionVertical::Top => 0.0,
                     BackgroundPositionVertical::Center => bounds.size.height / 2.0,
                     BackgroundPositionVertical::Bottom => bounds.size.height,
-                    BackgroundPositionVertical::Exact(px) => px.to_pixels_internal(bounds.size.height, 16.0),
+                    BackgroundPositionVertical::Exact(px) => {
+                        px.to_pixels_internal(bounds.size.height, 16.0)
+                    }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
-                
+
                 // Get angle in radians (CSS uses degrees, WebRender expects radians)
                 // Use to_degrees_raw() to preserve 360deg as distinct from 0deg
                 let angle = gradient.angle.to_degrees_raw().to_radians();
-                
+
                 // Convert extend mode
                 let extend_mode = match gradient.extend_mode {
                     azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
                     azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
                 };
-                
+
                 // Convert gradient stops (conic uses angle-based stops normalized to 0-1)
                 // Use to_degrees_raw() to preserve 360deg (1.0) as distinct from 0deg (0.0)
-                let wr_stops: Vec<WrGradientStop> = gradient.stops.as_ref().iter().map(|stop| {
-                    WrGradientStop {
-                        offset: stop.angle.to_degrees_raw() / 360.0, // Convert angle to 0-1 range
-                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(stop.color)),
-                    }
-                }).collect();
-                
+                let wr_stops: Vec<WrGradientStop> = gradient
+                    .stops
+                    .as_ref()
+                    .iter()
+                    .map(|stop| {
+                        WrGradientStop {
+                            offset: stop.angle.to_degrees_raw() / 360.0, /* Convert angle to 0-1
+                                                                          * range */
+                            color: wr_translate_color_f(
+                                azul_css::props::basic::color::ColorF::from(stop.color),
+                            ),
+                        }
+                    })
+                    .collect();
+
                 builder.push_stops(&wr_stops);
-                
+
                 let wr_gradient = WrConicGradient {
                     center,
                     angle,
@@ -979,22 +1053,29 @@ pub fn translate_displaylist_to_wr(
                     end_offset: 1.0,
                     extend_mode,
                 };
-                
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: *clip_stack.last().unwrap(),
                     spatial_id: *spatial_stack.last().unwrap(),
                     flags: Default::default(),
                 };
-                
+
                 let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
 
             // ============ BOX SHADOW ============
-            DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
-                eprintln!("[compositor2] BoxShadow: bounds={:?}, shadow={:?}", bounds, shadow);
+            DisplayListItem::BoxShadow {
+                bounds,
+                shadow,
+                border_radius,
+            } => {
+                eprintln!(
+                    "[compositor2] BoxShadow: bounds={:?}, shadow={:?}",
+                    bounds, shadow
+                );
                 // TODO: Implement proper WebRender box shadow using builder.push_box_shadow()
                 // For now, render a simplified shadow as an offset rectangle
                 let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0);
@@ -1003,7 +1084,8 @@ pub fn translate_displaylist_to_wr(
                     LayoutPoint::new(bounds.origin.x + offset_x, bounds.origin.y + offset_y),
                     LayoutSize::new(bounds.size.width, bounds.size.height),
                 );
-                let color_f = wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
+                let color_f =
+                    wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: *clip_stack.last().unwrap(),
@@ -1015,7 +1097,11 @@ pub fn translate_displaylist_to_wr(
 
             // ============ FILTER EFFECTS ============
             DisplayListItem::PushFilter { bounds, filters } => {
-                eprintln!("[compositor2] PushFilter: bounds={:?}, {} filters", bounds, filters.len());
+                eprintln!(
+                    "[compositor2] PushFilter: bounds={:?}, {} filters",
+                    bounds,
+                    filters.len()
+                );
                 // TODO: Implement proper WebRender filter stacking context
                 // For now, just push a simple stacking context
                 let current_spatial_id = *spatial_stack.last().unwrap();
@@ -1031,7 +1117,11 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushBackdropFilter { bounds, filters } => {
-                eprintln!("[compositor2] PushBackdropFilter: bounds={:?}, {} filters", bounds, filters.len());
+                eprintln!(
+                    "[compositor2] PushBackdropFilter: bounds={:?}, {} filters",
+                    bounds,
+                    filters.len()
+                );
                 // TODO: Implement proper WebRender backdrop filter
                 // Backdrop filters require special handling in WebRender
                 let current_spatial_id = *spatial_stack.last().unwrap();
@@ -1047,7 +1137,10 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushOpacity { bounds, opacity } => {
-                eprintln!("[compositor2] PushOpacity: bounds={:?}, opacity={}", bounds, opacity);
+                eprintln!(
+                    "[compositor2] PushOpacity: bounds={:?}, opacity={}",
+                    bounds, opacity
+                );
                 // TODO: Implement proper WebRender opacity stacking context
                 let current_spatial_id = *spatial_stack.last().unwrap();
                 builder.push_simple_stacking_context(
@@ -1069,7 +1162,10 @@ pub fn translate_displaylist_to_wr(
     // Finalize and return display list
     eprintln!("[compositor2] >>>>> CALLING builder.end() <<<<<");
     let (_, dl) = builder.end();
-    eprintln!("[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<", dl.size_in_bytes());
+    eprintln!(
+        "[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<",
+        dl.size_in_bytes()
+    );
 
     eprintln!(
         "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \

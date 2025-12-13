@@ -15,6 +15,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -248,9 +249,9 @@ mod input {
 
     use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
-    use crate::callbacks::CallbackInfo;
 
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
+    use crate::callbacks::CallbackInfo;
 
     pub(super) extern "C" fn default_on_checkbox_clicked(
         mut check_box: RefAny,
@@ -275,9 +276,9 @@ mod input {
             let inner = check_box.inner.clone();
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(
-                    data.clone(), info.clone(), inner
-                ),
+                Some(CheckBoxOnToggle { callback, data }) => {
+                    (callback.cb)(data.clone(), info.clone(), inner)
+                }
                 None => Update::DoNothing,
             }
         };

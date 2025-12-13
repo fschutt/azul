@@ -163,7 +163,7 @@ impl AzString {
 
     /// Creates a new AzString from a null-terminated C string (const char*).
     /// This copies the string data into a new allocation.
-    /// 
+    ///
     /// # Safety
     /// - `ptr` must be a valid pointer to a null-terminated UTF-8 string
     /// - The string must remain valid for the duration of this call

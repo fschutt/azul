@@ -24,13 +24,14 @@ use azul_css::{
         layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
         style::{
-            border_radius::StyleBorderRadius, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
-            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
-            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
-            background::{LinearGradient, RadialGradient, ConicGradient, ExtendMode},
-            box_shadow::{StyleBoxShadow, BoxShadowClipMode},
+            background::{ConicGradient, ExtendMode, LinearGradient, RadialGradient},
+            border_radius::StyleBorderRadius,
+            box_shadow::{BoxShadowClipMode, StyleBoxShadow},
             filter::{StyleFilter, StyleFilterVec},
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
+            StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
+            StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
         },
     },
     LayoutDebugMessage,
@@ -48,10 +49,10 @@ use crate::{
     },
     solver3::{
         getters::{
-            get_background_color, get_background_contents, get_border_info, 
-            get_border_radius, get_caret_style,
-            get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
-            get_style_border_radius, get_z_index, BorderInfo, CaretStyle, SelectionStyle,
+            get_background_color, get_background_contents, get_border_info, get_border_radius,
+            get_caret_style, get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout,
+            get_selection_style, get_style_border_radius, get_z_index, BorderInfo, CaretStyle,
+            SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -1342,9 +1343,10 @@ where
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
             use azul_css::props::style::StyleBackgroundContent;
-            
+
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let background_contents = get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let background_contents =
+                get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);
             let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -1394,7 +1396,7 @@ where
                     }
                 }
             }
-            
+
             builder.push_border(
                 paint_rect,
                 border_info.widths,
@@ -2253,7 +2255,11 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PopStackingContext => None,
 
         // Gradient items - simple bounds check
-        DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+        DisplayListItem::LinearGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
             if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
                 None
             } else {
@@ -2264,7 +2270,11 @@ fn clip_and_offset_display_item(
                 })
             }
         }
-        DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+        DisplayListItem::RadialGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
             if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
                 None
             } else {
@@ -2275,7 +2285,11 @@ fn clip_and_offset_display_item(
                 })
             }
         }
-        DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+        DisplayListItem::ConicGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => {
             if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
                 None
             } else {
@@ -2288,7 +2302,11 @@ fn clip_and_offset_display_item(
         }
 
         // BoxShadow - simple bounds check
-        DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
+        DisplayListItem::BoxShadow {
+            bounds,
+            shadow,
+            border_radius,
+        } => {
             if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
                 None
             } else {
@@ -2883,10 +2901,10 @@ where
     };
 
     // Step 1: Calculate page break positions based on CSS properties
-    // 
+    //
     // Instead of using regular intervals, we calculate where page breaks
     // should occur based on:
-    // 
+    //
     // - break-before: always → force break before this item
     // - break-after: always → force break after this item
     // - break-inside: avoid → don't break inside this item (push to next page if needed)
@@ -3254,44 +3272,50 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
         DisplayListItem::PopStackingContext => DisplayListItem::PopStackingContext,
 
         // Gradient items
-        DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
-            DisplayListItem::LinearGradient {
-                bounds: offset_rect_y(*bounds, y_offset),
-                gradient: gradient.clone(),
-                border_radius: *border_radius,
-            }
-        }
-        DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
-            DisplayListItem::RadialGradient {
-                bounds: offset_rect_y(*bounds, y_offset),
-                gradient: gradient.clone(),
-                border_radius: *border_radius,
-            }
-        }
-        DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
-            DisplayListItem::ConicGradient {
-                bounds: offset_rect_y(*bounds, y_offset),
-                gradient: gradient.clone(),
-                border_radius: *border_radius,
-            }
-        }
+        DisplayListItem::LinearGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => DisplayListItem::LinearGradient {
+            bounds: offset_rect_y(*bounds, y_offset),
+            gradient: gradient.clone(),
+            border_radius: *border_radius,
+        },
+        DisplayListItem::RadialGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => DisplayListItem::RadialGradient {
+            bounds: offset_rect_y(*bounds, y_offset),
+            gradient: gradient.clone(),
+            border_radius: *border_radius,
+        },
+        DisplayListItem::ConicGradient {
+            bounds,
+            gradient,
+            border_radius,
+        } => DisplayListItem::ConicGradient {
+            bounds: offset_rect_y(*bounds, y_offset),
+            gradient: gradient.clone(),
+            border_radius: *border_radius,
+        },
 
         // BoxShadow
-        DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
-            DisplayListItem::BoxShadow {
-                bounds: offset_rect_y(*bounds, y_offset),
-                shadow: *shadow,
-                border_radius: *border_radius,
-            }
-        }
+        DisplayListItem::BoxShadow {
+            bounds,
+            shadow,
+            border_radius,
+        } => DisplayListItem::BoxShadow {
+            bounds: offset_rect_y(*bounds, y_offset),
+            shadow: *shadow,
+            border_radius: *border_radius,
+        },
 
         // Filter effects
-        DisplayListItem::PushFilter { bounds, filters } => {
-            DisplayListItem::PushFilter {
-                bounds: offset_rect_y(*bounds, y_offset),
-                filters: filters.clone(),
-            }
-        }
+        DisplayListItem::PushFilter { bounds, filters } => DisplayListItem::PushFilter {
+            bounds: offset_rect_y(*bounds, y_offset),
+            filters: filters.clone(),
+        },
         DisplayListItem::PopFilter => DisplayListItem::PopFilter,
         DisplayListItem::PushBackdropFilter { bounds, filters } => {
             DisplayListItem::PushBackdropFilter {
@@ -3300,12 +3324,10 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             }
         }
         DisplayListItem::PopBackdropFilter => DisplayListItem::PopBackdropFilter,
-        DisplayListItem::PushOpacity { bounds, opacity } => {
-            DisplayListItem::PushOpacity {
-                bounds: offset_rect_y(*bounds, y_offset),
-                opacity: *opacity,
-            }
-        }
+        DisplayListItem::PushOpacity { bounds, opacity } => DisplayListItem::PushOpacity {
+            bounds: offset_rect_y(*bounds, y_offset),
+            opacity: *opacity,
+        },
         DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
     }
 }

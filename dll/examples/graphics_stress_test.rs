@@ -1,5 +1,5 @@
 //! Graphics Stress Test
-//! 
+//!
 //! This example tests various graphical features:
 //! - Linear, Radial, and Conic gradients with rounded corners and box shadows
 //! - Bordered boxes with text
@@ -9,11 +9,11 @@
 //!   cargo run --bin graphics_stress_test --package azul-dll --features "desktop"
 
 use azul_core::{
+    callbacks::{LayoutCallbackInfo, LayoutCallbackType},
+    dom::Dom,
     refany::RefAny,
     resources::AppConfig,
     styled_dom::StyledDom,
-    dom::Dom,
-    callbacks::{LayoutCallbackInfo, LayoutCallbackType},
 };
 use azul_css::{css::Css, parser2::CssApiWrapper};
 use azul_dll::desktop::app::App;
@@ -26,7 +26,7 @@ pub struct StressTestData {
 
 pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     eprintln!("[stress_test_layout] Called!");
-    
+
     if let Some(model) = data.downcast_ref::<StressTestData>() {
         eprintln!("[stress_test_layout] frame_count = {}", model.frame_count);
     }
@@ -191,9 +191,12 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
         );
 
     eprintln!("[stress_test_layout] DOM created");
-    
+
     let styled = dom.style(CssApiWrapper { css: Css::empty() });
-    eprintln!("[stress_test_layout] StyledDom has {} nodes", styled.styled_nodes.len());
+    eprintln!(
+        "[stress_test_layout] StyledDom has {} nodes",
+        styled.styled_nodes.len()
+    );
     styled
 }
 
@@ -211,16 +214,16 @@ fn main() {
     eprintln!("  - Backdrop blur");
     eprintln!("  - Opacity");
     eprintln!("");
-    
+
     let model = StressTestData { frame_count: 0 };
     let data = RefAny::new(model);
     let config = AppConfig::new();
     let app = App::new(data, config);
-    
+
     let mut window = WindowCreateOptions::new(stress_test_layout as LayoutCallbackType);
     window.state.title = "Graphics Stress Test".to_string().into();
     window.state.size.dimensions.width = 800.0;
     window.state.size.dimensions.height = 600.0;
-    
+
     app.run(window);
 }

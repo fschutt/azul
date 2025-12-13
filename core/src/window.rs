@@ -20,7 +20,7 @@ use azul_css::{
         property::CssProperty,
         style::StyleCursor,
     },
-    AzString, LayoutDebugMessage, OptionString, OptionF32, OptionI32, U8Vec,
+    AzString, LayoutDebugMessage, OptionF32, OptionI32, OptionString, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 

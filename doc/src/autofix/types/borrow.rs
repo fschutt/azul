@@ -6,8 +6,11 @@
 //! - Function arguments
 
 use std::fmt;
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
-use serde::de::{self, Visitor};
+
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
 /// Borrow mode for self parameters and callback arguments
 ///
@@ -143,7 +146,11 @@ pub struct ParseBorrowModeError(pub String);
 
 impl fmt::Display for ParseBorrowModeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid borrow mode: '{}' (expected 'ref', 'refmut', or 'value')", self.0)
+        write!(
+            f,
+            "invalid borrow mode: '{}' (expected 'ref', 'refmut', or 'value')",
+            self.0
+        )
     }
 }
 
@@ -235,14 +242,17 @@ impl ParsedFnArgs {
 
     /// Check if function takes mutable self
     pub fn has_mut_self(&self) -> bool {
-        self.self_param.as_ref().map_or(false, |s| s.borrow_mode == BorrowMode::RefMut)
+        self.self_param
+            .as_ref()
+            .map_or(false, |s| s.borrow_mode == BorrowMode::RefMut)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use indexmap::IndexMap;
+
+    use super::*;
 
     #[test]
     fn test_borrow_mode_parse() {

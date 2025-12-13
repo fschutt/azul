@@ -11,10 +11,7 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
-    callbacks::{
-        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
-        Update,
-    },
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner, Update},
     dom::Dom,
     geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPosition},
     menu::{Menu, MenuPopupPosition},
@@ -411,10 +408,7 @@ pub fn create_menu_window(
 /// Layout callback for menu windows
 ///
 /// Renders the menu as a StyledDom and updates window position based on measured size
-extern "C" fn menu_layout_callback(
-    mut data: RefAny,
-    info: LayoutCallbackInfo,
-) -> StyledDom {
+extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -> StyledDom {
     // Clone data BEFORE downcasting to avoid borrow conflicts
     let data_clone = data.clone();
 

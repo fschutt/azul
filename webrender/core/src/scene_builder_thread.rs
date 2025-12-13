@@ -324,7 +324,10 @@ impl SceneBuilderThread {
                     self.debug_flags = debug_flags;
                 }
                 Ok(SceneBuilderRequest::Transactions(txns)) => {
-                    eprintln!("[SCENE_BUILDER_THREAD] Received Transactions, count: {}", txns.len());
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD] Received Transactions, count: {}",
+                        txns.len()
+                    );
                     let built_txns: Vec<Box<BuiltTransaction>> = txns
                         .into_iter()
                         .enumerate()
@@ -535,7 +538,10 @@ impl SceneBuilderThread {
             hooks.pre_scene_build();
         }
 
-        eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Getting document {:?}", txn.document_id);
+        eprintln!(
+            "[SCENE_BUILDER_THREAD::process_transaction] Getting document {:?}",
+            txn.document_id
+        );
         let doc = self.documents.get_mut(&txn.document_id).unwrap();
         let scene = &mut doc.scene;
 
@@ -545,7 +551,10 @@ impl SceneBuilderThread {
         let mut removed_pipelines = Vec::new();
         let mut rebuild_scene = false;
         let mut frame_stats = FullFrameStats::default();
-        eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Processing {} scene_ops", txn.scene_ops.len());
+        eprintln!(
+            "[SCENE_BUILDER_THREAD::process_transaction] Processing {} scene_ops",
+            txn.scene_ops.len()
+        );
 
         for message in txn.scene_ops.drain(..) {
             match message {
@@ -563,7 +572,11 @@ impl SceneBuilderThread {
                     pipeline_id,
                     display_list,
                 } => {
-                    eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Processing SetDisplayList for pipeline {:?}, epoch {:?}", pipeline_id, epoch);
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD::process_transaction] Processing SetDisplayList \
+                         for pipeline {:?}, epoch {:?}",
+                        pipeline_id, epoch
+                    );
                     let (builder_start_time_ns, builder_end_time_ns, send_time_ns) =
                         display_list.times();
                     let content_send_time = profiler::ns_to_ms(precise_time_ns() - send_time_ns);
@@ -583,7 +596,11 @@ impl SceneBuilderThread {
                     frame_stats.wr_display_list_time += dl_build_time;
 
                     if self.removed_pipelines.contains(&pipeline_id) {
-                        eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Pipeline {:?} was removed, skipping", pipeline_id);
+                        eprintln!(
+                            "[SCENE_BUILDER_THREAD::process_transaction] Pipeline {:?} was \
+                             removed, skipping",
+                            pipeline_id
+                        );
                         continue;
                     }
 
@@ -592,19 +609,33 @@ impl SceneBuilderThread {
                     // scene (bug 1490751).
                     rebuild_scene = true;
 
-                    eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Calling scene.set_display_list()...");
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD::process_transaction] Calling \
+                         scene.set_display_list()..."
+                    );
                     scene.set_display_list(pipeline_id, epoch, display_list);
-                    eprintln!("[SCENE_BUILDER_THREAD::process_transaction] scene.set_display_list() RETURNED");
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD::process_transaction] scene.set_display_list() \
+                         RETURNED"
+                    );
                 }
                 SceneMsg::SetRootPipeline(pipeline_id) => {
-                    eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Processing SetRootPipeline {:?}", pipeline_id);
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD::process_transaction] Processing SetRootPipeline \
+                         {:?}",
+                        pipeline_id
+                    );
                     if scene.root_pipeline_id != Some(pipeline_id) {
                         rebuild_scene = true;
                         scene.set_root_pipeline_id(pipeline_id);
                     }
                 }
                 SceneMsg::RemovePipeline(pipeline_id) => {
-                    eprintln!("[SCENE_BUILDER_THREAD::process_transaction] Processing RemovePipeline {:?}", pipeline_id);
+                    eprintln!(
+                        "[SCENE_BUILDER_THREAD::process_transaction] Processing RemovePipeline \
+                         {:?}",
+                        pipeline_id
+                    );
                     scene.remove_pipeline(pipeline_id);
                     self.removed_pipelines.insert(pipeline_id);
                     removed_pipelines.push((pipeline_id, txn.document_id));
@@ -612,17 +643,27 @@ impl SceneBuilderThread {
             }
         }
 
-        eprintln!("[SCENE_BUILDER_THREAD::process_transaction] All scene_ops processed, removed_pipelines cleared");
+        eprintln!(
+            "[SCENE_BUILDER_THREAD::process_transaction] All scene_ops processed, \
+             removed_pipelines cleared"
+        );
         self.removed_pipelines.clear();
 
         let mut built_scene = None;
         let mut interner_updates = None;
         let mut spatial_tree_updates = None;
 
-        eprintln!("[SCENE_BUILDER_THREAD::process_transaction] rebuild_scene={}, has_root_pipeline={}", rebuild_scene, scene.has_root_pipeline());
+        eprintln!(
+            "[SCENE_BUILDER_THREAD::process_transaction] rebuild_scene={}, has_root_pipeline={}",
+            rebuild_scene,
+            scene.has_root_pipeline()
+        );
 
         if scene.has_root_pipeline() && rebuild_scene {
-            eprintln!("[SCENE_BUILDER_THREAD::process_transaction] >>>>> Calling SceneBuilder::build() <<<<<");
+            eprintln!(
+                "[SCENE_BUILDER_THREAD::process_transaction] >>>>> Calling SceneBuilder::build() \
+                 <<<<<"
+            );
             let built = SceneBuilder::build(
                 &scene,
                 self.fonts.clone(),
@@ -634,7 +675,10 @@ impl SceneBuilderThread {
                 &doc.stats,
                 self.debug_flags,
             );
-            eprintln!("[SCENE_BUILDER_THREAD::process_transaction] >>>>> SceneBuilder::build() RETURNED <<<<<");
+            eprintln!(
+                "[SCENE_BUILDER_THREAD::process_transaction] >>>>> SceneBuilder::build() RETURNED \
+                 <<<<<"
+            );
 
             // Update the allocation stats for next scene
             doc.stats = built.get_stats();

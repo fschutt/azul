@@ -897,7 +897,7 @@ fn new_from_str_inner<'a>(
         if iterations > max_iterations {
             warnings.push(CssParseWarnMsg {
                 warning: CssParseWarnMsgInner::MalformedStructure {
-                    message: "Parser iteration limit exceeded - possible infinite loop"
+                    message: "Parser iteration limit exceeded - possible infinite loop",
                 },
                 location: (last_error_location, get_error_location(tokenizer)),
             });
@@ -911,7 +911,7 @@ fn new_from_str_inner<'a>(
             if stuck_count > 10 {
                 warnings.push(CssParseWarnMsg {
                     warning: CssParseWarnMsgInner::MalformedStructure {
-                        message: "Parser stuck - position not advancing"
+                        message: "Parser stuck - position not advancing",
                     },
                     location: (last_error_location, get_error_location(tokenizer)),
                 });

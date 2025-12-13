@@ -8,6 +8,7 @@
 //! - Invalid/bogus type strings ("ref", "value", etc.)
 
 use std::collections::HashSet;
+
 use super::borrow::BorrowMode;
 
 /// A parsed type representation
@@ -114,19 +115,34 @@ impl Default for TypeParser {
 impl TypeParser {
     pub fn new() -> Self {
         let primitives: HashSet<String> = [
-            "bool", "char",
-            "u8", "u16", "u32", "u64", "u128", "usize",
-            "i8", "i16", "i32", "i64", "i128", "isize",
-            "f32", "f64",
-            "()", "c_void",
-        ].iter().map(|s| s.to_string()).collect();
+            "bool", "char", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
+            "i128", "isize", "f32", "f64", "()", "c_void",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         let builtin_generics: HashSet<String> = [
-            "Option", "Vec", "Result", "Box", "Arc", "Rc",
-            "RefCell", "Cell", "Mutex", "RwLock",
-            "HashMap", "HashSet", "BTreeMap", "BTreeSet",
-            "Cow", "PhantomData",
-        ].iter().map(|s| s.to_string()).collect();
+            "Option",
+            "Vec",
+            "Result",
+            "Box",
+            "Arc",
+            "Rc",
+            "RefCell",
+            "Cell",
+            "Mutex",
+            "RwLock",
+            "HashMap",
+            "HashSet",
+            "BTreeMap",
+            "BTreeSet",
+            "Cow",
+            "PhantomData",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         Self {
             primitives,
@@ -161,7 +177,10 @@ impl TypeParser {
 
         // Check for tuple-like "Type, Type" without parentheses (parser bug in old code)
         if input.contains(',') && !input.starts_with('(') && !input.contains('<') {
-            return ParsedType::Invalid(format!("bare comma in type '{}' - likely parser bug", input));
+            return ParsedType::Invalid(format!(
+                "bare comma in type '{}' - likely parser bug",
+                input
+            ));
         }
 
         // Parse the actual type
@@ -215,12 +234,13 @@ impl TypeParser {
 
         // Tuple types
         if input.starts_with('(') && input.ends_with(')') {
-            let inner = &input[1..input.len()-1];
+            let inner = &input[1..input.len() - 1];
             if inner.is_empty() {
                 return ParsedType::Primitive("()".to_string());
             }
             let parts = split_at_top_level(inner, ',');
-            let parsed: Vec<ParsedType> = parts.iter().map(|p| self.parse_inner(p.trim())).collect();
+            let parsed: Vec<ParsedType> =
+                parts.iter().map(|p| self.parse_inner(p.trim())).collect();
             return ParsedType::Tuple(parsed);
         }
 
@@ -228,9 +248,10 @@ impl TypeParser {
         if let Some(angle_pos) = input.find('<') {
             if input.ends_with('>') {
                 let outer = &input[..angle_pos];
-                let inner = &input[angle_pos+1..input.len()-1];
+                let inner = &input[angle_pos + 1..input.len() - 1];
                 let parts = split_at_top_level(inner, ',');
-                let args: Vec<ParsedType> = parts.iter().map(|p| self.parse_inner(p.trim())).collect();
+                let args: Vec<ParsedType> =
+                    parts.iter().map(|p| self.parse_inner(p.trim())).collect();
                 return ParsedType::Generic {
                     outer: outer.to_string(),
                     args,
@@ -283,7 +304,7 @@ impl TypeParser {
         }
 
         let args_str = &rest[..args_end];
-        let after_parens = rest[args_end+1..].trim();
+        let after_parens = rest[args_end + 1..].trim();
 
         let args: Vec<ParsedType> = if args_str.is_empty() {
             vec![]
@@ -307,11 +328,24 @@ impl TypeParser {
 
 /// Check if a type name is a built-in generic
 fn is_builtin_generic(name: &str) -> bool {
-    matches!(name, 
-        "Option" | "Vec" | "Result" | "Box" | "Arc" | "Rc" |
-        "RefCell" | "Cell" | "Mutex" | "RwLock" |
-        "HashMap" | "HashSet" | "BTreeMap" | "BTreeSet" |
-        "Cow" | "PhantomData"
+    matches!(
+        name,
+        "Option"
+            | "Vec"
+            | "Result"
+            | "Box"
+            | "Arc"
+            | "Rc"
+            | "RefCell"
+            | "Cell"
+            | "Mutex"
+            | "RwLock"
+            | "HashMap"
+            | "HashSet"
+            | "BTreeMap"
+            | "BTreeSet"
+            | "Cow"
+            | "PhantomData"
     )
 }
 

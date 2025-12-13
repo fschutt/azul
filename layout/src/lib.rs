@@ -19,15 +19,15 @@ pub mod solver3;
 
 // Widget modules (behind feature flags)
 #[cfg(feature = "widgets")]
-pub mod widgets;
-#[cfg(feature = "widgets")]
 pub mod str;
+#[cfg(feature = "widgets")]
+pub mod widgets;
 
 // Extra APIs (dialogs, file operations)
 #[cfg(feature = "extra")]
-pub mod extra;
-#[cfg(feature = "extra")]
 pub mod desktop;
+#[cfg(feature = "extra")]
+pub mod extra;
 
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
@@ -42,7 +42,7 @@ pub mod font;
 pub use allsorts::subset::CmapTarget;
 #[cfg(feature = "font_loading")]
 pub use font::parsed::{
-    PdfFontMetrics, FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont,
+    FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont, PdfFontMetrics,
     SubsetFont,
 };
 // Re-export hyphenation for external crates (like printpdf)

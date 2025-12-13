@@ -15,6 +15,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -2317,8 +2318,7 @@ pub struct Ribbon {
     pub tab_active: i32,
 }
 
-pub type RibbonOnTabClickedCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, i32) -> Update;
+pub type RibbonOnTabClickedCallbackType = extern "C" fn(RefAny, CallbackInfo, i32) -> Update;
 impl_callback!(
     RibbonOnTabClicked,
     OptionRibbonOnTabClicked,

@@ -31,7 +31,7 @@ use crate::text3::script::{script_to_language, Script};
 /// Available space for layout, similar to Taffy's AvailableSpace.
 ///
 /// This type explicitly represents the three possible states for available space:
-/// 
+///
 /// - `Definite(f32)`: A specific pixel width is available
 /// - `MinContent`: Layout should use minimum content width (shrink-wrap)
 /// - `MaxContent`: Layout should use maximum content width (no line breaks unless necessary)
@@ -165,7 +165,7 @@ impl FontChainKey {
 }
 
 /// A map of pre-loaded fonts, keyed by FontId (from rust-fontconfig)
-/// 
+///
 /// This is passed to the shaper - no font loading happens during shaping
 /// The fonts are loaded BEFORE layout based on the font chains and text content.
 ///
@@ -330,7 +330,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Get the set of FontIds that are currently loaded
     ///
-    /// This is useful for computing which fonts need to be loaded 
+    /// This is useful for computing which fonts need to be loaded
     /// (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
@@ -708,7 +708,7 @@ pub enum SegmentAlignment {
     /// Align text within the first available segment on the line.
     #[default]
     First,
-    /// Align text relative to the total available width of all 
+    /// Align text relative to the total available width of all
     /// segments on the line combined.
     Total,
 }
@@ -1040,8 +1040,7 @@ impl Glyph {
 
     #[inline]
     fn can_justify(&self) -> bool {
-        !self.codepoint.is_whitespace() && 
-        self.character_class() != CharacterClass::Combining
+        !self.codepoint.is_whitespace() && self.character_class() != CharacterClass::Combining
     }
 
     #[inline]
@@ -1080,17 +1079,17 @@ pub enum VerticalAlign {
     #[default]
     Baseline,
     // Align image bottom with line bottom
-    Bottom,  
-    // Align image top with line top   
-    Top,        
+    Bottom,
+    // Align image top with line top
+    Top,
     // Align image middle with text middle
-    Middle,    
+    Middle,
     // Align with tallest text in line
-    TextTop,    
+    TextTop,
     // Align with lowest text in line
-    TextBottom, 
+    TextBottom,
     // Subscript alignment
-    Sub,        
+    Sub,
     // Superscript alignment
     Super,
     // Custom offset from baseline
@@ -1117,15 +1116,15 @@ impl Ord for VerticalAlign {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ObjectFit {
     // Stretch to fit display size
-    Fill,      
+    Fill,
     // Scale to fit within display size
-    Contain,   
+    Contain,
     // Scale to cover display size
-    Cover,     
+    Cover,
     // Use intrinsic size
-    None,      
+    None,
     // Like contain but never scale up
-    ScaleDown, 
+    ScaleDown,
 }
 
 #[derive(Debug, Clone)]
@@ -1134,8 +1133,8 @@ pub struct InlineShape {
     pub fill: Option<ColorU>,
     pub stroke: Option<Stroke>,
     pub baseline_offset: f32,
-    /// The NodeId of the element that created this shape 
-    /// (e.g., inline-block) - this allows us to look up 
+    /// The NodeId of the element that created this shape
+    /// (e.g., inline-block) - this allows us to look up
     /// styling information (background, border) when rendering
     pub source_node_id: Option<azul_core::dom::NodeId>,
 }
@@ -1143,16 +1142,16 @@ pub struct InlineShape {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OverflowBehavior {
     // Content extends outside shape
-    Visible, 
+    Visible,
     // Content is clipped to shape
-    Hidden,  
+    Hidden,
     // Scrollable overflow
-    Scroll,  
+    Scroll,
     // Browser/system decides
     #[default]
-    Auto, 
+    Auto,
     // Break into next shape/page
-    Break,   
+    Break,
 }
 
 #[derive(Debug, Clone)]
@@ -1290,9 +1289,7 @@ impl Ord for Size {
     fn cmp(&self, other: &Self) -> Ordering {
         (self.width.round() as usize)
             .cmp(&(other.width.round() as usize))
-            .then_with(|| {
-                (self.height.round() as usize).cmp(&(other.height.round() as usize))
-            })
+            .then_with(|| (self.height.round() as usize).cmp(&(other.height.round() as usize)))
     }
 }
 
@@ -4443,8 +4440,13 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let language = script_to_language(item.script, &item.text);
 
                 // Force LTR horizontal shaping for the combined block.
-                let glyphs =
-                    font.shape_text(text, item.script, language, BidiDirection::Ltr, style.as_ref())?;
+                let glyphs = font.shape_text(
+                    text,
+                    item.script,
+                    language,
+                    BidiDirection::Ltr,
+                    style.as_ref(),
+                )?;
 
                 let shaped_glyphs = glyphs
                     .into_iter()

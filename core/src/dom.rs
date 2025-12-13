@@ -137,7 +137,6 @@ impl InputType {
     }
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct TagId {
@@ -146,9 +145,7 @@ pub struct TagId {
 
 impl ::core::fmt::Display for TagId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("TagId")
-            .field("inner", &self.inner)
-            .finish()
+        f.debug_struct("TagId").field("inner", &self.inner).finish()
     }
 }
 
@@ -169,7 +166,7 @@ impl TagId {
     /// Creates a new, unique hit-testing tag ID.
     pub fn unique() -> Self {
         TagId {
-            inner: TAG_ID.fetch_add(1, Ordering::SeqCst) as u64 
+            inner: TAG_ID.fetch_add(1, Ordering::SeqCst) as u64,
         }
     }
 
@@ -206,7 +203,9 @@ impl ScrollTagId {
     /// Creates a new, unique scroll tag ID. Note that this should not
     /// be used for identifying nodes, use the `DomNodeHash` instead.
     pub fn unique() -> ScrollTagId {
-        ScrollTagId { inner: TagId::unique() }
+        ScrollTagId {
+            inner: TagId::unique(),
+        }
     }
 }
 
@@ -2716,7 +2715,12 @@ impl NodeData {
         self
     }
     #[inline(always)]
-    pub fn with_callback(mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) -> Self {
+    pub fn with_callback(
+        mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: CoreCallbackType,
+    ) -> Self {
         self.add_callback(event, data, callback as usize);
         self
     }
@@ -4533,7 +4537,12 @@ impl Dom {
         self
     }
     #[inline(always)]
-    pub fn with_callback(mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) -> Self {
+    pub fn with_callback(
+        mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: CoreCallbackType,
+    ) -> Self {
         self.root.add_callback(event, data, callback as usize);
         self
     }

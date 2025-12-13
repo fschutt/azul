@@ -159,7 +159,7 @@ impl AngleValue {
         }
         val
     }
-    
+
     /// Convert to degrees without normalization (raw value).
     /// Use this for conic gradients where 360.0 is a meaningful distinct value from 0.0.
     #[inline]

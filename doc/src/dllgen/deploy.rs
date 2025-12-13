@@ -11,12 +11,12 @@ use anyhow::Result;
 use crate::{api::ApiData, dllgen::license::License};
 
 /// Verifies that all example files referenced in api.json exist on the filesystem.
-/// 
+///
 /// Returns Ok(()) if all examples exist, or an error listing all missing files.
 /// Use `strict` mode to fail the build, or non-strict to just print warnings.
 pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) -> Result<()> {
     let mut missing_files: Vec<String> = Vec::new();
-    
+
     // Get all versions and their examples
     for version in api_data.get_sorted_versions() {
         if let Some(version_data) = api_data.get_version(&version) {
@@ -24,75 +24,106 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
                 // Check required languages (c, rust, python)
                 let c_path = examples_dir.join(&example.code.c);
                 if !c_path.exists() {
-                    missing_files.push(format!("[{}] {}: C example missing: {}", version, example.name, example.code.c));
+                    missing_files.push(format!(
+                        "[{}] {}: C example missing: {}",
+                        version, example.name, example.code.c
+                    ));
                 }
-                
+
                 let rust_path = examples_dir.join(&example.code.rust);
                 if !rust_path.exists() {
-                    missing_files.push(format!("[{}] {}: Rust example missing: {}", version, example.name, example.code.rust));
+                    missing_files.push(format!(
+                        "[{}] {}: Rust example missing: {}",
+                        version, example.name, example.code.rust
+                    ));
                 }
-                
+
                 let python_path = examples_dir.join(&example.code.python);
                 if !python_path.exists() {
-                    missing_files.push(format!("[{}] {}: Python example missing: {}", version, example.name, example.code.python));
+                    missing_files.push(format!(
+                        "[{}] {}: Python example missing: {}",
+                        version, example.name, example.code.python
+                    ));
                 }
-                
+
                 // Check C++ dialects (optional fields)
                 if let Some(ref cpp03) = example.code.cpp03 {
                     let cpp_path = examples_dir.join(cpp03);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++03 example missing: {}", version, example.name, cpp03));
+                        missing_files.push(format!(
+                            "[{}] {}: C++03 example missing: {}",
+                            version, example.name, cpp03
+                        ));
                     }
                 }
                 if let Some(ref cpp11) = example.code.cpp11 {
                     let cpp_path = examples_dir.join(cpp11);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++11 example missing: {}", version, example.name, cpp11));
+                        missing_files.push(format!(
+                            "[{}] {}: C++11 example missing: {}",
+                            version, example.name, cpp11
+                        ));
                     }
                 }
                 if let Some(ref cpp14) = example.code.cpp14 {
                     let cpp_path = examples_dir.join(cpp14);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++14 example missing: {}", version, example.name, cpp14));
+                        missing_files.push(format!(
+                            "[{}] {}: C++14 example missing: {}",
+                            version, example.name, cpp14
+                        ));
                     }
                 }
                 if let Some(ref cpp17) = example.code.cpp17 {
                     let cpp_path = examples_dir.join(cpp17);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++17 example missing: {}", version, example.name, cpp17));
+                        missing_files.push(format!(
+                            "[{}] {}: C++17 example missing: {}",
+                            version, example.name, cpp17
+                        ));
                     }
                 }
                 if let Some(ref cpp20) = example.code.cpp20 {
                     let cpp_path = examples_dir.join(cpp20);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++20 example missing: {}", version, example.name, cpp20));
+                        missing_files.push(format!(
+                            "[{}] {}: C++20 example missing: {}",
+                            version, example.name, cpp20
+                        ));
                     }
                 }
                 if let Some(ref cpp23) = example.code.cpp23 {
                     let cpp_path = examples_dir.join(cpp23);
                     if !cpp_path.exists() {
-                        missing_files.push(format!("[{}] {}: C++23 example missing: {}", version, example.name, cpp23));
+                        missing_files.push(format!(
+                            "[{}] {}: C++23 example missing: {}",
+                            version, example.name, cpp23
+                        ));
                     }
                 }
-                
+
                 // Check legacy cpp field if no per-version paths exist
-                if example.code.cpp03.is_none() && 
-                   example.code.cpp11.is_none() && 
-                   example.code.cpp14.is_none() &&
-                   example.code.cpp17.is_none() &&
-                   example.code.cpp20.is_none() &&
-                   example.code.cpp23.is_none() {
+                if example.code.cpp03.is_none()
+                    && example.code.cpp11.is_none()
+                    && example.code.cpp14.is_none()
+                    && example.code.cpp17.is_none()
+                    && example.code.cpp20.is_none()
+                    && example.code.cpp23.is_none()
+                {
                     if let Some(ref cpp) = example.code.cpp {
                         let cpp_path = examples_dir.join(cpp);
                         if !cpp_path.exists() {
-                            missing_files.push(format!("[{}] {}: C++ example missing: {}", version, example.name, cpp));
+                            missing_files.push(format!(
+                                "[{}] {}: C++ example missing: {}",
+                                version, example.name, cpp
+                            ));
                         }
                     }
                 }
             }
         }
     }
-    
+
     if missing_files.is_empty() {
         println!("  [OK] All example files verified");
         Ok(())
@@ -102,7 +133,7 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
             missing_files.len(),
             missing_files.join("\n  ")
         );
-        
+
         if strict {
             anyhow::bail!("{}", error_msg);
         } else {
@@ -139,28 +170,77 @@ pub enum Platform {
 
 impl BinaryAsset {
     pub const WINDOWS_ASSETS: &'static [BinaryAsset] = &[
-        BinaryAsset { filename: "azul.dll", description: "Windows 64-bit dynamic library", platform: Platform::Windows },
-        BinaryAsset { filename: "azul.lib", description: "Windows 64-bit static library", platform: Platform::Windows },
-        BinaryAsset { filename: "azul.pyd", description: "Python Extension (Windows)", platform: Platform::Windows },
-        BinaryAsset { filename: "LICENSE-WINDOWS.txt", description: "Windows License", platform: Platform::Windows },
+        BinaryAsset {
+            filename: "azul.dll",
+            description: "Windows 64-bit dynamic library",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
+            filename: "azul.lib",
+            description: "Windows 64-bit static library",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
+            filename: "azul.pyd",
+            description: "Python Extension (Windows)",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
+            filename: "LICENSE-WINDOWS.txt",
+            description: "Windows License",
+            platform: Platform::Windows,
+        },
     ];
-    
+
     pub const LINUX_ASSETS: &'static [BinaryAsset] = &[
-        BinaryAsset { filename: "libazul.so", description: "Linux 64-bit .so", platform: Platform::Linux },
-        BinaryAsset { filename: "libazul.linux.a", description: "Linux 64-bit .a", platform: Platform::Linux },
-        BinaryAsset { filename: "azul.cpython.so", description: "Python Extension (Linux)", platform: Platform::Linux },
-        BinaryAsset { filename: "LICENSE-LINUX.txt", description: "Linux License", platform: Platform::Linux },
+        BinaryAsset {
+            filename: "libazul.so",
+            description: "Linux 64-bit .so",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux.a",
+            description: "Linux 64-bit .a",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "azul.cpython.so",
+            description: "Python Extension (Linux)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "LICENSE-LINUX.txt",
+            description: "Linux License",
+            platform: Platform::Linux,
+        },
     ];
-    
+
     pub const MACOS_ASSETS: &'static [BinaryAsset] = &[
-        BinaryAsset { filename: "libazul.dylib", description: "MacOS 64-bit SO", platform: Platform::MacOS },
-        BinaryAsset { filename: "libazul.macos.a", description: "MacOS 64-bit .a", platform: Platform::MacOS },
-        BinaryAsset { filename: "azul.so", description: "Python Extension (macOS)", platform: Platform::MacOS },
-        BinaryAsset { filename: "LICENSE-MACOS.txt", description: "MacOS License", platform: Platform::MacOS },
+        BinaryAsset {
+            filename: "libazul.dylib",
+            description: "MacOS 64-bit SO",
+            platform: Platform::MacOS,
+        },
+        BinaryAsset {
+            filename: "libazul.macos.a",
+            description: "MacOS 64-bit .a",
+            platform: Platform::MacOS,
+        },
+        BinaryAsset {
+            filename: "azul.so",
+            description: "Python Extension (macOS)",
+            platform: Platform::MacOS,
+        },
+        BinaryAsset {
+            filename: "LICENSE-MACOS.txt",
+            description: "MacOS License",
+            platform: Platform::MacOS,
+        },
     ];
-    
+
     pub fn all() -> Vec<&'static BinaryAsset> {
-        Self::WINDOWS_ASSETS.iter()
+        Self::WINDOWS_ASSETS
+            .iter()
             .chain(Self::LINUX_ASSETS.iter())
             .chain(Self::MACOS_ASSETS.iter())
             .collect()
@@ -194,7 +274,7 @@ impl AssetInfo {
             }
         }
     }
-    
+
     /// Check if an asset exists and get its size
     pub fn from_path(path: &Path, description: &str) -> Self {
         let is_present = path.exists();
@@ -203,9 +283,13 @@ impl AssetInfo {
         } else {
             None
         };
-        
+
         AssetInfo {
-            filename: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+            filename: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
             description: description.to_string(),
             size,
             is_present,
@@ -230,19 +314,28 @@ impl ReleaseAssets {
     pub fn collect(version_dir: &Path) -> Self {
         let mut windows = Vec::new();
         for asset in BinaryAsset::WINDOWS_ASSETS {
-            windows.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+            windows.push(AssetInfo::from_path(
+                &version_dir.join(asset.filename),
+                asset.description,
+            ));
         }
-        
+
         let mut linux = Vec::new();
         for asset in BinaryAsset::LINUX_ASSETS {
-            linux.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+            linux.push(AssetInfo::from_path(
+                &version_dir.join(asset.filename),
+                asset.description,
+            ));
         }
-        
+
         let mut macos = Vec::new();
         for asset in BinaryAsset::MACOS_ASSETS {
-            macos.push(AssetInfo::from_path(&version_dir.join(asset.filename), asset.description));
+            macos.push(AssetInfo::from_path(
+                &version_dir.join(asset.filename),
+                asset.description,
+            ));
         }
-        
+
         let cpp_headers = vec![
             AssetInfo::from_path(&version_dir.join("azul_cpp03.hpp"), "C++03 Header"),
             AssetInfo::from_path(&version_dir.join("azul_cpp11.hpp"), "C++11 Header"),
@@ -251,7 +344,7 @@ impl ReleaseAssets {
             AssetInfo::from_path(&version_dir.join("azul_cpp20.hpp"), "C++20 Header"),
             AssetInfo::from_path(&version_dir.join("azul_cpp23.hpp"), "C++23 Header"),
         ];
-        
+
         ReleaseAssets {
             windows,
             linux,
@@ -262,11 +355,11 @@ impl ReleaseAssets {
             examples_zip: AssetInfo::from_path(&version_dir.join("examples.zip"), "Examples"),
         }
     }
-    
+
     /// Check if all binary assets are present (for strict mode)
     pub fn validate_binary_assets(&self) -> Result<(), Vec<String>> {
         let mut missing = Vec::new();
-        
+
         for asset in &self.windows {
             if !asset.is_present {
                 missing.push(asset.filename.clone());
@@ -282,7 +375,7 @@ impl ReleaseAssets {
                 missing.push(asset.filename.clone());
             }
         }
-        
+
         if missing.is_empty() {
             Ok(())
         } else {
@@ -365,7 +458,7 @@ impl Config {
                 config.print_imports = true;
                 continue;
             }
-            
+
             if arg == "--strict" || arg == "--ci" {
                 config.deploy_mode = DeployMode::Strict;
                 continue;
@@ -502,7 +595,8 @@ pub fn create_examples(
     let options = zip::write::SimpleFileOptions::default();
 
     // Get examples from api.json for this version
-    let version_data = api_data.get_version(version)
+    let version_data = api_data
+        .get_version(version)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found in api.json", version))?;
 
     // Track which files we've already added (to avoid duplicates)
@@ -602,7 +696,10 @@ pub fn create_examples(
     // Finalize source zip
     source_zip.finish()?;
 
-    println!("  - Created example packages ({} files from api.json)", added_files.len());
+    println!(
+        "  - Created example packages ({} files from api.json)",
+        added_files.len()
+    );
 
     Ok(())
 }
@@ -712,7 +809,8 @@ pub fn create_git_repository(version: &str, output_dir: &Path, lib_rs: &str) -> 
 fn generate_asset_li(version: &str, asset: &AssetInfo) -> String {
     if asset.is_present {
         format!(
-            "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename} - {size})</a></li>",
+            "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename} \
+             - {size})</a></li>",
             version = version,
             filename = asset.filename,
             description = asset.description,
@@ -736,19 +834,25 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let git = &versiondata.git;
 
     // Generate Windows asset list
-    let windows_assets: String = assets.windows.iter()
+    let windows_assets: String = assets
+        .windows
+        .iter()
         .map(|a| generate_asset_li(version, a))
         .collect::<Vec<_>>()
         .join("\n                ");
 
     // Generate Linux asset list
-    let linux_assets: String = assets.linux.iter()
+    let linux_assets: String = assets
+        .linux
+        .iter()
         .map(|a| generate_asset_li(version, a))
         .collect::<Vec<_>>()
         .join("\n                ");
 
     // Generate MacOS asset list
-    let macos_assets: String = assets.macos.iter()
+    let macos_assets: String = assets
+        .macos
+        .iter()
         .map(|a| generate_asset_li(version, a))
         .collect::<Vec<_>>()
         .join("\n                ");
@@ -757,18 +861,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let c_header_link = generate_asset_li(version, &assets.c_header);
 
     // Generate C++ header links
-    let cpp_header_links: String = assets.cpp_headers.iter()
+    let cpp_header_links: String = assets
+        .cpp_headers
+        .iter()
         .map(|a| {
             if a.is_present {
                 format!(
-                    "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} ({filename})</a></li>",
+                    "<li><a href='https://azul.rs/release/{version}/{filename}'>{description} \
+                     ({filename})</a></li>",
                     version = version,
                     filename = a.filename,
                     description = a.description
                 )
             } else {
                 format!(
-                    "<li><span style='color: #999;'>{description} ({filename} - not available)</span></li>",
+                    "<li><span style='color: #999;'>{description} ({filename} - not \
+                     available)</span></li>",
                     filename = a.filename,
                     description = a.description
                 )
@@ -782,109 +890,140 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let examples_zip_link = generate_asset_li(version, &assets.examples_zip);
 
     format!(
-    "<!DOCTYPE html>
+        "<!DOCTYPE html>
     <html lang='en'>
     <head>
-        <title>Azul GUI v{version} (git {git}) - Release Notes</title>
+        <title>Azul GUI v{version} (git {git}) \
+         - Release Notes</title>
         {common_head_tags}
     </head>
 
     <body>
-      <div class='center'>
+      <div class='center'>\
+         
 
         <aside>
           <header>
             <a href='https://azul.rs/'>
-              <img src='https://azul.rs/logo.svg'>
+              <img \
+         src='https://azul.rs/logo.svg'>
             </a>
           </header>
           {sidebar}
-        </aside>
+        \
+         </aside>
 
         <main>
           <h1>Azul GUI v{version}</h1>
-          <a href='https://github.com/fschutt/azul/commit/{git}'>(git {git})</a>
+          <a href='https://github.com/fschutt/azul/commit/{git}'>(git \
+         {git})</a>
           <style>
             main h1 {{ margin-bottom: none; }}
-            ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
-            nav ul {{ margin: 0px; }} 
+            ul {{ \
+         margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
+            nav ul {{ margin: \
+         0px; }} 
             #releasenotes {{ margin-top: 20px; max-width: 700px; }}
-            #releasenotes ul {{ list-style-type: initial; }} 
-            #releasenotes ul li {{ margin-bottom: 2px; }} 
+            #releasenotes \
+         ul {{ list-style-type: initial; }} 
+            #releasenotes ul li {{ margin-bottom: 2px; \
+         }} 
             #releasenotes p {{ margin-bottom: 10px; margin-top: 10px; }}
-            </style>
+            </style>\
+         
           <div>
               
               <div id='releasenotes'>
-              {releasenotes}
+              {releasenotes}\
+         
               </div>
 
               <br/>
 
               <strong>Links:</strong>
-              <ul>
-                <li><a href='https://azul.rs/api/{version}.html'>Documentation for this release</a></li>
+              \
+         <ul>
+                <li><a href='https://azul.rs/api/{version}.html'>Documentation for this \
+         release</a></li>
                 <li><a href='https://azul.rs/guide'>Guide</a></li>
-                <br/>
+                \
+         <br/>
 
-                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
-                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
+                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub \
+         release</a></li>
+                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>\
+         
                 <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
-              </ul>
+              \
+         </ul>
 
               <br/>
 
               <strong>Files:</strong>
               <br/>
-              <ul>
+              \
+         <ul>
                 {windows_assets}
               </ul>
               <ul>
-                {linux_assets}
+                {linux_assets}\
+         
               </ul>
               <ul>
                 {macos_assets}
               </ul>
 
-              <br/>
+              \
+         <br/>
 
               <strong>C Header:</strong>
               <br/>
               <ul>
-                {c_header_link}
+                \
+         {c_header_link}
               </ul>
               
               <br/>
-              <strong>C++ Headers (choose your standard):</strong>
+              <strong>C++ \
+         Headers (choose your standard):</strong>
               <ul>
-                {cpp_header_links}
+                {cpp_header_links}\
+         
               </ul>
 
               <br/>
-              <strong>API Description &amp; Examples:</strong>
+              <strong>API Description &amp; Examples:</strong>\
+         
               <ul>
                 {api_json_link}
                 {examples_zip_link}
-              </ul>
+              \
+         </ul>
 
               <br/>
               <strong>Use Azul as Rust dependency:</strong>
-              <br/>
+              \
+         <br/>
 
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>\
+         
                   <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
-                  <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
-                  <p style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
+                  \
+         <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
+                  <p \
+         style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
                   <br/>
                   <p style='color:grey;font-family:monospace;'># Dynamic linking:</p>
-                  <p style='color:grey;font-family:monospace;'># export AZUL_LINK_PATH=/path/to/azul.dll</p>
+                  <p style='color:grey;font-family:monospace;'># export \
+         AZUL_LINK_PATH=/path/to/azul.dll</p>
                   <p style='color:grey;font-family:monospace;'># features = ['link-dynamic']</p>
               </div>
           </div>
         </main>
       </div>
     </body>
-    </html>")
+    </html>"
+    )
 }
 
 pub fn generate_releases_index(versions: &[String]) -> String {
@@ -947,10 +1086,7 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     fs::create_dir_all(&images_dir)?;
 
     // Copy CSS file at runtime (so edits take effect without recompiling)
-    fs::copy(
-        templates_dir.join("main.css"),
-        output_dir.join("main.css"),
-    )?;
+    fs::copy(templates_dir.join("main.css"), output_dir.join("main.css"))?;
 
     // Copy JavaScript file at runtime
     fs::copy(
@@ -959,10 +1095,7 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     )?;
 
     // Copy logo SVG at runtime
-    fs::copy(
-        templates_dir.join("logo.svg"),
-        output_dir.join("logo.svg"),
-    )?;
+    fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;
 
     // Copy fleur-de-lis SVG (for navigation) at runtime
     fs::copy(

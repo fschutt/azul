@@ -2,10 +2,7 @@
 //!
 //! Tests for em, rem, percentage, and other CSS unit resolution.
 
-use azul_css::props::basic::{
-    pixel::PixelValue,
-    length::SizeMetric,
-};
+use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
 
 #[test]
 fn test_pixel_value_px() {
@@ -109,7 +106,7 @@ fn test_em_chain_resolution() {
     let parent_em = PixelValue::em(2.0);
     let parent_px = parent_em.to_pixels_internal(100.0, 16.0); // 2 * 16 = 32
     assert!((parent_px - 32.0).abs() < 0.001);
-    
+
     let child_em = PixelValue::em(1.5);
     let child_px = child_em.to_pixels_internal(100.0, parent_px); // 1.5 * 32 = 48
     assert!((child_px - 48.0).abs() < 0.001);
@@ -133,7 +130,10 @@ fn test_percent_over_100() {
 fn test_em_fractional() {
     let value = PixelValue::em(0.875); // Common value for smaller text
     let result = value.to_pixels_internal(100.0, 16.0);
-    assert!((result - 14.0).abs() < 0.001, "0.875em with 16px base = 14px");
+    assert!(
+        (result - 14.0).abs() < 0.001,
+        "0.875em with 16px base = 14px"
+    );
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn test_viewport_units_return_zero_without_context() {
     let vh = PixelValue::from_metric(SizeMetric::Vh, 100.0);
     let vmin = PixelValue::from_metric(SizeMetric::Vmin, 100.0);
     let vmax = PixelValue::from_metric(SizeMetric::Vmax, 100.0);
-    
+
     // to_pixels_internal returns 0 for viewport units (needs layout context)
     assert_eq!(vw.to_pixels_internal(100.0, 16.0), 0.0);
     assert_eq!(vh.to_pixels_internal(100.0, 16.0), 0.0);
@@ -190,7 +190,7 @@ fn test_pixel_value_equality() {
     let b = PixelValue::px(10.0);
     let c = PixelValue::px(20.0);
     let d = PixelValue::em(10.0);
-    
+
     assert_eq!(a, b);
     assert_ne!(a, c);
     assert_ne!(a, d);
@@ -201,7 +201,10 @@ fn test_default_font_size_constant() {
     // CSS spec: default font-size is 16px
     let default_em = PixelValue::em(1.0);
     let result = default_em.to_pixels_internal(100.0, 16.0);
-    assert!((result - 16.0).abs() < 0.001, "1em with default 16px = 16px");
+    assert!(
+        (result - 16.0).abs() < 0.001,
+        "1em with default 16px = 16px"
+    );
 }
 
 #[test]
@@ -210,7 +213,10 @@ fn test_rem_uses_em_resolve() {
     // (proper rem resolution requires root font-size context)
     let value = PixelValue::rem(2.0);
     let result = value.to_pixels_internal(100.0, 16.0);
-    assert!((result - 32.0).abs() < 0.001, "2rem with 16px em_resolve = 32px");
+    assert!(
+        (result - 32.0).abs() < 0.001,
+        "2rem with 16px em_resolve = 32px"
+    );
 }
 
 #[test]
@@ -219,14 +225,14 @@ fn test_mixed_calculations() {
     // Container: 500px wide
     // Padding: 5% = 25px
     // Font: 1.25em with 16px base = 20px
-    
+
     let container_width = 500.0;
     let base_font = 16.0;
-    
+
     let padding = PixelValue::percent(5.0);
     let padding_px = padding.to_pixels_internal(container_width, base_font);
     assert!((padding_px - 25.0).abs() < 0.001);
-    
+
     let font = PixelValue::em(1.25);
     let font_px = font.to_pixels_internal(container_width, base_font);
     assert!((font_px - 20.0).abs() < 0.001);

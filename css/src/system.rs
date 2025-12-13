@@ -26,7 +26,7 @@ use alloc::{
 use core::time::Duration;
 
 use crate::{
-    corety::{AzString, OptionString, OptionF32},
+    corety::{AzString, OptionF32, OptionString},
     css::Stylesheet,
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
@@ -414,8 +414,7 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 
     style.platform = Platform::Linux(DesktopEnvironment::Gnome);
     if let Some(font) = ui_font {
-        style.fonts.ui_font =
-            OptionString::Some(font.trim().trim_matches('\'').to_string().into());
+        style.fonts.ui_font = OptionString::Some(font.trim().trim_matches('\'').to_string().into());
     }
     if let Some(font) = monospace_font {
         style.fonts.monospace_font =
@@ -761,7 +760,7 @@ pub mod defaults {
     //! for testing and environments where system calls are not desired.
 
     use crate::{
-        corety::{AzString, OptionString, OptionF32},
+        corety::{AzString, OptionF32, OptionString},
         props::{
             basic::{
                 color::{ColorU, OptionColorU},
@@ -782,8 +781,8 @@ pub mod defaults {
             },
         },
         system::{
-            DesktopEnvironment, Platform, SystemColors, SystemFonts, 
-            SystemMetrics, SystemStyle, Theme,
+            DesktopEnvironment, Platform, SystemColors, SystemFonts, SystemMetrics, SystemStyle,
+            Theme,
         },
     };
 

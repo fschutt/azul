@@ -103,11 +103,11 @@ extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> Style
 }
 
 /// Wrapper around the layout callback
-/// 
+///
 /// For FFI languages (Python, Java, etc.), the RefAny contains both:
 /// - The user's application data
 /// - The callback function object from the foreign language
-/// 
+///
 /// The trampoline function (stored in `cb`) knows how to extract both
 /// from the RefAny and invoke the foreign callback with the user data.
 #[derive(Debug, Clone, PartialEq)]
@@ -118,7 +118,9 @@ pub struct LayoutCallback {
 
 impl LayoutCallback {
     pub fn new(cb: LayoutCallbackType) -> Self {
-        Self { cb: LayoutCallbackInner { cb } }
+        Self {
+            cb: LayoutCallbackInner { cb },
+        }
     }
 }
 
@@ -134,8 +136,7 @@ impl Default for LayoutCallback {
 
 // -- iframe callback
 
-pub type IFrameCallbackType =
-    extern "C" fn(RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
+pub type IFrameCallbackType = extern "C" fn(RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)

@@ -56,8 +56,8 @@ use azul_css::{
 use crate::{
     callbacks::Update,
     dom::{
-        Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex, TabIndex,
-        OptionTagId, TagId,
+        Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex, OptionTagId,
+        TabIndex, TagId,
     },
     id::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,

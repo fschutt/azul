@@ -1,17 +1,17 @@
 //! CSS properties for CSS Grid layout.
 
 use alloc::{
+    boxed::Box,
     string::{String, ToString},
     vec::Vec,
-    boxed::Box,
 };
 
 use crate::{
     corety::AzString,
     format_rust_code::FormatAsRustCode,
+    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_mut,
+    impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
     props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
-    impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash,
-    impl_vec_ord, impl_vec_partialeq, impl_vec_partialord, impl_vec_mut,
 };
 
 // --- grid-template-columns / grid-template-rows ---
@@ -26,7 +26,9 @@ pub struct GridMinMax {
 
 impl core::fmt::Debug for GridMinMax {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "minmax({}, {})", 
+        write!(
+            f,
+            "minmax({}, {})",
             self.min.print_as_css_value(),
             self.max.print_as_css_value()
         )
@@ -88,8 +90,16 @@ impl PrintAsCssValue for GridTrackSizing {
 }
 
 // C-compatible Vec for GridTrackSizing
-impl_vec!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor);
-impl_vec_clone!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor);
+impl_vec!(
+    GridTrackSizing,
+    GridTrackSizingVec,
+    GridTrackSizingVecDestructor
+);
+impl_vec_clone!(
+    GridTrackSizing,
+    GridTrackSizingVec,
+    GridTrackSizingVecDestructor
+);
 impl_vec_debug!(GridTrackSizing, GridTrackSizingVec);
 impl_vec_partialeq!(GridTrackSizing, GridTrackSizingVec);
 impl_vec_eq!(GridTrackSizing, GridTrackSizingVec);
@@ -113,7 +123,9 @@ impl core::fmt::Debug for GridTemplate {
 
 impl Default for GridTemplate {
     fn default() -> Self {
-        GridTemplate { tracks: GridTrackSizingVec::from_vec(Vec::new()) }
+        GridTemplate {
+            tracks: GridTrackSizingVec::from_vec(Vec::new()),
+        }
     }
 }
 
@@ -154,9 +166,13 @@ impl NamedGridLine {
             span_count: span.unwrap_or(0),
         }
     }
-    
+
     pub fn span(&self) -> Option<i32> {
-        if self.span_count == 0 { None } else { Some(self.span_count) }
+        if self.span_count == 0 {
+            None
+        } else {
+            Some(self.span_count)
+        }
     }
 }
 
@@ -322,7 +338,9 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
         );
     }
 
-    Ok(GridTemplate { tracks: GridTrackSizingVec::from_vec(tracks) })
+    Ok(GridTemplate {
+        tracks: GridTrackSizingVec::from_vec(tracks),
+    })
 }
 
 #[cfg(feature = "parser")]
@@ -755,7 +773,10 @@ fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     }
 
     // Otherwise treat as named line
-    Ok(GridLine::Named(NamedGridLine::new(input.to_string().into(), None)))
+    Ok(GridLine::Named(NamedGridLine::new(
+        input.to_string().into(),
+        None,
+    )))
 }
 
 #[cfg(all(test, feature = "parser"))]
@@ -773,7 +794,10 @@ mod tests {
     fn test_parse_grid_template_single_px() {
         let result = parse_grid_template("100px").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fixed(_)
+        ));
     }
 
     #[test]
@@ -786,8 +810,14 @@ mod tests {
     fn test_parse_grid_template_fr_units() {
         let result = parse_grid_template("1fr 2fr 1fr").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(200)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fr(100)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fr(200)
+        ));
     }
 
     #[test]
@@ -795,7 +825,10 @@ mod tests {
         let result = parse_grid_template("0.5fr 1.5fr").unwrap();
         assert_eq!(result.tracks.len(), 2);
         assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(50)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(150)));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fr(150)
+        ));
     }
 
     #[test]
@@ -810,15 +843,24 @@ mod tests {
     fn test_parse_grid_template_min_max_content() {
         let result = parse_grid_template("min-content max-content auto").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinContent));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::MaxContent));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::MinContent
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::MaxContent
+        ));
     }
 
     #[test]
     fn test_parse_grid_template_minmax() {
         let result = parse_grid_template("minmax(100px, 1fr)").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinMax(_)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::MinMax(_)
+        ));
     }
 
     #[test]
@@ -831,7 +873,10 @@ mod tests {
     fn test_parse_grid_template_fit_content() {
         let result = parse_grid_template("fit-content(200px)").unwrap();
         assert_eq!(result.tracks.len(), 1);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::FitContent(_)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::FitContent(_)
+        ));
     }
 
     #[test]

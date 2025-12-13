@@ -27,10 +27,8 @@ pub static CRATE_PRIORITIES: &[(&str, CratePriority)] = &[
     // Primary crates - search first
     ("azul_core", CratePriority::Primary),
     ("azul_css", CratePriority::Primary),
-
     // Secondary - search after primary
     ("azul_layout", CratePriority::Secondary),
-
     // Blacklisted - never use for type resolution
     ("azul_dll", CratePriority::Blacklisted),
 ];

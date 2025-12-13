@@ -27,6 +27,7 @@ use azul_core::{
         WindowBackgroundMaterial, WindowDecorations, WindowFrame, WindowPosition, WindowSize,
     },
 };
+use azul_css::corety::OptionU32;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     hit_test::FullHitTest,
@@ -57,7 +58,6 @@ use objc2_foundation::{
     ns_string, NSAttributedString, NSData, NSNotification, NSObject, NSPoint, NSRange, NSRect,
     NSSize, NSString, NSTimer, NSUndoManager,
 };
-use azul_css::corety::OptionU32;
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::{
@@ -1642,7 +1642,7 @@ impl MacOSWindow {
     }
 
     /// Configure VSync on an OpenGL context
-    /// 
+    ///
     /// NOTE: NSOpenGLContext setValues:forParameter: is deprecated on macOS 10.14+
     /// CVDisplayLink is the preferred approach for frame synchronization.
     /// This function is kept as a fallback but currently disabled due to
@@ -1652,12 +1652,12 @@ impl MacOSWindow {
 
         // TODO: Re-enable once objc2-open-gl feature is properly configured
         // The issue is that msg_send! expects specific type encodings:
-        // - vals: *const GLint (i32)  
+        // - vals: *const GLint (i32)
         // - param: NSOpenGLContextParameter (wraps NSInteger = isize)
         // Using raw msg_send! with incorrect types causes runtime panics.
         //
         // For now, we rely on CVDisplayLink for vsync (see initialize_display_link)
-        
+
         let swap_interval = match vsync {
             Vsync::Enabled => 1,
             Vsync::Disabled => 0,
@@ -1665,8 +1665,13 @@ impl MacOSWindow {
         };
 
         eprintln!(
-            "[MacOSWindow::configure_vsync] VSync {} requested (swap interval: {}), using CVDisplayLink instead",
-            if swap_interval == 1 { "enabled" } else { "disabled" },
+            "[MacOSWindow::configure_vsync] VSync {} requested (swap interval: {}), using \
+             CVDisplayLink instead",
+            if swap_interval == 1 {
+                "enabled"
+            } else {
+                "disabled"
+            },
             swap_interval
         );
     }

@@ -6,16 +6,18 @@
 //! - Expand impl_vec!, impl_option!, impl_vec_debug! macros during indexing
 //! - Build a fast lookup index
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::fs;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use indexmap::IndexMap;
+use quote::ToTokens;
 use rayon::prelude::*;
 use syn::{File, Item, UseTree};
-use quote::ToTokens;
 
 // Re-export RefKind from the types module for use elsewhere
 pub use crate::autofix::types::RefKind;
@@ -191,7 +193,11 @@ impl TypeDefinition {
     /// Returns the original kind if not MacroGenerated.
     pub fn expand_macro_generated(&self) -> TypeDefKind {
         match &self.kind {
-            TypeDefKind::MacroGenerated { kind, base_type, source_macro } => {
+            TypeDefKind::MacroGenerated {
+                kind,
+                base_type,
+                source_macro,
+            } => {
                 match kind {
                     MacroGeneratedKind::Vec => {
                         // impl_vec!(BaseType, VecType, DestructorType)
@@ -200,30 +206,42 @@ impl TypeDefinition {
                         let destructor_type = format!("{}Destructor", self.type_name);
                         let mut fields = IndexMap::new();
                         // ptr field type is the element type (base_type), not c_void
-                        fields.insert("ptr".to_string(), FieldDef {
-                            name: "ptr".to_string(),
-                            ty: base_type.clone(),
-                            ref_kind: RefKind::ConstPtr,
-                            doc: Vec::new(),
-                        });
-                        fields.insert("len".to_string(), FieldDef {
-                            name: "len".to_string(),
-                            ty: "usize".to_string(),
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
-                        fields.insert("cap".to_string(), FieldDef {
-                            name: "cap".to_string(),
-                            ty: "usize".to_string(),
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
-                        fields.insert("destructor".to_string(), FieldDef {
-                            name: "destructor".to_string(),
-                            ty: destructor_type,
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
+                        fields.insert(
+                            "ptr".to_string(),
+                            FieldDef {
+                                name: "ptr".to_string(),
+                                ty: base_type.clone(),
+                                ref_kind: RefKind::ConstPtr,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "len".to_string(),
+                            FieldDef {
+                                name: "len".to_string(),
+                                ty: "usize".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "cap".to_string(),
+                            FieldDef {
+                                name: "cap".to_string(),
+                                ty: "usize".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "destructor".to_string(),
+                            FieldDef {
+                                name: "destructor".to_string(),
+                                ty: destructor_type,
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -233,24 +251,34 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::VecDestructor => {
-                        // VecDestructor enum: DefaultRust, NoDestructor, External(DestructorTypeType)
+                        // VecDestructor enum: DefaultRust, NoDestructor,
+                        // External(DestructorTypeType)
                         let destructor_type_type = format!("{}Type", self.type_name);
                         let mut variants = IndexMap::new();
-                        variants.insert("DefaultRust".to_string(), VariantDef {
-                            name: "DefaultRust".to_string(),
-                            ty: None,
-                            doc: Vec::new(),
-                        });
-                        variants.insert("NoDestructor".to_string(), VariantDef {
-                            name: "NoDestructor".to_string(),
-                            ty: None,
-                            doc: Vec::new(),
-                        });
-                        variants.insert("External".to_string(), VariantDef {
-                            name: "External".to_string(),
-                            ty: Some(destructor_type_type),
-                            doc: Vec::new(),
-                        });
+                        variants.insert(
+                            "DefaultRust".to_string(),
+                            VariantDef {
+                                name: "DefaultRust".to_string(),
+                                ty: None,
+                                doc: Vec::new(),
+                            },
+                        );
+                        variants.insert(
+                            "NoDestructor".to_string(),
+                            VariantDef {
+                                name: "NoDestructor".to_string(),
+                                ty: None,
+                                doc: Vec::new(),
+                            },
+                        );
+                        variants.insert(
+                            "External".to_string(),
+                            VariantDef {
+                                name: "External".to_string(),
+                                ty: Some(destructor_type_type),
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C".to_string()),
@@ -275,16 +303,22 @@ impl TypeDefinition {
                         // impl_option!(BaseType, OptionType, ...)
                         // OptionType enum: None, Some(BaseType)
                         let mut variants = IndexMap::new();
-                        variants.insert("None".to_string(), VariantDef {
-                            name: "None".to_string(),
-                            ty: None,
-                            doc: Vec::new(),
-                        });
-                        variants.insert("Some".to_string(), VariantDef {
-                            name: "Some".to_string(),
-                            ty: Some(base_type.clone()),
-                            doc: Vec::new(),
-                        });
+                        variants.insert(
+                            "None".to_string(),
+                            VariantDef {
+                                name: "None".to_string(),
+                                ty: None,
+                                doc: Vec::new(),
+                            },
+                        );
+                        variants.insert(
+                            "Some".to_string(),
+                            VariantDef {
+                                name: "Some".to_string(),
+                                ty: Some(base_type.clone()),
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C".to_string()),
@@ -297,18 +331,24 @@ impl TypeDefinition {
                         // OptionEnumWrapper: wraps the inner type with a tag
                         // Struct with: tag (u8), value (BaseType)
                         let mut fields = IndexMap::new();
-                        fields.insert("tag".to_string(), FieldDef {
-                            name: "tag".to_string(),
-                            ty: "u8".to_string(),
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
-                        fields.insert("payload".to_string(), FieldDef {
-                            name: "payload".to_string(),
-                            ty: base_type.clone(),
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
+                        fields.insert(
+                            "tag".to_string(),
+                            FieldDef {
+                                name: "tag".to_string(),
+                                ty: "u8".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "payload".to_string(),
+                            FieldDef {
+                                name: "payload".to_string(),
+                                ty: base_type.clone(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -323,16 +363,22 @@ impl TypeDefinition {
                         // ResultType enum: Ok(OkType), Err(ErrType)
                         let (ok_type, err_type) = parse_result_base_type(base_type);
                         let mut variants = IndexMap::new();
-                        variants.insert("Ok".to_string(), VariantDef {
-                            name: "Ok".to_string(),
-                            ty: Some(ok_type),
-                            doc: Vec::new(),
-                        });
-                        variants.insert("Err".to_string(), VariantDef {
-                            name: "Err".to_string(),
-                            ty: Some(err_type),
-                            doc: Vec::new(),
-                        });
+                        variants.insert(
+                            "Ok".to_string(),
+                            VariantDef {
+                                name: "Ok".to_string(),
+                                ty: Some(ok_type),
+                                doc: Vec::new(),
+                            },
+                        );
+                        variants.insert(
+                            "Err".to_string(),
+                            VariantDef {
+                                name: "Err".to_string(),
+                                ty: Some(err_type),
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Enum {
                             variants,
                             repr: Some("C".to_string()),
@@ -342,21 +388,28 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::CallbackWrapper => {
-                        // impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType)
-                        // CallbackWrapper struct: cb (CallbackValue), data (RefAny)
+                        // impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
+                        // CallbackType) CallbackWrapper struct: cb
+                        // (CallbackValue), data (RefAny)
                         let mut fields = IndexMap::new();
-                        fields.insert("cb".to_string(), FieldDef {
-                            name: "cb".to_string(),
-                            ty: base_type.clone(), // CallbackValue
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
-                        fields.insert("data".to_string(), FieldDef {
-                            name: "data".to_string(),
-                            ty: "RefAny".to_string(),
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
+                        fields.insert(
+                            "cb".to_string(),
+                            FieldDef {
+                                name: "cb".to_string(),
+                                ty: base_type.clone(), // CallbackValue
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "data".to_string(),
+                            FieldDef {
+                                name: "data".to_string(),
+                                ty: "RefAny".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -368,12 +421,15 @@ impl TypeDefinition {
                     MacroGeneratedKind::CallbackValue => {
                         // CallbackValue struct: cb (CallbackType - the extern "C" fn)
                         let mut fields = IndexMap::new();
-                        fields.insert("cb".to_string(), FieldDef {
-                            name: "cb".to_string(),
-                            ty: base_type.clone(), // CallbackType
-                            ref_kind: RefKind::Value,
-                            doc: Vec::new(),
-                        });
+                        fields.insert(
+                            "cb".to_string(),
+                            FieldDef {
+                                name: "cb".to_string(),
+                                ty: base_type.clone(), // CallbackType
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
                         TypeDefKind::Struct {
                             fields,
                             repr: Some("C".to_string()),
@@ -388,83 +444,124 @@ impl TypeDefinition {
             other => other.clone(),
         }
     }
-    
+
     /// Get the expanded kind (expands MacroGenerated, returns original otherwise)
     pub fn get_expanded_kind(&self) -> TypeDefKind {
         self.expand_macro_generated()
     }
-    
+
     /// Check if this is a MacroGenerated type
     pub fn is_macro_generated(&self) -> bool {
         matches!(&self.kind, TypeDefKind::MacroGenerated { .. })
     }
-    
+
     /// Convert TypeDefinition to ParsedTypeInfo (for compatibility with existing code)
     /// This expands MacroGenerated types into their real Struct/Enum/CallbackTypedef form
     pub fn to_parsed_type_info(&self) -> crate::patch::index::ParsedTypeInfo {
-        use crate::patch::index::{ParsedTypeInfo, TypeKind, FieldInfo, VariantInfo, CallbackArgInfo};
-        use crate::api::BorrowMode;
-        
+        use crate::{
+            api::BorrowMode,
+            patch::index::{CallbackArgInfo, FieldInfo, ParsedTypeInfo, TypeKind, VariantInfo},
+        };
+
         // Get the expanded kind (expands MacroGenerated to real types)
         let expanded_kind = self.expand_macro_generated();
-        
+
         // Convert module_path from "mod1::mod2" to vec!["mod1", "mod2"]
         let module_path: Vec<String> = if self.module_path.is_empty() {
             vec![]
         } else {
-            self.module_path.split("::").map(|s| s.to_string()).collect()
+            self.module_path
+                .split("::")
+                .map(|s| s.to_string())
+                .collect()
         };
-        
+
         // Convert TypeDefKind to TypeKind
         let kind = match expanded_kind {
-            TypeDefKind::Struct { fields, repr, generic_params, derives, custom_impls } => {
-                TypeKind::Struct {
-                    fields: fields.into_iter().map(|(name, field)| {
-                        (name.clone(), FieldInfo {
-                            name,
-                            ty: field.ty,
-                            ref_kind: field.ref_kind,
-                            doc: if field.doc.is_empty() { None } else { Some(field.doc) },
-                        })
-                    }).collect(),
-                    repr,
-                    doc: None,
-                    generic_params,
-                    implemented_traits: custom_impls,
-                    derives,
-                }
-            }
-            TypeDefKind::Enum { variants, repr, generic_params, derives, custom_impls } => {
-                TypeKind::Enum {
-                    variants: variants.into_iter().map(|(name, variant)| {
-                        (name.clone(), VariantInfo {
-                            name,
-                            ty: variant.ty,
-                            doc: if variant.doc.is_empty() { None } else { Some(variant.doc) },
-                        })
-                    }).collect(),
-                    repr,
-                    doc: None,
-                    generic_params,
-                    implemented_traits: custom_impls,
-                    derives,
-                }
-            }
-            TypeDefKind::TypeAlias { target, generic_base, generic_args } => {
-                TypeKind::TypeAlias {
-                    target,
-                    generic_base,
-                    generic_args,
-                    doc: None,
-                }
-            }
+            TypeDefKind::Struct {
+                fields,
+                repr,
+                generic_params,
+                derives,
+                custom_impls,
+            } => TypeKind::Struct {
+                fields: fields
+                    .into_iter()
+                    .map(|(name, field)| {
+                        (
+                            name.clone(),
+                            FieldInfo {
+                                name,
+                                ty: field.ty,
+                                ref_kind: field.ref_kind,
+                                doc: if field.doc.is_empty() {
+                                    None
+                                } else {
+                                    Some(field.doc)
+                                },
+                            },
+                        )
+                    })
+                    .collect(),
+                repr,
+                doc: None,
+                generic_params,
+                implemented_traits: custom_impls,
+                derives,
+            },
+            TypeDefKind::Enum {
+                variants,
+                repr,
+                generic_params,
+                derives,
+                custom_impls,
+            } => TypeKind::Enum {
+                variants: variants
+                    .into_iter()
+                    .map(|(name, variant)| {
+                        (
+                            name.clone(),
+                            VariantInfo {
+                                name,
+                                ty: variant.ty,
+                                doc: if variant.doc.is_empty() {
+                                    None
+                                } else {
+                                    Some(variant.doc)
+                                },
+                            },
+                        )
+                    })
+                    .collect(),
+                repr,
+                doc: None,
+                generic_params,
+                implemented_traits: custom_impls,
+                derives,
+            },
+            TypeDefKind::TypeAlias {
+                target,
+                generic_base,
+                generic_args,
+            } => TypeKind::TypeAlias {
+                target,
+                generic_base,
+                generic_args,
+                doc: None,
+            },
             TypeDefKind::CallbackTypedef { args, returns } => {
                 TypeKind::CallbackTypedef {
-                    fn_args: args.into_iter().map(|arg| {
-                        // Keep RefKind as-is - no conversion needed anymore
-                        // The api.json CallbackArgData now uses RefKind directly
-                        CallbackArgInfo { ty: arg.ty, ref_kind: arg.ref_kind }
-                    }).collect(),
+                    fn_args: args
+                        .into_iter()
+                        .map(|arg| {
+                            // Keep RefKind as-is - no conversion needed anymore
+                            // The api.json CallbackArgData now uses RefKind directly
+                            CallbackArgInfo {
+                                ty: arg.ty,
+                                ref_kind: arg.ref_kind,
+                            }
+                        })
+                        .collect(),
                     returns,
                     doc: None,
                 }
@@ -481,7 +578,7 @@ impl TypeDefinition {
                 }
             }
         };
-        
+
         ParsedTypeInfo {
             full_path: self.full_path.clone(),
             type_name: self.type_name.clone(),
@@ -497,7 +594,7 @@ impl TypeDefinition {
 fn parse_result_base_type(base_type: &str) -> (String, String) {
     // Handle "Result<OkType, ErrType>" format
     if base_type.starts_with("Result<") && base_type.ends_with('>') {
-        let inner = &base_type[7..base_type.len()-1];
+        let inner = &base_type[7..base_type.len() - 1];
         // Split by comma, handling nested generics
         if let Some((ok, err)) = split_generic_args(inner) {
             return (ok.trim().to_string(), err.trim().to_string());
@@ -515,7 +612,7 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
             '<' => depth += 1,
             '>' => depth -= 1,
             ',' if depth == 0 => {
-                return Some((s[..i].to_string(), s[i+1..].to_string()));
+                return Some((s[..i].to_string(), s[i + 1..].to_string()));
             }
             _ => {}
         }
@@ -572,9 +669,7 @@ impl TypeIndex {
         // Parse files in parallel
         let results: Vec<_> = all_files
             .par_iter()
-            .map(|(crate_name, file_path)| {
-                parse_file_for_types(crate_name, file_path)
-            })
+            .map(|(crate_name, file_path)| parse_file_for_types(crate_name, file_path))
             .collect();
 
         // Merge results
@@ -616,7 +711,11 @@ impl TypeIndex {
     }
 
     /// Find the best match for a type name, preferring certain crates
-    pub fn resolve(&self, type_name: &str, preferred_crate: Option<&str>) -> Option<&TypeDefinition> {
+    pub fn resolve(
+        &self,
+        type_name: &str,
+        preferred_crate: Option<&str>,
+    ) -> Option<&TypeDefinition> {
         let candidates = self.by_name.get(type_name)?;
 
         if candidates.is_empty() {
@@ -661,8 +760,9 @@ impl TypeIndex {
 
             // Prefer types with repr(C) or other FFI-safe repr
             let has_ffi_repr = match &candidate.kind {
-                TypeDefKind::Struct { repr, .. } |
-                TypeDefKind::Enum { repr, .. } => is_ffi_safe_repr(repr),
+                TypeDefKind::Struct { repr, .. } | TypeDefKind::Enum { repr, .. } => {
+                    is_ffi_safe_repr(repr)
+                }
                 _ => false,
             };
             if has_ffi_repr {
@@ -691,13 +791,12 @@ impl TypeIndex {
     /// Check if a type name is a primitive
     pub fn is_primitive(type_name: &str) -> bool {
         const PRIMITIVES: &[&str] = &[
-            "i8", "i16", "i32", "i64", "i128", "isize",
-            "u8", "u16", "u32", "u64", "u128", "usize",
+            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
             "f32", "f64", "bool", "char", "()", "c_void",
         ];
-        
+
         let trimmed = type_name.trim();
-        
+
         // Direct primitive check
         if PRIMITIVES.contains(&trimmed) {
             return true;
@@ -725,7 +824,7 @@ impl TypeIndex {
     pub fn all_type_names(&self) -> impl Iterator<Item = &String> {
         self.by_name.keys()
     }
-    
+
     /// Iterate over all types in the index, yielding (type_name, Vec<TypeDefinition>)
     pub fn iter_all(&self) -> impl Iterator<Item = (&String, &Vec<Arc<TypeDefinition>>)> {
         self.by_name.iter()
@@ -742,7 +841,10 @@ impl TypeIndex {
         let full_path = if typedef.module_path.is_empty() {
             format!("{}::{}", typedef.crate_name, typedef.type_name)
         } else {
-            format!("{}::{}::{}", typedef.crate_name, typedef.module_path, typedef.type_name)
+            format!(
+                "{}::{}::{}",
+                typedef.crate_name, typedef.module_path, typedef.type_name
+            )
         };
         let arc = Arc::new(typedef.clone());
         self.by_name
@@ -751,11 +853,11 @@ impl TypeIndex {
             .push(Arc::clone(&arc));
         self.by_path.insert(full_path, arc);
     }
-    
+
     // ========================================================================
     // COMPATIBILITY METHODS (for WorkspaceIndex replacement)
     // ========================================================================
-    
+
     /// Find a type by name and return as ParsedTypeInfo (WorkspaceIndex compatibility)
     /// Also tries with "Az" prefix if not found
     pub fn find_type(&self, type_name: &str) -> Option<Vec<crate::patch::index::ParsedTypeInfo>> {
@@ -776,10 +878,13 @@ impl TypeIndex {
         }
         None
     }
-    
+
     /// Find a type by full path and return as ParsedTypeInfo (WorkspaceIndex compatibility)
     /// Also tries with "Az" prefix if not found
-    pub fn find_type_by_path(&self, type_path: &str) -> Option<crate::patch::index::ParsedTypeInfo> {
+    pub fn find_type_by_path(
+        &self,
+        type_path: &str,
+    ) -> Option<crate::patch::index::ParsedTypeInfo> {
         // Try exact match first
         if let Some(def) = self.by_path.get(type_path) {
             return Some(def.to_parsed_type_info());
@@ -793,17 +898,27 @@ impl TypeIndex {
                 format!("Az{}", type_path)
             }
         };
-        self.by_path.get(&az_prefixed_path).map(|d| d.to_parsed_type_info())
+        self.by_path
+            .get(&az_prefixed_path)
+            .map(|d| d.to_parsed_type_info())
     }
-    
+
     /// Resolve a type by name and return as ParsedTypeInfo
-    pub fn resolve_as_parsed_type_info(&self, type_name: &str, preferred_crate: Option<&str>) -> Option<crate::patch::index::ParsedTypeInfo> {
-        self.resolve(type_name, preferred_crate).map(|d| d.to_parsed_type_info())
+    pub fn resolve_as_parsed_type_info(
+        &self,
+        type_name: &str,
+        preferred_crate: Option<&str>,
+    ) -> Option<crate::patch::index::ParsedTypeInfo> {
+        self.resolve(type_name, preferred_crate)
+            .map(|d| d.to_parsed_type_info())
     }
-    
+
     /// Find type by string search (for compatibility with WorkspaceIndex)
     /// This uses the existing resolve mechanism but always expands MacroGenerated types
-    pub fn find_type_by_string_search(&self, type_name: &str) -> Option<crate::patch::index::ParsedTypeInfo> {
+    pub fn find_type_by_string_search(
+        &self,
+        type_name: &str,
+    ) -> Option<crate::patch::index::ParsedTypeInfo> {
         // First try exact name match
         if let Some(def) = self.resolve(type_name, None) {
             return Some(def.to_parsed_type_info());
@@ -830,7 +945,7 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
 
     for entry in entries.flatten() {
         let path = entry.path();
-        
+
         // Skip excluded paths (tests, examples, build.rs, etc.)
         if crate::autofix::module_map::should_exclude_path(&path) {
             continue;
@@ -858,7 +973,7 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 
     let module_path = infer_module_path(crate_name, file_path);
     let mut types = Vec::new();
-    
+
     // First pass: collect all type definitions
     for item in &syntax_tree.items {
         match item {
@@ -885,7 +1000,8 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 
             Item::Macro(m) => {
                 // Handle impl_vec!, impl_option!, etc.
-                let generated = extract_macro_generated_types(crate_name, &module_path, file_path, m);
+                let generated =
+                    extract_macro_generated_types(crate_name, &module_path, file_path, m);
                 types.extend(generated);
             }
 
@@ -898,7 +1014,8 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
                     } else {
                         format!("{}::{}", module_path, mod_name)
                     };
-                    let nested_types = extract_types_from_items(crate_name, &nested_module_path, file_path, items);
+                    let nested_types =
+                        extract_types_from_items(crate_name, &nested_module_path, file_path, items);
                     types.extend(nested_types);
                 }
             }
@@ -910,7 +1027,7 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
     // Second pass: extract manual trait implementations (`impl Trait for Type`)
     // and attach them to the corresponding type definitions
     let custom_impls_map = extract_custom_impls_from_items(&syntax_tree.items);
-    
+
     // Attach custom_impls to types
     for typedef in &mut types {
         if let Some(impls) = custom_impls_map.get(&typedef.type_name) {
@@ -930,37 +1047,43 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 }
 
 /// Extract types from a list of items (used for both top-level and nested modules)
-fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Path, items: &[Item]) -> Vec<TypeDefinition> {
+fn extract_types_from_items(
+    crate_name: &str,
+    module_path: &str,
+    file_path: &Path,
+    items: &[Item],
+) -> Vec<TypeDefinition> {
     let mut types = Vec::new();
-    
+
     // First pass: collect type definitions
     for item in items {
         match item {
             Item::Use(_) => continue,
-            
+
             Item::Struct(s) => {
                 if let Some(typedef) = extract_struct(crate_name, module_path, file_path, s) {
                     types.push(typedef);
                 }
             }
-            
+
             Item::Enum(e) => {
                 if let Some(typedef) = extract_enum(crate_name, module_path, file_path, e) {
                     types.push(typedef);
                 }
             }
-            
+
             Item::Type(t) => {
                 if let Some(typedef) = extract_type_alias(crate_name, module_path, file_path, t) {
                     types.push(typedef);
                 }
             }
-            
+
             Item::Macro(m) => {
-                let generated = extract_macro_generated_types(crate_name, module_path, file_path, m);
+                let generated =
+                    extract_macro_generated_types(crate_name, module_path, file_path, m);
                 types.extend(generated);
             }
-            
+
             Item::Mod(m) => {
                 // Recursively handle nested modules
                 if let Some((_, nested_items)) = &m.content {
@@ -970,15 +1093,20 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
                     } else {
                         format!("{}::{}", module_path, mod_name)
                     };
-                    let nested_types = extract_types_from_items(crate_name, &nested_module_path, file_path, nested_items);
+                    let nested_types = extract_types_from_items(
+                        crate_name,
+                        &nested_module_path,
+                        file_path,
+                        nested_items,
+                    );
                     types.extend(nested_types);
                 }
             }
-            
+
             _ => {}
         }
     }
-    
+
     // Second pass: extract custom trait implementations and attach to types
     let custom_impls_map = extract_custom_impls_from_items(items);
     for typedef in &mut types {
@@ -986,7 +1114,7 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
             attach_custom_impls(typedef, impls.clone());
         }
     }
-    
+
     // Third pass: extract inherent methods and attach to types
     let methods_map = extract_inherent_methods_from_items(items);
     for typedef in &mut types {
@@ -994,7 +1122,7 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
             attach_methods(typedef, methods.clone());
         }
     }
-    
+
     types
 }
 
@@ -1002,7 +1130,7 @@ fn extract_types_from_items(crate_name: &str, module_path: &str, file_path: &Pat
 fn infer_module_path(crate_name: &str, file_path: &Path) -> String {
     // Extract path components after "src/"
     let path_str = file_path.to_string_lossy();
-    
+
     let after_src = if let Some(idx) = path_str.find("/src/") {
         &path_str[idx + 5..]
     } else {
@@ -1011,8 +1139,12 @@ fn infer_module_path(crate_name: &str, file_path: &Path) -> String {
 
     // Remove .rs extension and handle mod.rs/lib.rs
     let without_ext = after_src.trim_end_matches(".rs");
-    
-    if without_ext == "lib" || without_ext == "mod" || without_ext.ends_with("/mod") || without_ext.ends_with("/lib") {
+
+    if without_ext == "lib"
+        || without_ext == "mod"
+        || without_ext.ends_with("/mod")
+        || without_ext.ends_with("/lib")
+    {
         // lib.rs or mod.rs - module path is the parent directory
         let parent = without_ext.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
         parent.replace('/', "::")
@@ -1043,7 +1175,12 @@ fn strip_az_prefix(type_name: &str) -> String {
     if type_name.starts_with("Az") && type_name.len() > 2 {
         // Check that the character after "Az" is uppercase (to avoid stripping "Azure" etc.)
         let after_az = &type_name[2..];
-        if after_az.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+        if after_az
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
+        {
             return after_az.to_string();
         }
     }
@@ -1063,12 +1200,16 @@ fn extract_type_name(ty: &syn::Type) -> String {
                 // Check if there are generic arguments
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                     // Recursively extract type names for generic arguments
-                    let generic_args: Vec<String> = args.args.iter().filter_map(|arg| {
-                        match arg {
-                            syn::GenericArgument::Type(inner_ty) => Some(extract_type_name(inner_ty)),
+                    let generic_args: Vec<String> = args
+                        .args
+                        .iter()
+                        .filter_map(|arg| match arg {
+                            syn::GenericArgument::Type(inner_ty) => {
+                                Some(extract_type_name(inner_ty))
+                            }
                             _ => None,
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     if generic_args.is_empty() {
                         ident
                     } else {
@@ -1120,8 +1261,8 @@ fn extract_type_name(ty: &syn::Type) -> String {
 }
 
 /// Extract field type and ref_kind for struct fields.
-/// For pointer types (*const T, *mut T), Box<T>, and Option<Box<T>>, the type is replaced with "c_void"
-/// and the ref_kind is set appropriately. This prevents recursion through opaque pointers.
+/// For pointer types (*const T, *mut T), Box<T>, and Option<Box<T>>, the type is replaced with
+/// "c_void" and the ref_kind is set appropriately. This prevents recursion through opaque pointers.
 fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
     match ty {
         syn::Type::Ptr(ptr_type) => {
@@ -1149,7 +1290,8 @@ fn extract_struct_field_type(ty: &syn::Type) -> (String, RefKind) {
                             if let syn::Type::Path(inner_path) = inner_ty {
                                 if let Some(inner_segment) = inner_path.path.segments.last() {
                                     if inner_segment.ident == "Box" {
-                                        // Option<Box<T>> -> type becomes "c_void", ref_kind is MutPtr
+                                        // Option<Box<T>> -> type becomes "c_void", ref_kind is
+                                        // MutPtr
                                         // (nullable pointer, same as Option<Box<T>> in FFI)
                                         return ("c_void".to_string(), RefKind::MutPtr);
                                     }
@@ -1286,10 +1428,10 @@ fn extract_enum(
 
 /// Extract reference kind and base type from a syn::Type
 /// Returns (base_type_string, RefKind)
-/// 
+///
 /// For raw pointers (*mut T, *const T), we return the FULL type string and RefKind::Value
 /// because pointers are passed by value in C FFI. This matches api.json conventions.
-/// 
+///
 /// For references (&T, &mut T), we return the base type and RefKind::Ref/RefMut.
 fn extract_ref_kind_from_syn_type(ty: &syn::Type) -> (String, RefKind) {
     match ty {
@@ -1371,10 +1513,10 @@ fn extract_type_alias(
 
     // Try to extract generic arguments from the type
     let (generic_base, generic_args) = extract_generic_args_from_type(&t.ty);
-    
+
     // Extract just the type name for the target, not the full path
     let target = extract_type_name(&t.ty);
-    
+
     Some(TypeDefinition {
         full_path,
         type_name,
@@ -1399,10 +1541,12 @@ fn extract_generic_args_from_type(ty: &syn::Type) -> (Option<String>, Vec<String
             // Get the last segment (the actual type name)
             if let Some(segment) = type_path.path.segments.last() {
                 let base_type = segment.ident.to_string();
-                
+
                 // Check for generic arguments
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    let generic_args: Vec<String> = args.args.iter()
+                    let generic_args: Vec<String> = args
+                        .args
+                        .iter()
                         .filter_map(|arg| {
                             match arg {
                                 syn::GenericArgument::Type(ty) => {
@@ -1414,7 +1558,7 @@ fn extract_generic_args_from_type(ty: &syn::Type) -> (Option<String>, Vec<String
                             }
                         })
                         .collect();
-                    
+
                     if !generic_args.is_empty() {
                         return (Some(base_type), generic_args);
                     }
@@ -1436,7 +1580,10 @@ fn extract_macro_generated_types(
     let mut types = Vec::new();
 
     // Get macro name
-    let macro_name = m.mac.path.segments
+    let macro_name = m
+        .mac
+        .path
+        .segments
         .last()
         .map(|s| s.ident.to_string())
         .unwrap_or_default();
@@ -1512,19 +1659,20 @@ fn extract_macro_generated_types(
         "impl_option" => {
             // impl_option! can have different forms:
             // impl_option!(BaseType, OptionType, EnumWrapperType, [tag_type])  - 3+ args
-            // impl_option!(BaseType, OptionType, copy = false, [...])          - 2 args (no wrapper)
-            // impl_option!(BaseType, OptionType, [...])                        - 2 args (no wrapper)
+            // impl_option!(BaseType, OptionType, copy = false, [...])          - 2 args (no
+            // wrapper) impl_option!(BaseType, OptionType, [...])
+            // - 2 args (no wrapper)
             if args.len() >= 2 {
                 let base_type = args[0].to_string();
                 let option_type = args[1].to_string();
-                
+
                 // Check if 3rd arg looks like a type name (not "copy" or "[")
                 let has_wrapper = args.len() >= 3 && {
                     let third = args[2].trim();
-                    !third.starts_with("copy") && 
-                    !third.starts_with("clone") && 
-                    !third.starts_with("[") &&
-                    !third.is_empty()
+                    !third.starts_with("copy")
+                        && !third.starts_with("clone")
+                        && !third.starts_with("[")
+                        && !third.is_empty()
                 };
 
                 // OptionType (always generated)
@@ -1558,7 +1706,7 @@ fn extract_macro_generated_types(
                             kind: MacroGeneratedKind::OptionEnumWrapper,
                         },
                         source_code: m.to_token_stream().to_string(),
-                    methods: Vec::new(),
+                        methods: Vec::new(),
                     });
                 }
             }
@@ -1652,10 +1800,10 @@ fn extract_macro_generated_types(
         // ====================================================================
         // CSS PROPERTY MACROS - Generate wrapper structs around PixelValue/etc.
         // ====================================================================
-        
         "define_dimension_property" => {
-            // define_dimension_property!(LayoutMaxWidth, || Self { inner: PixelValue::px(core::f32::MAX) });
-            // Generates a struct with #[repr(C)] and inner: PixelValue
+            // define_dimension_property!(LayoutMaxWidth, || Self { inner:
+            // PixelValue::px(core::f32::MAX) }); Generates a struct with #[repr(C)] and
+            // inner: PixelValue
             if !args.is_empty() {
                 let struct_name = args[0].to_string();
                 types.push(TypeDefinition {
@@ -1667,20 +1815,28 @@ fn extract_macro_generated_types(
                     kind: TypeDefKind::Struct {
                         fields: {
                             let mut fields = IndexMap::new();
-                            fields.insert("inner".to_string(), FieldDef {
-                                name: "inner".to_string(),
-                                ty: "PixelValue".to_string(),
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            });
+                            fields.insert(
+                                "inner".to_string(),
+                                FieldDef {
+                                    name: "inner".to_string(),
+                                    ty: "PixelValue".to_string(),
+                                    ref_kind: RefKind::Value,
+                                    doc: Vec::new(),
+                                },
+                            );
                             fields
                         },
                         repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
-                            "Debug".to_string(), "Copy".to_string(), "Clone".to_string(),
-                            "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
-                            "Ord".to_string(), "Hash".to_string(),
+                            "Debug".to_string(),
+                            "Copy".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                            "Eq".to_string(),
+                            "PartialOrd".to_string(),
+                            "Ord".to_string(),
+                            "Hash".to_string(),
                         ],
                         custom_impls: vec![],
                     },
@@ -1704,20 +1860,28 @@ fn extract_macro_generated_types(
                     kind: TypeDefKind::Struct {
                         fields: {
                             let mut fields = IndexMap::new();
-                            fields.insert("inner".to_string(), FieldDef {
-                                name: "inner".to_string(),
-                                ty: "PixelValue".to_string(),
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            });
+                            fields.insert(
+                                "inner".to_string(),
+                                FieldDef {
+                                    name: "inner".to_string(),
+                                    ty: "PixelValue".to_string(),
+                                    ref_kind: RefKind::Value,
+                                    doc: Vec::new(),
+                                },
+                            );
                             fields
                         },
                         repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
-                            "Default".to_string(), "Copy".to_string(), "Clone".to_string(),
-                            "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
-                            "Ord".to_string(), "Hash".to_string(),
+                            "Default".to_string(),
+                            "Copy".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                            "Eq".to_string(),
+                            "PartialOrd".to_string(),
+                            "Ord".to_string(),
+                            "Hash".to_string(),
                         ],
                         custom_impls: vec![],
                     },
@@ -1730,15 +1894,16 @@ fn extract_macro_generated_types(
         "define_border_side_property" => {
             // define_border_side_property!(StyleBorderTopStyle, BorderStyle, BorderStyle::None);
             // define_border_side_property!(StyleBorderTopColor, ColorU);
-            // define_border_side_property!(LayoutBorderTopWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
+            // define_border_side_property!(LayoutBorderTopWidth, PixelValue,
+            // MEDIUM_BORDER_THICKNESS);
             if !args.is_empty() {
                 let struct_name = args[0].to_string();
-                let inner_type = if args.len() > 1 { 
-                    args[1].to_string() 
-                } else { 
-                    "PixelValue".to_string() 
+                let inner_type = if args.len() > 1 {
+                    args[1].to_string()
+                } else {
+                    "PixelValue".to_string()
                 };
-                
+
                 types.push(TypeDefinition {
                     full_path: build_full_path(crate_name, module_path, &struct_name),
                     type_name: struct_name.clone(),
@@ -1748,20 +1913,27 @@ fn extract_macro_generated_types(
                     kind: TypeDefKind::Struct {
                         fields: {
                             let mut fields = IndexMap::new();
-                            fields.insert("inner".to_string(), FieldDef {
-                                name: "inner".to_string(),
-                                ty: inner_type,
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            });
+                            fields.insert(
+                                "inner".to_string(),
+                                FieldDef {
+                                    name: "inner".to_string(),
+                                    ty: inner_type,
+                                    ref_kind: RefKind::Value,
+                                    doc: Vec::new(),
+                                },
+                            );
                             fields
                         },
                         repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
-                            "Copy".to_string(), "Clone".to_string(),
-                            "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
-                            "Ord".to_string(), "Hash".to_string(),
+                            "Copy".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                            "Eq".to_string(),
+                            "PartialOrd".to_string(),
+                            "Ord".to_string(),
+                            "Hash".to_string(),
                         ],
                         custom_impls: vec![],
                     },
@@ -1785,20 +1957,28 @@ fn extract_macro_generated_types(
                     kind: TypeDefKind::Struct {
                         fields: {
                             let mut fields = IndexMap::new();
-                            fields.insert("inner".to_string(), FieldDef {
-                                name: "inner".to_string(),
-                                ty: "PixelValue".to_string(),
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            });
+                            fields.insert(
+                                "inner".to_string(),
+                                FieldDef {
+                                    name: "inner".to_string(),
+                                    ty: "PixelValue".to_string(),
+                                    ref_kind: RefKind::Value,
+                                    doc: Vec::new(),
+                                },
+                            );
                             fields
                         },
                         repr: Some("C".to_string()),
                         generic_params: vec![],
                         derives: vec![
-                            "Default".to_string(), "Copy".to_string(), "Clone".to_string(),
-                            "PartialEq".to_string(), "Eq".to_string(), "PartialOrd".to_string(),
-                            "Ord".to_string(), "Hash".to_string(),
+                            "Default".to_string(),
+                            "Copy".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                            "Eq".to_string(),
+                            "PartialOrd".to_string(),
+                            "Ord".to_string(),
+                            "Hash".to_string(),
                         ],
                         custom_impls: vec![],
                     },
@@ -1829,7 +2009,8 @@ fn extract_repr_attr(attrs: &[syn::Attribute]) -> Option<String> {
         if let syn::Meta::List(list) = &attr.meta {
             let tokens = list.tokens.to_string();
             // Clean up whitespace
-            let repr_value = tokens.split(',')
+            let repr_value = tokens
+                .split(',')
                 .map(|s| s.trim())
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -1847,9 +2028,16 @@ fn is_ffi_safe_repr(repr: &Option<String>) -> bool {
         Some(r) => {
             r.contains("C")
                 || r.contains("transparent")
-                || r == "u8" || r == "u16" || r == "u32" || r == "u64"
-                || r == "i8" || r == "i16" || r == "i32" || r == "i64"
-                || r == "usize" || r == "isize"
+                || r == "u8"
+                || r == "u16"
+                || r == "u32"
+                || r == "u64"
+                || r == "i8"
+                || r == "i16"
+                || r == "i32"
+                || r == "i64"
+                || r == "usize"
+                || r == "isize"
         }
         None => false,
     }
@@ -1878,54 +2066,68 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
 /// Returns a map from type name to list of implemented traits.
 fn extract_custom_impls_from_items(items: &[Item]) -> HashMap<String, Vec<String>> {
     let mut custom_impls: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     for item in items {
         if let Item::Impl(impl_item) = item {
             // Only interested in `impl Trait for Type`, not inherent impls
             if let Some((_, trait_path, _)) = &impl_item.trait_ {
                 // Get the trait name (last segment of path)
-                let trait_name = trait_path.segments.last()
+                let trait_name = trait_path
+                    .segments
+                    .last()
                     .map(|seg| seg.ident.to_string())
                     .unwrap_or_default();
-                
+
                 // Get the type name that this trait is implemented for
                 if let syn::Type::Path(type_path) = impl_item.self_ty.as_ref() {
-                    let type_name = type_path.path.segments.last()
+                    let type_name = type_path
+                        .path
+                        .segments
+                        .last()
                         .map(|seg| seg.ident.to_string())
                         .unwrap_or_default();
-                    
+
                     // We're interested in standard traits that affect code generation
                     let relevant_traits = [
-                        "Clone", "Copy", "Debug", "Default", "Drop",
-                        "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
-                        "Display", "From", "Into", "AsRef", "AsMut",
-                        "Deref", "DerefMut", "Iterator", "IntoIterator",
+                        "Clone",
+                        "Copy",
+                        "Debug",
+                        "Default",
+                        "Drop",
+                        "PartialEq",
+                        "Eq",
+                        "PartialOrd",
+                        "Ord",
+                        "Hash",
+                        "Display",
+                        "From",
+                        "Into",
+                        "AsRef",
+                        "AsMut",
+                        "Deref",
+                        "DerefMut",
+                        "Iterator",
+                        "IntoIterator",
                     ];
-                    
+
                     if relevant_traits.contains(&trait_name.as_str()) && !type_name.is_empty() {
-                        custom_impls
-                            .entry(type_name)
-                            .or_default()
-                            .push(trait_name);
+                        custom_impls.entry(type_name).or_default().push(trait_name);
                     }
                 }
             }
         }
-        
+
         // Recursively handle inline modules
         if let Item::Mod(m) = item {
             if let Some((_, nested_items)) = &m.content {
                 let nested_impls = extract_custom_impls_from_items(nested_items);
                 for (type_name, traits) in nested_impls {
-                    custom_impls
-                        .entry(type_name)
-                        .or_default()
-                        .extend(traits);
+                    custom_impls.entry(type_name).or_default().extend(traits);
                 }
             }
         }
     }
-    
+
     custom_impls
 }
 
@@ -1951,27 +2153,30 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
 /// Returns a map from type name to list of methods
 fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<MethodDef>> {
     let mut methods_map: HashMap<String, Vec<MethodDef>> = HashMap::new();
-    
+
     for item in items {
         if let Item::Impl(impl_item) = item {
             // Only interested in inherent impls (no trait)
             if impl_item.trait_.is_some() {
                 continue;
             }
-            
+
             // Get the type name that this impl block is for
             let type_name = if let syn::Type::Path(type_path) = impl_item.self_ty.as_ref() {
-                type_path.path.segments.last()
+                type_path
+                    .path
+                    .segments
+                    .last()
                     .map(|seg| seg.ident.to_string())
                     .unwrap_or_default()
             } else {
                 continue;
             };
-            
+
             if type_name.is_empty() {
                 continue;
             }
-            
+
             // Extract methods from this impl block
             for impl_item_fn in &impl_item.items {
                 if let syn::ImplItem::Fn(method) = impl_item_fn {
@@ -1984,31 +2189,28 @@ fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<Me
                 }
             }
         }
-        
+
         // Recursively handle inline modules
         if let Item::Mod(m) = item {
             if let Some((_, nested_items)) = &m.content {
                 let nested_methods = extract_inherent_methods_from_items(nested_items);
                 for (type_name, methods) in nested_methods {
-                    methods_map
-                        .entry(type_name)
-                        .or_default()
-                        .extend(methods);
+                    methods_map.entry(type_name).or_default().extend(methods);
                 }
             }
         }
     }
-    
+
     methods_map
 }
 
 /// Extract a single method definition from an ImplItemFn
 fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
     let method_name = method.sig.ident.to_string();
-    
+
     // Check visibility (pub or not) - vis is on the method, not the sig
     let is_public = matches!(&method.vis, syn::Visibility::Public(_));
-    
+
     // Determine self kind
     let self_kind: Option<SelfKind> = match method.sig.receiver() {
         None => None,
@@ -2024,7 +2226,7 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             }
         }
     };
-    
+
     // Determine if this is a constructor
     // Heuristics: no self parameter AND (returns Self, type_name, Result<Self, _>, or Option<Self>)
     let is_constructor = self_kind.is_none() && {
@@ -2043,16 +2245,15 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
                 }
                 // Check for Option<Self> or Option<TypeName>
                 else if ret_str.starts_with("Option<") && ret_str.ends_with('>') {
-                    let inner = &ret_str[7..ret_str.len()-1]; // Extract inner type
+                    let inner = &ret_str[7..ret_str.len() - 1]; // Extract inner type
                     inner == "Self" || inner == type_name
-                }
-                else {
+                } else {
                     false
                 }
             }
         }
     };
-    
+
     // Extract arguments (skip self)
     let mut args = Vec::new();
     for arg in &method.sig.inputs {
@@ -2063,10 +2264,10 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             } else {
                 continue;
             };
-            
+
             // Get type and ref kind
             let (ty, ref_kind) = extract_ref_kind_from_syn_type(&pat_type.ty);
-            
+
             args.push(MethodArg {
                 name: arg_name,
                 ty,
@@ -2074,7 +2275,7 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             });
         }
     }
-    
+
     // Extract return type and ref kind
     let (return_type, return_ref_kind) = match &method.sig.output {
         syn::ReturnType::Default => (None, RefKind::Value),
@@ -2087,10 +2288,10 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             }
         }
     };
-    
+
     // Extract doc comments
     let doc = extract_doc_comments(&method.attrs);
-    
+
     Some(MethodDef {
         name: method_name,
         self_kind,
@@ -2114,7 +2315,11 @@ fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<String> {
     for attr in attrs {
         if attr.path().is_ident("doc") {
             if let syn::Meta::NameValue(nv) = &attr.meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) = &nv.value
+                {
                     // Preserve the line as-is, including empty lines for paragraph breaks
                     // Only trim leading space that rustdoc adds after ///
                     let line = s.value();
@@ -2171,12 +2376,14 @@ mod tests {
                     }
                 }
                 Item::Type(t) => {
-                    if let Some(td) = extract_type_alias("test_crate", "", Path::new("test.rs"), t) {
+                    if let Some(td) = extract_type_alias("test_crate", "", Path::new("test.rs"), t)
+                    {
                         types.push(td);
                     }
                 }
                 Item::Macro(m) => {
-                    let generated = extract_macro_generated_types("test_crate", "", Path::new("test.rs"), m);
+                    let generated =
+                        extract_macro_generated_types("test_crate", "", Path::new("test.rs"), m);
                     types.extend(generated);
                 }
                 _ => {}
@@ -2193,7 +2400,10 @@ mod tests {
             pub use other::Thing;
         "#;
         let types = extract_types_from_source(source);
-        assert!(types.is_empty(), "use statements should not create type definitions");
+        assert!(
+            types.is_empty(),
+            "use statements should not create type definitions"
+        );
     }
 
     #[test]
@@ -2208,7 +2418,7 @@ mod tests {
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].type_name, "FontCache");
         assert_eq!(types[0].full_path, "test_crate::FontCache");
-        
+
         match &types[0].kind {
             TypeDefKind::Struct { repr, fields, .. } => {
                 assert!(repr.is_some());
@@ -2231,7 +2441,7 @@ mod tests {
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].type_name, "Color");
-        
+
         match &types[0].kind {
             TypeDefKind::Enum { variants, repr, .. } => {
                 assert!(repr.is_some());
@@ -2250,7 +2460,7 @@ mod tests {
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].type_name, "MyCallback");
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
@@ -2269,21 +2479,35 @@ mod tests {
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].type_name, "OnClickCallback");
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 2);
-                
+
                 // First arg: &mut RefAny -> ty="RefAny", ref_kind=RefMut
-                assert_eq!(args[0].ty, "RefAny", "First arg type should be base type without &mut");
-                assert_eq!(args[0].ref_kind, RefKind::RefMut, "First arg should be RefMut");
+                assert_eq!(
+                    args[0].ty, "RefAny",
+                    "First arg type should be base type without &mut"
+                );
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::RefMut,
+                    "First arg should be RefMut"
+                );
                 assert_eq!(args[0].name, Some("data".to_string()));
-                
+
                 // Second arg: &mut CallbackInfo -> ty="CallbackInfo", ref_kind=RefMut
-                assert_eq!(args[1].ty, "CallbackInfo", "Second arg type should be base type without &mut");
-                assert_eq!(args[1].ref_kind, RefKind::RefMut, "Second arg should be RefMut");
+                assert_eq!(
+                    args[1].ty, "CallbackInfo",
+                    "Second arg type should be base type without &mut"
+                );
+                assert_eq!(
+                    args[1].ref_kind,
+                    RefKind::RefMut,
+                    "Second arg should be RefMut"
+                );
                 assert_eq!(args[1].name, Some("info".to_string()));
-                
+
                 assert_eq!(returns.as_deref(), Some("Update"));
             }
             _ => panic!("Expected CallbackTypedef, got {:?}", types[0].kind),
@@ -2298,15 +2522,18 @@ mod tests {
         "#;
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
-                
+
                 // &TextInputState -> ty="TextInputState", ref_kind=Ref
-                assert_eq!(args[0].ty, "TextInputState", "Arg type should be base type without &");
+                assert_eq!(
+                    args[0].ty, "TextInputState",
+                    "Arg type should be base type without &"
+                );
                 assert_eq!(args[0].ref_kind, RefKind::Ref, "Arg should be Ref");
-                
+
                 assert_eq!(returns.as_deref(), Some("bool"));
             }
             _ => panic!("Expected CallbackTypedef"),
@@ -2323,35 +2550,53 @@ mod tests {
         "#;
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 2);
-        
+
         // DestructorCallback
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
-                
+
                 // *mut c_void -> ty="*mut c_void", ref_kind=Value (pointers are passed by value)
-                assert_eq!(args[0].ty, "*mut c_void", "Raw pointer should include the *mut prefix");
-                assert_eq!(args[0].ref_kind, RefKind::Value, "Raw pointers are passed by value");
-                
+                assert_eq!(
+                    args[0].ty, "*mut c_void",
+                    "Raw pointer should include the *mut prefix"
+                );
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Value,
+                    "Raw pointers are passed by value"
+                );
+
                 assert!(returns.is_none());
             }
             _ => panic!("Expected CallbackTypedef for DestructorCallback"),
         }
-        
+
         // CloneCallback
         match &types[1].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
-                
+
                 // *const c_void -> ty="*const c_void", ref_kind=Value
-                // Note: syn adds a space, but extract_ref_kind_from_syn_type reconstructs without space
-                assert_eq!(args[0].ty, "*const c_void", "Raw pointer should include the *const prefix");
-                assert_eq!(args[0].ref_kind, RefKind::Value, "Raw pointers are passed by value");
-                
+                // Note: syn adds a space, but extract_ref_kind_from_syn_type reconstructs without
+                // space
+                assert_eq!(
+                    args[0].ty, "*const c_void",
+                    "Raw pointer should include the *const prefix"
+                );
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Value,
+                    "Raw pointers are passed by value"
+                );
+
                 // Return type comes from clean_type_string which may have spaces from syn
                 let ret = returns.as_deref().unwrap();
-                assert!(ret.contains("const") && ret.contains("c_void"), 
-                    "Return should be *const c_void, got: {}", ret);
+                assert!(
+                    ret.contains("const") && ret.contains("c_void"),
+                    "Return should be *const c_void, got: {}",
+                    ret
+                );
             }
             _ => panic!("Expected CallbackTypedef for CloneCallback"),
         }
@@ -2370,27 +2615,27 @@ mod tests {
         "#;
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 4);
-                
+
                 // &mut RefAny
                 assert_eq!(args[0].ty, "RefAny");
                 assert_eq!(args[0].ref_kind, RefKind::RefMut);
-                
+
                 // &State
                 assert_eq!(args[1].ty, "State");
                 assert_eq!(args[1].ref_kind, RefKind::Ref);
-                
+
                 // usize (value)
                 assert_eq!(args[2].ty, "usize");
                 assert_eq!(args[2].ref_kind, RefKind::Value);
-                
+
                 // *const Data (pointer, passed by value)
                 assert_eq!(args[3].ty, "*const Data");
                 assert_eq!(args[3].ref_kind, RefKind::Value);
-                
+
                 assert_eq!(returns.as_deref(), Some("Result"));
             }
             _ => panic!("Expected CallbackTypedef"),
@@ -2405,11 +2650,14 @@ mod tests {
         "#;
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
-                assert!(returns.is_none(), "Void callbacks should have None as return");
+                assert!(
+                    returns.is_none(),
+                    "Void callbacks should have None as return"
+                );
             }
             _ => panic!("Expected CallbackTypedef"),
         }
@@ -2424,14 +2672,14 @@ mod tests {
         "#;
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 2);
-        
+
         match &types[0].kind {
             TypeDefKind::TypeAlias { target, .. } => {
                 assert_eq!(target, "u32");
             }
             _ => panic!("Expected TypeAlias for GLenum"),
         }
-        
+
         match &types[1].kind {
             TypeDefKind::TypeAlias { target, .. } => {
                 // extract_type_name formats generics without spaces
@@ -2448,10 +2696,10 @@ mod tests {
             impl_vec!(Font, FontVec, FontVecDestructor);
         "#;
         let types = extract_types_from_source(source);
-        
+
         // Should have: Font, FontVec, FontVecDestructor, FontVecDestructorType
         assert_eq!(types.len(), 4);
-        
+
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
         assert!(names.contains(&"Font"));
         assert!(names.contains(&"FontVec"));
@@ -2466,10 +2714,10 @@ mod tests {
             impl_option!(Foo, OptionFoo, OptionFooEnumWrapper);
         "#;
         let types = extract_types_from_source(source);
-        
+
         // Should have: Foo, OptionFoo, OptionFooEnumWrapper
         assert_eq!(types.len(), 3);
-        
+
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
         assert!(names.contains(&"Foo"));
         assert!(names.contains(&"OptionFoo"));
@@ -2483,10 +2731,10 @@ mod tests {
             impl_callback!(OnClick, OptionOnClick, OnClickCallback, OnClickCallbackType);
         "#;
         let types = extract_types_from_source(source);
-        
+
         // Should have: OnClickCallbackType (type alias), OnClick, OptionOnClick, OnClickCallback
         assert_eq!(types.len(), 4);
-        
+
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
         assert!(names.contains(&"OnClickCallbackType")); // The type alias
         assert!(names.contains(&"OnClick")); // CallbackWrapper
@@ -2504,7 +2752,7 @@ mod tests {
         assert!(TypeIndex::is_primitive("*mut c_void"));
         assert!(TypeIndex::is_primitive("&str"));
         assert!(TypeIndex::is_primitive("[u8; 4]"));
-        
+
         assert!(!TypeIndex::is_primitive("String"));
         assert!(!TypeIndex::is_primitive("Vec"));
         assert!(!TypeIndex::is_primitive("FontCache"));
@@ -2532,10 +2780,10 @@ mod tests {
 
     /// Comprehensive integration test that parses a realistic callbacks.rs file
     /// and verifies that callback_typedef types are correctly extracted.
-    /// 
+    ///
     /// This test reproduces the bug where `&mut RefAny` was being parsed as
     /// `type: "& mut RefAny", ref: "value"` instead of `type: "RefAny", ref: "refmut"`.
-    /// 
+    ///
     /// The test uses syn's AST directly and avoids string comparisons where possible.
     #[test]
     fn test_parse_realistic_callbacks_file() {
@@ -2630,159 +2878,250 @@ pub struct OnTextInputReturn {
         "#;
 
         let types = extract_types_from_source(source);
-        
+
         // Build a lookup map by type name for easier assertions
-        let type_map: std::collections::HashMap<&str, &TypeDefinition> = types
-            .iter()
-            .map(|t| (t.type_name.as_str(), t))
-            .collect();
-        
+        let type_map: std::collections::HashMap<&str, &TypeDefinition> =
+            types.iter().map(|t| (t.type_name.as_str(), t)).collect();
+
         // ====================================================================
         // Verify struct extractions
         // ====================================================================
-        
+
         // Update enum
         let update = type_map.get("Update").expect("Update enum not found");
-        assert!(matches!(&update.kind, TypeDefKind::Enum { .. }), 
-            "Update should be an Enum, got {:?}", update.kind);
-        
+        assert!(
+            matches!(&update.kind, TypeDefKind::Enum { .. }),
+            "Update should be an Enum, got {:?}",
+            update.kind
+        );
+
         // RefAny struct
         let refany = type_map.get("RefAny").expect("RefAny struct not found");
-        assert!(matches!(&refany.kind, TypeDefKind::Struct { .. }), 
-            "RefAny should be a Struct, got {:?}", refany.kind);
-        
+        assert!(
+            matches!(&refany.kind, TypeDefKind::Struct { .. }),
+            "RefAny should be a Struct, got {:?}",
+            refany.kind
+        );
+
         // ====================================================================
         // Verify callback_typedef extractions - THE CRITICAL PART
         // ====================================================================
-        
+
         // LayoutCallbackType: fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom
-        let layout_cb = type_map.get("LayoutCallbackType")
+        let layout_cb = type_map
+            .get("LayoutCallbackType")
             .expect("LayoutCallbackType not found");
-        
+
         match &layout_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 2, "LayoutCallbackType should have 2 args");
-                
+
                 // CRITICAL: First arg should be RefAny with RefMut, NOT "& mut RefAny" with Value
-                assert_eq!(args[0].ref_kind, RefKind::RefMut, 
-                    "First arg of LayoutCallbackType should be RefMut");
-                assert!(!args[0].ty.contains('&'), 
-                    "Type should not contain '&', got: {}", args[0].ty);
-                assert!(args[0].ty.contains("RefAny"), 
-                    "First arg base type should contain RefAny, got: {}", args[0].ty);
-                
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::RefMut,
+                    "First arg of LayoutCallbackType should be RefMut"
+                );
+                assert!(
+                    !args[0].ty.contains('&'),
+                    "Type should not contain '&', got: {}",
+                    args[0].ty
+                );
+                assert!(
+                    args[0].ty.contains("RefAny"),
+                    "First arg base type should contain RefAny, got: {}",
+                    args[0].ty
+                );
+
                 // Second arg: &mut LayoutCallbackInfo
-                assert_eq!(args[1].ref_kind, RefKind::RefMut,
-                    "Second arg of LayoutCallbackType should be RefMut");
-                assert!(!args[1].ty.contains('&'),
-                    "Type should not contain '&', got: {}", args[1].ty);
-                assert!(args[1].ty.contains("LayoutCallbackInfo"),
-                    "Second arg base type should contain LayoutCallbackInfo, got: {}", args[1].ty);
-                
+                assert_eq!(
+                    args[1].ref_kind,
+                    RefKind::RefMut,
+                    "Second arg of LayoutCallbackType should be RefMut"
+                );
+                assert!(
+                    !args[1].ty.contains('&'),
+                    "Type should not contain '&', got: {}",
+                    args[1].ty
+                );
+                assert!(
+                    args[1].ty.contains("LayoutCallbackInfo"),
+                    "Second arg base type should contain LayoutCallbackInfo, got: {}",
+                    args[1].ty
+                );
+
                 // Return type
-                assert!(returns.is_some(), "LayoutCallbackType should have a return type");
-                assert!(returns.as_ref().unwrap().contains("StyledDom"),
-                    "Return type should contain StyledDom, got: {:?}", returns);
+                assert!(
+                    returns.is_some(),
+                    "LayoutCallbackType should have a return type"
+                );
+                assert!(
+                    returns.as_ref().unwrap().contains("StyledDom"),
+                    "Return type should contain StyledDom, got: {:?}",
+                    returns
+                );
             }
-            other => panic!("LayoutCallbackType should be CallbackTypedef, got {:?}", other),
+            other => panic!(
+                "LayoutCallbackType should be CallbackTypedef, got {:?}",
+                other
+            ),
         }
-        
-        // MarshaledLayoutCallbackType: fn(&mut RefAny, &mut RefAny, &mut LayoutCallbackInfo) -> StyledDom
-        let marshaled_cb = type_map.get("MarshaledLayoutCallbackType")
+
+        // MarshaledLayoutCallbackType: fn(&mut RefAny, &mut RefAny, &mut LayoutCallbackInfo) ->
+        // StyledDom
+        let marshaled_cb = type_map
+            .get("MarshaledLayoutCallbackType")
             .expect("MarshaledLayoutCallbackType not found");
-        
+
         match &marshaled_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
-                assert_eq!(args.len(), 3, "MarshaledLayoutCallbackType should have 3 args");
-                
+                assert_eq!(
+                    args.len(),
+                    3,
+                    "MarshaledLayoutCallbackType should have 3 args"
+                );
+
                 // All 3 args should be RefMut
                 for (i, arg) in args.iter().enumerate() {
-                    assert_eq!(arg.ref_kind, RefKind::RefMut,
-                        "Arg {} of MarshaledLayoutCallbackType should be RefMut, got {:?}", i, arg.ref_kind);
-                    assert!(!arg.ty.contains('&'),
-                        "Arg {} type should not contain '&', got: {}", i, arg.ty);
+                    assert_eq!(
+                        arg.ref_kind,
+                        RefKind::RefMut,
+                        "Arg {} of MarshaledLayoutCallbackType should be RefMut, got {:?}",
+                        i,
+                        arg.ref_kind
+                    );
+                    assert!(
+                        !arg.ty.contains('&'),
+                        "Arg {} type should not contain '&', got: {}",
+                        i,
+                        arg.ty
+                    );
                 }
-                
+
                 assert!(returns.is_some());
             }
-            other => panic!("MarshaledLayoutCallbackType should be CallbackTypedef, got {:?}", other),
+            other => panic!(
+                "MarshaledLayoutCallbackType should be CallbackTypedef, got {:?}",
+                other
+            ),
         }
-        
+
         // OnTextInputCallback: fn(&RefAny, &TextInputState) -> OnTextInputReturn
         // This tests immutable references (Ref, not RefMut)
-        let text_input_cb = type_map.get("OnTextInputCallback")
+        let text_input_cb = type_map
+            .get("OnTextInputCallback")
             .expect("OnTextInputCallback not found");
-        
+
         match &text_input_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 2, "OnTextInputCallback should have 2 args");
-                
+
                 // Both args should be Ref (immutable)
-                assert_eq!(args[0].ref_kind, RefKind::Ref,
-                    "First arg of OnTextInputCallback should be Ref, got {:?}", args[0].ref_kind);
-                assert_eq!(args[1].ref_kind, RefKind::Ref,
-                    "Second arg of OnTextInputCallback should be Ref, got {:?}", args[1].ref_kind);
-                
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Ref,
+                    "First arg of OnTextInputCallback should be Ref, got {:?}",
+                    args[0].ref_kind
+                );
+                assert_eq!(
+                    args[1].ref_kind,
+                    RefKind::Ref,
+                    "Second arg of OnTextInputCallback should be Ref, got {:?}",
+                    args[1].ref_kind
+                );
+
                 // Base types should not contain '&'
                 assert!(!args[0].ty.contains('&'), "Type should not contain '&'");
                 assert!(!args[1].ty.contains('&'), "Type should not contain '&'");
-                
+
                 assert!(returns.is_some());
             }
-            other => panic!("OnTextInputCallback should be CallbackTypedef, got {:?}", other),
+            other => panic!(
+                "OnTextInputCallback should be CallbackTypedef, got {:?}",
+                other
+            ),
         }
-        
+
         // RefAnyDestructorType: fn(*mut c_void)
         // This tests raw mutable pointer (passed by value)
-        let destructor_cb = type_map.get("RefAnyDestructorType")
+        let destructor_cb = type_map
+            .get("RefAnyDestructorType")
             .expect("RefAnyDestructorType not found");
-        
+
         match &destructor_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1, "RefAnyDestructorType should have 1 arg");
-                
+
                 // *mut c_void should be Value (pointer passed by value)
-                assert_eq!(args[0].ref_kind, RefKind::Value,
-                    "Raw pointer arg should be Value, got {:?}", args[0].ref_kind);
-                
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Value,
+                    "Raw pointer arg should be Value, got {:?}",
+                    args[0].ref_kind
+                );
+
                 // The type should contain the full pointer type
-                assert!(args[0].ty.contains("*") && args[0].ty.contains("mut"),
-                    "Type should contain *mut, got: {}", args[0].ty);
-                
-                assert!(returns.is_none(), "RefAnyDestructorType should have no return type");
+                assert!(
+                    args[0].ty.contains("*") && args[0].ty.contains("mut"),
+                    "Type should contain *mut, got: {}",
+                    args[0].ty
+                );
+
+                assert!(
+                    returns.is_none(),
+                    "RefAnyDestructorType should have no return type"
+                );
             }
-            other => panic!("RefAnyDestructorType should be CallbackTypedef, got {:?}", other),
+            other => panic!(
+                "RefAnyDestructorType should be CallbackTypedef, got {:?}",
+                other
+            ),
         }
-        
+
         // RefCountCopyFnType: fn(*const c_void) -> *const c_void
         // This tests raw const pointer
-        let clone_cb = type_map.get("RefCountCopyFnType")
+        let clone_cb = type_map
+            .get("RefCountCopyFnType")
             .expect("RefCountCopyFnType not found");
-        
+
         match &clone_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1, "RefCountCopyFnType should have 1 arg");
-                
+
                 // *const c_void should be Value
-                assert_eq!(args[0].ref_kind, RefKind::Value,
-                    "Raw pointer arg should be Value, got {:?}", args[0].ref_kind);
-                assert!(args[0].ty.contains("*") && args[0].ty.contains("const"),
-                    "Type should contain *const, got: {}", args[0].ty);
-                
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Value,
+                    "Raw pointer arg should be Value, got {:?}",
+                    args[0].ref_kind
+                );
+                assert!(
+                    args[0].ty.contains("*") && args[0].ty.contains("const"),
+                    "Type should contain *const, got: {}",
+                    args[0].ty
+                );
+
                 // Return type should also be a raw pointer
                 assert!(returns.is_some());
                 let ret = returns.as_ref().unwrap();
-                assert!(ret.contains("*") && ret.contains("const"),
-                    "Return type should contain *const, got: {}", ret);
+                assert!(
+                    ret.contains("*") && ret.contains("const"),
+                    "Return type should contain *const, got: {}",
+                    ret
+                );
             }
-            other => panic!("RefCountCopyFnType should be CallbackTypedef, got {:?}", other),
+            other => panic!(
+                "RefCountCopyFnType should be CallbackTypedef, got {:?}",
+                other
+            ),
         }
-        
+
         // VoidCallback: fn(&mut RefAny)
         // Callback with no return
-        let void_cb = type_map.get("VoidCallback")
+        let void_cb = type_map
+            .get("VoidCallback")
             .expect("VoidCallback not found");
-        
+
         match &void_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
@@ -2791,19 +3130,29 @@ pub struct OnTextInputReturn {
             }
             other => panic!("VoidCallback should be CallbackTypedef, got {:?}", other),
         }
-        
+
         // BoolCallback: fn(&RefAny) -> bool
         // Callback with immutable ref and primitive return
-        let bool_cb = type_map.get("BoolCallback")
+        let bool_cb = type_map
+            .get("BoolCallback")
             .expect("BoolCallback not found");
-        
+
         match &bool_cb.kind {
             TypeDefKind::CallbackTypedef { args, returns } => {
                 assert_eq!(args.len(), 1);
-                assert_eq!(args[0].ref_kind, RefKind::Ref, 
-                    "BoolCallback arg should be Ref (immutable), got {:?}", args[0].ref_kind);
-                assert!(returns.as_ref().map(|s| s.contains("bool")).unwrap_or(false),
-                    "BoolCallback should return bool");
+                assert_eq!(
+                    args[0].ref_kind,
+                    RefKind::Ref,
+                    "BoolCallback arg should be Ref (immutable), got {:?}",
+                    args[0].ref_kind
+                );
+                assert!(
+                    returns
+                        .as_ref()
+                        .map(|s| s.contains("bool"))
+                        .unwrap_or(false),
+                    "BoolCallback should return bool"
+                );
             }
             other => panic!("BoolCallback should be CallbackTypedef, got {:?}", other),
         }
@@ -2814,7 +3163,7 @@ pub struct OnTextInputReturn {
     #[test]
     fn test_refkind_to_json_representation() {
         // This test verifies that when we convert to JSON, we get the expected values
-        
+
         let source = r#"
             pub type TestCallback = extern "C" fn(
                 ref_arg: &Data,
@@ -2823,24 +3172,24 @@ pub struct OnTextInputReturn {
                 ptr_arg: *const Data
             ) -> bool;
         "#;
-        
+
         let types = extract_types_from_source(source);
         assert_eq!(types.len(), 1);
-        
+
         match &types[0].kind {
             TypeDefKind::CallbackTypedef { args, .. } => {
                 // ref_arg: &Data -> should become "ref" in JSON
                 assert_eq!(args[0].ref_kind, RefKind::Ref);
                 assert_eq!(args[0].ref_kind.as_str(), "ref");
-                
+
                 // refmut_arg: &mut Data -> should become "refmut" in JSON
                 assert_eq!(args[1].ref_kind, RefKind::RefMut);
                 assert_eq!(args[1].ref_kind.as_str(), "refmut");
-                
+
                 // value_arg: Data -> should become "value" in JSON
                 assert_eq!(args[2].ref_kind, RefKind::Value);
                 assert_eq!(args[2].ref_kind.as_str(), "value");
-                
+
                 // ptr_arg: *const Data -> should become "value" in JSON (pointer passed by value)
                 assert_eq!(args[3].ref_kind, RefKind::Value);
                 assert_eq!(args[3].ref_kind.as_str(), "value");
@@ -2857,66 +3206,101 @@ pub struct OnTextInputReturn {
             .parent()
             .unwrap()
             .join("core/src/callbacks.rs");
-        
+
         if !callbacks_path.exists() {
             // Skip test if file doesn't exist (e.g., in CI without full repo)
-            eprintln!("Skipping test_parse_actual_callbacks_file: {:?} not found", callbacks_path);
+            eprintln!(
+                "Skipping test_parse_actual_callbacks_file: {:?} not found",
+                callbacks_path
+            );
             return;
         }
-        
-        let content = std::fs::read_to_string(&callbacks_path)
-            .expect("Failed to read callbacks.rs");
-        
-        let syntax_tree: syn::File = syn::parse_file(&content)
-            .expect("Failed to parse callbacks.rs");
-        
+
+        let content =
+            std::fs::read_to_string(&callbacks_path).expect("Failed to read callbacks.rs");
+
+        let syntax_tree: syn::File =
+            syn::parse_file(&content).expect("Failed to parse callbacks.rs");
+
         let mut callback_typedefs = Vec::new();
-        
+
         for item in &syntax_tree.items {
             if let syn::Item::Type(type_item) = item {
                 if let syn::Type::BareFn(_) = &*type_item.ty {
-                    if let Some(td) = extract_type_alias("azul_core", "callbacks", &callbacks_path, type_item) {
+                    if let Some(td) =
+                        extract_type_alias("azul_core", "callbacks", &callbacks_path, type_item)
+                    {
                         callback_typedefs.push(td);
                     }
                 }
             }
         }
-        
+
         // We should find at least some callback typedefs
-        assert!(!callback_typedefs.is_empty(), 
-            "Should find callback typedefs in callbacks.rs");
-        
+        assert!(
+            !callback_typedefs.is_empty(),
+            "Should find callback typedefs in callbacks.rs"
+        );
+
         // Verify that LayoutCallbackType is correctly parsed
-        let layout_cb = callback_typedefs.iter()
+        let layout_cb = callback_typedefs
+            .iter()
             .find(|t| t.type_name == "LayoutCallbackType");
-        
+
         if let Some(layout) = layout_cb {
             match &layout.kind {
                 TypeDefKind::CallbackTypedef { args, .. } => {
                     // The first two args should be &mut references
-                    assert!(args.len() >= 2, "LayoutCallbackType should have at least 2 args");
-                    
+                    assert!(
+                        args.len() >= 2,
+                        "LayoutCallbackType should have at least 2 args"
+                    );
+
                     // CRITICAL: Verify the bug is fixed
-                    // args[0] should be RefMut with type "RefAny", NOT Value with type "& mut RefAny"
-                    assert_eq!(args[0].ref_kind, RefKind::RefMut,
-                        "LayoutCallbackType first arg should be RefMut, got {:?}", args[0].ref_kind);
-                    assert!(!args[0].ty.starts_with("&"),
-                        "Type should not start with '&', got: {}", args[0].ty);
-                    
-                    assert_eq!(args[1].ref_kind, RefKind::RefMut,
-                        "LayoutCallbackType second arg should be RefMut, got {:?}", args[1].ref_kind);
-                    assert!(!args[1].ty.starts_with("&"),
-                        "Type should not start with '&', got: {}", args[1].ty);
-                    
+                    // args[0] should be RefMut with type "RefAny", NOT Value with type "& mut
+                    // RefAny"
+                    assert_eq!(
+                        args[0].ref_kind,
+                        RefKind::RefMut,
+                        "LayoutCallbackType first arg should be RefMut, got {:?}",
+                        args[0].ref_kind
+                    );
+                    assert!(
+                        !args[0].ty.starts_with("&"),
+                        "Type should not start with '&', got: {}",
+                        args[0].ty
+                    );
+
+                    assert_eq!(
+                        args[1].ref_kind,
+                        RefKind::RefMut,
+                        "LayoutCallbackType second arg should be RefMut, got {:?}",
+                        args[1].ref_kind
+                    );
+                    assert!(
+                        !args[1].ty.starts_with("&"),
+                        "Type should not start with '&', got: {}",
+                        args[1].ty
+                    );
+
                     eprintln!("✓ LayoutCallbackType correctly parsed:");
-                    eprintln!("  arg[0]: type={:?}, ref_kind={:?}", args[0].ty, args[0].ref_kind);
-                    eprintln!("  arg[1]: type={:?}, ref_kind={:?}", args[1].ty, args[1].ref_kind);
+                    eprintln!(
+                        "  arg[0]: type={:?}, ref_kind={:?}",
+                        args[0].ty, args[0].ref_kind
+                    );
+                    eprintln!(
+                        "  arg[1]: type={:?}, ref_kind={:?}",
+                        args[1].ty, args[1].ref_kind
+                    );
                 }
                 _ => panic!("LayoutCallbackType should be CallbackTypedef"),
             }
         }
-        
-        eprintln!("Found {} callback typedefs in callbacks.rs", callback_typedefs.len());
+
+        eprintln!(
+            "Found {} callback typedefs in callbacks.rs",
+            callback_typedefs.len()
+        );
         for cb in &callback_typedefs {
             eprintln!("  - {}", cb.type_name);
         }

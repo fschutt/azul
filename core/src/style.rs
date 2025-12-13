@@ -132,7 +132,7 @@ pub fn matches_html_element(
         last_selector_matched = current_selector_matches;
         // Select how the next content group should be matched
         next_match_requirement = reason;
-        
+
         // Navigate to the next node based on the combinator type
         match reason {
             Children | DirectChildren => {
@@ -292,13 +292,14 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
     // vs "structural" (based on DOM structure only)
     fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
-        matches!(p, 
-            CssPathPseudoSelector::Hover | 
-            CssPathPseudoSelector::Active | 
-            CssPathPseudoSelector::Focus
+        matches!(
+            p,
+            CssPathPseudoSelector::Hover
+                | CssPathPseudoSelector::Active
+                | CssPathPseudoSelector::Focus
         )
     }
-    
+
     match target {
         None => match path.selectors.as_ref().last() {
             None => false,
@@ -377,7 +378,7 @@ pub fn selector_group_matches(
                     CssPathPseudoSelector::NthChild(x) => {
                         use azul_css::css::CssNthChildPattern;
                         let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
-                        
+
                         match *x {
                             Number(value) => {
                                 if index_in_parent != value {
@@ -400,7 +401,8 @@ pub fn selector_group_matches(
                                 let matches = if repeat == 0 {
                                     index_in_parent == offset
                                 } else {
-                                    index_in_parent >= offset && ((index_in_parent - offset) % repeat == 0)
+                                    index_in_parent >= offset
+                                        && ((index_in_parent - offset) % repeat == 0)
                                 };
                                 if !matches {
                                     return false;

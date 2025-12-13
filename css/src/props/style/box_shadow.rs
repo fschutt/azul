@@ -100,8 +100,8 @@ impl crate::format_rust_code::FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
         format!(
-            "StyleBoxShadow {{\r\n{}    offset_x: {},\r\n{}    offset_y: {},\r\n{}    color: {},\r\n{}    \
-             blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
+            "StyleBoxShadow {{\r\n{}    offset_x: {},\r\n{}    offset_y: {},\r\n{}    color: \
+             {},\r\n{}    blur_radius: {},\r\n{}    spread_radius: {},\r\n{}    clip_mode: \
              BoxShadowClipMode::{:?},\r\n{}}}",
             t,
             crate::format_rust_code::format_pixel_value_no_percent(&self.offset_x),

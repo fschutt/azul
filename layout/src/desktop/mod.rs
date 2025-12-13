@@ -1,6 +1,6 @@
 //! Desktop-specific APIs (dialogs, file operations)
 
 pub mod dialogs;
+pub mod extra;
 pub mod file;
 pub mod str;
-pub mod extra;

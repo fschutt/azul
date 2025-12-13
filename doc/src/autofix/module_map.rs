@@ -28,200 +28,367 @@ pub const MODULES: &[&str] = &[
     "error",
 ];
 
-
-
 /// Keywords that map to specific modules
 /// If a type name contains any of these keywords (case-insensitive), it goes to that module
 pub fn get_module_keywords() -> HashMap<&'static str, Vec<&'static str>> {
     let mut map = HashMap::new();
-    
+
     // Vec module - all vector types and their destructors
-    map.insert("vec", vec![
-        "vecdestructor", "vecdestructortype", "vecref", "vecrefmut",
-    ]);
-    
-    // Option module - all option types  
-    map.insert("option", vec![
-        "option",
-    ]);
-    
+    map.insert(
+        "vec",
+        vec!["vecdestructor", "vecdestructortype", "vecref", "vecrefmut"],
+    );
+
+    // Option module - all option types
+    map.insert("option", vec!["option"]);
+
     // Error/Result module
-    map.insert("error", vec![
-        "error", "result",
-    ]);
-    
+    map.insert("error", vec!["error", "result"]);
+
     // CSS module - styling properties
-    map.insert("css", vec![
-        "pixel", "style", "layout", "color", "border", "margin", "padding",
-        "font", "background", "gradient", "shadow", "transform", "animation",
-        "flex", "grid", "align", "justify", "overflow", "position", "display",
-        "visibility", "opacity", "filter", "blend", "cursor", "scrollbar",
-        "size", "width", "height", "top", "bottom", "left", "right",
-        "radius", "spacing", "gap", "wrap", "direction", "content",
-        "text", "letter", "word", "line", "white", "vertical", "horizontal",
-        "inset", "outline", "decoration", "indent", "hyphens", "hanging",
-        "break", "orphans", "widows", "column", "counter", "list",
-        "caption", "empty", "table", "quote", "shape", "clip", "mask",
-        "perspective", "backface", "writing", "unicode", "initial",
-        "normalize", "angle", "percentage", "float", "clear", "zindex",
-        "srgb", "rgb", "hsl", "hsv",
-    ]);
-    
+    map.insert(
+        "css",
+        vec![
+            "pixel",
+            "style",
+            "layout",
+            "color",
+            "border",
+            "margin",
+            "padding",
+            "font",
+            "background",
+            "gradient",
+            "shadow",
+            "transform",
+            "animation",
+            "flex",
+            "grid",
+            "align",
+            "justify",
+            "overflow",
+            "position",
+            "display",
+            "visibility",
+            "opacity",
+            "filter",
+            "blend",
+            "cursor",
+            "scrollbar",
+            "size",
+            "width",
+            "height",
+            "top",
+            "bottom",
+            "left",
+            "right",
+            "radius",
+            "spacing",
+            "gap",
+            "wrap",
+            "direction",
+            "content",
+            "text",
+            "letter",
+            "word",
+            "line",
+            "white",
+            "vertical",
+            "horizontal",
+            "inset",
+            "outline",
+            "decoration",
+            "indent",
+            "hyphens",
+            "hanging",
+            "break",
+            "orphans",
+            "widows",
+            "column",
+            "counter",
+            "list",
+            "caption",
+            "empty",
+            "table",
+            "quote",
+            "shape",
+            "clip",
+            "mask",
+            "perspective",
+            "backface",
+            "writing",
+            "unicode",
+            "initial",
+            "normalize",
+            "angle",
+            "percentage",
+            "float",
+            "clear",
+            "zindex",
+            "srgb",
+            "rgb",
+            "hsl",
+            "hsv",
+        ],
+    );
+
     // Window module
-    map.insert("window", vec![
-        "window", "monitor", "videomode", "hwaccel", "vsync", "dpi", "hidpi",
-        "fullscreen", "maximize", "minimize", "decorat", "theme", "icon",
-        "cursor", "attention", "ime", "platform", "handle", "wayland", "x11",
-        "xcb", "xlib", "macos", "ios", "android", "windows", "web",
-    ]);
-    
+    map.insert(
+        "window",
+        vec![
+            "window",
+            "monitor",
+            "videomode",
+            "hwaccel",
+            "vsync",
+            "dpi",
+            "hidpi",
+            "fullscreen",
+            "maximize",
+            "minimize",
+            "decorat",
+            "theme",
+            "icon",
+            "cursor",
+            "attention",
+            "ime",
+            "platform",
+            "handle",
+            "wayland",
+            "x11",
+            "xcb",
+            "xlib",
+            "macos",
+            "ios",
+            "android",
+            "windows",
+            "web",
+        ],
+    );
+
     // DOM module
-    map.insert("dom", vec![
-        "dom", "node", "attribute", "accessibility", "tabindex", "focus",
-        "hover", "event", "callback", "inline", "tag",
-        "touchstate", "mousestate", "keyboardstate", "debugstate",
-    ]);
-    
+    map.insert(
+        "dom",
+        vec![
+            "dom",
+            "node",
+            "attribute",
+            "accessibility",
+            "tabindex",
+            "focus",
+            "hover",
+            "event",
+            "callback",
+            "inline",
+            "tag",
+            "touchstate",
+            "mousestate",
+            "keyboardstate",
+            "debugstate",
+        ],
+    );
+
     // Callbacks module
-    map.insert("callbacks", vec![
-        "callbackinfo", "callbackreturn", "callbacktype", "marshaled",
-        "iframecallback", "timercallback", "threadcallback", 
-        "rendercallback", "writebackcallback", "layoutcallback",
-    ]);
-    
+    map.insert(
+        "callbacks",
+        vec![
+            "callbackinfo",
+            "callbackreturn",
+            "callbacktype",
+            "marshaled",
+            "iframecallback",
+            "timercallback",
+            "threadcallback",
+            "rendercallback",
+            "writebackcallback",
+            "layoutcallback",
+        ],
+    );
+
     // GL module
-    map.insert("gl", vec![
-        "gl", "opengl", "glcontext", "texture", "shader", "vertex", "buffer", "uniform",
-        "attrib", "program", "framebuffer", "renderbuffer", "sync",
-    ]);
-    
+    map.insert(
+        "gl",
+        vec![
+            "gl",
+            "opengl",
+            "glcontext",
+            "texture",
+            "shader",
+            "vertex",
+            "buffer",
+            "uniform",
+            "attrib",
+            "program",
+            "framebuffer",
+            "renderbuffer",
+            "sync",
+        ],
+    );
+
     // SVG module
-    map.insert("svg", vec![
-        "svg", "svgnode", "svgpath", "svgcircle", "svgrect", "svgline",
-        "path", "circle", "rect", "line", "polygon", "curve",
-        "stroke", "fill", "tessellat",
-    ]);
-    
+    map.insert(
+        "svg",
+        vec![
+            "svg",
+            "svgnode",
+            "svgpath",
+            "svgcircle",
+            "svgrect",
+            "svgline",
+            "path",
+            "circle",
+            "rect",
+            "line",
+            "polygon",
+            "curve",
+            "stroke",
+            "fill",
+            "tessellat",
+        ],
+    );
+
     // XML module
-    map.insert("xml", vec![
-        "xml", "xhtml", "parse", "stream",
-    ]);
-    
+    map.insert("xml", vec!["xml", "xhtml", "parse", "stream"]);
+
     // Image module
-    map.insert("image", vec![
-        "image", "rawimage", "decode", "encode", "jpeg", "png", "gif", "bmp",
-    ]);
-    
+    map.insert(
+        "image",
+        vec![
+            "image", "rawimage", "decode", "encode", "jpeg", "png", "gif", "bmp",
+        ],
+    );
+
     // Font module
-    map.insert("font", vec![
-        "fontref", "fontmetric", "parsedfont", "loadedfont", "glyph",
-    ]);
-    
+    map.insert(
+        "font",
+        vec!["fontref", "fontmetric", "parsedfont", "loadedfont", "glyph"],
+    );
+
     // Menu module
-    map.insert("menu", vec![
-        "menu", "menuitem", "menupopup", "contextmenu",
-    ]);
-    
+    map.insert("menu", vec!["menu", "menuitem", "menupopup", "contextmenu"]);
+
     // Dialog module
-    map.insert("dialog", vec![
-        "dialog", "msgbox", "filepicker", "colorpicker",
-    ]);
-    
+    map.insert(
+        "dialog",
+        vec!["dialog", "msgbox", "filepicker", "colorpicker"],
+    );
+
     // Time module
-    map.insert("time", vec![
-        "instant", "duration", "systemtime", "systemtick",
-    ]);
-    
-    // Task module  
-    map.insert("task", vec![
-        "threadsend", "threadreceive", "threadwrite", "taskcallback",
-        "sender", "receiver", "channel",
-    ]);
-    
+    map.insert(
+        "time",
+        vec!["instant", "duration", "systemtime", "systemtick"],
+    );
+
+    // Task module
+    map.insert(
+        "task",
+        vec![
+            "threadsend",
+            "threadreceive",
+            "threadwrite",
+            "taskcallback",
+            "sender",
+            "receiver",
+            "channel",
+        ],
+    );
+
     // App module
-    map.insert("app", vec![
-        "appconfig", "apploglevel", "apptermination",
-    ]);
-    
+    map.insert("app", vec!["appconfig", "apploglevel", "apptermination"]);
+
     // Str module
-    map.insert("str", vec![
-        "string", "refstr", "azstring",
-    ]);
-    
+    map.insert("str", vec!["string", "refstr", "azstring"]);
+
     // Widgets module - UI components
-    map.insert("widgets", vec![
-        "button", "checkbox", "textinput", "numberinput", "colorinput",
-        "fileinput", "dropdown", "listview", "treeview", "progressbar",
-        "slider", "scrollbar", "tab", "ribbon", "label", "frame",
-        "nodegraph",
-    ]);
-    
+    map.insert(
+        "widgets",
+        vec![
+            "button",
+            "checkbox",
+            "textinput",
+            "numberinput",
+            "colorinput",
+            "fileinput",
+            "dropdown",
+            "listview",
+            "treeview",
+            "progressbar",
+            "slider",
+            "scrollbar",
+            "tab",
+            "ribbon",
+            "label",
+            "frame",
+            "nodegraph",
+        ],
+    );
+
     map
 }
 
 /// Paths to exclude from the workspace index (tests, examples, etc.)
 pub fn should_exclude_path(path: &std::path::Path) -> bool {
     let path_str = path.to_string_lossy();
-    
+
     // Exclude test directories
     if path_str.contains("/tests/") || path_str.contains("/test/") {
         return true;
     }
-    
+
     // Exclude example directories
     if path_str.contains("/examples/") || path_str.contains("/example/") {
         return true;
     }
-    
+
     // Exclude benchmark directories
     if path_str.contains("/benches/") || path_str.contains("/bench/") {
         return true;
     }
-    
+
     // Exclude build scripts
     if path_str.ends_with("build.rs") {
         return true;
     }
-    
+
     false
 }
 
 /// Determine the correct api.json module for a type based on its name
-/// 
+///
 /// Priority:
 /// 1. FooVec, FooVecDestructor, FooVecDestructorType -> "vec"
 /// 2. OptionFoo -> "option"
 /// 3. FooError, ResultFoo -> "error"
-/// 4. Find all matching keywords across all modules, pick the longest match
-///    On tie, pick the first module in MODULES order
+/// 4. Find all matching keywords across all modules, pick the longest match On tie, pick the first
+///    module in MODULES order
 /// 5. "misc" (with warning)
 pub fn determine_module(type_name: &str) -> (String, bool) {
     let lower_name = type_name.to_lowercase();
-    
+
     // Priority 1: Vec types always go to vec module
-    if lower_name.ends_with("vec") 
-        || lower_name.ends_with("vecdestructor") 
+    if lower_name.ends_with("vec")
+        || lower_name.ends_with("vecdestructor")
         || lower_name.ends_with("vecdestructortype")
         || lower_name.ends_with("vecref")
         || lower_name.ends_with("vecrefmut")
     {
         return ("vec".to_string(), false);
     }
-    
+
     // Priority 2: Option types
     if lower_name.starts_with("option") {
         return ("option".to_string(), false);
     }
-    
+
     // Priority 3: Error/Result types
     if lower_name.ends_with("error") || lower_name.starts_with("result") {
         return ("error".to_string(), false);
     }
-    
+
     // Priority 4: Find longest matching keyword across all modules
     // Collect all matches: (module_name, matched_keyword, keyword_length, module_order)
     let mut matches: Vec<(&str, &str, usize, usize)> = Vec::new();
-    
+
     // First check module names themselves as keywords
     for (order, module) in MODULES.iter().enumerate() {
         if *module != "vec" && *module != "option" && *module != "error" {
@@ -230,12 +397,15 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
             }
         }
     }
-    
+
     // Then check all keywords
     let keywords = get_module_keywords();
     for module in MODULES.iter() {
         if let Some(module_keywords) = keywords.get(module) {
-            let order = MODULES.iter().position(|m| m == module).unwrap_or(usize::MAX);
+            let order = MODULES
+                .iter()
+                .position(|m| m == module)
+                .unwrap_or(usize::MAX);
             for keyword in module_keywords {
                 if lower_name.contains(keyword) {
                     matches.push((module, keyword, keyword.len(), order));
@@ -243,12 +413,12 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
             }
         }
     }
-    
+
     if matches.is_empty() {
         // Priority 5: Misc (with warning)
         return ("misc".to_string(), true);
     }
-    
+
     // Sort by: longest keyword first, then by module order (first in MODULES wins)
     matches.sort_by(|a, b| {
         // Compare by length (descending)
@@ -260,7 +430,7 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
             other => other,
         }
     });
-    
+
     (matches[0].0.to_string(), false)
 }
 
@@ -336,15 +506,24 @@ mod tests {
         assert_eq!(module, "misc");
         assert!(is_warning);
     }
-    
+
     #[test]
     fn test_get_correct_module() {
         // RefAny has no matching keywords, should go to misc
-        assert_eq!(get_correct_module("RefAny", "refany"), Some("misc".to_string()));
-        // CascadeInfo has no matching keywords, should go to misc  
-        assert_eq!(get_correct_module("CascadeInfo", "style"), Some("misc".to_string()));
+        assert_eq!(
+            get_correct_module("RefAny", "refany"),
+            Some("misc".to_string())
+        );
+        // CascadeInfo has no matching keywords, should go to misc
+        assert_eq!(
+            get_correct_module("CascadeInfo", "style"),
+            Some("misc".to_string())
+        );
         // SvgStrokeStyle contains "svg" and "style", svg is a module name so should go to svg
-        assert_eq!(get_correct_module("SvgStrokeStyle", "style"), Some("svg".to_string()));
+        assert_eq!(
+            get_correct_module("SvgStrokeStyle", "style"),
+            Some("svg".to_string())
+        );
         // Already in correct module
         assert_eq!(get_correct_module("CssProperty", "css"), None);
     }

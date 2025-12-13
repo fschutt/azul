@@ -83,10 +83,8 @@ pub fn regenerate_layout(
 
     let app_data_borrowed = app_data.borrow_mut();
 
-    let user_styled_dom = (current_window_state.layout_callback.cb.cb)(
-        (*app_data_borrowed).clone(), 
-        callback_info
-    );
+    let user_styled_dom =
+        (current_window_state.layout_callback.cb.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
 

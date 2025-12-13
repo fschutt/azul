@@ -4,8 +4,8 @@
 //! to match the actual locations in the workspace.
 
 use std::collections::HashMap;
-use crate::autofix::discovery::{WorkspaceIndex, TypeLocation};
-use crate::autofix::discovery::crates::is_path_blacklisted;
+
+use crate::autofix::discovery::{crates::is_path_blacklisted, TypeLocation, WorkspaceIndex};
 
 /// A path correction patch
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -67,7 +67,11 @@ pub fn generate_path_corrections(
 }
 
 /// Check if a path needs correction
-fn check_path(type_name: &str, current_path: &str, workspace: &WorkspaceIndex) -> Option<PathCorrection> {
+fn check_path(
+    type_name: &str,
+    current_path: &str,
+    workspace: &WorkspaceIndex,
+) -> Option<PathCorrection> {
     // Skip if current path is from a blacklisted crate
     let is_blacklisted = is_path_blacklisted(current_path);
 
@@ -123,30 +127,37 @@ fn check_type_string(type_str: &str, workspace: &WorkspaceIndex) -> Option<PathC
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
     use crate::autofix::discovery::crates::CratePriority;
 
     fn make_test_workspace() -> WorkspaceIndex {
         let mut ws = WorkspaceIndex::new();
 
-        ws.add_type("Dom".to_string(), TypeLocation {
-            full_path: "azul_core::dom::Dom".to_string(),
-            crate_name: "azul_core".to_string(),
-            module_path: "dom".to_string(),
-            file_path: PathBuf::from("core/src/dom.rs"),
-            line_number: 100,
-            priority: CratePriority::Primary,
-        });
+        ws.add_type(
+            "Dom".to_string(),
+            TypeLocation {
+                full_path: "azul_core::dom::Dom".to_string(),
+                crate_name: "azul_core".to_string(),
+                module_path: "dom".to_string(),
+                file_path: PathBuf::from("core/src/dom.rs"),
+                line_number: 100,
+                priority: CratePriority::Primary,
+            },
+        );
 
-        ws.add_type("Button".to_string(), TypeLocation {
-            full_path: "azul_layout::widgets::button::Button".to_string(),
-            crate_name: "azul_layout".to_string(),
-            module_path: "widgets::button".to_string(),
-            file_path: PathBuf::from("layout/src/widgets/button.rs"),
-            line_number: 50,
-            priority: CratePriority::Secondary,
-        });
+        ws.add_type(
+            "Button".to_string(),
+            TypeLocation {
+                full_path: "azul_layout::widgets::button::Button".to_string(),
+                crate_name: "azul_layout".to_string(),
+                module_path: "widgets::button".to_string(),
+                file_path: PathBuf::from("layout/src/widgets/button.rs"),
+                line_number: 50,
+                priority: CratePriority::Secondary,
+            },
+        );
 
         ws
     }

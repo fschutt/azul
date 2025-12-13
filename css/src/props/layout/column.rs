@@ -350,11 +350,11 @@ mod parser {
     // -- Other column parsers...
     macro_rules! define_simple_column_parser {
         (
-            $fn_name:ident, 
-            $struct_name:ident, 
-            $error_name:ident, 
-            $error_owned_name:ident, 
-            $prop_name:expr, 
+            $fn_name:ident,
+            $struct_name:ident,
+            $error_name:ident,
+            $error_owned_name:ident,
+            $prop_name:expr,
             $($val:expr => $variant:path),+
         ) => {
             #[derive(Clone, PartialEq)]
@@ -398,20 +398,20 @@ mod parser {
     }
 
     define_simple_column_parser!(
-        parse_column_span, 
-        ColumnSpan, 
-        ColumnSpanParseError, 
-        ColumnSpanParseErrorOwned, 
+        parse_column_span,
+        ColumnSpan,
+        ColumnSpanParseError,
+        ColumnSpanParseErrorOwned,
         "column-span",
         "none" => ColumnSpan::None,
         "all" => ColumnSpan::All
     );
 
     define_simple_column_parser!(
-        parse_column_fill, 
-        ColumnFill, 
-        ColumnFillParseError, 
-        ColumnFillParseErrorOwned, 
+        parse_column_fill,
+        ColumnFill,
+        ColumnFillParseError,
+        ColumnFillParseErrorOwned,
         "column-fill",
         "auto" => ColumnFill::Auto,
         "balance" => ColumnFill::Balance

@@ -100,7 +100,9 @@ impl Default for OverflowingScrollNode {
             virtual_child_rect: LogicalRect::zero(),
             parent_external_scroll_id: ExternalScrollId(0, PipelineId::DUMMY),
             parent_dom_hash: DomNodeHash(0),
-            scroll_tag_id: ScrollTagId { inner: TagId { inner: 0 } },
+            scroll_tag_id: ScrollTagId {
+                inner: TagId { inner: 0 },
+            },
         }
     }
 }
@@ -164,7 +166,10 @@ impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
 
     pub fn new() -> Self {
-        PipelineId(LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32, 0)
+        PipelineId(
+            LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u32,
+            0,
+        )
     }
 }
 

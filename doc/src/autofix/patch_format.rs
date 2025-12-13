@@ -5,8 +5,9 @@
 //! - Machine-parseable (for automatic application)
 //! - Self-documenting (includes context about what changes)
 
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A patch file containing one or more operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,31 +51,20 @@ pub struct ModifyOperation {
 #[serde(tag = "change", rename_all = "snake_case")]
 pub enum ModifyChange {
     /// Change the external path
-    SetExternal {
-        old: String,
-        new: String,
-    },
+    SetExternal { old: String, new: String },
     /// Set repr attribute (e.g., "C", "C, u8", None)
     SetRepr {
         old: Option<String>,
         new: Option<String>,
     },
     /// Add derive attributes
-    AddDerives {
-        derives: Vec<String>,
-    },
+    AddDerives { derives: Vec<String> },
     /// Remove derive attributes
-    RemoveDerives {
-        derives: Vec<String>,
-    },
+    RemoveDerives { derives: Vec<String> },
     /// Add custom impl traits (manual impl blocks)
-    AddCustomImpls {
-        impls: Vec<String>,
-    },
+    AddCustomImpls { impls: Vec<String> },
     /// Remove custom impl traits
-    RemoveCustomImpls {
-        impls: Vec<String>,
-    },
+    RemoveCustomImpls { impls: Vec<String> },
     /// Add a struct field
     AddField {
         name: String,
@@ -87,9 +77,7 @@ pub enum ModifyChange {
         doc: Option<String>,
     },
     /// Remove a struct field
-    RemoveField {
-        name: String,
-    },
+    RemoveField { name: String },
     /// Change a field's type
     ChangeFieldType {
         name: String,
@@ -106,9 +94,7 @@ pub enum ModifyChange {
         variant_type: Option<String>,
     },
     /// Remove an enum variant
-    RemoveVariant {
-        name: String,
-    },
+    RemoveVariant { name: String },
     /// Change a variant's type
     ChangeVariantType {
         name: String,
@@ -155,13 +141,9 @@ pub enum ModifyChange {
         new_params: Vec<String>,
     },
     /// Replace ALL struct fields (preserves correct field order for repr(C) structs)
-    ReplaceStructFields {
-        fields: Vec<StructFieldDef>,
-    },
+    ReplaceStructFields { fields: Vec<StructFieldDef> },
     /// Replace ALL enum variants (preserves correct variant order)
-    ReplaceEnumVariants {
-        variants: Vec<EnumVariantDef>,
-    },
+    ReplaceEnumVariants { variants: Vec<EnumVariantDef> },
     /// Remove struct_fields entirely (type changed from struct to enum)
     RemoveStructFields,
     /// Remove enum_fields entirely (type changed from enum to struct)
@@ -465,7 +447,12 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::RemoveCustomImpls { impls } => {
             format!("- custom_impls: {}", impls.join(", "))
         }
-        ModifyChange::AddField { name, field_type, ref_kind, .. } => {
+        ModifyChange::AddField {
+            name,
+            field_type,
+            ref_kind,
+            ..
+        } => {
             if let Some(rk) = ref_kind {
                 format!("+ field {} : {} ({})", name, field_type, rk)
             } else {
@@ -475,7 +462,12 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::RemoveField { name } => {
             format!("- field {}", name)
         }
-        ModifyChange::ChangeFieldType { name, old_type, new_type, ref_kind } => {
+        ModifyChange::ChangeFieldType {
+            name,
+            old_type,
+            new_type,
+            ref_kind,
+        } => {
             if let Some(rk) = ref_kind {
                 format!("~ field {}: {} → {} ({})", name, old_type, new_type, rk)
             } else {
@@ -492,38 +484,71 @@ fn explain_change(change: &ModifyChange) -> String {
         ModifyChange::RemoveVariant { name } => {
             format!("- variant {}", name)
         }
-        ModifyChange::ChangeVariantType { name, old_type, new_type } => {
+        ModifyChange::ChangeVariantType {
+            name,
+            old_type,
+            new_type,
+        } => {
             format!("~ variant {}: {:?} → {:?}", name, old_type, new_type)
         }
         ModifyChange::SetCallbackTypedef { args, returns } => {
-            let args_str: Vec<String> = args.iter().map(|a| {
-                format!("{}{}", a.ref_kind.as_prefix(), a.arg_type)
-            }).collect();
-            format!("+ callback_typedef({}) -> {:?}", args_str.join(", "), returns)
+            let args_str: Vec<String> = args
+                .iter()
+                .map(|a| format!("{}{}", a.ref_kind.as_prefix(), a.arg_type))
+                .collect();
+            format!(
+                "+ callback_typedef({}) -> {:?}",
+                args_str.join(", "),
+                returns
+            )
         }
-        ModifyChange::ChangeCallbackArg { arg_index, old_type, new_type, old_ref, new_ref } => {
+        ModifyChange::ChangeCallbackArg {
+            arg_index,
+            old_type,
+            new_type,
+            old_ref,
+            new_ref,
+        } => {
             let old_ref_str = old_ref.as_ref().map(|rk| rk.as_prefix()).unwrap_or("");
             let new_ref_str = new_ref.as_prefix();
-            format!("~ callback arg[{}]: {}{} → {}{}", arg_index, old_ref_str, old_type, new_ref_str, new_type)
+            format!(
+                "~ callback arg[{}]: {}{} → {}{}",
+                arg_index, old_ref_str, old_type, new_ref_str, new_type
+            )
         }
         ModifyChange::ChangeCallbackReturn { old_type, new_type } => {
             format!("~ callback return: {:?} → {:?}", old_type, new_type)
         }
-        ModifyChange::SetTypeAlias { target, generic_args } => {
+        ModifyChange::SetTypeAlias {
+            target,
+            generic_args,
+        } => {
             if generic_args.is_empty() {
                 format!("+ type_alias = {}", target)
             } else {
                 format!("+ type_alias = {}<{}>", target, generic_args.join(", "))
             }
         }
-        ModifyChange::ChangeTypeAlias { old_target, new_target, new_generic_args } => {
+        ModifyChange::ChangeTypeAlias {
+            old_target,
+            new_target,
+            new_generic_args,
+        } => {
             if new_generic_args.is_empty() {
                 format!("~ type_alias: {} → {}", old_target, new_target)
             } else {
-                format!("~ type_alias: {} → {}<{}>", old_target, new_target, new_generic_args.join(", "))
+                format!(
+                    "~ type_alias: {} → {}<{}>",
+                    old_target,
+                    new_target,
+                    new_generic_args.join(", ")
+                )
             }
         }
-        ModifyChange::SetGenericParams { old_params, new_params } => {
+        ModifyChange::SetGenericParams {
+            old_params,
+            new_params,
+        } => {
             let old_display = if old_params.is_empty() {
                 "none".to_string()
             } else {
@@ -544,17 +569,19 @@ fn explain_change(change: &ModifyChange) -> String {
             let variant_names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
             format!("= enum_variants [{}]", variant_names.join(", "))
         }
-        ModifyChange::RemoveStructFields => {
-            "- struct_fields (type changed to enum)".to_string()
-        }
-        ModifyChange::RemoveEnumFields => {
-            "- enum_fields (type changed to struct)".to_string()
-        }
-        ModifyChange::FixFunctionSelf { fn_name, expected_self } => {
+        ModifyChange::RemoveStructFields => "- struct_fields (type changed to enum)".to_string(),
+        ModifyChange::RemoveEnumFields => "- enum_fields (type changed to struct)".to_string(),
+        ModifyChange::FixFunctionSelf {
+            fn_name,
+            expected_self,
+        } => {
             let self_str = expected_self.as_deref().unwrap_or("static");
             format!("~ fn {}: set self = {}", fn_name, self_str)
         }
-        ModifyChange::FixFunctionArgs { fn_name, expected_count } => {
+        ModifyChange::FixFunctionArgs {
+            fn_name,
+            expected_count,
+        } => {
             format!("~ fn {}: fix arg count to {}", fn_name, expected_count)
         }
     }
@@ -564,21 +591,24 @@ fn explain_change(change: &ModifyChange) -> String {
 // Conversion to legacy ApiPatch format for application
 // ============================================================================
 
-use crate::patch::{ApiPatch, ClassPatch, ModulePatch, VersionPatch};
-use crate::api::{EnumVariantData, FieldData};
-use crate::autofix::module_map::determine_module;
 use indexmap::IndexMap;
+
+use crate::{
+    api::{EnumVariantData, FieldData},
+    autofix::module_map::determine_module,
+    patch::{ApiPatch, ClassPatch, ModulePatch, VersionPatch},
+};
 
 /// Current API version - should match what's in api.json
 pub const API_VERSION: &str = "1.0.0-alpha1";
 
 impl AutofixPatch {
     /// Convert this patch to the legacy ApiPatch format that can be applied
-    /// 
+    ///
     /// Uses the current API version and determines the module from the type name.
     pub fn to_api_patch(&self) -> ApiPatch {
         let mut api_patch = ApiPatch::default();
-        
+
         for op in &self.operations {
             match op {
                 PatchOperation::Modify(m) => {
@@ -587,11 +617,20 @@ impl AutofixPatch {
                     let module_name = m.module.clone().unwrap_or_else(|| {
                         let (module, warn) = determine_module(&m.type_name);
                         if warn {
-                            eprintln!("Warning: Could not determine module for '{}', using 'misc'", m.type_name);
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                m.type_name
+                            );
                         }
                         module
                     });
-                    insert_class_patch(&mut api_patch, API_VERSION, &module_name, &m.type_name, class_patch);
+                    insert_class_patch(
+                        &mut api_patch,
+                        API_VERSION,
+                        &module_name,
+                        &m.type_name,
+                        class_patch,
+                    );
                 }
                 PatchOperation::PathFix(p) => {
                     let class_patch = ClassPatch {
@@ -600,39 +639,70 @@ impl AutofixPatch {
                     };
                     let (module_name, warn) = determine_module(&p.type_name);
                     if warn {
-                        eprintln!("Warning: Could not determine module for '{}', using 'misc'", p.type_name);
+                        eprintln!(
+                            "Warning: Could not determine module for '{}', using 'misc'",
+                            p.type_name
+                        );
                     }
-                    insert_class_patch(&mut api_patch, API_VERSION, &module_name, &p.type_name, class_patch);
+                    insert_class_patch(
+                        &mut api_patch,
+                        API_VERSION,
+                        &module_name,
+                        &p.type_name,
+                        class_patch,
+                    );
                 }
                 PatchOperation::Add(a) => {
                     let class_patch = ClassPatch {
                         external: Some(a.external.clone()),
                         derive: a.derives.clone(),
-                        repr: a.repr_c.map(|b| if b { "C".to_string() } else { "Rust".to_string() }),
+                        repr: a.repr_c.map(|b| {
+                            if b {
+                                "C".to_string()
+                            } else {
+                                "Rust".to_string()
+                            }
+                        }),
                         struct_fields: a.struct_fields.as_ref().map(|fields| {
-                            vec![fields.iter().map(|f| {
-                                let ref_kind = f.ref_kind.as_ref()
-                                    .and_then(|s| crate::api::RefKind::parse(s))
-                                    .unwrap_or_default();
-                                (f.name.clone(), FieldData {
-                                    r#type: f.field_type.clone(),
-                                    ref_kind,
-                                    arraysize: None,
-                                    doc: f.doc.clone().map(|s| vec![s]),
-                                    derive: None,
+                            vec![fields
+                                .iter()
+                                .map(|f| {
+                                    let ref_kind = f
+                                        .ref_kind
+                                        .as_ref()
+                                        .and_then(|s| crate::api::RefKind::parse(s))
+                                        .unwrap_or_default();
+                                    (
+                                        f.name.clone(),
+                                        FieldData {
+                                            r#type: f.field_type.clone(),
+                                            ref_kind,
+                                            arraysize: None,
+                                            doc: f.doc.clone().map(|s| vec![s]),
+                                            derive: None,
+                                        },
+                                    )
                                 })
-                            }).collect()]
+                                .collect()]
                         }),
                         enum_fields: a.enum_variants.as_ref().map(|variants| {
-                            vec![variants.iter().map(|v| {
-                                (v.name.clone(), EnumVariantData {
-                                    r#type: v.variant_type.clone(),
-                                    doc: None,
+                            vec![variants
+                                .iter()
+                                .map(|v| {
+                                    (
+                                        v.name.clone(),
+                                        EnumVariantData {
+                                            r#type: v.variant_type.clone(),
+                                            doc: None,
+                                        },
+                                    )
                                 })
-                            }).collect()]
+                                .collect()]
                         }),
                         type_alias: a.type_alias.as_ref().map(|type_alias_def| {
-                            let ref_kind = type_alias_def.ref_kind.as_ref()
+                            let ref_kind = type_alias_def
+                                .ref_kind
+                                .as_ref()
                                 .and_then(|s| crate::api::RefKind::parse(s))
                                 .unwrap_or_default();
                             crate::api::TypeAliasInfo {
@@ -643,21 +713,25 @@ impl AutofixPatch {
                         }),
                         callback_typedef: a.callback_typedef.as_ref().map(|cb| {
                             crate::api::CallbackDefinition {
-                                fn_args: cb.fn_args.iter().map(|arg| {
-                                    let ref_kind = arg.ref_kind.as_ref()
-                                        .and_then(|s| crate::api::RefKind::parse(s))
-                                        .unwrap_or_default();
-                                    crate::api::CallbackArgData {
-                                        r#type: arg.arg_type.clone(),
-                                        ref_kind,
-                                        doc: None,
-                                    }
-                                }).collect(),
-                                returns: cb.returns.as_ref().map(|r| {
-                                    crate::api::ReturnTypeData {
-                                        r#type: r.return_type.clone(),
-                                        doc: None,
-                                    }
+                                fn_args: cb
+                                    .fn_args
+                                    .iter()
+                                    .map(|arg| {
+                                        let ref_kind = arg
+                                            .ref_kind
+                                            .as_ref()
+                                            .and_then(|s| crate::api::RefKind::parse(s))
+                                            .unwrap_or_default();
+                                        crate::api::CallbackArgData {
+                                            r#type: arg.arg_type.clone(),
+                                            ref_kind,
+                                            doc: None,
+                                        }
+                                    })
+                                    .collect(),
+                                returns: cb.returns.as_ref().map(|r| crate::api::ReturnTypeData {
+                                    r#type: r.return_type.clone(),
+                                    doc: None,
                                 }),
                             }
                         }),
@@ -666,11 +740,20 @@ impl AutofixPatch {
                     let module_name = a.module.clone().unwrap_or_else(|| {
                         let (module, warn) = determine_module(&a.type_name);
                         if warn {
-                            eprintln!("Warning: Could not determine module for '{}', using 'misc'", a.type_name);
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                a.type_name
+                            );
                         }
                         module
                     });
-                    insert_class_patch(&mut api_patch, API_VERSION, &module_name, &a.type_name, class_patch);
+                    insert_class_patch(
+                        &mut api_patch,
+                        API_VERSION,
+                        &module_name,
+                        &a.type_name,
+                        class_patch,
+                    );
                 }
                 PatchOperation::Remove(r) => {
                     let class_patch = ClassPatch {
@@ -679,9 +762,18 @@ impl AutofixPatch {
                     };
                     let (module_name, warn) = determine_module(&r.type_name);
                     if warn {
-                        eprintln!("Warning: Could not determine module for '{}', using 'misc'", r.type_name);
+                        eprintln!(
+                            "Warning: Could not determine module for '{}', using 'misc'",
+                            r.type_name
+                        );
                     }
-                    insert_class_patch(&mut api_patch, API_VERSION, &module_name, &r.type_name, class_patch);
+                    insert_class_patch(
+                        &mut api_patch,
+                        API_VERSION,
+                        &module_name,
+                        &r.type_name,
+                        class_patch,
+                    );
                 }
                 PatchOperation::MoveModule(m) => {
                     // Create a patch in the source module that moves to target
@@ -689,24 +781,30 @@ impl AutofixPatch {
                         move_to_module: Some(m.to_module.clone()),
                         ..Default::default()
                     };
-                    insert_class_patch(&mut api_patch, API_VERSION, &m.from_module, &m.type_name, class_patch);
+                    insert_class_patch(
+                        &mut api_patch,
+                        API_VERSION,
+                        &m.from_module,
+                        &m.type_name,
+                        class_patch,
+                    );
                 }
             }
         }
-        
+
         api_patch
     }
-    
+
     fn modify_to_class_patch(&self, m: &ModifyOperation) -> ClassPatch {
         let mut patch = ClassPatch::default();
-        
+
         let mut derives_to_add = Vec::new();
         let mut derives_to_remove = Vec::new();
         let mut custom_impls_to_add = Vec::new();
         let mut custom_impls_to_remove = Vec::new();
         let mut struct_fields_to_add: IndexMap<String, FieldData> = IndexMap::new();
         let mut enum_variants_to_add: IndexMap<String, EnumVariantData> = IndexMap::new();
-        
+
         for change in &m.changes {
             match change {
                 ModifyChange::SetExternal { new, .. } => {
@@ -727,77 +825,106 @@ impl AutofixPatch {
                 ModifyChange::RemoveCustomImpls { impls } => {
                     custom_impls_to_remove.extend(impls.clone());
                 }
-                ModifyChange::AddField { name, field_type, ref_kind, doc } => {
-                    let rk = ref_kind.as_ref()
+                ModifyChange::AddField {
+                    name,
+                    field_type,
+                    ref_kind,
+                    doc,
+                } => {
+                    let rk = ref_kind
+                        .as_ref()
                         .and_then(|s| crate::api::RefKind::parse(s))
                         .unwrap_or_default();
-                    struct_fields_to_add.insert(name.clone(), FieldData {
-                        r#type: field_type.clone(),
-                        ref_kind: rk,
-                        arraysize: None,
-                        doc: doc.clone().map(|s| vec![s]),
-                        derive: None,
-                    });
+                    struct_fields_to_add.insert(
+                        name.clone(),
+                        FieldData {
+                            r#type: field_type.clone(),
+                            ref_kind: rk,
+                            arraysize: None,
+                            doc: doc.clone().map(|s| vec![s]),
+                            derive: None,
+                        },
+                    );
                 }
                 ModifyChange::RemoveField { .. } => {
                     // Note: The legacy format doesn't support removing fields directly
                 }
-                ModifyChange::ChangeFieldType { name, new_type, ref_kind, .. } => {
-                    let rk = ref_kind.as_ref()
+                ModifyChange::ChangeFieldType {
+                    name,
+                    new_type,
+                    ref_kind,
+                    ..
+                } => {
+                    let rk = ref_kind
+                        .as_ref()
                         .and_then(|s| crate::api::RefKind::parse(s))
                         .unwrap_or_default();
-                    struct_fields_to_add.insert(name.clone(), FieldData {
-                        r#type: new_type.clone(),
-                        ref_kind: rk,
-                        arraysize: None,
-                        doc: None,
-                        derive: None,
-                    });
+                    struct_fields_to_add.insert(
+                        name.clone(),
+                        FieldData {
+                            r#type: new_type.clone(),
+                            ref_kind: rk,
+                            arraysize: None,
+                            doc: None,
+                            derive: None,
+                        },
+                    );
                 }
                 ModifyChange::AddVariant { name, variant_type } => {
-                    enum_variants_to_add.insert(name.clone(), EnumVariantData {
-                        r#type: variant_type.clone(),
-                        doc: None,
-                    });
+                    enum_variants_to_add.insert(
+                        name.clone(),
+                        EnumVariantData {
+                            r#type: variant_type.clone(),
+                            doc: None,
+                        },
+                    );
                 }
                 ModifyChange::RemoveVariant { .. } => {
                     // Note: The legacy format doesn't support removing variants directly
                 }
                 ModifyChange::ChangeVariantType { name, new_type, .. } => {
-                    enum_variants_to_add.insert(name.clone(), EnumVariantData {
-                        r#type: new_type.clone(),
-                        doc: None,
-                    });
+                    enum_variants_to_add.insert(
+                        name.clone(),
+                        EnumVariantData {
+                            r#type: new_type.clone(),
+                            doc: None,
+                        },
+                    );
                 }
                 ModifyChange::SetCallbackTypedef { args, returns } => {
-                    use crate::api::{CallbackDefinition, CallbackArgData, ReturnTypeData};
-                    
-                    let callback_args: Vec<CallbackArgData> = args.iter()
-                        .map(|arg| {
-                            CallbackArgData {
-                                r#type: arg.arg_type.clone(),
-                                ref_kind: arg.ref_kind.clone(),
-                                doc: None,
-                            }
+                    use crate::api::{CallbackArgData, CallbackDefinition, ReturnTypeData};
+
+                    let callback_args: Vec<CallbackArgData> = args
+                        .iter()
+                        .map(|arg| CallbackArgData {
+                            r#type: arg.arg_type.clone(),
+                            ref_kind: arg.ref_kind.clone(),
+                            doc: None,
                         })
                         .collect();
-                    
+
                     let callback_returns = returns.as_ref().map(|ret_type| ReturnTypeData {
                         r#type: ret_type.clone(),
                         doc: None,
                     });
-                    
+
                     patch.callback_typedef = Some(CallbackDefinition {
                         fn_args: callback_args,
                         returns: callback_returns,
                     });
                 }
-                ModifyChange::ChangeCallbackArg { arg_index, new_type, new_ref, .. } => {
+                ModifyChange::ChangeCallbackArg {
+                    arg_index,
+                    new_type,
+                    new_ref,
+                    ..
+                } => {
                     // Update a specific callback argument
                     use crate::api::CallbackDefinition;
-                    
-                    // We need to update just this argument, but for now we'll need the full callback
-                    // This could be improved with more granular updates
+
+                    // We need to update just this argument, but for now we'll need the full
+                    // callback This could be improved with more granular
+                    // updates
                     if let Some(ref mut callback_def) = patch.callback_typedef {
                         if let Some(arg) = callback_def.fn_args.get_mut(*arg_index) {
                             arg.r#type = new_type.clone();
@@ -808,7 +935,10 @@ impl AutofixPatch {
                 ModifyChange::ChangeCallbackReturn { .. } => {
                     // For now, the entire callback_typedef would need to be re-set
                 }
-                ModifyChange::SetTypeAlias { target, generic_args } => {
+                ModifyChange::SetTypeAlias {
+                    target,
+                    generic_args,
+                } => {
                     use crate::api::TypeAliasInfo;
                     // Parse pointer prefixes from target string
                     let (base_target, ref_kind) = parse_pointer_from_type(target);
@@ -818,7 +948,11 @@ impl AutofixPatch {
                         generic_args: generic_args.clone(),
                     });
                 }
-                ModifyChange::ChangeTypeAlias { new_target, new_generic_args, .. } => {
+                ModifyChange::ChangeTypeAlias {
+                    new_target,
+                    new_generic_args,
+                    ..
+                } => {
                     use crate::api::TypeAliasInfo;
                     // Parse pointer prefixes from target string
                     let (base_target, ref_kind) = parse_pointer_from_type(new_target);
@@ -839,16 +973,21 @@ impl AutofixPatch {
                     // Complete replacement - NOT a merge, preserves field order
                     let mut ordered_fields: IndexMap<String, FieldData> = IndexMap::new();
                     for field in fields {
-                        let rk = field.ref_kind.as_ref()
+                        let rk = field
+                            .ref_kind
+                            .as_ref()
                             .and_then(|s| crate::api::RefKind::parse(s))
                             .unwrap_or_default();
-                        ordered_fields.insert(field.name.clone(), FieldData {
-                            r#type: field.field_type.clone(),
-                            ref_kind: rk,
-                            arraysize: None,
-                            doc: None,
-                            derive: None,
-                        });
+                        ordered_fields.insert(
+                            field.name.clone(),
+                            FieldData {
+                                r#type: field.field_type.clone(),
+                                ref_kind: rk,
+                                arraysize: None,
+                                doc: None,
+                                derive: None,
+                            },
+                        );
                     }
                     patch.struct_fields = Some(vec![ordered_fields]);
                     patch.add_struct_fields = Some(false); // REPLACE, not merge
@@ -857,10 +996,13 @@ impl AutofixPatch {
                     // Complete replacement - NOT a merge, preserves variant order
                     let mut ordered_variants: IndexMap<String, EnumVariantData> = IndexMap::new();
                     for variant in variants {
-                        ordered_variants.insert(variant.name.clone(), EnumVariantData {
-                            r#type: variant.variant_type.clone(),
-                            doc: None,
-                        });
+                        ordered_variants.insert(
+                            variant.name.clone(),
+                            EnumVariantData {
+                                r#type: variant.variant_type.clone(),
+                                doc: None,
+                            },
+                        );
                     }
                     patch.enum_fields = Some(vec![ordered_variants]);
                     patch.add_enum_fields = Some(false); // REPLACE, not merge
@@ -875,25 +1017,38 @@ impl AutofixPatch {
                     patch.enum_fields = Some(vec![]); // Empty vec signals removal
                     patch.add_enum_fields = Some(false);
                 }
-                ModifyChange::FixFunctionSelf { fn_name, expected_self } => {
+                ModifyChange::FixFunctionSelf {
+                    fn_name,
+                    expected_self,
+                } => {
                     // Function self parameter mismatch detected
                     // We can't easily fix this here because we need to preserve other arguments
-                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the function
-                    eprintln!("  [WARN] {}.{}: needs self='{}' - run 'autofix add \"{}.{}\"' to fix",
-                        m.type_name, fn_name, 
+                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the
+                    // function
+                    eprintln!(
+                        "  [WARN] {}.{}: needs self='{}' - run 'autofix add \"{}.{}\"' to fix",
+                        m.type_name,
+                        fn_name,
                         expected_self.as_deref().unwrap_or("static"),
-                        m.type_name, fn_name);
+                        m.type_name,
+                        fn_name
+                    );
                 }
-                ModifyChange::FixFunctionArgs { fn_name, expected_count } => {
+                ModifyChange::FixFunctionArgs {
+                    fn_name,
+                    expected_count,
+                } => {
                     // Function argument count mismatch detected
-                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the function
-                    eprintln!("  [WARN] {}.{}: needs {} args - run 'autofix add \"{}.{}\"' to fix",
-                        m.type_name, fn_name, expected_count,
-                        m.type_name, fn_name);
+                    // The user should run: autofix add 'TypeName.fn_name' to regenerate the
+                    // function
+                    eprintln!(
+                        "  [WARN] {}.{}: needs {} args - run 'autofix add \"{}.{}\"' to fix",
+                        m.type_name, fn_name, expected_count, m.type_name, fn_name
+                    );
                 }
             }
         }
-        
+
         if !derives_to_add.is_empty() {
             patch.derive = Some(derives_to_add);
             patch.add_derive = Some(true); // Merge with existing derives
@@ -916,10 +1071,10 @@ impl AutofixPatch {
             patch.enum_fields = Some(vec![enum_variants_to_add]);
             patch.add_enum_fields = Some(true); // Merge with existing enum_fields
         }
-        
+
         patch
     }
-    
+
     /// Load from a JSON file and convert to applicable format
     pub fn load_and_convert(path: &std::path::Path) -> anyhow::Result<ApiPatch> {
         let content = std::fs::read_to_string(path)?;
@@ -973,7 +1128,10 @@ mod tests {
             type_name: "AppTerminationBehavior".to_string(),
             module: None,
             changes: vec![
-                ModifyChange::SetRepr { old: None, new: Some("C".to_string()) },
+                ModifyChange::SetRepr {
+                    old: None,
+                    new: Some("C".to_string()),
+                },
                 ModifyChange::AddDerives {
                     derives: vec!["Clone".to_string(), "Copy".to_string(), "Debug".to_string()],
                 },
@@ -982,7 +1140,7 @@ mod tests {
 
         let json = patch.to_json().unwrap();
         println!("{}", json);
-        
+
         let parsed = AutofixPatch::from_json(&json).unwrap();
         assert_eq!(parsed.operations.len(), 1);
     }
@@ -1013,8 +1171,14 @@ mod tests {
             repr_c: Some(true),
             struct_fields: None,
             enum_variants: Some(vec![
-                VariantDef { name: "Auto".to_string(), variant_type: None },
-                VariantDef { name: "Fixed".to_string(), variant_type: Some("PixelValue".to_string()) },
+                VariantDef {
+                    name: "Auto".to_string(),
+                    variant_type: None,
+                },
+                VariantDef {
+                    name: "Fixed".to_string(),
+                    variant_type: Some("PixelValue".to_string()),
+                },
             ]),
             callback_typedef: None,
             type_alias: None,
@@ -1048,7 +1212,10 @@ mod tests {
                     old: "old::path::AppTerminationBehavior".to_string(),
                     new: "azul_core::window::AppTerminationBehavior".to_string(),
                 },
-                ModifyChange::SetRepr { old: None, new: Some("C".to_string()) },
+                ModifyChange::SetRepr {
+                    old: None,
+                    new: Some("C".to_string()),
+                },
                 ModifyChange::AddDerives {
                     derives: vec!["Clone".to_string(), "Copy".to_string()],
                 },
@@ -1056,17 +1223,23 @@ mod tests {
         }));
 
         let api_patch = patch.to_api_patch();
-        
+
         // Check structure - uses API_VERSION constant
         assert!(api_patch.versions.contains_key(super::API_VERSION));
         let version = api_patch.versions.get(super::API_VERSION).unwrap();
         assert!(version.modules.contains_key("app"));
         let module = version.modules.get("app").unwrap();
         assert!(module.classes.contains_key("AppTerminationBehavior"));
-        
+
         let class_patch = module.classes.get("AppTerminationBehavior").unwrap();
-        assert_eq!(class_patch.external, Some("azul_core::window::AppTerminationBehavior".to_string()));
+        assert_eq!(
+            class_patch.external,
+            Some("azul_core::window::AppTerminationBehavior".to_string())
+        );
         assert_eq!(class_patch.repr, Some("C".to_string()));
-        assert_eq!(class_patch.derive, Some(vec!["Clone".to_string(), "Copy".to_string()]));
+        assert_eq!(
+            class_patch.derive,
+            Some(vec!["Clone".to_string(), "Copy".to_string()])
+        );
     }
 }

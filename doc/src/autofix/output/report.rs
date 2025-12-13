@@ -2,8 +2,7 @@
 //!
 //! This module generates human-readable reports of autofix results.
 
-use crate::autofix::patches::PatchSet;
-use crate::autofix::analysis::ReachabilityAnalysis;
+use crate::autofix::{analysis::ReachabilityAnalysis, patches::PatchSet};
 
 /// A complete report of autofix analysis
 #[derive(Debug)]
@@ -39,11 +38,9 @@ pub struct PathCorrectionEntry {
 }
 
 /// Generate a report from analysis results
-pub fn generate_report(
-    patches: &PatchSet,
-    reachability: Option<&ReachabilityAnalysis>,
-) -> Report {
-    let path_corrections: Vec<PathCorrectionEntry> = patches.path_corrections
+pub fn generate_report(patches: &PatchSet, reachability: Option<&ReachabilityAnalysis>) -> Report {
+    let path_corrections: Vec<PathCorrectionEntry> = patches
+        .path_corrections
         .values()
         .map(|c| PathCorrectionEntry {
             type_name: c.type_name.clone(),
@@ -53,10 +50,7 @@ pub fn generate_report(
         })
         .collect();
 
-    let types_to_remove: Vec<String> = patches.types_to_remove
-        .iter()
-        .cloned()
-        .collect();
+    let types_to_remove: Vec<String> = patches.types_to_remove.iter().cloned().collect();
 
     let total_types = reachability
         .map(|r| r.reachable.len() + r.unreachable.len())
@@ -86,10 +80,22 @@ impl Report {
         out.push_str("=== AUTOFIX REPORT ===\n\n");
 
         out.push_str(&format!("Summary:\n"));
-        out.push_str(&format!("  Types analyzed: {}\n", self.summary.total_types_analyzed));
-        out.push_str(&format!("  Path corrections: {}\n", self.summary.path_corrections_count));
-        out.push_str(&format!("  Types to remove: {}\n", self.summary.types_to_remove_count));
-        out.push_str(&format!("  Duplicates skipped: {}\n", self.summary.duplicates_skipped));
+        out.push_str(&format!(
+            "  Types analyzed: {}\n",
+            self.summary.total_types_analyzed
+        ));
+        out.push_str(&format!(
+            "  Path corrections: {}\n",
+            self.summary.path_corrections_count
+        ));
+        out.push_str(&format!(
+            "  Types to remove: {}\n",
+            self.summary.types_to_remove_count
+        ));
+        out.push_str(&format!(
+            "  Duplicates skipped: {}\n",
+            self.summary.duplicates_skipped
+        ));
         out.push_str("\n");
 
         if !self.path_corrections.is_empty() {

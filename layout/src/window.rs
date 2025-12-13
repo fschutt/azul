@@ -5,7 +5,7 @@
 //! and display list generation.
 //!
 //! The main entry point is `LayoutWindow`, which encapsulates all
-//! the state needed to perform layout and maintain consistency 
+//! the state needed to perform layout and maintain consistency
 //! across window resizes and DOM updates.
 
 use std::{
@@ -27,33 +27,30 @@ use azul_core::{
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::RefAny,
     resources::{
-        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, 
-        ImageMask, ImageRef, ImageRefHash,
+        Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
         OpacityKey, RendererResources,
     },
     selection::{
-        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, 
-        SelectionState, TextCursor,
+        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{
-        Duration, Instant, SystemTimeDiff, TerminateTimer, 
-        ThreadId, ThreadSendMsg, TimerId
-    },
+    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadSendMsg, TimerId},
     window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
     parser2::CssApiWrapper,
-    props::{basic::FontRef, property::{CssProperty, CssPropertyVec}},
+    props::{
+        basic::FontRef,
+        property::{CssProperty, CssPropertyVec},
+    },
     AzString, LayoutDebugMessage,
 };
 use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::{
-        CallCallbacksResult, Callback, ExternalSystemCallbacks, 
-        FocusUpdateRequest, MenuCallback,
+        CallCallbacksResult, Callback, ExternalSystemCallbacks, FocusUpdateRequest, MenuCallback,
     },
     managers::{
         gpu_state::GpuStateManager,
@@ -61,14 +58,14 @@ use crate::{
         scroll_state::{ScrollManager, ScrollStates},
     },
     solver3::{
-        self, cache::LayoutCache as Solver3LayoutCache, 
-        display_list::DisplayList, layout_tree::LayoutTree,
+        self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
+        layout_tree::LayoutTree,
     },
     text3::{
         cache::{
             FontManager, FontSelector, FontStyle, InlineContent, LayoutCache as TextLayoutCache,
-            LayoutError, ShapedItem, StyleProperties, StyledRun, TextBoundary,
-            UnifiedConstraints, UnifiedLayout,
+            LayoutError, ShapedItem, StyleProperties, StyledRun, TextBoundary, UnifiedConstraints,
+            UnifiedLayout,
         },
         default::PathLoader,
     },
@@ -1232,10 +1229,7 @@ impl LayoutWindow {
                 CallbackChange::RemoveThread { thread_id } => {
                     result.threads_removed.insert(thread_id);
                 }
-                CallbackChange::ChangeNodeText {
-                    node_id,
-                    text,
-                } => {
+                CallbackChange::ChangeNodeText { node_id, text } => {
                     let dom_id = node_id.dom;
                     let internal_node_id = NodeId::new(node_id.node.inner);
                     result
@@ -1619,10 +1613,7 @@ impl LayoutWindow {
         movement_fn: F,
     ) -> Option<TextCursor>
     where
-        F: FnOnce(
-            &UnifiedLayout,
-            &TextCursor,
-        ) -> TextCursor,
+        F: FnOnce(&UnifiedLayout, &TextCursor) -> TextCursor,
     {
         let current_cursor = self.cursor_manager.get_cursor()?;
         let layout = self.get_inline_layout_for_node(dom_id, node_id)?;
@@ -4554,11 +4545,7 @@ impl LayoutWindow {
     /// This function currently reconstructs InlineContent from the styled DOM.
     /// A future optimization would be to cache the InlineContent during layout
     /// and retrieve it directly from the text cache.
-    pub fn get_text_before_textinput(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Vec<InlineContent> {
+    pub fn get_text_before_textinput(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
         // Get the layout result for this DOM
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
@@ -4631,7 +4618,6 @@ impl LayoutWindow {
         dom_id: DomId,
         parent_node_id: NodeId,
     ) -> Vec<InlineContent> {
-
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
             None => return Vec::new(),
@@ -4666,11 +4652,7 @@ impl LayoutWindow {
     /// Extract plain text string from inline content
     ///
     /// This is a helper for building the changeset's resulting_text field.
-    pub fn extract_text_from_inline_content(
-        &self,
-        content: &[InlineContent],
-    ) -> String {
-
+    pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
         let mut result = String::new();
 
         for item in content {
@@ -5384,8 +5366,7 @@ impl LayoutWindow {
                                     );
                                     let is_italic = matches!(
                                         first_font.style,
-                                        FontStyle::Italic
-                                            | FontStyle::Oblique
+                                        FontStyle::Italic | FontStyle::Oblique
                                     );
 
                                     styled_runs.push(StyledTextRun {
@@ -5525,10 +5506,7 @@ impl LayoutWindow {
                                         // RenderImageCallback (cb: fn pointer)
                                         let callback =
                                             RenderImageCallback::from_core(&core_callback.callback);
-                                        (callback.cb)(
-                                            core_callback.data.clone(),
-                                            gl_callback_info,
-                                        )
+                                        (callback.cb)(core_callback.data.clone(), gl_callback_info)
                                     })
                                 }
                                 _ => None,

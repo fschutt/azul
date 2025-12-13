@@ -26,8 +26,8 @@ pub struct GenerateConfig {
     pub no_derive: bool,
     /// Suffix to add to enum wrapper types
     pub wrapper_postfix: String,
-    /// Whether this is memtest mode - if true, don't generate trait impls that call external functions
-    /// (like Clone calling _deepCopy, Drop calling _delete)
+    /// Whether this is memtest mode - if true, don't generate trait impls that call external
+    /// functions (like Clone calling _deepCopy, Drop calling _delete)
     pub is_memtest: bool,
     /// Whether we're generating for DLL include!() (true) or memtest crate (false)
     /// When true: azul_dll:: is replaced with crate:: (compiling inside azul-dll)
@@ -91,7 +91,7 @@ impl StructMetadata {
     pub fn from_class_data(name: String, class_data: &ClassData) -> Self {
         let has_explicit_derive = class_data.derive.is_some();
         let mut derive = class_data.derive.clone().unwrap_or_default();
-        
+
         // If Copy is derived, Clone must also be derived (Copy requires Clone)
         if derive.contains(&"Copy".to_string()) && !derive.contains(&"Clone".to_string()) {
             derive.push("Clone".to_string());
@@ -169,7 +169,9 @@ pub fn generate_structs(
         .filter(|(_, meta)| meta.is_callback_typedef)
         .map(|(name, _)| {
             // Remove prefix to get base type name
-            name.strip_prefix(&config.prefix).unwrap_or(name).to_string()
+            name.strip_prefix(&config.prefix)
+                .unwrap_or(name)
+                .to_string()
         })
         .collect();
 
@@ -181,7 +183,8 @@ pub fn generate_structs(
         // Define priority: lower number = earlier in output
         fn priority(name: &str) -> u32 {
             // Most fundamental types first (used by many other types)
-            if name.ends_with("Vec") && !name.contains("VecDestructor") && !name.contains("VecRef") {
+            if name.ends_with("Vec") && !name.contains("VecDestructor") && !name.contains("VecRef")
+            {
                 return 0; // U8Vec, StringVec, etc.
             }
             if name.ends_with("String") {
@@ -267,13 +270,13 @@ fn generate_single_type(
 
         // Check if target is a function pointer (starts with "extern")
         let is_function_ptr = type_alias_info.target.starts_with("extern");
-        
+
         // Check if target is a pointer type (*const T or *mut T)
-        let is_pointer_type = type_alias_info.target.starts_with("*const ") 
+        let is_pointer_type = type_alias_info.target.starts_with("*const ")
             || type_alias_info.target.starts_with("*mut ")
             || type_alias_info.target.starts_with("* const ")
             || type_alias_info.target.starts_with("* mut ");
-        
+
         // Check if target contains generics (like "CssPropertyValue < BreakInside >")
         let has_embedded_generics = type_alias_info.target.contains('<');
 
@@ -306,14 +309,14 @@ fn generate_single_type(
                     } else {
                         format!("Box<{}>", target_name)
                     }
-                },
+                }
                 RefKind::OptionBoxed => {
                     if target_name == "c_void" {
                         "Option<*mut c_void>".to_string()
                     } else {
                         format!("Option<Box<{}>>", target_name)
                     }
-                },
+                }
             };
             code.push_str(&format!(
                 "{}pub type {} = {};\n\n",
@@ -374,7 +377,9 @@ fn generate_single_type(
         // A callback wrapper struct has exactly one field whose type is a callback_typedef
         // Skip for memtest - we already generate manual trait impls that work correctly
         if !config.is_memtest {
-            if let Some(field_name) = get_callback_wrapper_field(struct_fields, callback_typedef_types) {
+            if let Some(field_name) =
+                get_callback_wrapper_field(struct_fields, callback_typedef_types)
+            {
                 code.push_str(&generate_callback_trait_impls(
                     struct_name,
                     &field_name,
@@ -397,10 +402,14 @@ fn generate_single_type(
     }
     // Error: Type has external path but no struct_fields or enum_fields
     // This is invalid - every non-alias type must have fields defined
-    else if struct_meta.external.is_some() && !struct_meta.is_callback_typedef && struct_meta.type_alias.is_none() {
+    else if struct_meta.external.is_some()
+        && !struct_meta.is_callback_typedef
+        && struct_meta.type_alias.is_none()
+    {
         anyhow::bail!(
-            "Type '{}' has external path '{}' but no struct_fields or enum_fields defined in api.json. \
-             Every type (except type_alias and callback_typedef) must have either struct_fields or enum_fields.",
+            "Type '{}' has external path '{}' but no struct_fields or enum_fields defined in \
+             api.json. Every type (except type_alias and callback_typedef) must have either \
+             struct_fields or enum_fields.",
             struct_name,
             struct_meta.external.as_ref().unwrap()
         );
@@ -419,12 +428,12 @@ fn get_callback_wrapper_field(
 ) -> Option<String> {
     // Count total fields
     let total_fields: usize = struct_fields.iter().map(|m| m.len()).sum();
-    
+
     // Must have exactly one field
     if total_fields != 1 {
         return None;
     }
-    
+
     // Check if that single field's type is a callback_typedef
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
@@ -577,11 +586,11 @@ fn generate_struct_definition(
     let mut derives: Vec<&str> = Vec::new();
     let mut has_serialize = false;
     let mut has_deserialize = false;
-    
+
     // For memtest: track which traits we need to generate manually
     // because we can't rely on field types implementing the derives
     let mut memtest_manual_impls: Vec<&str> = Vec::new();
-    
+
     if !config.no_derive {
         // Add derives from api.json, but filter out Serialize/Deserialize
         for d in &struct_meta.derive {
@@ -599,21 +608,24 @@ fn generate_struct_definition(
                 }
             }
         }
-        
+
         // For memtest: DON'T add custom_impls as derives because the field types
         // (like Vec types with custom destructors) may not implement those traits.
         // Instead, we'll generate manual impls after the struct definition.
     }
-    
-    // For callback wrapper structs, don't derive any traits because we generate custom implementations
-    let is_callback_wrapper = get_callback_wrapper_field(struct_fields, callback_typedef_types).is_some();
+
+    // For callback wrapper structs, don't derive any traits because we generate custom
+    // implementations
+    let is_callback_wrapper =
+        get_callback_wrapper_field(struct_fields, callback_typedef_types).is_some();
     if is_callback_wrapper {
         derives.clear();
         has_serialize = false;
         has_deserialize = false;
     }
-    
-    // For VecRef types, don't derive traits because we generate custom implementations using as_slice()
+
+    // For VecRef types, don't derive traits because we generate custom implementations using
+    // as_slice()
     if struct_meta.vec_ref_element_type.is_some() {
         derives.clear();
         has_serialize = false;
@@ -692,7 +704,7 @@ fn generate_struct_definition(
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
             let field_type = &field_data.r#type;
-            
+
             // Get ref_kind prefix/suffix for pointer types
             let ref_prefix = field_data.ref_kind.to_rust_prefix();
             let ref_suffix = field_data.ref_kind.to_rust_suffix();
@@ -731,16 +743,16 @@ fn generate_struct_definition(
                     ));
                 } else {
                     // Complex type - need to resolve and add prefix
-                    
+
                     // Look up the type in api.json
-                    let resolved_class_name = if let Some((_, class_name)) = 
-                        search_for_class_by_class_name(version_data, &base_type) 
+                    let resolved_class_name = if let Some((_, class_name)) =
+                        search_for_class_by_class_name(version_data, &base_type)
                     {
                         Some(class_name.to_string())
                     } else {
                         None
                     };
-                    
+
                     if let Some(class_name) = resolved_class_name {
                         let visibility = if field_name == "ptr" {
                             "pub(crate)"
@@ -802,10 +814,7 @@ fn generate_struct_definition(
                 "{}impl Clone for {} {{\n",
                 indent_str, struct_name
             ));
-            code.push_str(&format!(
-                "{}    fn clone(&self) -> Self {{\n",
-                indent_str
-            ));
+            code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
             code.push_str(&format!(
                 "{}        unsafe {{ {}_deepCopy(self) }}\n",
                 indent_str, struct_name
@@ -816,14 +825,8 @@ fn generate_struct_definition(
 
         // Generate impl Drop if custom_impls contains "Drop"
         if struct_meta.custom_impls.contains(&"Drop".to_string()) {
-            code.push_str(&format!(
-                "{}impl Drop for {} {{\n",
-                indent_str, struct_name
-            ));
-            code.push_str(&format!(
-                "{}    fn drop(&mut self) {{\n",
-                indent_str
-            ));
+            code.push_str(&format!("{}impl Drop for {} {{\n", indent_str, struct_name));
+            code.push_str(&format!("{}    fn drop(&mut self) {{\n", indent_str));
             code.push_str(&format!(
                 "{}        unsafe {{ {}_delete(self) }}\n",
                 indent_str, struct_name
@@ -861,7 +864,8 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} as *const {})) }}\n",
+                "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} \
+                 as *const {})) }}\n",
                 indent_str, struct_name, external_path, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -879,7 +883,8 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as *const {} as *const {})) }}\n",
+                "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as \
+                 *const {} as *const {})) }}\n",
                 indent_str, struct_name, external_path, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -896,16 +901,14 @@ fn generate_struct_definition(
 
         // Generate impl Ord if custom_impls contains "Ord"
         if struct_meta.custom_impls.contains(&"Ord".to_string()) {
-            code.push_str(&format!(
-                "{}impl Ord for {} {{\n",
-                indent_str, struct_name
-            ));
+            code.push_str(&format!("{}impl Ord for {} {{\n", indent_str, struct_name));
             code.push_str(&format!(
                 "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const {} as *const {})) }}\n",
+                "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const \
+                 {} as *const {})) }}\n",
                 indent_str, struct_name, external_path, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -932,10 +935,12 @@ fn generate_struct_definition(
     } else {
         // For memtest: generate manual trait implementations that don't rely on field types
         // This is necessary because Vec types and other custom destructor types don't derive traits
-        
+
         // Combine custom_impls AND memtest_manual_impls (traits from derive that need manual impl)
         // This is the key fix: previously we only checked custom_impls, missing all derive traits!
-        let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
+        let all_manual_traits: std::collections::HashSet<&str> = struct_meta
+            .custom_impls
+            .iter()
             .map(|s| s.as_str())
             .chain(memtest_manual_impls.iter().copied())
             .collect();
@@ -951,12 +956,16 @@ fn generate_struct_definition(
             String::new()
         };
         let type_with_generics = format!("{}{}", struct_name, impl_generics);
-        
+
         // For generic types, we cannot use transmute-based impls because size_of::<Self>()
         // is not known at compile time. Generic types are tested via their concrete
         // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
-        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
-        
+        let is_generic_type = struct_meta
+            .generic_params
+            .as_ref()
+            .map(|p| !p.is_empty())
+            .unwrap_or(false);
+
         // Check if this type has Clone - either via custom_impls (like RefAny) or via derive
         // Both need to call the real .clone() method via transmute
         let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
@@ -965,12 +974,19 @@ fn generate_struct_definition(
         // For DLL mode: Replace azul_dll:: with crate:: since we're compiling within the DLL crate
         // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
         let external_path = if config.is_for_dll {
-            struct_meta.external.as_deref().unwrap_or(struct_name)
+            struct_meta
+                .external
+                .as_deref()
+                .unwrap_or(struct_name)
                 .replace("azul_dll::", "crate::")
         } else {
-            struct_meta.external.as_deref().unwrap_or(struct_name).to_string()
+            struct_meta
+                .external
+                .as_deref()
+                .unwrap_or(struct_name)
+                .to_string()
         };
-        
+
         // Generate impl Clone for memtest
         // IMPORTANT: Only generate Clone if we have a Clone impl we can delegate to.
         // Never use core::ptr::read - it's NEVER a valid Clone implementation!
@@ -980,14 +996,12 @@ fn generate_struct_definition(
                 "{}impl{} Clone for {} {{\n",
                 indent_str, impl_generics, type_with_generics
             ));
-            code.push_str(&format!(
-                "{}    fn clone(&self) -> Self {{\n",
-                indent_str
-            ));
+            code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
             // Call the real clone() on the external type
             // This is critical for types that manage refcounts or resources
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as \
+                 *const {})).clone()) }}\n",
                 indent_str, external_path, struct_name, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -995,10 +1009,11 @@ fn generate_struct_definition(
         }
         // NOTE: Types without Clone (custom or derive) do NOT get a Clone impl in memtest.
         // This is intentional - core::ptr::read is NEVER a valid Clone implementation!
-        
+
         // Generate impl Debug for memtest
         // Skip VecDestructor types - these get detailed Debug impls in memtest.rs
-        let is_vec_destructor = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+        let is_vec_destructor =
+            struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
         if all_manual_traits.contains("Debug") && !is_vec_destructor {
             code.push_str(&format!(
                 "{}impl{} core::fmt::Debug for {} {{\n",
@@ -1015,17 +1030,14 @@ fn generate_struct_definition(
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Default for memtest
         if all_manual_traits.contains("Default") {
             code.push_str(&format!(
                 "{}impl{} Default for {} {{\n",
                 indent_str, impl_generics, type_with_generics
             ));
-            code.push_str(&format!(
-                "{}    fn default() -> Self {{\n",
-                indent_str
-            ));
+            code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
             code.push_str(&format!(
                 "{}        unsafe {{ core::mem::zeroed() }}\n",
                 indent_str
@@ -1033,7 +1045,7 @@ fn generate_struct_definition(
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl PartialEq for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("PartialEq") && !is_generic_type {
@@ -1046,13 +1058,15 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Eq for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Eq") && !is_generic_type {
@@ -1061,7 +1075,7 @@ fn generate_struct_definition(
                 indent_str, impl_generics, type_with_generics
             ));
         }
-        
+
         // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("PartialOrd") && !is_generic_type {
@@ -1074,13 +1088,15 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }})\n",
+                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other)) }})\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Ord for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Ord") && !is_generic_type {
@@ -1093,13 +1109,15 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other)) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Hash for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Hash") && !is_generic_type {
@@ -1112,7 +1130,8 @@ fn generate_struct_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -1138,7 +1157,9 @@ fn generate_enum_definition(
     // - Enums with variant data (tagged unions): repr(C, u8) - tag is u8
     // NOTE: We ignore api.json "repr" field - it's always implicitly calculable
     let has_variant_data = enum_fields.iter().any(|variant_map| {
-        variant_map.values().any(|variant_data| variant_data.r#type.is_some())
+        variant_map
+            .values()
+            .any(|variant_data| variant_data.r#type.is_some())
     });
     let repr = if has_variant_data {
         format!("{}#[repr(C, u8)]\n", indent_str)
@@ -1149,15 +1170,16 @@ fn generate_enum_definition(
     // SIMPLIFIED: Use derives directly from api.json (struct_meta.derive)
     // All derive information is now explicit in api.json - no auto-computation
     // BUT: Serialize/Deserialize need special handling - they go in cfg_attr
-    // AND: Default for enums ALWAYS needs manual impl (can't use #[derive(Default)] without #[default] attribute)
+    // AND: Default for enums ALWAYS needs manual impl (can't use #[derive(Default)] without
+    // #[default] attribute)
     let mut derives: Vec<&str> = Vec::new();
     let mut has_serialize = false;
     let mut has_deserialize = false;
     let mut has_default = false;
-    
+
     // For memtest: track which traits we need to generate manually
     let mut memtest_manual_impls: Vec<&str> = Vec::new();
-    
+
     if !config.no_derive {
         // Add derives from api.json, but filter out Serialize/Deserialize/Default
         for d in &struct_meta.derive {
@@ -1181,13 +1203,13 @@ fn generate_enum_definition(
                 }
             }
         }
-        
+
         // For enums: Default ALWAYS needs manual impl (never use derive)
         // The #[derive(Default)] for enums requires #[default] attribute which is unstable
         if has_default {
             memtest_manual_impls.push("Default");
         }
-        
+
         // For memtest: DON'T add custom_impls as derives
         // We'll generate manual impls instead
     }
@@ -1281,7 +1303,9 @@ fn generate_enum_definition(
                         .collect();
                     code.push_str(&format!(
                         "{}    {}({}),\n",
-                        indent_str, variant_name, prefixed_types.join(", ")
+                        indent_str,
+                        variant_name,
+                        prefixed_types.join(", ")
                     ));
                     continue;
                 }
@@ -1377,15 +1401,12 @@ fn generate_enum_definition(
             .and_then(|m| m.keys().next())
             .map(|s| s.as_str())
             .unwrap_or("Unknown");
-        
+
         code.push_str(&format!(
             "{}impl{} Default for {} {{\n",
             indent_str, impl_generics, type_with_generics
         ));
-        code.push_str(&format!(
-            "{}    fn default() -> Self {{\n",
-            indent_str
-        ));
+        code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
         code.push_str(&format!(
             "{}        {}::{}\n",
             indent_str, type_with_generics, first_variant_name
@@ -1394,7 +1415,8 @@ fn generate_enum_definition(
         code.push_str(&format!("{}}}\n\n", indent_str));
     }
 
-    // For memtest: generate manual trait implementations for enums (except Default which is handled above)
+    // For memtest: generate manual trait implementations for enums (except Default which is handled
+    // above)
     if config.is_memtest && !memtest_manual_impls.is_empty() {
         // Combine custom_impls AND memtest_manual_impls, but exclude Default (already generated)
         let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
@@ -1402,12 +1424,16 @@ fn generate_enum_definition(
             .chain(memtest_manual_impls.iter().copied())
             .filter(|&t| t != "Default") // Default already generated above
             .collect();
-        
+
         // For generic types, we cannot use transmute-based impls because size_of::<Self>()
         // is not known at compile time. Generic types are tested via their concrete
         // instantiations (type aliases like CaretColorValue = CssPropertyValue<CaretColor>).
-        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
-        
+        let is_generic_type = struct_meta
+            .generic_params
+            .as_ref()
+            .map(|p| !p.is_empty())
+            .unwrap_or(false);
+
         // Check if this type has a custom Clone implementation or derived Clone
         // These need to call the real .clone() method, not just ptr::read
         let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
@@ -1415,37 +1441,46 @@ fn generate_enum_definition(
         // For DLL mode: Replace azul_dll:: with crate:: since we're compiling within the DLL crate
         // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
         let external_path = if config.is_for_dll {
-            struct_meta.external.as_deref().unwrap_or(struct_name)
+            struct_meta
+                .external
+                .as_deref()
+                .unwrap_or(struct_name)
                 .replace("azul_dll::", "crate::")
         } else {
-            struct_meta.external.as_deref().unwrap_or(struct_name).to_string()
+            struct_meta
+                .external
+                .as_deref()
+                .unwrap_or(struct_name)
+                .to_string()
         };
-        
+
         // Generate impl Clone for memtest
-        // IMPORTANT: Only generate Clone if we have a custom_impls OR derived Clone that we can delegate to.
-        // Never use core::ptr::read - it's NEVER a valid Clone implementation!
-        if all_manual_traits.contains("Clone") && (has_custom_clone || has_derived_clone) && !is_generic_type {
+        // IMPORTANT: Only generate Clone if we have a custom_impls OR derived Clone that we can
+        // delegate to. Never use core::ptr::read - it's NEVER a valid Clone implementation!
+        if all_manual_traits.contains("Clone")
+            && (has_custom_clone || has_derived_clone)
+            && !is_generic_type
+        {
             code.push_str(&format!(
                 "{}impl{} Clone for {} {{\n",
                 indent_str, impl_generics, type_with_generics
             ));
-            code.push_str(&format!(
-                "{}    fn clone(&self) -> Self {{\n",
-                indent_str
-            ));
+            code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
             // For types with custom Clone impl, call the real clone()
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const {})).clone()) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as \
+                 *const {})).clone()) }}\n",
                 indent_str, external_path, struct_name, struct_name, external_path
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
         // NOTE: Types without custom_impls Clone do NOT get a Clone impl in memtest.
-        
+
         // Generate impl Debug for memtest
         // Skip VecDestructor types - these get detailed Debug impls in memtest.rs
-        let is_vec_destructor = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+        let is_vec_destructor =
+            struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
         if all_manual_traits.contains("Debug") && !is_vec_destructor {
             code.push_str(&format!(
                 "{}impl{} core::fmt::Debug for {} {{\n",
@@ -1462,9 +1497,10 @@ fn generate_enum_definition(
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
-        // NOTE: Default impl is generated above (outside memtest block) since it's always needed for enums
-        
+
+        // NOTE: Default impl is generated above (outside memtest block) since it's always needed
+        // for enums
+
         // Generate impl PartialEq for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("PartialEq") && !is_generic_type {
@@ -1477,13 +1513,15 @@ fn generate_enum_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self) == core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Eq for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Eq") && !is_generic_type {
@@ -1492,7 +1530,7 @@ fn generate_enum_definition(
                 indent_str, impl_generics, type_with_generics
             ));
         }
-        
+
         // Generate impl PartialOrd for memtest (use byte comparison - don't rely on Ord)
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("PartialOrd") && !is_generic_type {
@@ -1505,13 +1543,15 @@ fn generate_enum_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }})\n",
+                "{}        Some(unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other)) }})\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Ord for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Ord") && !is_generic_type {
@@ -1524,13 +1564,15 @@ fn generate_enum_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(other)) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).cmp(core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(other)) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
-        
+
         // Generate impl Hash for memtest
         // Skip for generic types - they are tested via their concrete instantiations (type aliases)
         if all_manual_traits.contains("Hash") && !is_generic_type {
@@ -1543,7 +1585,8 @@ fn generate_enum_definition(
                 indent_str
             ));
             code.push_str(&format!(
-                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
+                "{}        unsafe {{ core::mem::transmute::<&Self, &[u8; \
+                 core::mem::size_of::<Self>()]>(self).hash(state) }}\n",
                 indent_str
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
@@ -1572,28 +1615,46 @@ fn prefix_types_in_extern_fn_string(
 
     // Process the string, replacing known types with prefixed versions
     let mut result = fn_string.to_string();
-    
+
     // Sort types by length descending to avoid partial matches (e.g., "String" before "Str")
     let mut types_vec: Vec<&str> = known_types.iter().copied().collect();
     types_vec.sort_by(|a, b| b.len().cmp(&a.len()));
-    
+
     for type_name in types_vec {
         // Skip types that are likely not meant to be prefixed
         if type_name == "String" || type_name == "Vec" {
             continue;
         }
-        
+
         // Skip primitive types
-        if matches!(type_name, "bool" | "f32" | "f64" | "i8" | "i16" | "i32" | "i64" | "i128" 
-            | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "c_void" | "char") {
+        if matches!(
+            type_name,
+            "bool"
+                | "f32"
+                | "f64"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "c_void"
+                | "char"
+        ) {
             continue;
         }
-        
+
         // Replace whole words only using word boundary matching (no regex)
         let replacement = format!("{}{}", prefix, type_name);
         result = replace_word_boundary(&result, type_name, &replacement);
     }
-    
+
     result
 }
 
@@ -1602,16 +1663,17 @@ fn replace_word_boundary(input: &str, word: &str, replacement: &str) -> String {
     if word.is_empty() || !input.contains(word) {
         return input.to_string();
     }
-    
+
     let mut result = String::with_capacity(input.len() + 64);
     let mut remaining = input;
-    
+
     while let Some(pos) = remaining.find(word) {
         // Check if it's a word boundary
         let before_ok = pos == 0 || !is_word_char(remaining.as_bytes()[pos - 1]);
         let after_pos = pos + word.len();
-        let after_ok = after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
-        
+        let after_ok =
+            after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
+
         if before_ok && after_ok {
             result.push_str(&remaining[..pos]);
             result.push_str(replacement);
@@ -1638,7 +1700,7 @@ fn generate_rust_callback_fn_type(
     prefix: &str,
 ) -> Result<String> {
     use crate::api::RefKind;
-    
+
     let mut fn_string = String::from("extern \"C\" fn(");
 
     // Generate function arguments
@@ -1662,10 +1724,14 @@ fn generate_rust_callback_fn_type(
                     match fn_arg_ref {
                         RefKind::Ref => arg_string = format!("&{}{}", prefix, class_name),
                         RefKind::RefMut => arg_string = format!("&mut {}{}", prefix, class_name),
-                        RefKind::ConstPtr => arg_string = format!("*const {}{}", prefix, class_name),
+                        RefKind::ConstPtr => {
+                            arg_string = format!("*const {}{}", prefix, class_name)
+                        }
                         RefKind::MutPtr => arg_string = format!("*mut {}{}", prefix, class_name),
                         RefKind::Boxed => arg_string = format!("Box<{}{}>", prefix, class_name),
-                        RefKind::OptionBoxed => arg_string = format!("Option<Box<{}{}>>", prefix, class_name),
+                        RefKind::OptionBoxed => {
+                            arg_string = format!("Option<Box<{}{}>>", prefix, class_name)
+                        }
                         RefKind::Value => arg_string = format!("{}{}", prefix, class_name),
                     }
                 } else {
@@ -1680,7 +1746,9 @@ fn generate_rust_callback_fn_type(
                         RefKind::ConstPtr => arg_string = format!("*const {}{}", prefix, base_type),
                         RefKind::MutPtr => arg_string = format!("*mut {}{}", prefix, base_type),
                         RefKind::Boxed => arg_string = format!("Box<{}{}>", prefix, base_type),
-                        RefKind::OptionBoxed => arg_string = format!("Option<Box<{}{}>>", prefix, base_type),
+                        RefKind::OptionBoxed => {
+                            arg_string = format!("Option<Box<{}{}>>", prefix, base_type)
+                        }
                         RefKind::Value => arg_string = format!("{}{}", prefix, base_type),
                     }
                 }

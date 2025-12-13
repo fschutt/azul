@@ -13,11 +13,17 @@ pub struct FfiSafetyCheck {
 
 impl FfiSafetyCheck {
     pub fn safe() -> Self {
-        Self { is_safe: true, reason: None }
+        Self {
+            is_safe: true,
+            reason: None,
+        }
     }
 
     pub fn unsafe_with_reason(reason: impl Into<String>) -> Self {
-        Self { is_safe: false, reason: Some(reason.into()) }
+        Self {
+            is_safe: false,
+            reason: Some(reason.into()),
+        }
     }
 }
 
@@ -39,9 +45,10 @@ pub fn is_ffi_safe(ty: &ParsedType) -> FfiSafetyCheck {
             if inner_check.is_safe {
                 FfiSafetyCheck::safe()
             } else {
-                FfiSafetyCheck::unsafe_with_reason(
-                    format!("pointer to non-FFI-safe type: {:?}", inner_check.reason)
-                )
+                FfiSafetyCheck::unsafe_with_reason(format!(
+                    "pointer to non-FFI-safe type: {:?}",
+                    inner_check.reason
+                ))
             }
         }
 
@@ -56,16 +63,18 @@ pub fn is_ffi_safe(ty: &ParsedType) -> FfiSafetyCheck {
                 for arg in args {
                     let arg_check = is_ffi_safe(arg);
                     if !arg_check.is_safe {
-                        return FfiSafetyCheck::unsafe_with_reason(
-                            format!("{}<...> with non-FFI-safe inner type", outer)
-                        );
+                        return FfiSafetyCheck::unsafe_with_reason(format!(
+                            "{}<...> with non-FFI-safe inner type",
+                            outer
+                        ));
                     }
                 }
                 FfiSafetyCheck::safe()
             } else {
-                FfiSafetyCheck::unsafe_with_reason(
-                    format!("generic type {} is not FFI-safe without wrapper", outer)
-                )
+                FfiSafetyCheck::unsafe_with_reason(format!(
+                    "generic type {} is not FFI-safe without wrapper",
+                    outer
+                ))
             }
         }
 
@@ -99,7 +108,8 @@ pub fn is_ffi_safe(ty: &ParsedType) -> FfiSafetyCheck {
 /// Check if a generic type name has FFI-safe wrappers in azul
 fn is_ffi_safe_generic(name: &str) -> bool {
     // These are azul's FFI-safe wrapper types
-    matches!(name,
+    matches!(
+        name,
         // Option wrapper (OptionX types in azul)
         "OptionI8" | "OptionU8" | "OptionI16" | "OptionU16" |
         "OptionI32" | "OptionU32" | "OptionI64" | "OptionU64" |

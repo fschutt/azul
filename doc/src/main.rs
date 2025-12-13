@@ -36,19 +36,22 @@ fn main() -> anyhow::Result<()> {
         ["normalize"] => {
             println!("[REFRESH] Normalizing api.json...\n");
             let mut api_data = load_api_json(&api_path)?;
-            
+
             // Normalize array types: [T; N] -> type: T, arraysize: N
             let array_count = api::normalize_array_types(&mut api_data);
             if array_count > 0 {
                 println!("[ARRAY] Normalized {} array type fields", array_count);
             }
-            
+
             // Normalize type_alias: "*mut c_void" -> target: "c_void", ref_kind: "mutptr"
             let type_alias_count = api::normalize_type_aliases(&mut api_data);
             if type_alias_count > 0 {
-                println!("[TYPE_ALIAS] Normalized {} type alias entries", type_alias_count);
+                println!(
+                    "[TYPE_ALIAS] Normalized {} type alias entries",
+                    type_alias_count
+                );
             }
-            
+
             let api_json = serde_json::to_string_pretty(&api_data)?;
             fs::write(&api_path, api_json)?;
             println!("[SAVE] Saved normalized api.json\n");
@@ -117,38 +120,46 @@ fn main() -> anyhow::Result<()> {
             // Or with module prefix: autofix list dom.Dom
             let api_data = load_api_json(&api_path)?;
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            
+
             // Get the latest version
-            let version = api_data.get_latest_version_str()
+            let version = api_data
+                .get_latest_version_str()
                 .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?;
-            
+
             // Parse type_spec: could be "TypeName" or "module.TypeName"
             let type_name = if type_spec.contains('.') {
                 type_spec.rsplit('.').next().unwrap_or(type_spec)
             } else {
                 type_spec
             };
-            
-            match autofix::function_diff::list_type_functions(type_name, &index, &api_data, version) {
+
+            match autofix::function_diff::list_type_functions(type_name, &index, &api_data, version)
+            {
                 Ok(result) => {
                     println!("\n=== Functions for {} ===\n", result.type_name);
-                    
+
                     if !result.source_only.is_empty() {
-                        println!("📦 In source only ({} - need to add to api.json):", result.source_only.len());
+                        println!(
+                            "📦 In source only ({} - need to add to api.json):",
+                            result.source_only.len()
+                        );
                         for name in &result.source_only {
                             println!("  + {}", name);
                         }
                         println!();
                     }
-                    
+
                     if !result.api_only.is_empty() {
-                        println!("📄 In api.json only ({} - may be stale):", result.api_only.len());
+                        println!(
+                            "📄 In api.json only ({} - may be stale):",
+                            result.api_only.len()
+                        );
                         for name in &result.api_only {
                             println!("  - {}", name);
                         }
                         println!();
                     }
-                    
+
                     if !result.both.is_empty() {
                         println!("✓ In both ({}):", result.both.len());
                         for name in &result.both {
@@ -156,9 +167,13 @@ fn main() -> anyhow::Result<()> {
                         }
                         println!();
                     }
-                    
-                    println!("Summary: {} source-only, {} api-only, {} matching",
-                        result.source_only.len(), result.api_only.len(), result.both.len());
+
+                    println!(
+                        "Summary: {} source-only, {} api-only, {} matching",
+                        result.source_only.len(),
+                        result.api_only.len(),
+                        result.both.len()
+                    );
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -171,37 +186,42 @@ fn main() -> anyhow::Result<()> {
             // Add function(s) to api.json: autofix add Dom.add_callback
             // Or with wildcard: autofix add Dom.*
             // Also automatically adds the type if it's not in api.json yet
-            
+
             // Clear the patches folder to avoid stale patches
             let patches_dir = project_root.join("target").join("autofix").join("patches");
             if patches_dir.exists() {
                 let _ = fs::remove_dir_all(&patches_dir);
             }
             fs::create_dir_all(&patches_dir)?;
-            
+
             let api_data = load_api_json(&api_path)?;
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            
+
             // Get the latest version
-            let version = api_data.get_latest_version_str()
+            let version = api_data
+                .get_latest_version_str()
                 .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
                 .to_string();
-            
+
             // Parse fn_spec: "TypeName.method" or "TypeName.*" or "module.TypeName.method"
             let parts: Vec<&str> = fn_spec.split('.').collect();
-            
+
             if parts.len() < 2 {
-                eprintln!("Error: Invalid format. Use: TypeName.method or TypeName.* or module.TypeName.method");
+                eprintln!(
+                    "Error: Invalid format. Use: TypeName.method or TypeName.* or \
+                     module.TypeName.method"
+                );
                 std::process::exit(1);
             }
-            
+
             let (type_name, method_spec) = if parts.len() == 2 {
                 (parts[0], parts[1])
             } else {
-                // module.TypeName.method - ignore the module prefix, we'll determine it automatically
+                // module.TypeName.method - ignore the module prefix, we'll determine it
+                // automatically
                 (parts[parts.len() - 2], parts[parts.len() - 1])
             };
-            
+
             // Find the type in source
             let type_def = match index.resolve(type_name, None) {
                 Some(t) => t,
@@ -210,19 +230,24 @@ fn main() -> anyhow::Result<()> {
                     std::process::exit(1);
                 }
             };
-            
+
             // Find which module the type is in (from api.json), or determine automatically
-            let version_data = api_data.get_version(&version)
+            let version_data = api_data
+                .get_version(&version)
                 .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
-            
+
             let type_exists = autofix::function_diff::type_exists_in_api(type_name, version_data);
-            
+
             if !type_exists {
                 // Type doesn't exist in api.json - use the new function to add it with dependencies
-                println!("[ADD] Type '{}' not found in api.json, adding with transitive dependencies...\n", type_name);
-                
+                println!(
+                    "[ADD] Type '{}' not found in api.json, adding with transitive \
+                     dependencies...\n",
+                    type_name
+                );
+
                 let method_spec_opt = Some(method_spec);
-                
+
                 match autofix::function_diff::generate_add_type_patches(
                     type_name,
                     method_spec_opt,
@@ -236,50 +261,53 @@ fn main() -> anyhow::Result<()> {
                         for (ty, module) in &result.added_types {
                             println!("  + {} (-> {} module)", ty, module);
                         }
-                        
+
                         if !result.skipped_types.is_empty() {
                             println!("\nTypes already in api.json (skipped):");
                             for ty in &result.skipped_types {
                                 println!("  - {}", ty);
                             }
                         }
-                        
+
                         if !result.missing_types.is_empty() {
                             println!("\n[WARN] Types not found in workspace:");
                             for ty in &result.missing_types {
                                 println!("  ? {}", ty);
                             }
                         }
-                        
+
                         if !result.added_methods.is_empty() {
                             println!("\nMethods to add to {}:", type_name);
                             for m in &result.added_methods {
                                 println!("  + {}", m);
                             }
                         }
-                        
+
                         // Write patches to files
-                        let patches_dir = project_root.join("target").join("autofix").join("patches");
+                        let patches_dir =
+                            project_root.join("target").join("autofix").join("patches");
                         fs::create_dir_all(&patches_dir)?;
-                        
+
                         for (i, patch) in patches.iter().enumerate() {
-                            let patch_filename = format!("add_{}_{}.patch.json", 
-                                type_name.to_lowercase(),
-                                i
-                            );
+                            let patch_filename =
+                                format!("add_{}_{}.patch.json", type_name.to_lowercase(), i);
                             let patch_path = patches_dir.join(&patch_filename);
-                            
-                            let json = patch.to_json().unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+
+                            let json = patch
+                                .to_json()
+                                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
                             fs::write(&patch_path, &json)?;
                         }
-                        
+
                         // Also generate the functions patch if methods were requested
                         if !result.added_methods.is_empty() {
-                            let methods: Vec<_> = type_def.methods.iter()
+                            let methods: Vec<_> = type_def
+                                .methods
+                                .iter()
                                 .filter(|m| m.is_public)
                                 .filter(|m| method_spec == "*" || m.name == method_spec)
                                 .collect();
-                            
+
                             let func_patch = autofix::function_diff::generate_add_functions_patch(
                                 type_name,
                                 &methods,
@@ -287,14 +315,19 @@ fn main() -> anyhow::Result<()> {
                                 &version,
                                 type_def,
                             );
-                            
-                            let patch_filename = format!("add_{}_functions.patch.json", type_name.to_lowercase());
+
+                            let patch_filename =
+                                format!("add_{}_functions.patch.json", type_name.to_lowercase());
                             let patch_path = patches_dir.join(&patch_filename);
                             let json = serde_json::to_string_pretty(&func_patch)?;
                             fs::write(&patch_path, &json)?;
                         }
-                        
-                        println!("\n[OK] {} patches written to: {}", patches.len() + 1, patches_dir.display());
+
+                        println!(
+                            "\n[OK] {} patches written to: {}",
+                            patches.len() + 1,
+                            patches_dir.display()
+                        );
                         println!("\nTo apply the patches:");
                         println!("  cargo run -- patch {}", patches_dir.display());
                     }
@@ -303,28 +336,37 @@ fn main() -> anyhow::Result<()> {
                         std::process::exit(1);
                     }
                 }
-                
+
                 return Ok(());
             }
-            
+
             // Type exists - just add the functions (original behavior)
             let module_name = autofix::function_diff::find_type_module(type_name, version_data)
                 .unwrap()
                 .to_string();
-            
+
             // Get matching methods
-            let methods: Vec<_> = type_def.methods.iter()
+            let methods: Vec<_> = type_def
+                .methods
+                .iter()
                 .filter(|m| m.is_public)
                 .filter(|m| method_spec == "*" || m.name == method_spec)
                 .collect();
-            
+
             if methods.is_empty() {
-                println!("No matching public methods found for '{}.{}'", type_name, method_spec);
+                println!(
+                    "No matching public methods found for '{}.{}'",
+                    type_name, method_spec
+                );
                 return Ok(());
             }
-            
-            println!("[ADD] Generating patch to add {} function(s) to {}\n", methods.len(), type_name);
-            
+
+            println!(
+                "[ADD] Generating patch to add {} function(s) to {}\n",
+                methods.len(),
+                type_name
+            );
+
             // Show what will be added
             for m in &methods {
                 let self_str = match &m.self_kind {
@@ -334,10 +376,14 @@ fn main() -> anyhow::Result<()> {
                     Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
                 };
                 let ret_str = m.return_type.as_deref().unwrap_or("()");
-                let ctor_str = if m.is_constructor { " [constructor]" } else { "" };
+                let ctor_str = if m.is_constructor {
+                    " [constructor]"
+                } else {
+                    ""
+                };
                 println!("  + fn {}({}) -> {}{}", m.name, self_str, ret_str, ctor_str);
             }
-            
+
             // Generate the patch
             let patch = autofix::function_diff::generate_add_functions_patch(
                 type_name,
@@ -346,66 +392,76 @@ fn main() -> anyhow::Result<()> {
                 &version,
                 type_def,
             );
-            
+
             // Write patch to file
             let patches_dir = project_root.join("target").join("autofix").join("patches");
             fs::create_dir_all(&patches_dir)?;
-            
-            let patch_filename = format!("add_{}_{}.patch.json", 
+
+            let patch_filename = format!(
+                "add_{}_{}.patch.json",
                 type_name.to_lowercase(),
-                if method_spec == "*" { "all" } else { method_spec }
+                if method_spec == "*" {
+                    "all"
+                } else {
+                    method_spec
+                }
             );
             let patch_path = patches_dir.join(&patch_filename);
-            
+
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;
-            
+
             println!("\n[OK] Patch written to: {}", patch_path.display());
             println!("\nTo apply the patch:");
             println!("  cargo run -- patch {}", patches_dir.display());
-            
+
             return Ok(());
         }
         ["autofix", "remove", fn_spec] => {
             // Remove function from api.json: autofix remove Dom.some_function
-            
+
             // Clear the patches folder to avoid stale patches
             let patches_dir = project_root.join("target").join("autofix").join("patches");
             if patches_dir.exists() {
                 let _ = fs::remove_dir_all(&patches_dir);
             }
             fs::create_dir_all(&patches_dir)?;
-            
+
             let api_data = load_api_json(&api_path)?;
-            
+
             // Get the latest version
-            let version = api_data.get_latest_version_str()
+            let version = api_data
+                .get_latest_version_str()
                 .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
                 .to_string();
-            
+
             // Parse fn_spec
             let parts: Vec<&str> = fn_spec.split('.').collect();
-            
+
             if parts.len() < 2 {
                 eprintln!("Error: Invalid format. Use: TypeName.method or module.TypeName.method");
                 std::process::exit(1);
             }
-            
+
             let (type_name, method_name) = if parts.len() == 2 {
                 (parts[0], parts[1])
             } else {
                 (parts[parts.len() - 2], parts[parts.len() - 1])
             };
-            
+
             // Find which module the type is in (from api.json)
-            let version_data = api_data.get_version(&version)
+            let version_data = api_data
+                .get_version(&version)
                 .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
             let module_name = autofix::function_diff::find_type_module(type_name, version_data)
                 .ok_or_else(|| anyhow::anyhow!("Type '{}' not found in api.json", type_name))?
                 .to_string();
-            
-            println!("[REMOVE] Generating patch to remove '{}' from {}\n", method_name, type_name);
-            
+
+            println!(
+                "[REMOVE] Generating patch to remove '{}' from {}\n",
+                method_name, type_name
+            );
+
             // Generate the patch
             let patch = autofix::function_diff::generate_remove_functions_patch(
                 type_name,
@@ -413,41 +469,46 @@ fn main() -> anyhow::Result<()> {
                 &module_name,
                 &version,
             );
-            
+
             // Write patch to file
-            let patch_filename = format!("remove_{}_{}.patch.json", 
+            let patch_filename = format!(
+                "remove_{}_{}.patch.json",
                 type_name.to_lowercase(),
                 method_name
             );
             let patch_path = patches_dir.join(&patch_filename);
-            
+
             let json = serde_json::to_string_pretty(&patch)?;
             fs::write(&patch_path, &json)?;
-            
+
             println!("[OK] Patch written to: {}", patch_path.display());
             println!("\nTo apply the patch:");
             println!("  cargo run -- patch {}", patches_dir.display());
-            
+
             return Ok(());
         }
         ["unused"] => {
             println!("[SEARCH] Finding unused types in api.json (recursive analysis)...\n");
             let api_data = load_api_json(&api_path)?;
             let unused_types = api::find_all_unused_types_recursive(&api_data);
-            
+
             if unused_types.is_empty() {
-                println!("[OK] No unused types found. All types are reachable from the public API.");
+                println!(
+                    "[OK] No unused types found. All types are reachable from the public API."
+                );
             } else {
                 println!("[WARN] Found {} unused types:\n", unused_types.len());
-                
+
                 // Group by module for better readability
-                let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+                let mut by_module: std::collections::BTreeMap<String, Vec<String>> =
+                    std::collections::BTreeMap::new();
                 for info in &unused_types {
-                    by_module.entry(info.module_name.clone())
+                    by_module
+                        .entry(info.module_name.clone())
                         .or_default()
                         .push(info.type_name.clone());
                 }
-                
+
                 for (module, types) in &by_module {
                     println!("  Module `{}`:", module);
                     for type_name in types {
@@ -455,7 +516,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     println!();
                 }
-                
+
                 println!("To generate removal patches, run: azul-doc unused patch");
             }
             return Ok(());
@@ -464,48 +525,54 @@ fn main() -> anyhow::Result<()> {
             println!("[SEARCH] Generating patches to remove unused types (recursive)...\n");
             let api_data = load_api_json(&api_path)?;
             let unused_types = api::find_all_unused_types_recursive(&api_data);
-            
+
             if unused_types.is_empty() {
                 println!("[OK] No unused types found. Nothing to patch.");
                 return Ok(());
             }
-            
+
             let patches_dir = project_root.join("target").join("unused_types_patches");
-            
+
             // Clean existing patches directory
             if patches_dir.exists() {
                 fs::remove_dir_all(&patches_dir)?;
             }
             fs::create_dir_all(&patches_dir)?;
-            
+
             // Generate removal patches using the new API function
             let patches = api::generate_removal_patches(&unused_types);
-            
+
             // Write each patch to a file (one per module)
             for (idx, patch) in patches.iter().enumerate() {
                 // Extract module name from the patch for the filename
-                let (module_name, type_count) = patch.versions.values()
+                let (module_name, type_count) = patch
+                    .versions
+                    .values()
                     .flat_map(|v| v.modules.iter())
                     .next()
                     .map(|(m, mp)| (m.clone(), mp.classes.len()))
                     .unwrap_or_else(|| (format!("patch_{}", idx), 0));
-                
+
                 let patch_filename = format!("{:03}_remove_{}.patch.json", idx, module_name);
                 let patch_path = patches_dir.join(&patch_filename);
-                
+
                 let json = serde_json::to_string_pretty(&patch)?;
                 fs::write(&patch_path, json)?;
-                
+
                 println!("  [PATCH] {} ({} types)", patch_filename, type_count);
             }
-            
-            println!("\n[OK] Generated {} removal patch files for {} types in:", patches.len(), unused_types.len());
+
+            println!(
+                "\n[OK] Generated {} removal patch files for {} types in:",
+                patches.len(),
+                unused_types.len()
+            );
             println!("     {}", patches_dir.display());
             println!("\nTo review a patch:");
             println!("  cat {}/*.patch.json", patches_dir.display());
             println!("\nTo apply the patches:");
             println!("  cargo run -- patch {}", patches_dir.display());
-            
+
             return Ok(());
         }
         ["patch", "safe", patch_dir] => {
@@ -606,7 +673,7 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                 }
-                
+
                 // Always normalize Az prefixes (even if no patches applied)
                 let az_renamed = patch::normalize_az_prefixes(&mut api_data);
                 if az_renamed > 0 {
@@ -619,18 +686,18 @@ fn main() -> anyhow::Result<()> {
                     fs::write(&api_path, api_json)?;
                     println!("\n[SAVE] Saved updated api.json");
                 }
-                
+
                 // NOTE: We do NOT remove unused types after autofix patches.
                 // autofix adds types that are transitively reachable from functions
-                // in the workspace index, but find_unused_types may not see them as 
+                // in the workspace index, but find_unused_types may not see them as
                 // reachable because the api.json type definitions may be incomplete.
                 // Use "azul-doc unused" to manually check/remove unused types.
-                
+
                 // Remove empty modules after patching
                 let api_json_str = fs::read_to_string(&api_path)?;
                 let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
                 let empty_modules_removed = api::remove_empty_modules(&mut fresh_api_data);
-                
+
                 if empty_modules_removed > 0 {
                     println!("[OK] Removed {} empty modules", empty_modules_removed);
                     let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
@@ -652,17 +719,27 @@ fn main() -> anyhow::Result<()> {
                         if errors.is_empty() {
                             println!("[OK] Applied {} changes\n", count);
                         } else {
-                            println!("[WARN]  Applied {} changes with {} errors\n", count, errors.len());
+                            println!(
+                                "[WARN]  Applied {} changes with {} errors\n",
+                                count,
+                                errors.len()
+                            );
                         }
 
                         // Normalize class names where external path differs from API name
                         match patch::normalize_class_names(&mut api_data) {
                             Ok(count) if count > 0 => {
-                                println!("[OK] Renamed {} classes to match external paths\n", count);
+                                println!(
+                                    "[OK] Renamed {} classes to match external paths\n",
+                                    count
+                                );
                             }
                             Ok(_) => {}
                             Err(e) => {
-                                eprintln!("[WARN]  Warning: Failed to normalize class names: {}\n", e);
+                                eprintln!(
+                                    "[WARN]  Warning: Failed to normalize class names: {}\n",
+                                    e
+                                );
                             }
                         }
 
@@ -690,20 +767,22 @@ fn main() -> anyhow::Result<()> {
         }
         ["memtest", "run"] => {
             let api_data = load_api_json(&api_path)?;
-            
+
             // Run FFI safety checks first
             println!("[CHECK] Running FFI safety checks...\n");
-            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
-                ?;
+            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)?;
             let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
             ffi_warnings.extend(autofix::check_doc_characters(&api_data));
             if !ffi_warnings.is_empty() {
                 autofix::print_ffi_safety_warnings(&ffi_warnings);
-                eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());
+                eprintln!(
+                    "\nError: Found {} FFI safety issues. Fix them before running memtest.",
+                    ffi_warnings.len()
+                );
                 std::process::exit(1);
             }
             println!("[OK] FFI safety checks passed.\n");
-            
+
             println!("[TEST] Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -728,20 +807,22 @@ fn main() -> anyhow::Result<()> {
         }
         ["memtest"] => {
             let api_data = load_api_json(&api_path)?;
-            
+
             // Run FFI safety checks first
             println!("[CHECK] Running FFI safety checks...\n");
-            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)
-                ?;
+            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)?;
             let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
             ffi_warnings.extend(autofix::check_doc_characters(&api_data));
             if !ffi_warnings.is_empty() {
                 autofix::print_ffi_safety_warnings(&ffi_warnings);
-                eprintln!("\nError: Found {} FFI safety issues. Fix them before running memtest.", ffi_warnings.len());
+                eprintln!(
+                    "\nError: Found {} FFI safety issues. Fix them before running memtest.",
+                    ffi_warnings.len()
+                );
                 std::process::exit(1);
             }
             println!("[OK] FFI safety checks passed.\n");
-            
+
             println!("[TEST] Generating memory layout test crate...\n");
             codegen::memtest::generate_memtest_crate(&api_data, &project_root)
                 .map_err(|e| anyhow::anyhow!(e))?;
@@ -779,9 +860,9 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 output_dir: PathBuf::from("target").join("debug"),
             };
-            
+
             reftest::debug::run_debug_analysis(config)?;
-            
+
             return Ok(());
         }
         ["debug", test_name, question @ ..] => {
@@ -792,9 +873,9 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 output_dir: PathBuf::from("target").join("debug"),
             };
-            
+
             reftest::debug::run_debug_analysis(config)?;
-            
+
             return Ok(());
         }
         ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
@@ -849,9 +930,13 @@ fn main() -> anyhow::Result<()> {
                 #[cfg(target_os = "macos")]
                 let _ = std::process::Command::new("open").arg(&report_path).spawn();
                 #[cfg(target_os = "linux")]
-                let _ = std::process::Command::new("xdg-open").arg(&report_path).spawn();
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&report_path)
+                    .spawn();
                 #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("start").arg(&report_path).spawn();
+                let _ = std::process::Command::new("start")
+                    .arg(&report_path)
+                    .spawn();
             }
 
             return Ok(());
@@ -899,7 +984,7 @@ fn main() -> anyhow::Result<()> {
 
             let cpp_dir = project_root.join("target").join("codegen").join("cpp");
             fs::create_dir_all(&cpp_dir)?;
-            
+
             // Generate all versioned headers
             let all_headers = codegen::cpp_api::generate_all_cpp_apis(&api_data, version);
             for (filename, code) in &all_headers {
@@ -908,7 +993,10 @@ fn main() -> anyhow::Result<()> {
                 println!("[OK] Generated: {}", path.display());
             }
 
-            println!("\nC++ header generation complete. {} headers generated.", all_headers.len());
+            println!(
+                "\nC++ header generation complete. {} headers generated.",
+                all_headers.len()
+            );
             return Ok(());
         }
         ["codegen", "python"] => {
@@ -918,7 +1006,10 @@ fn main() -> anyhow::Result<()> {
             println!("[FIX] Generating Python bindings...\n");
 
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root.join("target").join("codegen").join("python_capi.rs");
+            let python_api_path = project_root
+                .join("target")
+                .join("codegen")
+                .join("python_capi.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
@@ -956,7 +1047,10 @@ fn main() -> anyhow::Result<()> {
 
             // Generate Python bindings
             let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root.join("target").join("codegen").join("python_capi.rs");
+            let python_api_path = project_root
+                .join("target")
+                .join("codegen")
+                .join("python_capi.rs");
             fs::write(&python_api_path, python_api_code)?;
             println!("[OK] Generated: {}", python_api_path.display());
 
@@ -980,7 +1074,9 @@ fn main() -> anyhow::Result<()> {
 
             // Generate documentation (API docs, guide, etc.)
             println!("Generating documentation...");
-            for (path, html) in docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")? {
+            for (path, html) in
+                docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")?
+            {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {
                     let _ = fs::create_dir_all(parent);
@@ -1041,7 +1137,10 @@ fn main() -> anyhow::Result<()> {
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;
 
-            println!("\nWebsite generated successfully in: {}", output_dir.display());
+            println!(
+                "\nWebsite generated successfully in: {}",
+                output_dir.display()
+            );
             return Ok(());
         }
         ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
@@ -1061,7 +1160,9 @@ fn main() -> anyhow::Result<()> {
 
             // Generate documentation (API docs, guide, etc.)
             println!("Generating documentation...");
-            for (path, html) in docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")? {
+            for (path, html) in
+                docgen::generate_docs(&api_data, &image_path, "https://azul.rs/images")?
+            {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {
                     let _ = fs::create_dir_all(parent);
@@ -1106,7 +1207,7 @@ fn main() -> anyhow::Result<()> {
             println!("\nRunning reftests...");
             let reftest_output_dir = output_dir.join("reftest");
             fs::create_dir_all(&reftest_output_dir)?;
-            
+
             let reftest_config = RunRefTestsConfig {
                 test_dir: PathBuf::from(manifest_dir).join("working"),
                 output_dir: reftest_output_dir.clone(),
@@ -1128,7 +1229,10 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            println!("\nWebsite with reftests generated successfully in: {}", output_dir.display());
+            println!(
+                "\nWebsite with reftests generated successfully in: {}",
+                output_dir.display()
+            );
             return Ok(());
         }
         _ => {
@@ -1148,29 +1252,53 @@ fn generate_release_pages(
     examples_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     use codegen::cpp_api::CppVersion;
-    use dllgen::deploy::{ReleaseAssets, DeployMode};
-    
+    use dllgen::deploy::{DeployMode, ReleaseAssets};
+
     let versions = api_data.get_sorted_versions();
-    
+
     for version in &versions {
         let version_dir = releases_dir.join(version);
         fs::create_dir_all(&version_dir)?;
-        
+
         // Generate C header for this version
         let c_api_code = codegen::c_api::generate_c_api(api_data, version);
         fs::write(version_dir.join("azul.h"), &c_api_code)?;
         println!("  [OK] Generated: release/{}/azul.h", version);
-        
+
         // Generate C++ headers for all supported standards
         let cpp_headers = dllgen::deploy::CppHeaders {
-            cpp03: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp03),
-            cpp11: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp11),
-            cpp14: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp14),
-            cpp17: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp17),
-            cpp20: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp20),
-            cpp23: codegen::cpp_api::generate_cpp_api_for_version(api_data, version, CppVersion::Cpp23),
+            cpp03: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp03,
+            ),
+            cpp11: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp11,
+            ),
+            cpp14: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp14,
+            ),
+            cpp17: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp17,
+            ),
+            cpp20: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp20,
+            ),
+            cpp23: codegen::cpp_api::generate_cpp_api_for_version(
+                api_data,
+                version,
+                CppVersion::Cpp23,
+            ),
         };
-        
+
         // Write individual C++ header files
         fs::write(version_dir.join("azul_cpp03.hpp"), &cpp_headers.cpp03)?;
         fs::write(version_dir.join("azul_cpp11.hpp"), &cpp_headers.cpp11)?;
@@ -1178,32 +1306,43 @@ fn generate_release_pages(
         fs::write(version_dir.join("azul_cpp17.hpp"), &cpp_headers.cpp17)?;
         fs::write(version_dir.join("azul_cpp20.hpp"), &cpp_headers.cpp20)?;
         fs::write(version_dir.join("azul_cpp23.hpp"), &cpp_headers.cpp23)?;
-        println!("  [OK] Generated: release/{}/azul_cpp*.hpp (all C++ versions)", version);
-        
+        println!(
+            "  [OK] Generated: release/{}/azul_cpp*.hpp (all C++ versions)",
+            version
+        );
+
         // Generate api.json for this version
         if let Some(version_data) = api_data.get_version(version) {
             let api_json = serde_json::to_string_pretty(&version_data)?;
             fs::write(version_dir.join("api.json"), &api_json)?;
             println!("  [OK] Generated: release/{}/api.json", version);
         }
-        
+
         // Generate examples.zip for this version (reads paths from api.json)
-        if let Err(e) = dllgen::deploy::create_examples(version, &version_dir, &c_api_code, &cpp_headers, api_data, examples_dir) {
+        if let Err(e) = dllgen::deploy::create_examples(
+            version,
+            &version_dir,
+            &c_api_code,
+            &cpp_headers,
+            api_data,
+            examples_dir,
+        ) {
             eprintln!("  [WARN] Failed to create examples.zip: {}", e);
         } else {
             println!("  [OK] Generated: release/{}/examples.zip", version);
         }
-        
+
         // Collect asset information (for HTML generation and validation)
         let assets = ReleaseAssets::collect(&version_dir);
-        
+
         // In strict/CI mode, fail if binary assets are missing
         if deploy_mode == DeployMode::Strict {
             if let Err(missing) = assets.validate_binary_assets() {
                 anyhow::bail!(
-                    "Deploy failed: Missing binary assets for version {}: {:?}\n\
-                     In CI mode, all binary assets must be present before deployment.",
-                    version, missing
+                    "Deploy failed: Missing binary assets for version {}: {:?}\nIn CI mode, all \
+                     binary assets must be present before deployment.",
+                    version,
+                    missing
                 );
             }
         } else {
@@ -1211,19 +1350,29 @@ fn generate_release_pages(
             for asset in dllgen::deploy::BinaryAsset::all() {
                 let file_path = version_dir.join(asset.filename);
                 if !file_path.exists() {
-                    println!("  [WARN] Missing build artifact: release/{}/{} - creating placeholder", version, asset.filename);
-                    fs::write(&file_path, format!("# Placeholder - build artifact not available\n# Version: {}\n# File: {}\n", version, asset.filename))?;
+                    println!(
+                        "  [WARN] Missing build artifact: release/{}/{} - creating placeholder",
+                        version, asset.filename
+                    );
+                    fs::write(
+                        &file_path,
+                        format!(
+                            "# Placeholder - build artifact not available\n# Version: {}\n# File: \
+                             {}\n",
+                            version, asset.filename
+                        ),
+                    )?;
                 }
             }
             // Re-collect assets after creating placeholders
             let assets = ReleaseAssets::collect(&version_dir);
-            
+
             // Generate release HTML page with dynamic sizes
             let release_html = dllgen::deploy::generate_release_html(version, api_data, &assets);
             fs::write(releases_dir.join(&format!("{version}.html")), &release_html)?;
             println!("  [OK] Generated: release/{}.html", version);
         }
-        
+
         // Generate release HTML page with dynamic sizes (for strict mode, after validation)
         if deploy_mode == DeployMode::Strict {
             let assets = ReleaseAssets::collect(&version_dir);
@@ -1232,7 +1381,7 @@ fn generate_release_pages(
             println!("  [OK] Generated: release/{}.html", version);
         }
     }
-    
+
     Ok(())
 }
 

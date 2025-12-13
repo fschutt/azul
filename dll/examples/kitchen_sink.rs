@@ -763,7 +763,7 @@ fn create_text_showcase() -> Dom {
             .into(),
         )
 }
-    
+
 // Color & shape showcase
 
 fn create_color_showcase() -> Dom {
@@ -1750,7 +1750,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
             .into(),
         )
 }
-    
+
 // IFrame callback for preview pane
 
 /// IFrame callback that renders the XHTML preview

@@ -64,7 +64,7 @@ pub struct FnBodyContext {
 /// ```
 pub fn generate_fn_body(ctx: &FnBodyContext) -> String {
     let mut lines = Vec::new();
-    
+
     // 1. Generate transmutations for each argument
     for arg in &ctx.args {
         if arg.is_self {
@@ -115,7 +115,7 @@ pub fn generate_fn_body(ctx: &FnBodyContext) -> String {
             }
         }
     }
-    
+
     // 2. Execute fn_body and handle return value
     if ctx.az_return_type.is_empty() {
         // Void return - just execute
@@ -132,26 +132,23 @@ pub fn generate_fn_body(ctx: &FnBodyContext) -> String {
             // Multiple statements - wrap in block
             lines.push(format!(
                 "let __result: {} = {{ {} }};",
-                ctx.core_return_type,
-                ctx.fn_body
+                ctx.core_return_type, ctx.fn_body
             ));
         } else {
             // Single expression
             lines.push(format!(
                 "let __result: {} = {};",
-                ctx.core_return_type,
-                ctx.fn_body
+                ctx.core_return_type, ctx.fn_body
             ));
         }
-        
+
         // Transmute result back
         lines.push(format!(
             "unsafe {{ core::mem::transmute::<{}, {}>(__result) }}",
-            ctx.core_return_type,
-            ctx.az_return_type
+            ctx.core_return_type, ctx.az_return_type
         ));
     }
-    
+
     // Wrap everything in a block
     format!("{{\n    {}\n}}", lines.join("\n    "))
 }
@@ -159,7 +156,7 @@ pub fn generate_fn_body(ctx: &FnBodyContext) -> String {
 /// Parse a type string to determine if it's a reference and extract the base type
 pub fn parse_type_info(type_str: &str) -> (bool, bool, String) {
     let trimmed = type_str.trim();
-    
+
     if trimmed.starts_with("&mut ") {
         (true, true, trimmed[5..].to_string())
     } else if trimmed.starts_with("&") {
@@ -170,41 +167,53 @@ pub fn parse_type_info(type_str: &str) -> (bool, bool, String) {
 }
 
 /// Convert an Az-prefixed type to its core type path
-pub fn az_type_to_core_type(
-    az_type: &str,
-    type_map: &HashMap<String, String>,
-) -> String {
+pub fn az_type_to_core_type(az_type: &str, type_map: &HashMap<String, String>) -> String {
     // Check if we have a mapping
     if let Some(core_path) = type_map.get(az_type) {
         return core_path.clone();
     }
-    
+
     // Handle Option types
     if az_type.starts_with("Option") || az_type.starts_with("AzOption") {
         // TODO: Handle option types properly
         return az_type.to_string();
     }
-    
+
     // Handle Vec types
     if az_type.ends_with("Vec") {
         // TODO: Handle vec types properly
         return az_type.to_string();
     }
-    
+
     // Primitive types don't need conversion
     if is_primitive_type(az_type) {
         return az_type.to_string();
     }
-    
+
     // Fallback - return as-is
     az_type.to_string()
 }
 
 fn is_primitive_type(t: &str) -> bool {
-    matches!(t, 
-        "bool" | "f32" | "f64" | "i8" | "i16" | "i32" | "i64" | "i128" |
-        "u8" | "u16" | "u32" | "u64" | "u128" | "isize" | "usize" |
-        "c_void" | "()"
+    matches!(
+        t,
+        "bool"
+            | "f32"
+            | "f64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "isize"
+            | "usize"
+            | "c_void"
+            | "()"
     )
 }
 
@@ -216,10 +225,19 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("AzDom".to_string(), "azul_core::dom::Dom".to_string());
         map.insert("AzDomVec".to_string(), "azul_core::dom::DomVec".to_string());
-        map.insert("AzNodeData".to_string(), "azul_core::dom::NodeData".to_string());
-        map.insert("AzGlContextPtr".to_string(), "azul_core::gl::GlContextPtr".to_string());
+        map.insert(
+            "AzNodeData".to_string(),
+            "azul_core::dom::NodeData".to_string(),
+        );
+        map.insert(
+            "AzGlContextPtr".to_string(),
+            "azul_core::gl::GlContextPtr".to_string(),
+        );
         map.insert("AzString".to_string(), "azul_css::AzString".to_string());
-        map.insert("AzRawImage".to_string(), "azul_core::resources::RawImage".to_string());
+        map.insert(
+            "AzRawImage".to_string(),
+            "azul_core::resources::RawImage".to_string(),
+        );
         map
     }
 
@@ -227,27 +245,27 @@ mod tests {
     fn test_simple_method_ref_self() {
         let ctx = FnBodyContext {
             fn_body: "glcontextptr.get_type()".to_string(),
-            args: vec![
-                FnArg {
-                    name: "glcontextptr".to_string(),
-                    az_type: "AzGlContextPtr".to_string(),
-                    core_type: "azul_core::gl::GlContextPtr".to_string(),
-                    is_ref: true,
-                    is_mut_ref: false,
-                    is_self: true,
-                },
-            ],
+            args: vec![FnArg {
+                name: "glcontextptr".to_string(),
+                az_type: "AzGlContextPtr".to_string(),
+                core_type: "azul_core::gl::GlContextPtr".to_string(),
+                is_ref: true,
+                is_mut_ref: false,
+                is_self: true,
+            }],
             az_return_type: "AzGlType".to_string(),
             core_return_type: "azul_core::gl::GlType".to_string(),
             is_constructor: false,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         assert!(result.contains("let glcontextptr: &azul_core::gl::GlContextPtr"));
         assert!(result.contains("core::mem::transmute(glcontextptr)"));
         assert!(result.contains("let __result: azul_core::gl::GlType = glcontextptr.get_type()"));
-        assert!(result.contains("core::mem::transmute::<azul_core::gl::GlType, AzGlType>(__result)"));
+        assert!(
+            result.contains("core::mem::transmute::<azul_core::gl::GlType, AzGlType>(__result)")
+        );
     }
 
     #[test]
@@ -276,9 +294,9 @@ mod tests {
             core_return_type: "".to_string(),
             is_constructor: false,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         assert!(result.contains("let dom: &mut azul_core::dom::Dom"));
         assert!(result.contains("let children: azul_core::dom::DomVec"));
         assert!(result.contains("let _: () = dom.set_children(children)"));
@@ -293,9 +311,9 @@ mod tests {
             core_return_type: "azul_core::dom::Dom".to_string(),
             is_constructor: true,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         assert!(result.contains("let __result: azul_core::dom::Dom = Dom::div()"));
         assert!(result.contains("core::mem::transmute::<azul_core::dom::Dom, AzDom>(__result)"));
     }
@@ -303,7 +321,8 @@ mod tests {
     #[test]
     fn test_void_return_with_statements() {
         let ctx = FnBodyContext {
-            fn_body: "let mut dom = dom.swap_with_default(); dom.set_children(children);".to_string(),
+            fn_body: "let mut dom = dom.swap_with_default(); dom.set_children(children);"
+                .to_string(),
             args: vec![
                 FnArg {
                     name: "dom".to_string(),
@@ -326,18 +345,21 @@ mod tests {
             core_return_type: "".to_string(),
             is_constructor: false,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         // Should not wrap in "let _: () =" since it has statements
-        assert!(result.contains("let mut dom = dom.swap_with_default(); dom.set_children(children);"));
+        assert!(
+            result.contains("let mut dom = dom.swap_with_default(); dom.set_children(children);")
+        );
         assert!(!result.contains("let _: ()"));
     }
 
     #[test]
     fn test_return_with_block() {
         let ctx = FnBodyContext {
-            fn_body: "let mut dom = dom.swap_with_default(); dom.set_children(children); dom".to_string(),
+            fn_body: "let mut dom = dom.swap_with_default(); dom.set_children(children); dom"
+                .to_string(),
             args: vec![
                 FnArg {
                     name: "dom".to_string(),
@@ -360,9 +382,9 @@ mod tests {
             core_return_type: "azul_core::dom::Dom".to_string(),
             is_constructor: false,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         // Should wrap fn_body in a block for multi-statement returns
         assert!(result.contains("let __result: azul_core::dom::Dom = {"));
         assert!(result.contains("let mut dom = dom.swap_with_default()"));
@@ -371,9 +393,18 @@ mod tests {
 
     #[test]
     fn test_parse_type_info() {
-        assert_eq!(parse_type_info("&AzDom"), (true, false, "AzDom".to_string()));
-        assert_eq!(parse_type_info("&mut AzDom"), (true, true, "AzDom".to_string()));
-        assert_eq!(parse_type_info("AzDom"), (false, false, "AzDom".to_string()));
+        assert_eq!(
+            parse_type_info("&AzDom"),
+            (true, false, "AzDom".to_string())
+        );
+        assert_eq!(
+            parse_type_info("&mut AzDom"),
+            (true, true, "AzDom".to_string())
+        );
+        assert_eq!(
+            parse_type_info("AzDom"),
+            (false, false, "AzDom".to_string())
+        );
         assert_eq!(parse_type_info("u32"), (false, false, "u32".to_string()));
     }
 
@@ -420,9 +451,9 @@ mod tests {
             core_return_type: "".to_string(),
             is_constructor: false,
         };
-        
+
         let result = generate_fn_body(&ctx);
-        
+
         // Self should be transmuted
         assert!(result.contains("let glcontextptr: &azul_core::gl::GlContextPtr"));
         // Primitives should also be transmuted (even though it's a no-op)

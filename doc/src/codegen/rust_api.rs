@@ -31,14 +31,18 @@ static RUST_API_PATCHES: &[(&str, &str)] = &[
 
 /// Primitive types that should never get an Az prefix
 const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
-    "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
-    "str", "char", "c_char", "c_schar", "c_uchar",
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
+    "u32", "u64", "u8", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
 ];
 
 /// Single-letter types are usually generic type parameters
 fn is_generic_type_param(type_name: &str) -> bool {
-    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    type_name.len() == 1
+        && type_name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
 }
 
 /// Format function arguments from api.json fn_args into Rust function signature
@@ -46,12 +50,12 @@ fn is_generic_type_param(type_name: &str) -> bool {
 fn format_fn_args(
     fn_args: &[IndexMap<String, String>],
     version_data: &VersionData,
-    is_method: bool,  // true if first arg should be &self or &mut self
+    is_method: bool, // true if first arg should be &self or &mut self
     prefix: &str,
 ) -> (String, String) {
     let mut args_sig = Vec::new();
     let mut args_call = Vec::new();
-    
+
     for (i, arg_map) in fn_args.iter().enumerate() {
         for (arg_name, arg_type) in arg_map {
             // Skip "doc" fields - these are documentation, not arguments
@@ -59,7 +63,7 @@ fn format_fn_args(
             if arg_name == "doc" || arg_name == "type" {
                 continue;
             }
-            
+
             // Handle self parameter for methods
             if i == 0 && is_method {
                 if arg_type.contains("&mut") || arg_type.contains("RefMut") {
@@ -75,28 +79,33 @@ fn format_fn_args(
                 }
                 continue;
             }
-            
+
             // Convert type to Rust API type
             let rust_type = convert_type_to_rust_api(arg_type, version_data, prefix);
             args_sig.push(format!("{}: {}", arg_name, rust_type));
             args_call.push(arg_name.clone());
         }
     }
-    
+
     (args_sig.join(", "), args_call.join(", "))
 }
 
 /// Convert a C API type string to Rust API type
 fn convert_type_to_rust_api(type_str: &str, version_data: &VersionData, prefix: &str) -> String {
     let (ref_prefix, type_name, suffix) = analyze_type(type_str);
-    
+
     if is_primitive_arg(&type_name) {
         return type_str.to_string();
     }
-    
+
     // Look up the type in api.json to find its module
-    if let Some((module_name, class_name)) = search_for_class_by_class_name(version_data, &type_name) {
-        format!("{}crate::{}::{}{}", ref_prefix, module_name, class_name, suffix)
+    if let Some((module_name, class_name)) =
+        search_for_class_by_class_name(version_data, &type_name)
+    {
+        format!(
+            "{}crate::{}::{}{}",
+            ref_prefix, module_name, class_name, suffix
+        )
     } else {
         // Type not found in api.json, use as-is with prefix stripped if present
         let stripped = type_name.strip_prefix(prefix).unwrap_or(&type_name);

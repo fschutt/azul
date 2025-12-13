@@ -15,9 +15,8 @@ use azul_core::{
     },
 };
 use azul_css::{
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, 
-    impl_vec_debug, impl_vec_mut, impl_vec_partialeq, 
-    props::basic::color::ColorU, AzString, corety::OptionU32
+    corety::OptionU32, impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug,
+    impl_vec_mut, impl_vec_partialeq, props::basic::color::ColorU, AzString,
 };
 
 use crate::callbacks::OptionCallback;
@@ -60,8 +59,16 @@ impl WindowCreateOptions {
     }
 }
 
-impl_vec!(WindowCreateOptions, WindowCreateOptionsVec, WindowCreateOptionsVecDestructor);
-impl_vec_clone!(WindowCreateOptions, WindowCreateOptionsVec, WindowCreateOptionsVecDestructor);
+impl_vec!(
+    WindowCreateOptions,
+    WindowCreateOptionsVec,
+    WindowCreateOptionsVecDestructor
+);
+impl_vec_clone!(
+    WindowCreateOptions,
+    WindowCreateOptionsVec,
+    WindowCreateOptionsVecDestructor
+);
 impl_vec_partialeq!(WindowCreateOptions, WindowCreateOptionsVec);
 impl_vec_debug!(WindowCreateOptions, WindowCreateOptionsVec);
 impl_vec_mut!(WindowCreateOptions, WindowCreateOptionsVec);

@@ -24,9 +24,9 @@ use azul_css::{
     },
     *,
 };
-use crate::callbacks::{Callback, CallbackInfo};
 
 use crate::{
+    callbacks::{Callback, CallbackInfo},
     extra::coloru_from_str,
     widgets::{
         check_box::{CheckBox, CheckBoxState},
@@ -169,11 +169,8 @@ impl_callback!(
     OnNodeAddedCallbackType
 );
 
-pub type OnNodeRemovedCallbackType = extern "C" fn(
-    data: RefAny,
-    info: CallbackInfo,
-    node_id_to_remove: NodeGraphNodeId,
-) -> Update;
+pub type OnNodeRemovedCallbackType =
+    extern "C" fn(data: RefAny, info: CallbackInfo, node_id_to_remove: NodeGraphNodeId) -> Update;
 impl_callback!(
     OnNodeRemoved,
     OptionOnNodeRemoved,
@@ -181,11 +178,8 @@ impl_callback!(
     OnNodeRemovedCallbackType
 );
 
-pub type OnNodeGraphDraggedCallbackType = extern "C" fn(
-    data: RefAny,
-    info: CallbackInfo,
-    drag_amount: GraphDragAmount,
-) -> Update;
+pub type OnNodeGraphDraggedCallbackType =
+    extern "C" fn(data: RefAny, info: CallbackInfo, drag_amount: GraphDragAmount) -> Update;
 impl_callback!(
     OnNodeGraphDragged,
     OptionOnNodeGraphDragged,
@@ -1757,7 +1751,12 @@ fn render_node(
         )),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1775,7 +1774,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1793,7 +1797,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1811,7 +1820,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 229,
                     g: 57,
@@ -1861,7 +1875,12 @@ fn render_node(
         )),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1879,7 +1898,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1897,7 +1921,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
             StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -1915,7 +1944,12 @@ fn render_node(
         ))),
         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
                 color: ColorU {
                     r: 0,
                     g: 0,
@@ -3433,10 +3467,7 @@ extern "C" fn nodegraph_input_output_connect(mut data: RefAny, mut info: Callbac
     result
 }
 
-extern "C" fn nodegraph_input_output_disconnect(
-    mut data: RefAny,
-    info: CallbackInfo,
-) -> Update {
+extern "C" fn nodegraph_input_output_disconnect(mut data: RefAny, info: CallbackInfo) -> Update {
     use self::InputOrOutput::*;
 
     let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {

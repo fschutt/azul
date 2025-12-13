@@ -7,7 +7,7 @@
 //! - `inset(top right bottom left [round radius])`
 //! - `path(svg-path-data)`
 
-use crate::shape::{ShapePoint, CssShape};
+use crate::shape::{CssShape, ShapePoint};
 
 /// Error type for shape parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]

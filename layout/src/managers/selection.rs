@@ -373,7 +373,7 @@ impl SelectionManagerQuery for SelectionManager {
 
     fn has_selection(&self) -> bool {
         // Check if any selection exists via:
-        // 
+        //
         // 1. Click count > 0 (single/double/triple click created selection)
         // 2. Drag start position exists (drag selection in progress)
         // 3. Any DOM has non-empty selection state

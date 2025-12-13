@@ -1,4 +1,4 @@
-//! An implementation of the Knuth-Plass line-breaking algorithm 
+//! An implementation of the Knuth-Plass line-breaking algorithm
 //! for simple rectangular layouts.
 
 use std::sync::Arc;
@@ -54,13 +54,13 @@ struct Breakpoint {
 /// to find globally optimal break points.
 ///
 /// # Use Cases
-/// 
+///
 /// - `text-wrap: balance` - CSS property for balanced line lengths
 /// - High-quality typesetting where line consistency matters
 /// - Multi-line headings that should appear visually balanced
 ///
 /// # Limitations
-/// 
+///
 /// - Only supports horizontal text (vertical writing modes use greedy algorithm)
 /// - Higher computational cost than greedy breaking
 /// - May produce different results than browsers for edge cases
@@ -217,9 +217,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 
 /// Uses dynamic programming to find the optimal set of line breaks.
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
-    
     // For Knuth-Plass, we need a definite line width.
-    // 
+    //
     // For MaxContent, use a very large value (no line breaks unless forced).
     // For MinContent, use 0.0 (break at every opportunity).
 
@@ -243,9 +242,8 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     };
 
     for i in 0..nodes.len() {
-
         // Optimization:
-        // 
+        //
         // A legal line break can only occur at a Penalty node. If the current node
         // is a Box or Glue, we can skip it as a potential breakpoint.
 
@@ -254,7 +252,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         }
 
         for j in (0..=i).rev() {
-
             // Calculate the properties of a potential line from node `j` to `i`.
             let (mut current_width, mut stretch, mut shrink) = (0.0, 0.0, 0.0);
 
@@ -310,9 +307,9 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
                 }
             }
 
-            // TODO: Add demerits for consecutive lines with very different 
-            // ratios (fitness classes). 
-            // 
+            // TODO: Add demerits for consecutive lines with very different
+            // ratios (fitness classes).
+            //
             // For now, demerit is simply the cumulative badness.
             let demerit = badness + breakpoints[j].demerit;
 
@@ -496,7 +493,7 @@ fn split_cluster_for_hyphenation(
         .map(|g| g.advance + g.kerning)
         .sum();
 
-    // We can approximate the split text, but a more robust solution 
+    // We can approximate the split text, but a more robust solution
     // would map glyphs back to bytes.
     let first_part = ShapedCluster {
         glyphs: first_part_glyphs,

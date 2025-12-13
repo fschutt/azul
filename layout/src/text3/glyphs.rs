@@ -10,8 +10,8 @@ use azul_core::{
 use azul_css::props::basic::ColorU;
 
 use crate::text3::cache::{
-    get_item_vertical_metrics, LoadedFonts, ParsedFontTrait, 
-    Point, PositionedItem, ShapedGlyph, ShapedItem, UnifiedLayout,
+    get_item_vertical_metrics, LoadedFonts, ParsedFontTrait, Point, PositionedItem, ShapedGlyph,
+    ShapedItem, UnifiedLayout,
 };
 
 /// Represents a single glyph ready for rendering, with an absolute position on the baseline.
@@ -152,8 +152,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     runs
 }
 
-/// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s 
-/// instead of a flat list of glyphs. This groups glyphs by their font and 
+/// Same as `get_glyph_positions`, but returns a list of `GlyphRun`s
+/// instead of a flat list of glyphs. This groups glyphs by their font and
 /// color, which can be more efficient for rendering.
 pub fn get_glyph_runs<T: ParsedFontTrait>(
     layout: &UnifiedLayout,
@@ -204,7 +204,7 @@ pub fn get_glyph_runs<T: ParsedFontTrait>(
                         {
                             run.glyphs.push(instance);
                         } else {
-                            // Different font, color, size, or decoration: finalize the 
+                            // Different font, color, size, or decoration: finalize the
                             // current run and start a new one
                             runs.push(run.clone());
                             current_run = Some(GlyphRun {
@@ -492,11 +492,11 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
 /// rendering or for clients that need a lower-level representation of the text layout.
 ///
 /// # Arguments
-/// 
+///
 /// - `layout` - A reference to the final `UnifiedLayout` produced by the pipeline.
 ///
 /// # Returns
-/// 
+///
 /// A `Vec<PositionedGlyph>` containing all glyphs from the layout with their
 /// absolute baseline positions.
 pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
@@ -512,7 +512,7 @@ pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
             for glyph in positioned_glyphs {
                 // The glyph's final position is its origin on the baseline.
                 // GPOS y-offsets shift the glyph up or down relative to the baseline.
-                // In a Y-down coordinate system, a positive GPOS offset (up) means 
+                // In a Y-down coordinate system, a positive GPOS offset (up) means
                 // subtracting from Y.
                 let glyph_pos = Point {
                     x: pen_x + glyph.offset.x,

@@ -9,7 +9,10 @@ use azul_core::{
     window::MonitorVec,
 };
 use azul_css::{impl_option, impl_option_inner, AzString};
-use azul_layout::{timer::Timer, window_state::{WindowCreateOptions, WindowCreateOptionsVec}};
+use azul_layout::{
+    timer::Timer,
+    window_state::{WindowCreateOptions, WindowCreateOptionsVec},
+};
 use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone)]
@@ -53,14 +56,9 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         eprintln!("[App::run] fc_cache cloned successfully");
         eprintln!("[App::run] Calling shell2::run...");
-        
+
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(
-            data,
-            config,
-            fc_cache,
-            root_window,
-        );
+        let err = crate::desktop::shell2::run(data, config, fc_cache, root_window);
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
@@ -92,8 +90,14 @@ impl AppInternal {
     /// to the display server
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         eprintln!("[AppInternal::new] Starting App creation");
-        eprintln!("[AppInternal::new] initial_data._internal_ptr: {:?}", initial_data._internal_ptr);
-        eprintln!("[AppInternal::new] initial_data.sharing_info.ptr: {:?}", initial_data.sharing_info.ptr);
+        eprintln!(
+            "[AppInternal::new] initial_data._internal_ptr: {:?}",
+            initial_data._internal_ptr
+        );
+        eprintln!(
+            "[AppInternal::new] initial_data.sharing_info.ptr: {:?}",
+            initial_data.sharing_info.ptr
+        );
 
         #[cfg(not(miri))]
         let fc_cache = {

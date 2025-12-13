@@ -13,7 +13,7 @@ use azul_core::{
     },
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::ColorU;
+use azul_css::props::basic::{ColorU, FontRef};
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 
 use crate::{
@@ -21,7 +21,6 @@ use crate::{
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem},
     text3::cache::{FontHash, FontManager},
 };
-use azul_css::props::basic::FontRef;
 
 pub struct RenderOptions {
     pub width: f32,
@@ -384,37 +383,101 @@ fn render_display_list(
             }
 
             // Gradient rendering - simplified for CPU render
-            DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::LinearGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 // TODO: Implement proper gradient rendering
                 // For now, render a placeholder with the first stop color
-                let color = gradient.stops.as_ref().first()
+                let color = gradient
+                    .stops
+                    .as_ref()
+                    .first()
                     .map(|s| s.color)
-                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                    .unwrap_or(ColorU {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    });
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+                render_rect(
+                    pixmap,
+                    bounds,
+                    color,
+                    border_radius,
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
             }
-            DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::RadialGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 // TODO: Implement proper radial gradient rendering
-                let color = gradient.stops.as_ref().first()
+                let color = gradient
+                    .stops
+                    .as_ref()
+                    .first()
                     .map(|s| s.color)
-                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                    .unwrap_or(ColorU {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    });
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+                render_rect(
+                    pixmap,
+                    bounds,
+                    color,
+                    border_radius,
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
             }
-            DisplayListItem::ConicGradient { bounds, gradient, border_radius } => {
+            DisplayListItem::ConicGradient {
+                bounds,
+                gradient,
+                border_radius,
+            } => {
                 // TODO: Implement proper conic gradient rendering
-                let color = gradient.stops.as_ref().first()
+                let color = gradient
+                    .stops
+                    .as_ref()
+                    .first()
                     .map(|s| s.color)
-                    .unwrap_or(ColorU { r: 128, g: 128, b: 128, a: 255 });
+                    .unwrap_or(ColorU {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    });
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                render_rect(pixmap, bounds, color, border_radius, *transform, *clip, dpi_factor)?;
+                render_rect(
+                    pixmap,
+                    bounds,
+                    color,
+                    border_radius,
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
             }
 
             // BoxShadow - simplified
-            DisplayListItem::BoxShadow { bounds, shadow, border_radius } => {
+            DisplayListItem::BoxShadow {
+                bounds,
+                shadow,
+                border_radius,
+            } => {
                 // TODO: Implement proper box shadow rendering
                 // For now, render a slightly offset rectangle with the shadow color
                 let offset_bounds = LogicalRect {
@@ -426,7 +489,15 @@ fn render_display_list(
                 };
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                render_rect(pixmap, &offset_bounds, shadow.color, border_radius, *transform, *clip, dpi_factor)?;
+                render_rect(
+                    pixmap,
+                    &offset_bounds,
+                    shadow.color,
+                    border_radius,
+                    *transform,
+                    *clip,
+                    dpi_factor,
+                )?;
             }
 
             // Filter effects - not supported in CPU render
@@ -514,7 +585,8 @@ fn render_text(
     let mut paint = Paint::default();
     paint.set_color_rgba8(color.r, color.g, color.b, color.a);
 
-    // Try to get the parsed font - first from FontManager (for reftests), then from RendererResources
+    // Try to get the parsed font - first from FontManager (for reftests), then from
+    // RendererResources
     let parsed_font: &ParsedFont = if let Some(fm) = font_manager {
         // Use FontManager directly (reftest path)
         match fm.get_font_by_hash(font_hash.font_hash) {
@@ -523,7 +595,10 @@ fn render_text(
                 unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
             }
             None => {
-                eprintln!("[cpurender] Font hash {} not found in FontManager", font_hash.font_hash);
+                eprintln!(
+                    "[cpurender] Font hash {} not found in FontManager",
+                    font_hash.font_hash
+                );
                 return Ok(());
             }
         }
@@ -532,9 +607,11 @@ fn render_text(
         let font_key = match renderer_resources.font_hash_map.get(&font_hash.font_hash) {
             Some(k) => k,
             None => {
-                eprintln!("[cpurender] Font hash {} not found in font_hash_map (available: {:?})", 
-                    font_hash.font_hash, 
-                    renderer_resources.font_hash_map.keys().collect::<Vec<_>>());
+                eprintln!(
+                    "[cpurender] Font hash {} not found in font_hash_map (available: {:?})",
+                    font_hash.font_hash,
+                    renderer_resources.font_hash_map.keys().collect::<Vec<_>>()
+                );
                 return Ok(());
             }
         };
@@ -542,7 +619,10 @@ fn render_text(
         let font_ref = match renderer_resources.currently_registered_fonts.get(font_key) {
             Some((font_ref, _instances)) => font_ref,
             None => {
-                eprintln!("[cpurender] FontKey {:?} not found in currently_registered_fonts", font_key);
+                eprintln!(
+                    "[cpurender] FontKey {:?} not found in currently_registered_fonts",
+                    font_key
+                );
                 return Ok(());
             }
         };
@@ -662,13 +742,21 @@ fn render_border(
 
         pb.move_to(x + tl, y);
         pb.line_to(x + w - tr, y);
-        if tr > 0.0 { pb.quad_to(x + w, y, x + w, y + tr); }
+        if tr > 0.0 {
+            pb.quad_to(x + w, y, x + w, y + tr);
+        }
         pb.line_to(x + w, y + h - br);
-        if br > 0.0 { pb.quad_to(x + w, y + h, x + w - br, y + h); }
+        if br > 0.0 {
+            pb.quad_to(x + w, y + h, x + w - br, y + h);
+        }
         pb.line_to(x + bl, y + h);
-        if bl > 0.0 { pb.quad_to(x, y + h, x, y + h - bl); }
+        if bl > 0.0 {
+            pb.quad_to(x, y + h, x, y + h - bl);
+        }
         pb.line_to(x, y + tl);
-        if tl > 0.0 { pb.quad_to(x, y, x + tl, y); }
+        if tl > 0.0 {
+            pb.quad_to(x, y, x + tl, y);
+        }
         pb.close();
     }
 
@@ -701,13 +789,21 @@ fn render_border(
 
             pb.move_to(ix + tl, iy);
             pb.line_to(ix + iw - tr, iy);
-            if tr > 0.0 { pb.quad_to(ix + iw, iy, ix + iw, iy + tr); }
+            if tr > 0.0 {
+                pb.quad_to(ix + iw, iy, ix + iw, iy + tr);
+            }
             pb.line_to(ix + iw, iy + ih - br);
-            if br > 0.0 { pb.quad_to(ix + iw, iy + ih, ix + iw - br, iy + ih); }
+            if br > 0.0 {
+                pb.quad_to(ix + iw, iy + ih, ix + iw - br, iy + ih);
+            }
             pb.line_to(ix + bl, iy + ih);
-            if bl > 0.0 { pb.quad_to(ix, iy + ih, ix, iy + ih - bl); }
+            if bl > 0.0 {
+                pb.quad_to(ix, iy + ih, ix, iy + ih - bl);
+            }
             pb.line_to(ix, iy + tl);
-            if tl > 0.0 { pb.quad_to(ix, iy, ix + tl, iy); }
+            if tl > 0.0 {
+                pb.quad_to(ix, iy, ix + tl, iy);
+            }
             pb.close();
         }
     }
@@ -718,7 +814,13 @@ fn render_border(
     paint.anti_alias = true;
 
     if let Some(path) = pb.finish() {
-        pixmap.fill_path(&path, &paint, FillRule::EvenOdd, Transform::identity(), None);
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::EvenOdd,
+            Transform::identity(),
+            None,
+        );
     }
 
     Ok(())

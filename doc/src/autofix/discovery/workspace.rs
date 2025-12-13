@@ -3,11 +3,13 @@
 //! This module scans the Rust workspace to find all type definitions
 //! and their locations.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::fs;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
-use super::crates::{get_crate_priority, CratePriority, is_crate_blacklisted};
+use super::crates::{get_crate_priority, is_crate_blacklisted, CratePriority};
 
 /// Location of a type in the workspace
 #[derive(Debug, Clone)]
@@ -45,13 +47,15 @@ impl WorkspaceIndex {
 
     /// Get the best location for a type (highest priority)
     pub fn get_best_location(&self, type_name: &str) -> Option<&TypeLocation> {
-        self.types.get(type_name)
+        self.types
+            .get(type_name)
             .and_then(|locs| locs.iter().min_by_key(|l| l.priority))
     }
 
     /// Get the canonical path for a type (from best location)
     pub fn get_canonical_path(&self, type_name: &str) -> Option<String> {
-        self.get_best_location(type_name).map(|l| l.full_path.clone())
+        self.get_best_location(type_name)
+            .map(|l| l.full_path.clone())
     }
 
     /// Check if a type exists in the workspace
@@ -104,7 +108,9 @@ fn scan_crate_directory(
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
-            index.errors.push(format!("Failed to read {}: {}", dir.display(), e));
+            index
+                .errors
+                .push(format!("Failed to read {}: {}", dir.display(), e));
             return;
         }
     };
@@ -114,9 +120,7 @@ fn scan_crate_directory(
 
         if path.is_dir() {
             // Recurse into subdirectory
-            let dir_name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let new_prefix = if module_prefix.is_empty() {
                 dir_name.to_string()
@@ -127,9 +131,7 @@ fn scan_crate_directory(
             scan_crate_directory(index, crate_name, &path, &new_prefix);
         } else if path.extension().map_or(false, |e| e == "rs") {
             // Parse Rust file for type definitions
-            let file_name = path.file_stem()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let file_name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
 
             // Skip mod.rs for module path calculation
             let module_path = if file_name == "mod" || file_name == "lib" {
@@ -155,7 +157,9 @@ fn scan_rust_file(
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
         Err(e) => {
-            index.errors.push(format!("Failed to read {}: {}", file_path.display(), e));
+            index
+                .errors
+                .push(format!("Failed to read {}: {}", file_path.display(), e));
             return;
         }
     };
@@ -227,7 +231,8 @@ fn extract_identifier(s: &str) -> Option<String> {
     let s = s.trim();
 
     // Handle generic types like "Foo<T>" or "Foo<T: Clone>"
-    let end = s.find(|c: char| !c.is_alphanumeric() && c != '_')
+    let end = s
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
         .unwrap_or(s.len());
 
     if end == 0 {
@@ -247,15 +252,44 @@ fn extract_identifier(s: &str) -> Option<String> {
 
 /// Check if a name is a Rust keyword
 fn is_reserved_keyword(name: &str) -> bool {
-    matches!(name,
-        "Self" | "self" | "super" | "crate" |
-        "where" | "impl" | "trait" | "for" |
-        "as" | "use" | "mod" | "pub" | "const" |
-        "static" | "extern" | "fn" | "let" | "mut" |
-        "ref" | "if" | "else" | "match" | "loop" |
-        "while" | "for" | "in" | "break" | "continue" |
-        "return" | "async" | "await" | "move" | "dyn" |
-        "unsafe" | "true" | "false"
+    matches!(
+        name,
+        "Self"
+            | "self"
+            | "super"
+            | "crate"
+            | "where"
+            | "impl"
+            | "trait"
+            | "for"
+            | "as"
+            | "use"
+            | "mod"
+            | "pub"
+            | "const"
+            | "static"
+            | "extern"
+            | "fn"
+            | "let"
+            | "mut"
+            | "ref"
+            | "if"
+            | "else"
+            | "match"
+            | "loop"
+            | "while"
+            | "for"
+            | "in"
+            | "break"
+            | "continue"
+            | "return"
+            | "async"
+            | "await"
+            | "move"
+            | "dyn"
+            | "unsafe"
+            | "true"
+            | "false"
     )
 }
 
@@ -265,10 +299,19 @@ mod tests {
 
     #[test]
     fn test_extract_type_name() {
-        assert_eq!(extract_type_name("pub struct Foo {"), Some("Foo".to_string()));
-        assert_eq!(extract_type_name("struct Bar<T> {"), Some("Bar".to_string()));
+        assert_eq!(
+            extract_type_name("pub struct Foo {"),
+            Some("Foo".to_string())
+        );
+        assert_eq!(
+            extract_type_name("struct Bar<T> {"),
+            Some("Bar".to_string())
+        );
         assert_eq!(extract_type_name("pub enum Baz {"), Some("Baz".to_string()));
-        assert_eq!(extract_type_name("type MyAlias = i32;"), Some("MyAlias".to_string()));
+        assert_eq!(
+            extract_type_name("type MyAlias = i32;"),
+            Some("MyAlias".to_string())
+        );
         assert_eq!(extract_type_name("let x = 5;"), None);
         assert_eq!(extract_type_name("// struct Comment"), None);
     }
@@ -277,7 +320,10 @@ mod tests {
     fn test_extract_identifier() {
         assert_eq!(extract_identifier("Foo<T>"), Some("Foo".to_string()));
         assert_eq!(extract_identifier("Bar {"), Some("Bar".to_string()));
-        assert_eq!(extract_identifier("_Internal"), Some("_Internal".to_string()));
+        assert_eq!(
+            extract_identifier("_Internal"),
+            Some("_Internal".to_string())
+        );
         assert_eq!(extract_identifier("lowercase"), None);
     }
 }

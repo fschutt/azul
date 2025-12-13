@@ -16,9 +16,11 @@ use azul_css::{
     },
     *,
 };
-use crate::callbacks::{Callback, CallbackInfo};
 
-use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]

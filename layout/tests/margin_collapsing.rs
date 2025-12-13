@@ -361,12 +361,12 @@ fn test_sibling_margin_collapsing() {
         .with_child(
             Dom::new(NodeType::H1)
                 .with_inline_style("margin-bottom: 10px;") // Using px for simplicity
-                .with_child(Dom::text("Heading"))
+                .with_child(Dom::text("Heading")),
         )
         .with_child(
             Dom::new(NodeType::P)
                 .with_inline_style("margin-top: 20px;")
-                .with_child(Dom::text("Paragraph"))
+                .with_child(Dom::text("Paragraph")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -392,7 +392,10 @@ fn test_sibling_margin_collapsing() {
             println!("Without collapsing: 30px (10px + 20px)");
 
             if gap > 25.0 {
-                println!("⚠ WARNING: Gap is {}px, suggests margins are NOT collapsing!", gap);
+                println!(
+                    "⚠ WARNING: Gap is {}px, suggests margins are NOT collapsing!",
+                    gap
+                );
                 println!("   Margins appear to be added together instead of collapsed.");
             } else if gap < 15.0 {
                 println!("⚠ WARNING: Gap is {}px, too small!", gap);
@@ -419,7 +422,7 @@ fn test_parent_child_margin_collapsing() {
         .with_child(
             Dom::new(NodeType::H1)
                 .with_inline_style("margin-top: 30px;") // Larger than body's 20px
-                .with_child(Dom::text("Heading"))
+                .with_child(Dom::text("Heading")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -444,7 +447,10 @@ fn test_parent_child_margin_collapsing() {
             println!("Without collapsing: 50px (20px + 30px)");
 
             if h1_offset > 40.0 {
-                println!("⚠ WARNING: Offset is {}px, margins are NOT collapsing!", h1_offset);
+                println!(
+                    "⚠ WARNING: Offset is {}px, margins are NOT collapsing!",
+                    h1_offset
+                );
                 println!("   Parent and child top margins should collapse.");
             } else if h1_offset < 5.0 {
                 println!("✓ Margins appear to be collapsing correctly");
@@ -472,14 +478,8 @@ fn test_ua_css_margin_collapsing() {
     // Create structure with NO explicit margins - rely on UA CSS
     let mut dom = Dom::body()
         .with_inline_style("width: 800px;")
-        .with_child(
-            Dom::new(NodeType::H1)
-                .with_child(Dom::text("Heading"))
-        )
-        .with_child(
-            Dom::new(NodeType::P)
-                .with_child(Dom::text("Paragraph"))
-        );
+        .with_child(Dom::new(NodeType::H1).with_child(Dom::text("Heading")))
+        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Paragraph")));
 
     let layout = layout_dom(&mut dom);
 
@@ -531,17 +531,17 @@ fn test_three_consecutive_blocks() {
         .with_child(
             Dom::new(NodeType::P)
                 .with_inline_style("margin-bottom: 15px;")
-                .with_child(Dom::text("First"))
+                .with_child(Dom::text("First")),
         )
         .with_child(
             Dom::new(NodeType::P)
                 .with_inline_style("margin-top: 10px; margin-bottom: 25px;")
-                .with_child(Dom::text("Second"))
+                .with_child(Dom::text("Second")),
         )
         .with_child(
             Dom::new(NodeType::P)
                 .with_inline_style("margin-top: 20px;")
-                .with_child(Dom::text("Third"))
+                .with_child(Dom::text("Third")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -568,13 +568,19 @@ fn test_three_consecutive_blocks() {
 
         println!("\nAnalysis:");
         if gap1 > 20.0 {
-            println!("  ⚠ P1 ↔ P2: NOT collapsing (expected ~15px, got {}px)", gap1);
+            println!(
+                "  ⚠ P1 ↔ P2: NOT collapsing (expected ~15px, got {}px)",
+                gap1
+            );
         } else {
             println!("  ✓ P1 ↔ P2: appears correct");
         }
 
         if gap2 > 35.0 {
-            println!("  ⚠ P2 ↔ P3: NOT collapsing (expected ~25px, got {}px)", gap2);
+            println!(
+                "  ⚠ P2 ↔ P3: NOT collapsing (expected ~25px, got {}px)",
+                gap2
+            );
         } else {
             println!("  ✓ P2 ↔ P3: appears correct");
         }
@@ -592,7 +598,7 @@ fn test_margin_collapsing_with_border() {
         .with_child(
             Dom::new(NodeType::H1)
                 .with_inline_style("margin-top: 30px;")
-                .with_child(Dom::text("Heading"))
+                .with_child(Dom::text("Heading")),
         );
 
     let layout = layout_dom(&mut dom);

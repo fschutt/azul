@@ -4,8 +4,11 @@
 //! properly handling the special cases like "self" in fn_args.
 
 use std::collections::HashSet;
-use crate::autofix::types::{TypeParser, ParsedType};
-use crate::autofix::types::borrow::{BorrowMode, ParsedFnArgs};
+
+use crate::autofix::types::{
+    borrow::{BorrowMode, ParsedFnArgs},
+    ParsedType, TypeParser,
+};
 
 /// Extractor for types from api.json structures
 pub struct ApiTypeExtractor {
@@ -55,29 +58,30 @@ impl ApiTypeExtractor {
             if let Some(obj) = arg.as_object() {
                 // Validate: each arg object should have exactly one key (the arg name)
                 // Exception: we skip "doc" and "type" keys if present (legacy format)
-                let valid_keys: Vec<_> = obj.keys()
-                    .filter(|k| *k != "doc" && *k != "type")
-                    .collect();
-                
+                let valid_keys: Vec<_> =
+                    obj.keys().filter(|k| *k != "doc" && *k != "type").collect();
+
                 if valid_keys.len() > 1 {
                     self.invalid.push(format!(
-                        "fn_args entry has multiple keys {:?} - each arg should be a separate object",
+                        "fn_args entry has multiple keys {:?} - each arg should be a separate \
+                         object",
                         valid_keys
                     ));
                 }
-                
+
                 for (key, value) in obj {
                     // Skip documentation fields
                     if key == "doc" || key == "type" {
                         continue;
                     }
-                    
+
                     // CRITICAL: Skip "self" key - its value is a borrow mode, not a type!
                     if key == "self" {
                         // Validate it's a proper borrow mode
                         if let Some(mode_str) = value.as_str() {
                             if BorrowMode::parse(mode_str).is_none() {
-                                self.invalid.push(format!("invalid borrow mode for self: '{}'", mode_str));
+                                self.invalid
+                                    .push(format!("invalid borrow mode for self: '{}'", mode_str));
                             }
                         }
                         continue;
@@ -88,16 +92,19 @@ impl ApiTypeExtractor {
                     }
                 }
             } else {
-                self.invalid.push(format!("fn_args entry is not an object: {:?}", arg));
+                self.invalid
+                    .push(format!("fn_args entry is not an object: {:?}", arg));
             }
         }
     }
-    
+
     /// Legacy: Extract from fn_args as object (deprecated format)
     /// This will emit a warning but still work for backwards compatibility
     #[deprecated(note = "fn_args should be an array, not an object")]
     pub fn extract_from_fn_args(&mut self, args: &serde_json::Map<String, serde_json::Value>) {
-        self.invalid.push("fn_args is a flat object instead of array - argument order may be lost!".to_string());
+        self.invalid.push(
+            "fn_args is a flat object instead of array - argument order may be lost!".to_string(),
+        );
         for (key, value) in args {
             if key == "self" || key == "doc" || key == "type" {
                 continue;
@@ -124,7 +131,10 @@ impl ApiTypeExtractor {
                 #[allow(deprecated)]
                 self.extract_from_fn_args(args_obj);
             } else {
-                self.invalid.push(format!("fn_args is neither array nor object: {:?}", fn_args));
+                self.invalid.push(format!(
+                    "fn_args is neither array nor object: {:?}",
+                    fn_args
+                ));
             }
         }
     }
@@ -200,8 +210,9 @@ pub fn extract_types_from_api(api: &serde_json::Value) -> ApiTypeExtractor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_skip_self_in_fn_args_array() {
@@ -220,7 +231,11 @@ mod tests {
         // "CssProperty" should be extracted
         assert!(extractor.types.contains("CssProperty"));
         // No errors
-        assert!(extractor.invalid.is_empty(), "unexpected errors: {:?}", extractor.invalid);
+        assert!(
+            extractor.invalid.is_empty(),
+            "unexpected errors: {:?}",
+            extractor.invalid
+        );
     }
 
     #[test]
@@ -258,7 +273,11 @@ mod tests {
         assert!(extractor.types.contains("DomNodeId"));
         assert!(extractor.types.contains("CssProperty"));
         // No errors for correct format
-        assert!(extractor.invalid.is_empty(), "unexpected errors: {:?}", extractor.invalid);
+        assert!(
+            extractor.invalid.is_empty(),
+            "unexpected errors: {:?}",
+            extractor.invalid
+        );
     }
 
     #[test]
@@ -278,9 +297,15 @@ mod tests {
         extractor.extract_from_function(&func);
 
         // Should emit warning about flat object
-        assert!(!extractor.invalid.is_empty(), "should warn about flat object format");
-        assert!(extractor.invalid.iter().any(|e| e.contains("flat object")), 
-            "error should mention flat object: {:?}", extractor.invalid);
+        assert!(
+            !extractor.invalid.is_empty(),
+            "should warn about flat object format"
+        );
+        assert!(
+            extractor.invalid.iter().any(|e| e.contains("flat object")),
+            "error should mention flat object: {:?}",
+            extractor.invalid
+        );
     }
 
     #[test]
@@ -297,7 +322,9 @@ mod tests {
 
         // Should extract the type correctly despite doc field
         assert!(extractor.types.contains("u8") || extractor.types.is_empty()); // u8 is primitive
-        // doc field should be skipped, no error about it
+                                                                               // doc field should
+                                                                               // be skipped, no
+                                                                               // error about it
     }
 
     #[test]
@@ -312,8 +339,17 @@ mod tests {
         extractor.extract_from_fn_args_array(fn_args.as_array().unwrap());
 
         // Should emit error about multiple keys
-        assert!(!extractor.invalid.is_empty(), "should error on multiple keys");
-        assert!(extractor.invalid.iter().any(|e| e.contains("multiple keys")),
-            "error should mention multiple keys: {:?}", extractor.invalid);
+        assert!(
+            !extractor.invalid.is_empty(),
+            "should error on multiple keys"
+        );
+        assert!(
+            extractor
+                .invalid
+                .iter()
+                .any(|e| e.contains("multiple keys")),
+            "error should mention multiple keys: {:?}",
+            extractor.invalid
+        );
     }
 }

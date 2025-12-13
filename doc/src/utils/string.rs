@@ -108,7 +108,7 @@ pub fn format_doc_lines(doc_lines: &[String]) -> String {
     if doc_lines.is_empty() {
         return String::new();
     }
-    
+
     doc_lines
         .iter()
         .map(|line| format_doc(line))

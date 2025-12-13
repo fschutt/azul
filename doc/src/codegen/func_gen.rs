@@ -213,8 +213,8 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
             // Add deepCopy function if needed
             // Generate deepCopy if the type has custom Clone impl (custom_impls: ["Clone"])
             // This generates AzTypeName_deepCopy which calls .clone() internally
-            let class_has_custom_clone = class_data.has_custom_clone() 
-                || class_data.has_custom_impl("Clone");
+            let class_has_custom_clone =
+                class_data.has_custom_clone() || class_data.has_custom_impl("Clone");
             if class_has_custom_clone {
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
@@ -228,7 +228,10 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
 
 /// Build an extended FunctionsMap that includes fn_body from api.json
 /// This is used for generating the DLL and memtest with real implementations
-pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Result<FunctionsMapExt> {
+pub fn build_functions_map_ext(
+    version_data: &VersionData,
+    prefix: &str,
+) -> Result<FunctionsMapExt> {
     let mut functions_map = HashMap::new();
 
     for (_module_name, module_data) in &version_data.api {
@@ -258,13 +261,16 @@ pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Resu
                         class_ptr_name.clone()
                     };
 
-                    functions_map.insert(c_fn_name, FunctionInfo {
-                        fn_args,
-                        return_type,
-                        fn_body: constructor.fn_body.clone(),
-                        is_constructor: true,
-                        class_name: class_name.clone(),
-                    });
+                    functions_map.insert(
+                        c_fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type,
+                            fn_body: constructor.fn_body.clone(),
+                            is_constructor: true,
+                            class_name: class_name.clone(),
+                        },
+                    );
                 }
             }
 
@@ -286,13 +292,16 @@ pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Resu
                     let return_type =
                         build_return_type(function.returns.as_ref(), version_data, prefix)?;
 
-                    functions_map.insert(c_fn_name, FunctionInfo {
-                        fn_args,
-                        return_type,
-                        fn_body: function.fn_body.clone(),
-                        is_constructor: false,
-                        class_name: class_name.clone(),
-                    });
+                    functions_map.insert(
+                        c_fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type,
+                            fn_body: function.fn_body.clone(),
+                            is_constructor: false,
+                            class_name: class_name.clone(),
+                        },
+                    );
                 }
             }
 
@@ -307,29 +316,35 @@ pub fn build_functions_map_ext(version_data: &VersionData, prefix: &str) -> Resu
             if !class_can_be_copied && (class_has_custom_drop || treat_external_as_ptr) {
                 let delete_fn_name = format!("{}_delete", class_ptr_name);
                 let delete_args = format!("object: &mut {}", class_ptr_name);
-                functions_map.insert(delete_fn_name, FunctionInfo {
-                    fn_args: delete_args,
-                    return_type: String::new(),
-                    fn_body: None, // Generated specially
-                    is_constructor: false,
-                    class_name: class_name.clone(),
-                });
+                functions_map.insert(
+                    delete_fn_name,
+                    FunctionInfo {
+                        fn_args: delete_args,
+                        return_type: String::new(),
+                        fn_body: None, // Generated specially
+                        is_constructor: false,
+                        class_name: class_name.clone(),
+                    },
+                );
             }
 
             // Add deepCopy function if needed
             // Generate deepCopy if the type has custom Clone impl (custom_impls: ["Clone"])
-            let class_has_custom_clone = class_data.has_custom_clone() 
-                || class_data.has_custom_impl("Clone");
+            let class_has_custom_clone =
+                class_data.has_custom_clone() || class_data.has_custom_impl("Clone");
             if class_has_custom_clone {
                 let copy_fn_name = format!("{}_deepCopy", class_ptr_name);
                 let copy_args = format!("object: &{}", class_ptr_name);
-                functions_map.insert(copy_fn_name, FunctionInfo {
-                    fn_args: copy_args,
-                    return_type: class_ptr_name.clone(),
-                    fn_body: None, // Generated specially
-                    is_constructor: false,
-                    class_name: class_name.clone(),
-                });
+                functions_map.insert(
+                    copy_fn_name,
+                    FunctionInfo {
+                        fn_args: copy_args,
+                        return_type: class_ptr_name.clone(),
+                        fn_body: None, // Generated specially
+                        is_constructor: false,
+                        class_name: class_name.clone(),
+                    },
+                );
             }
         }
     }
@@ -350,9 +365,8 @@ fn build_fn_args_c_api(
 
     // Check if there's a self parameter and what type it is (ref or refmut)
     let self_type = fn_args.and_then(|args| {
-        args.iter().find_map(|arg_map| {
-            arg_map.get("self").map(|s| s.as_str())
-        })
+        args.iter()
+            .find_map(|arg_map| arg_map.get("self").map(|s| s.as_str()))
     });
 
     // Add self parameter for member functions
@@ -363,9 +377,12 @@ fn build_fn_args_c_api(
             Some("refmut") => "&mut ",
             Some("ref") => "&",
             Some("value") => "", // by value
-            _ => "&", // default to immutable reference
+            _ => "&",            // default to immutable reference
         };
-        args.push(format!("{}: {}{}", self_param_name, ref_type, class_ptr_name));
+        args.push(format!(
+            "{}: {}{}",
+            self_param_name, ref_type, class_ptr_name
+        ));
     }
 
     // Add other arguments

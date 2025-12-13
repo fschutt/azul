@@ -242,24 +242,24 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 /// If test_dir doesn't exist or is empty, it will show "0 tests found".
 pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
     fs::create_dir_all(output_dir)?;
-    
+
     // Count tests if directory provided
     let test_count = test_dir
         .and_then(|dir| find_test_files(dir).ok())
         .map(|files| files.len())
         .unwrap_or(0);
-    
+
     // Get Chrome version
     let chrome_path = get_chrome_path();
     let chrome_version = get_chrome_version(&chrome_path);
     let is_chrome_installed = !chrome_version.contains("Unknown");
-    
+
     // Current time
     let current_time = chrono::Local::now().format("%Y-%m-%d").to_string();
-    
+
     // Git hash
     let git_hash = get_git_hash();
-    
+
     // Generate report with empty results
     generate_enhanced_html_report(
         &output_dir.join("index.html"),
@@ -269,23 +269,24 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
         &git_hash,
         is_chrome_installed,
     )?;
-    
+
     // Also copy to reftest.html in parent directory if output_dir is named "reftest"
-    if output_dir.file_name().map(|n| n == "reftest").unwrap_or(false) {
+    if output_dir
+        .file_name()
+        .map(|n| n == "reftest")
+        .unwrap_or(false)
+    {
         if let Some(parent) = output_dir.parent() {
-            fs::copy(
-                output_dir.join("index.html"),
-                parent.join("reftest.html"),
-            )?;
+            fs::copy(output_dir.join("index.html"), parent.join("reftest.html"))?;
         }
     }
-    
+
     println!(
         "Reftest page generated at {} ({} tests found, not run)",
         output_dir.join("index.html").display(),
         test_count
     );
-    
+
     Ok(())
 }
 
@@ -320,9 +321,15 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     }
 
     // Generate screenshots
-    let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
-    let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
-    let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
+    let chrome_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome.webp", test_name));
+    let chrome_layout_json = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome_layout.json", test_name));
+    let azul_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_azul.webp", test_name));
 
     // Generate Chrome reference
     println!("Generating Chrome reference...");
@@ -338,7 +345,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     let (chrome_w, chrome_h) = image::open(&chrome_img)?.dimensions();
     let dpi_factor = (chrome_w as f32 / WIDTH as f32).max(chrome_h as f32 / HEIGHT as f32);
 
-    // Generate Azul rendering  
+    // Generate Azul rendering
     println!("Generating Azul rendering...");
     let mut debug_data = generate_azul_rendering(&test_file, &azul_img, dpi_factor)?;
     debug_data.chrome_layout = chrome_layout_data;
@@ -347,7 +354,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     let diff_count = compare_images(&chrome_img, &azul_img)?;
     let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
     let passed = diff_count <= PASS_THRESHOLD_PIXELS;
-    
+
     println!(
         "Comparison: {} pixels different ({:.3}%), test {}",
         diff_count,
@@ -359,12 +366,8 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     let xhtml_source = fs::read_to_string(&test_file).ok();
 
     // Create result
-    let result = EnhancedTestResult::from_debug_data(
-        test_name.to_string(),
-        diff_count,
-        passed,
-        debug_data,
-    );
+    let result =
+        EnhancedTestResult::from_debug_data(test_name.to_string(), diff_count, passed, debug_data);
 
     // Generate HTML report
     generate_enhanced_html_report(
@@ -480,14 +483,14 @@ pub fn run_single_reftest_headless(
     // 4. Print all collected debug data to stdout (including Chrome layout)
     println!("\n--- DEBUG INFORMATION ---");
     println!("{}", debug_data.format());
-    
+
     // Print Chrome layout data separately for easier parsing
     if !debug_data.chrome_layout.is_empty() {
         println!("\n--- CHROME LAYOUT DATA ---");
         println!("{}", debug_data.chrome_layout);
         println!("--- END CHROME LAYOUT DATA ---");
     }
-    
+
     println!("--- END DEBUG INFORMATION ---\n");
 
     Ok(())
@@ -648,17 +651,20 @@ pub fn generate_chrome_screenshot_with_debug(
         .status()?;
 
     if !status.success() {
-        return Err(anyhow::anyhow!("Chrome screenshot exited with status {}", status));
+        return Err(anyhow::anyhow!(
+            "Chrome screenshot exited with status {}",
+            status
+        ));
     }
 
     // Extract layout information using dump-dom with inline script
     // The script must execute synchronously during HTML parsing
     let layout_json = generate_simple_layout_info(chrome_path, test_file, width, height)
         .unwrap_or_else(|e| format!("{{\"error\": \"Layout extraction failed: {}\"}}", e));
-    
+
     // Save layout JSON to file
     fs::write(layout_output_file, &layout_json)?;
-    
+
     Ok(layout_json)
 }
 
@@ -700,12 +706,12 @@ fn generate_simple_layout_info(
     }
     return JSON.stringify(result, null, 2);
 })()"#;
-    
+
     // Create temp HTML with the script embedded
     let temp_dir = std::env::temp_dir();
     let temp_html = temp_dir.join("chrome_simple_layout.html");
     let original_content = fs::read_to_string(test_file)?;
-    
+
     // Inject script that writes to a pre element SYNCHRONOUSLY
     let extraction_html = if original_content.contains("</body>") {
         original_content.replace(
@@ -715,7 +721,7 @@ fn generate_simple_layout_info(
 <script>document.getElementById('azul-layout-data').textContent = {};</script>
 </body>"#,
                 simple_script
-            )
+            ),
         )
     } else {
         format!(
@@ -724,13 +730,12 @@ fn generate_simple_layout_info(
 <pre id="azul-layout-data" style="display:none"></pre>
 <script>document.getElementById('azul-layout-data').textContent = {};</script>
 </body></html>"#,
-            original_content,
-            simple_script
+            original_content, simple_script
         )
     };
-    
+
     fs::write(&temp_html, &extraction_html)?;
-    
+
     // Use dump-dom - the script runs synchronously during parsing
     let output = Command::new(chrome_path)
         .arg("--headless")
@@ -739,16 +744,16 @@ fn generate_simple_layout_info(
         .arg(format!("--window-size={},{}", width, height))
         .arg(format!("file://{}", temp_html.display()))
         .output()?;
-    
+
     let _ = fs::remove_file(&temp_html);
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow::anyhow!("Chrome dump-dom failed: {}", stderr));
     }
-    
+
     let dom_output = String::from_utf8_lossy(&output.stdout);
-    
+
     // Extract from pre element
     if let Some(start) = dom_output.find("<pre id=\"azul-layout-data\"") {
         if let Some(content_start) = dom_output[start..].find('>') {
@@ -759,13 +764,19 @@ fn generate_simple_layout_info(
                 if decoded.starts_with('{') && decoded.ends_with('}') {
                     return Ok(decoded);
                 } else {
-                    return Ok(format!("{{\"error\": \"Invalid JSON\", \"content\": {:?}}}", decoded.chars().take(200).collect::<String>()));
+                    return Ok(format!(
+                        "{{\"error\": \"Invalid JSON\", \"content\": {:?}}}",
+                        decoded.chars().take(200).collect::<String>()
+                    ));
                 }
             }
         }
     }
-    
-    Ok(format!("{{\"error\": \"Could not find layout data element\", \"dom_len\": {}}}", dom_output.len()))
+
+    Ok(format!(
+        "{{\"error\": \"Could not find layout data element\", \"dom_len\": {}}}",
+        dom_output.len()
+    ))
 }
 
 /// Decode basic HTML entities
@@ -1114,7 +1125,7 @@ impl EnhancedXmlParser {
                 XmlNodeChild::Element(e) => e,
                 XmlNodeChild::Text(_) => continue, // Skip text nodes
             };
-            
+
             match elem.node_type.as_str().to_lowercase().as_str() {
                 "title" => {
                     // Get text from children
@@ -1203,11 +1214,7 @@ impl EnhancedXmlParser {
                     XmlNodeChild::Text(text) => {
                         let trimmed = text.as_str().trim();
                         if !trimmed.is_empty() {
-                            output.push_str(&format!(
-                                "{}    Text: \"{}\"\n",
-                                indent_str,
-                                trimmed
-                            ));
+                            output.push_str(&format!("{}    Text: \"{}\"\n", indent_str, trimmed));
                         }
                     }
                     XmlNodeChild::Element(elem) => {
@@ -1592,13 +1599,22 @@ impl DebugData {
 
         // Rendering information
         writeln!(output, "\n# Rendering Information").unwrap();
-        writeln!(output, "XML formatting time: {} ms", self.xml_formatting_time_ms).unwrap();
+        writeln!(
+            output,
+            "XML formatting time: {} ms",
+            self.xml_formatting_time_ms
+        )
+        .unwrap();
         writeln!(output, "Layout time: {} ms", self.layout_time_ms).unwrap();
         writeln!(output, "Render time: {} ms", self.render_time_ms).unwrap();
 
         if !self.render_warnings.is_empty() {
             writeln!(output, "\n## Layout Debug Trace").unwrap();
-            writeln!(output, "The following trace shows the code path taken during layout calculation:").unwrap();
+            writeln!(
+                output,
+                "The following trace shows the code path taken during layout calculation:"
+            )
+            .unwrap();
             for (i, warning) in self.render_warnings.iter().enumerate() {
                 writeln!(output, "{}. {}", i + 1, warning).unwrap();
             }
@@ -1607,7 +1623,11 @@ impl DebugData {
         // Chrome layout data (if available)
         if !self.chrome_layout.is_empty() && self.chrome_layout != "{}" {
             writeln!(output, "\n# Chrome Layout Data").unwrap();
-            writeln!(output, "The following JSON contains Chrome's computed layout for comparison:").unwrap();
+            writeln!(
+                output,
+                "The following JSON contains Chrome's computed layout for comparison:"
+            )
+            .unwrap();
             // Try to pretty-print if it's valid JSON
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&self.chrome_layout) {
                 if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
@@ -1717,7 +1737,11 @@ pub fn solve_layout_with_debug(
     fake_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
     debug_collector: &mut DebugDataCollector,
-) -> anyhow::Result<(azul_layout::solver3::display_list::DisplayList, Vec<String>, azul_layout::LayoutWindow)> {
+) -> anyhow::Result<(
+    azul_layout::solver3::display_list::DisplayList,
+    Vec<String>,
+    azul_layout::LayoutWindow,
+)> {
     use std::fmt::Write;
 
     // Create LayoutWindow for layout computation

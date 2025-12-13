@@ -97,10 +97,9 @@ impl StyleColorMatrix {
     /// Returns the matrix values as a slice for iteration
     pub fn as_slice(&self) -> [FloatValue; 20] {
         [
-            self.m0, self.m1, self.m2, self.m3, self.m4,
-            self.m5, self.m6, self.m7, self.m8, self.m9,
-            self.m10, self.m11, self.m12, self.m13, self.m14,
-            self.m15, self.m16, self.m17, self.m18, self.m19,
+            self.m0, self.m1, self.m2, self.m3, self.m4, self.m5, self.m6, self.m7, self.m8,
+            self.m9, self.m10, self.m11, self.m12, self.m13, self.m14, self.m15, self.m16,
+            self.m17, self.m18, self.m19,
         ]
     }
 }
@@ -197,10 +196,9 @@ impl PrintAsCssValue for StyleCompositeFilter {
             StyleCompositeFilter::Out => "out".to_string(),
             StyleCompositeFilter::Xor => "xor".to_string(),
             StyleCompositeFilter::Lighter => "lighter".to_string(),
-            StyleCompositeFilter::Arithmetic(fv) => format!(
-                "arithmetic {} {} {} {}",
-                fv.k1, fv.k2, fv.k3, fv.k4
-            ),
+            StyleCompositeFilter::Arithmetic(fv) => {
+                format!("arithmetic {} {} {} {}", fv.k1, fv.k2, fv.k3, fv.k4)
+            }
         }
     }
 }

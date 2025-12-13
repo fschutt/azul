@@ -1121,12 +1121,12 @@ fn extract_doc_comment(hover_text: &str) -> String {
 fn extract_rust_code_block(markdown: &str) -> String {
     // Find all Rust code blocks using simple string parsing
     let blocks = extract_all_rust_code_blocks(markdown);
-    
+
     // Take the second code block if available (first is usually just namespace)
     if blocks.len() > 1 {
         return blocks[1].clone();
     }
-    
+
     // If there's no second block, use the first one
     blocks.into_iter().next().unwrap_or_default()
 }
@@ -1135,14 +1135,14 @@ fn extract_rust_code_block(markdown: &str) -> String {
 fn extract_all_rust_code_blocks(markdown: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut remaining = markdown;
-    
+
     while let Some(start_marker_pos) = remaining.find("```rust") {
         let after_marker = &remaining[start_marker_pos + 7..]; // Skip "```rust"
-        
+
         // Skip to end of line (past any additional markers)
         let code_start = after_marker.find('\n').map(|i| i + 1).unwrap_or(0);
         let code_content = &after_marker[code_start..];
-        
+
         // Find the closing ```
         if let Some(end_pos) = code_content.find("```") {
             let code = code_content[..end_pos].trim().to_string();
@@ -1152,12 +1152,12 @@ fn extract_all_rust_code_blocks(markdown: &str) -> Vec<String> {
             break;
         }
     }
-    
+
     // Also check for ```rs blocks
     remaining = markdown;
     while let Some(start_marker_pos) = remaining.find("```rs\n") {
         let after_marker = &remaining[start_marker_pos + 6..]; // Skip "```rs\n"
-        
+
         if let Some(end_pos) = after_marker.find("```") {
             let code = after_marker[..end_pos].trim().to_string();
             blocks.push(code);
@@ -1166,7 +1166,7 @@ fn extract_all_rust_code_blocks(markdown: &str) -> Vec<String> {
             break;
         }
     }
-    
+
     blocks
 }
 
@@ -1255,10 +1255,10 @@ pub fn extract_file_code_blocks_from_markdown(
     let mut results = Vec::new();
     let lines: Vec<&str> = markdown_content.lines().collect();
     let mut i = 0;
-    
+
     while i < lines.len() {
         let line = lines[i].trim();
-        
+
         // Check if line contains a .rs filename (with optional "File: " prefix)
         let file_path = if let Some(path) = extract_rs_filename_from_line(line) {
             path
@@ -1266,58 +1266,59 @@ pub fn extract_file_code_blocks_from_markdown(
             i += 1;
             continue;
         };
-        
+
         // Look for a rust code block on the next line
         i += 1;
         if i >= lines.len() {
             break;
         }
-        
+
         let next_line = lines[i].trim();
         if !next_line.starts_with("```rust") && !next_line.starts_with("```rs") {
             continue;
         }
-        
+
         // Found a code block, extract its content
         i += 1;
         let code_start = i;
-        
+
         while i < lines.len() && !lines[i].trim().starts_with("```") {
             i += 1;
         }
-        
+
         if i > code_start {
             let code_block = lines[code_start..i].join("\n").trim().to_string();
             results.push((file_path, code_block));
         }
-        
+
         i += 1; // Skip the closing ```
     }
 
     Ok(results)
 }
 
-/// Helper: extract a .rs filename from a line like "File: path/to/file.rs" or just "path/to/file.rs"
+/// Helper: extract a .rs filename from a line like "File: path/to/file.rs" or just
+/// "path/to/file.rs"
 fn extract_rs_filename_from_line(line: &str) -> Option<String> {
     let line = line.trim();
-    
+
     // Check for "File: " prefix
     let path_part = if line.starts_with("File:") {
         line.strip_prefix("File:")?.trim()
     } else {
         line
     };
-    
+
     // Must end with .rs and be a valid-looking path
     if !path_part.ends_with(".rs") {
         return None;
     }
-    
+
     // Basic validation: should contain only path characters
-    let valid = path_part.chars().all(|c| {
-        c.is_alphanumeric() || c == '/' || c == '.' || c == '_' || c == '-'
-    });
-    
+    let valid = path_part
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '/' || c == '.' || c == '_' || c == '-');
+
     if valid && !path_part.is_empty() {
         Some(path_part.to_string())
     } else {

@@ -113,9 +113,10 @@ fn translate_track(track: &GridTrackSizing) -> taffy::TrackSizingFunction {
             taffy::MinTrackSizingFunction::max_content(),
             taffy::MaxTrackSizingFunction::max_content(),
         ),
-        GridTrackSizing::MinMax(minmax_box) => {
-            minmax(translate_track(&minmax_box.min).min, translate_track(&minmax_box.max).max)
-        }
+        GridTrackSizing::MinMax(minmax_box) => minmax(
+            translate_track(&minmax_box.min).min,
+            translate_track(&minmax_box.max).max,
+        ),
         GridTrackSizing::Fixed(px) => {
             // Fixed tracks: resolve em/rem to pixels
             // Note: % is not supported in grid track sizing (CSS Grid spec)
@@ -613,24 +614,26 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     }
                 }),
         );
-        taffy_style.justify_content = Some(cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
-            .and_then(|p| {
-                if let CssProperty::JustifyContent(v) = p {
-                    Some(*v)
-                } else {
-                    None
-                }
-            })
-            .map(layout_justify_content_to_taffy)
-            .unwrap_or_else(|| {
-                // CSS spec: default depends on display type
-                match taffy_style.display {
-                    taffy::Display::Flex => taffy::JustifyContent::FlexStart,  // Flexbox default
-                    taffy::Display::Grid => taffy::JustifyContent::Start,      // Grid default
-                    _ => taffy::JustifyContent::FlexStart,
-                }
-            }));
+        taffy_style.justify_content = Some(
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
+                .and_then(|p| {
+                    if let CssProperty::JustifyContent(v) = p {
+                        Some(*v)
+                    } else {
+                        None
+                    }
+                })
+                .map(layout_justify_content_to_taffy)
+                .unwrap_or_else(|| {
+                    // CSS spec: default depends on display type
+                    match taffy_style.display {
+                        taffy::Display::Flex => taffy::JustifyContent::FlexStart, // Flexbox default
+                        taffy::Display::Grid => taffy::JustifyContent::Start,     // Grid default
+                        _ => taffy::JustifyContent::FlexStart,
+                    }
+                }),
+        );
         taffy_style.flex_grow = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
             .and_then(|p| {
@@ -642,7 +645,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 }
             })
             .unwrap_or(0.0);
-        
+
         taffy_style.flex_shrink = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
             .and_then(|p| {
@@ -853,11 +856,15 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
     // DEBUG: Log Taffy inputs
     if ctx.debug_messages.is_some() {
         ctx.debug_info_inner(format!(
-            "[TAFFY INPUT] node_idx={} known_dims=({:?}, {:?}) available=({:?}, {:?}) parent_size=({:?}, {:?}) children={:?}",
+            "[TAFFY INPUT] node_idx={} known_dims=({:?}, {:?}) available=({:?}, {:?}) \
+             parent_size=({:?}, {:?}) children={:?}",
             node_idx,
-            inputs.known_dimensions.width, inputs.known_dimensions.height,
-            inputs.available_space.width, inputs.available_space.height,
-            inputs.parent_size.width, inputs.parent_size.height,
+            inputs.known_dimensions.width,
+            inputs.known_dimensions.height,
+            inputs.available_space.width,
+            inputs.available_space.height,
+            inputs.parent_size.width,
+            inputs.parent_size.height,
             children
         ));
     }
@@ -876,7 +883,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
 
     let mut bridge = TaffyBridge::new(ctx, tree, text_cache_ptr);
     let node = bridge.tree.get(node_idx).unwrap();
-    
+
     let output = match node.formatting_context {
         FormattingContext::Flex => compute_flexbox_layout(&mut bridge, node_idx.into(), inputs),
         FormattingContext::Grid => compute_grid_layout(&mut bridge, node_idx.into(), inputs),
@@ -889,7 +896,7 @@ pub fn layout_taffy_subtree<T: ParsedFontTrait>(
             "[TAFFY OUTPUT] node_idx={} output_size=({:?}, {:?})",
             node_idx, output.size.width, output.size.height
         ));
-        
+
         // Log child layout results
         for &child_idx in &children {
             if let Some(child) = bridge.tree.get(child_idx) {
@@ -948,7 +955,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
-        
+
         // FIX: Retrieve parent border/padding to adjust position.
         // Taffy positions are relative to the parent's Border Box origin.
         // Azul expects positions relative to the parent's Content Box origin.
@@ -961,7 +968,7 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
                             parent.box_props.border.left,
                             parent.box_props.border.top,
                             parent.box_props.padding.left,
-                            parent.box_props.padding.top
+                            parent.box_props.padding.top,
                         )
                     } else {
                         (0.0, 0.0, 0.0, 0.0)
@@ -977,19 +984,26 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         if let Some(node) = self.tree.get_mut(node_idx) {
             let size = translate_taffy_size_back(layout.size);
             let mut pos = translate_taffy_point_back(layout.location);
-            
+
             // DEBUG: Log Taffy's raw layout result before adjustment
             if self.ctx.debug_messages.is_some() {
                 self.ctx.debug_info_inner(format!(
-                    "[TAFFY set_unrounded_layout] node_idx={} taffy_size=({:.2}, {:.2}) taffy_pos=({:.2}, {:.2}) parent_border=({:.2}, {:.2}) parent_padding=({:.2}, {:.2})",
-                    node_idx, layout.size.width, layout.size.height, 
-                    layout.location.x, layout.location.y,
-                    parent_border_left, parent_border_top,
-                    parent_padding_left, parent_padding_top
+                    "[TAFFY set_unrounded_layout] node_idx={} taffy_size=({:.2}, {:.2}) \
+                     taffy_pos=({:.2}, {:.2}) parent_border=({:.2}, {:.2}) parent_padding=({:.2}, \
+                     {:.2})",
+                    node_idx,
+                    layout.size.width,
+                    layout.size.height,
+                    layout.location.x,
+                    layout.location.y,
+                    parent_border_left,
+                    parent_border_top,
+                    parent_padding_left,
+                    parent_padding_top
                 ));
             }
-            
-            // Subtract parent's border and padding offset to convert 
+
+            // Subtract parent's border and padding offset to convert
             // from border-box-relative to content-box-relative position
             pos.x -= parent_border_left + parent_padding_left;
             pos.y -= parent_border_top + parent_padding_top;
@@ -1010,11 +1024,16 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         if self.ctx.debug_messages.is_some() {
             let style = self.get_taffy_style(node_idx);
             self.ctx.debug_info_inner(format!(
-                "[TAFFY compute_child_layout] node_idx={} flex_grow={} flex_shrink={} flex_basis={:?} size=({:?}, {:?}) inputs.known_dims=({:?}, {:?})",
-                node_idx, 
-                style.flex_grow, style.flex_shrink, style.flex_basis,
-                style.size.width, style.size.height,
-                inputs.known_dimensions.width, inputs.known_dimensions.height
+                "[TAFFY compute_child_layout] node_idx={} flex_grow={} flex_shrink={} \
+                 flex_basis={:?} size=({:?}, {:?}) inputs.known_dims=({:?}, {:?})",
+                node_idx,
+                style.flex_grow,
+                style.flex_shrink,
+                style.flex_basis,
+                style.size.width,
+                style.size.height,
+                inputs.known_dimensions.width,
+                inputs.known_dimensions.height
             ));
         }
 
@@ -1201,20 +1220,22 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     Some(content_w) => content_w + padding_width + border_width,
                     None => border_box_width,
                 };
-                
-                // For grid items: if known_dimensions.height is None but available_space.height 
-                // is definite, use the available space. This ensures empty grid items stretch 
+
+                // For grid items: if known_dimensions.height is None but available_space.height
+                // is definite, use the available space. This ensures empty grid items stretch
                 // to fill their grid cell, per CSS Grid spec behavior.
                 let final_height = match inputs.known_dimensions.height {
                     Some(content_h) => content_h + padding_height + border_height,
                     None => {
                         // Check if parent is a grid container and available_space is definite
-                        let parent_is_grid = self.tree.get(node_idx)
+                        let parent_is_grid = self
+                            .tree
+                            .get(node_idx)
                             .and_then(|n| n.parent)
                             .and_then(|p| self.tree.get(p))
                             .map(|p| matches!(p.formatting_context, FormattingContext::Grid))
                             .unwrap_or(false);
-                        
+
                         if parent_is_grid {
                             // For grid items, use available space if content is smaller
                             match inputs.available_space.height {
@@ -1401,7 +1422,7 @@ fn from_layout_height(val: LayoutHeight) -> Dimension {
             match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                     // p is already normalized (0.0-1.0)
+                    // p is already normalized (0.0-1.0)
                     Some(p) => Dimension::percent(p.get()),
                     None => Dimension::auto(),
                 },

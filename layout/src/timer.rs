@@ -18,10 +18,8 @@ use azul_core::{
 use crate::callbacks::CallbackInfo;
 
 /// Callback type for timers
-pub type TimerCallbackType = extern "C" fn(
-    /* timer internal data */ RefAny,
-    TimerCallbackInfo,
-) -> TimerCallbackReturn;
+pub type TimerCallbackType =
+    extern "C" fn(/* timer internal data */ RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Callback that runs on every frame on the main thread
 #[repr(C)]
@@ -190,10 +188,7 @@ impl Timer {
 
 impl Default for Timer {
     fn default() -> Self {
-        extern "C" fn default_callback(
-            _: RefAny,
-            _: TimerCallbackInfo,
-        ) -> TimerCallbackReturn {
+        extern "C" fn default_callback(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
             TimerCallbackReturn::terminate_unchanged()
         }
 

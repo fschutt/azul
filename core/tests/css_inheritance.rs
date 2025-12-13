@@ -600,7 +600,10 @@ fn test_em_on_font_size_refers_to_parent() {
 
     use azul_css::{
         css::CssPropertyValue,
-        props::{basic::pixel::PixelValue, basic::length::SizeMetric, layout::spacing::LayoutPaddingLeft},
+        props::{
+            basic::{length::SizeMetric, pixel::PixelValue},
+            layout::spacing::LayoutPaddingLeft,
+        },
     };
 
     let dom = Dom::div()
@@ -641,26 +644,49 @@ fn test_em_on_font_size_refers_to_parent() {
     let span_id = azul_core::dom::NodeId::new(2); // span
 
     // Check div's font-size: should be 20px (Px metric)
-    let div_computed = cache.computed_values.get(&div_id).expect("div should have computed values");
-    let div_font_prop = div_computed.get(&CssPropertyType::FontSize).expect("div should have FontSize");
+    let div_computed = cache
+        .computed_values
+        .get(&div_id)
+        .expect("div should have computed values");
+    let div_font_prop = div_computed
+        .get(&CssPropertyType::FontSize)
+        .expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
     };
-    let div_size_val = div_font_size.get_property().expect("div FontSize should have value");
-    assert_eq!(div_size_val.inner.metric, SizeMetric::Px, "div should have Px metric");
-    assert_eq!(div_size_val.inner.number.get(), 20.0, "div font-size should be 20px");
+    let div_size_val = div_font_size
+        .get_property()
+        .expect("div FontSize should have value");
+    assert_eq!(
+        div_size_val.inner.metric,
+        SizeMetric::Px,
+        "div should have Px metric"
+    );
+    assert_eq!(
+        div_size_val.inner.number.get(),
+        20.0,
+        "div font-size should be 20px"
+    );
 
     // Check p's font-size: should be resolved to 30px (1.5 * 20px parent)
-    let p_computed = cache.computed_values.get(&p_id).expect("p should have computed values");
-    let p_font_prop = p_computed.get(&CssPropertyType::FontSize).expect("p should have FontSize");
+    let p_computed = cache
+        .computed_values
+        .get(&p_id)
+        .expect("p should have computed values");
+    let p_font_prop = p_computed
+        .get(&CssPropertyType::FontSize)
+        .expect("p should have FontSize");
     let CssProperty::FontSize(p_font_size) = &p_font_prop.property else {
         panic!("p property should be FontSize");
     };
-    let p_size_val = p_font_size.get_property().expect("p FontSize should have value");
-    
+    let p_size_val = p_font_size
+        .get_property()
+        .expect("p FontSize should have value");
+
     // The key test: p's font-size should be RESOLVED to Px, not still in Em
     assert_eq!(
-        p_size_val.inner.metric, SizeMetric::Px,
+        p_size_val.inner.metric,
+        SizeMetric::Px,
         "p font-size should be resolved to Px metric (was {:?})",
         p_size_val.inner.metric
     );
@@ -671,20 +697,36 @@ fn test_em_on_font_size_refers_to_parent() {
     );
 
     // Check span's inherited font-size: should inherit 30px from p
-    let span_computed = cache.computed_values.get(&span_id).expect("span should have computed values");
-    let span_font_prop = span_computed.get(&CssPropertyType::FontSize).expect("span should have inherited FontSize");
+    let span_computed = cache
+        .computed_values
+        .get(&span_id)
+        .expect("span should have computed values");
+    let span_font_prop = span_computed
+        .get(&CssPropertyType::FontSize)
+        .expect("span should have inherited FontSize");
     let CssProperty::FontSize(span_font_size) = &span_font_prop.property else {
         panic!("span property should be FontSize");
     };
-    let span_size_val = span_font_size.get_property().expect("span FontSize should have value");
-    
-    println!("DEBUG: p font-size: metric={:?}, value={}", p_size_val.inner.metric, p_size_val.inner.number.get());
-    println!("DEBUG: span font-size: metric={:?}, value={}", span_size_val.inner.metric, span_size_val.inner.number.get());
+    let span_size_val = span_font_size
+        .get_property()
+        .expect("span FontSize should have value");
+
+    println!(
+        "DEBUG: p font-size: metric={:?}, value={}",
+        p_size_val.inner.metric,
+        p_size_val.inner.number.get()
+    );
+    println!(
+        "DEBUG: span font-size: metric={:?}, value={}",
+        span_size_val.inner.metric,
+        span_size_val.inner.number.get()
+    );
     println!("DEBUG: span origin={:?}", span_font_prop.origin);
-    
+
     // span should inherit the already-resolved 30px value from p
     assert_eq!(
-        span_size_val.inner.metric, SizeMetric::Px,
+        span_size_val.inner.metric,
+        SizeMetric::Px,
         "span inherited font-size should be Px metric (was {:?})",
         span_size_val.inner.metric
     );
@@ -720,16 +762,24 @@ fn test_em_without_ancestor_absolute_unit() {
     let p_id = azul_core::dom::NodeId::new(1); // p
 
     // div should resolve to 2 * 16px (default) = 32px
-    let div_computed = cache.computed_values.get(&div_id).expect("div should have computed values");
-    let div_font_prop = div_computed.get(&CssPropertyType::FontSize).expect("div should have FontSize");
+    let div_computed = cache
+        .computed_values
+        .get(&div_id)
+        .expect("div should have computed values");
+    let div_font_prop = div_computed
+        .get(&CssPropertyType::FontSize)
+        .expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
     };
-    let div_size_val = div_font_size.get_property().expect("div FontSize should have value");
+    let div_size_val = div_font_size
+        .get_property()
+        .expect("div FontSize should have value");
 
     // The key test: div's font-size should be RESOLVED to Px
     assert_eq!(
-        div_size_val.inner.metric, SizeMetric::Px,
+        div_size_val.inner.metric,
+        SizeMetric::Px,
         "div font-size should be resolved to Px metric (was {:?})",
         div_size_val.inner.metric
     );
@@ -740,15 +790,23 @@ fn test_em_without_ancestor_absolute_unit() {
     );
 
     // p should inherit 32px from div
-    let p_computed = cache.computed_values.get(&p_id).expect("p should have computed values");
-    let p_font_prop = p_computed.get(&CssPropertyType::FontSize).expect("p should have inherited FontSize");
+    let p_computed = cache
+        .computed_values
+        .get(&p_id)
+        .expect("p should have computed values");
+    let p_font_prop = p_computed
+        .get(&CssPropertyType::FontSize)
+        .expect("p should have inherited FontSize");
     let CssProperty::FontSize(p_font_size) = &p_font_prop.property else {
         panic!("p property should be FontSize");
     };
-    let p_size_val = p_font_size.get_property().expect("p FontSize should have value");
+    let p_size_val = p_font_size
+        .get_property()
+        .expect("p FontSize should have value");
 
     assert_eq!(
-        p_size_val.inner.metric, SizeMetric::Px,
+        p_size_val.inner.metric,
+        SizeMetric::Px,
         "p inherited font-size should be Px metric (was {:?})",
         p_size_val.inner.metric
     );

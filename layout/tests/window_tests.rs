@@ -1,4 +1,3 @@
-
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
 // Test scroll-into-view padding calculations

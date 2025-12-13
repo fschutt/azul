@@ -14,11 +14,11 @@
 #[cfg(not(feature = "c-api"))]
 mod static_impl {
     use azul_core::{
+        callbacks::{LayoutCallbackInfo, LayoutCallbackType},
+        dom::Dom,
         refany::RefAny,
         resources::AppConfig,
         styled_dom::StyledDom,
-        dom::Dom,
-        callbacks::{LayoutCallbackInfo, LayoutCallbackType},
     };
     use azul_css::{css::Css, parser2::CssApiWrapper};
     use azul_dll::desktop::app::App;
@@ -34,14 +34,17 @@ mod static_impl {
         if let Some(model) = data.downcast_ref::<MyDataModel>() {
             eprintln!("[my_layout_func] counter = {}", model.counter);
         }
-        
+
         // Create a simple red rectangle
-        let mut dom = Dom::div()
-            .with_inline_style("width: 200px; height: 200px; background-color: red;");
-        
+        let mut dom =
+            Dom::div().with_inline_style("width: 200px; height: 200px; background-color: red;");
+
         eprintln!("[my_layout_func] Created DOM with red rectangle");
         let styled = dom.style(CssApiWrapper { css: Css::empty() });
-        eprintln!("[my_layout_func] StyledDom has {} nodes", styled.styled_nodes.len());
+        eprintln!(
+            "[my_layout_func] StyledDom has {} nodes",
+            styled.styled_nodes.len()
+        );
         styled
     }
 
@@ -49,22 +52,22 @@ mod static_impl {
         eprintln!("[main] STATIC LINKING MODE");
         eprintln!("[main] Creating MyDataModel...");
         let model = MyDataModel { counter: 5 };
-        
+
         eprintln!("[main] Creating RefAny...");
         let data = RefAny::new(model);
-        
+
         eprintln!("[main] Creating AppConfig...");
         let config = AppConfig::new();
-        
+
         eprintln!("[main] Creating App...");
         let app = App::new(data, config);
-        
+
         eprintln!("[main] Creating WindowCreateOptions...");
         let window = WindowCreateOptions::new(my_layout_func as LayoutCallbackType);
-        
+
         eprintln!("[main] About to call app.run()...");
         app.run(window);
-        
+
         eprintln!("[main] App finished!");
     }
 }
@@ -72,14 +75,13 @@ mod static_impl {
 // ===== Dynamic linking (FFI types, same as C) =====
 #[cfg(feature = "c-api")]
 mod dynamic_impl {
-    use azul_dll::ffi::dll::{
-        AzRefAny, AzStyledDom, 
-        AzLayoutCallbackInfo, AzLayoutCallbackType,
-        AzApp_new, AzApp_run, AzAppConfig_new, AzWindowCreateOptions_new,
-        AzStyledDom_default, AzRefAny_newC, AzString, AzU8Vec, AzGlVoidPtrConst,
-        AzU8VecDestructor,
-    };
     use core::ffi::c_void;
+
+    use azul_dll::ffi::dll::{
+        AzAppConfig_new, AzApp_new, AzApp_run, AzGlVoidPtrConst, AzLayoutCallbackInfo,
+        AzLayoutCallbackType, AzRefAny, AzRefAny_newC, AzString, AzStyledDom, AzStyledDom_default,
+        AzU8Vec, AzU8VecDestructor, AzWindowCreateOptions_new,
+    };
 
     #[derive(Debug, Clone)]
     pub struct MyDataModel {
@@ -100,7 +102,7 @@ mod dynamic_impl {
         eprintln!("[main] Creating MyDataModel...");
         let model = Box::new(MyDataModel { counter: 5 });
         let model_ptr = Box::into_raw(model) as *const c_void;
-        
+
         eprintln!("[main] Creating AzRefAny via FFI...");
         let type_name_bytes = b"MyDataModel";
         let type_name = AzString {
@@ -109,14 +111,14 @@ mod dynamic_impl {
                 len: type_name_bytes.len(),
                 cap: type_name_bytes.len(),
                 destructor: AzU8VecDestructor::DefaultRust,
-            }
+            },
         };
-        
+
         let ptr_wrapper = AzGlVoidPtrConst {
             ptr: model_ptr,
             run_destructor: false,
         };
-        
+
         let data = unsafe {
             AzRefAny_newC(
                 ptr_wrapper,
@@ -127,19 +129,19 @@ mod dynamic_impl {
                 my_destructor,
             )
         };
-        
+
         eprintln!("[main] Creating AzAppConfig via FFI...");
         let config = unsafe { AzAppConfig_new() };
-        
+
         eprintln!("[main] Creating AzApp via FFI...");
         let app = unsafe { AzApp_new(data, config) };
-        
+
         eprintln!("[main] Creating AzWindowCreateOptions via FFI...");
         let window = unsafe { AzWindowCreateOptions_new(my_layout_func as AzLayoutCallbackType) };
-        
+
         eprintln!("[main] About to call AzApp_run()...");
         unsafe { AzApp_run(&app, window) };
-        
+
         eprintln!("[main] App finished!");
     }
 }
@@ -147,7 +149,7 @@ mod dynamic_impl {
 fn main() {
     #[cfg(not(feature = "c-api"))]
     static_impl::run();
-    
+
     #[cfg(feature = "c-api")]
     dynamic_impl::run();
 }

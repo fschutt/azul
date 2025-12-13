@@ -118,25 +118,24 @@ pub struct DisplayListPayload {
     pub spatial_items: Vec<di::SpatialTreeItem>,
 
     // === Auxiliary data for complex items ===
-    
     /// Glyphs for text items - each Text item references a range in this vec
     pub glyphs: Vec<GlyphInstance>,
-    
+
     /// Gradient stops - each gradient references a range in this vec
     pub stops: Vec<di::GradientStop>,
-    
+
     /// Filter operations for stacking contexts
     pub filters: Vec<di::FilterOp>,
-    
+
     /// Filter data (for component transfer)
     pub filter_data: Vec<di::FilterData>,
-    
+
     /// Filter primitives (for SVG filters)
     pub filter_primitives: Vec<di::FilterPrimitive>,
-    
+
     /// Clip IDs for clip chains
     pub clip_chain_items: Vec<di::ClipId>,
-    
+
     /// Points for polygon clips
     pub points: Vec<LayoutPoint>,
 }
@@ -896,12 +895,14 @@ impl<'a> BuiltDisplayListIter<'a> {
             }
             SetFilterData => {
                 if self.filter_data_index < self.payload.filter_data.len() {
-                    self.cur_filter_data.push(&self.payload.filter_data[self.filter_data_index]);
+                    self.cur_filter_data
+                        .push(&self.payload.filter_data[self.filter_data_index]);
                     self.filter_data_index += 1;
                 }
             }
             SetFilterPrimitives => {
-                self.cur_filter_primitives = &self.payload.filter_primitives[self.filter_primitive_index..];
+                self.cur_filter_primitives =
+                    &self.payload.filter_primitives[self.filter_primitive_index..];
                 self.filter_primitive_index = self.payload.filter_primitives.len();
             }
             SetPoints => {
@@ -909,7 +910,8 @@ impl<'a> BuiltDisplayListIter<'a> {
                 self.point_index = self.payload.points.len();
             }
             ClipChain(_) => {
-                self.cur_clip_chain_items = &self.payload.clip_chain_items[self.clip_chain_item_index..];
+                self.cur_clip_chain_items =
+                    &self.payload.clip_chain_items[self.clip_chain_item_index..];
                 self.clip_chain_item_index = self.payload.clip_chain_items.len();
             }
             Text(_) => {
@@ -1859,7 +1861,9 @@ impl DisplayListBuilder {
         if !filter_primitives.is_empty() {
             self.push_item(&di::DisplayItem::SetFilterPrimitives);
             // Store filter primitives directly in payload
-            self.payload.filter_primitives.extend_from_slice(filter_primitives);
+            self.payload
+                .filter_primitives
+                .extend_from_slice(filter_primitives);
         }
     }
 
@@ -2162,7 +2166,7 @@ impl DisplayListBuilder {
         // pressure events will cause us to release our buffers if we ask for
         // too much. See bug 1531819 for related OOM issues.
         let next_capacity = DisplayListCapacity {
-            cache_size: 0,  // Not used anymore
+            cache_size: 0, // Not used anymore
             items_size: self.payload.items.len(),
             spatial_tree_size: self.payload.spatial_items.len(),
         };

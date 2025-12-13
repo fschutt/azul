@@ -3,15 +3,19 @@
 //! This module provides parallelized scanning of the Rust workspace
 //! using rayon for maximum performance.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::fs;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 use rayon::prelude::*;
 
-use super::workspace::{WorkspaceIndex, TypeLocation};
-use super::crates::{get_crate_priority, CratePriority};
+use super::{
+    crates::{get_crate_priority, CratePriority},
+    workspace::{TypeLocation, WorkspaceIndex},
+};
 
 /// Configuration for parallel discovery
 #[derive(Debug, Clone)]
@@ -58,7 +62,10 @@ pub fn discover_workspace_types_parallel(
     // Phase 1: Collect all files to scan (single-threaded, fast)
     let files_to_scan = collect_files_to_scan(workspace_root, &config);
 
-    println!("     Scanning {} Rust files in parallel...", files_to_scan.len());
+    println!(
+        "     Scanning {} Rust files in parallel...",
+        files_to_scan.len()
+    );
 
     // Phase 2: Scan files in parallel
     let discovered: Vec<DiscoveredType> = files_to_scan
@@ -76,7 +83,10 @@ pub fn discover_workspace_types_parallel(
 }
 
 /// Collect all Rust files to scan from all crate directories
-fn collect_files_to_scan(workspace_root: &Path, config: &ParallelDiscoveryConfig) -> Vec<FileToScan> {
+fn collect_files_to_scan(
+    workspace_root: &Path,
+    config: &ParallelDiscoveryConfig,
+) -> Vec<FileToScan> {
     let mut files = Vec::new();
 
     for (crate_name, src_path) in &config.crate_dirs {
@@ -105,9 +115,7 @@ fn collect_files_recursive(
         let path = entry.path();
 
         if path.is_dir() {
-            let dir_name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // Skip hidden directories and target
             if dir_name.starts_with('.') || dir_name == "target" {
@@ -122,9 +130,7 @@ fn collect_files_recursive(
 
             collect_files_recursive(files, crate_name, &path, &new_prefix);
         } else if path.extension().map_or(false, |e| e == "rs") {
-            let file_name = path.file_stem()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let file_name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
 
             // Calculate module path
             let module_path = if file_name == "mod" || file_name == "lib" {
@@ -159,7 +165,10 @@ fn scan_file_for_types(file_info: &FileToScan) -> Vec<DiscoveredType> {
             let full_path = if file_info.module_path.is_empty() {
                 format!("{}::{}", file_info.crate_name, type_name)
             } else {
-                format!("{}::{}::{}", file_info.crate_name, file_info.module_path, type_name)
+                format!(
+                    "{}::{}::{}",
+                    file_info.crate_name, file_info.module_path, type_name
+                )
             };
 
             types.push(DiscoveredType {
@@ -199,14 +208,16 @@ fn extract_type_name_fast(line: &str) -> Option<String> {
         .unwrap_or(line);
 
     // Check for type definitions
-    let rest = line.strip_prefix("struct ")
+    let rest = line
+        .strip_prefix("struct ")
         .or_else(|| line.strip_prefix("enum "))
         .or_else(|| line.strip_prefix("type "))
         .or_else(|| line.strip_prefix("union "))?;
 
     // Extract identifier
     let rest = rest.trim();
-    let end = rest.find(|c: char| !c.is_alphanumeric() && c != '_')
+    let end = rest
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
         .unwrap_or(rest.len());
 
     if end == 0 {
@@ -232,15 +243,42 @@ fn extract_type_name_fast(line: &str) -> Option<String> {
 /// Check if a name is a Rust keyword (fast inline check)
 #[inline]
 fn is_reserved(name: &str) -> bool {
-    matches!(name,
-        "Self" | "self" | "super" | "crate" |
-        "where" | "impl" | "trait" | "for" |
-        "as" | "use" | "mod" | "pub" | "const" |
-        "static" | "extern" | "fn" | "let" | "mut" |
-        "ref" | "if" | "else" | "match" | "loop" |
-        "while" | "break" | "continue" |
-        "return" | "async" | "await" | "move" | "dyn" |
-        "unsafe" | "true" | "false"
+    matches!(
+        name,
+        "Self"
+            | "self"
+            | "super"
+            | "crate"
+            | "where"
+            | "impl"
+            | "trait"
+            | "for"
+            | "as"
+            | "use"
+            | "mod"
+            | "pub"
+            | "const"
+            | "static"
+            | "extern"
+            | "fn"
+            | "let"
+            | "mut"
+            | "ref"
+            | "if"
+            | "else"
+            | "match"
+            | "loop"
+            | "while"
+            | "break"
+            | "continue"
+            | "return"
+            | "async"
+            | "await"
+            | "move"
+            | "dyn"
+            | "unsafe"
+            | "true"
+            | "false"
     )
 }
 
@@ -250,10 +288,22 @@ mod tests {
 
     #[test]
     fn test_extract_type_name_fast() {
-        assert_eq!(extract_type_name_fast("pub struct Foo {"), Some("Foo".to_string()));
-        assert_eq!(extract_type_name_fast("struct Bar<T> {"), Some("Bar".to_string()));
-        assert_eq!(extract_type_name_fast("pub(crate) enum Baz {"), Some("Baz".to_string()));
-        assert_eq!(extract_type_name_fast("type MyAlias = i32;"), Some("MyAlias".to_string()));
+        assert_eq!(
+            extract_type_name_fast("pub struct Foo {"),
+            Some("Foo".to_string())
+        );
+        assert_eq!(
+            extract_type_name_fast("struct Bar<T> {"),
+            Some("Bar".to_string())
+        );
+        assert_eq!(
+            extract_type_name_fast("pub(crate) enum Baz {"),
+            Some("Baz".to_string())
+        );
+        assert_eq!(
+            extract_type_name_fast("type MyAlias = i32;"),
+            Some("MyAlias".to_string())
+        );
         assert_eq!(extract_type_name_fast("// struct Comment"), None);
         assert_eq!(extract_type_name_fast("let x = 5;"), None);
         assert_eq!(extract_type_name_fast("fn foo() {}"), None);

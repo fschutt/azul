@@ -4,6 +4,7 @@
 //! corrections for the same issue.
 
 use std::collections::{HashMap, HashSet};
+
 use super::path_correction::PathCorrection;
 
 /// A set of deduplicated patches
@@ -32,7 +33,8 @@ impl PatchSet {
         if self.path_corrections.contains_key(&correction.type_name) {
             self.duplicates_skipped += 1;
         } else {
-            self.path_corrections.insert(correction.type_name.clone(), correction);
+            self.path_corrections
+                .insert(correction.type_name.clone(), correction);
         }
     }
 

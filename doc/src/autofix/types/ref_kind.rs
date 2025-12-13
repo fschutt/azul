@@ -4,14 +4,17 @@
 //! used in struct fields.
 
 use std::fmt;
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
-use serde::de::{self, Visitor};
+
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
 /// Reference kind for struct fields
 ///
 /// Represents how a type is referenced in a struct field:
 /// - `constptr`: `*const T` - const raw pointer
-/// - `mutptr`: `*mut T` - mutable raw pointer  
+/// - `mutptr`: `*mut T` - mutable raw pointer
 /// - `value`: `T` - direct value (default, not serialized)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RefKind {
@@ -45,7 +48,7 @@ impl RefKind {
             RefKind::Value => "value",
         }
     }
-    
+
     /// Parse from the string representation used in api.json
     pub fn parse(s: &str) -> Option<RefKind> {
         match s {
@@ -59,23 +62,26 @@ impl RefKind {
             _ => None,
         }
     }
-    
+
     /// Returns true if this ref kind represents an opaque pointer type
     /// that should not be recursed through for type resolution
     pub fn is_opaque_pointer(&self) -> bool {
-        matches!(self, RefKind::ConstPtr | RefKind::MutPtr | RefKind::Boxed | RefKind::OptionBoxed)
+        matches!(
+            self,
+            RefKind::ConstPtr | RefKind::MutPtr | RefKind::Boxed | RefKind::OptionBoxed
+        )
     }
-    
+
     /// Returns true if this is the default value (Value)
     pub fn is_default(&self) -> bool {
         matches!(self, RefKind::Value)
     }
-    
+
     /// Alias for to_rust_prefix for convenience
     pub fn as_prefix(&self) -> &'static str {
         self.to_rust_prefix()
     }
-    
+
     /// Convert to Rust syntax prefix
     pub fn to_rust_prefix(&self) -> &'static str {
         match self {
@@ -88,7 +94,7 @@ impl RefKind {
             RefKind::Value => "",
         }
     }
-    
+
     /// Convert to Rust syntax suffix (for closing brackets)
     pub fn to_rust_suffix(&self) -> &'static str {
         match self {
@@ -118,7 +124,12 @@ pub struct ParseRefKindError(pub String);
 
 impl fmt::Display for ParseRefKindError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid ref_kind: '{}' (expected 'constptr', 'mutptr', 'ref', 'refmut', 'boxed', 'optionboxed', or 'value')", self.0)
+        write!(
+            f,
+            "invalid ref_kind: '{}' (expected 'constptr', 'mutptr', 'ref', 'refmut', 'boxed', \
+             'optionboxed', or 'value')",
+            self.0
+        )
     }
 }
 
@@ -146,7 +157,10 @@ impl<'de> Deserialize<'de> for RefKind {
             type Value = RefKind;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("one of: \"constptr\", \"mutptr\", \"ref\", \"refmut\", \"boxed\", \"optionboxed\", \"value\"")
+                formatter.write_str(
+                    "one of: \"constptr\", \"mutptr\", \"ref\", \"refmut\", \"boxed\", \
+                     \"optionboxed\", \"value\"",
+                )
             }
 
             fn visit_str<E>(self, value: &str) -> Result<RefKind, E>
@@ -155,7 +169,8 @@ impl<'de> Deserialize<'de> for RefKind {
             {
                 RefKind::parse(value).ok_or_else(|| {
                     de::Error::custom(format!(
-                        "invalid ref_kind '{}', expected one of: constptr, mutptr, ref, refmut, boxed, optionboxed, value",
+                        "invalid ref_kind '{}', expected one of: constptr, mutptr, ref, refmut, \
+                         boxed, optionboxed, value",
                         value
                     ))
                 })

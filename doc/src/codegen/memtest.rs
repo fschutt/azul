@@ -1,7 +1,11 @@
 // Code generation for memory layout tests
 // This module generates a complete test crate that validates memory layouts
 
-use std::{collections::HashMap, collections::HashSet, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use indexmap::IndexMap;
 
@@ -65,16 +69,17 @@ fn replace_word_boundary(input: &str, word: &str, replacement: &str) -> String {
     if word.is_empty() || !input.contains(word) {
         return input.to_string();
     }
-    
+
     let mut result = String::with_capacity(input.len() + 64);
     let mut remaining = input;
-    
+
     while let Some(pos) = remaining.find(word) {
         // Check if it's a word boundary
         let before_ok = pos == 0 || !is_word_char(remaining.as_bytes()[pos - 1]);
         let after_pos = pos + word.len();
-        let after_ok = after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
-        
+        let after_ok =
+            after_pos >= remaining.len() || !is_word_char(remaining.as_bytes()[after_pos]);
+
         if before_ok && after_ok {
             result.push_str(&remaining[..pos]);
             result.push_str(replacement);
@@ -98,25 +103,27 @@ fn replace_az_prefix(input: &str, prefix: &str) -> String {
     let mut result = String::with_capacity(input.len() + 64);
     let bytes = input.as_bytes();
     let mut i = 0;
-    
+
     while i < bytes.len() {
         // Look for "Az" followed by uppercase letter
-        if i + 2 < bytes.len() 
-            && bytes[i] == b'A' 
-            && bytes[i + 1] == b'z' 
+        if i + 2 < bytes.len()
+            && bytes[i] == b'A'
+            && bytes[i + 1] == b'z'
             && bytes[i + 2].is_ascii_uppercase()
         {
             // Check word boundary before "Az"
             let before_ok = i == 0 || !is_word_char(bytes[i - 1]);
-            
+
             if before_ok {
                 // Find the end of the identifier
                 let start = i + 2;
                 let mut end = start;
-                while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                while end < bytes.len()
+                    && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+                {
                     end += 1;
                 }
-                
+
                 // Replace Az with the prefix
                 result.push_str(prefix);
                 result.push_str(&input[start..end]);
@@ -124,11 +131,11 @@ fn replace_az_prefix(input: &str, prefix: &str) -> String {
                 continue;
             }
         }
-        
+
         result.push(bytes[i] as char);
         i += 1;
     }
-    
+
     result
 }
 
@@ -155,7 +162,7 @@ impl Default for MemtestConfig {
             remove_serde: false, // Keep serde lines, we add serde deps to Cargo.toml
             remove_optional_features: vec![],
             generate_fn_bodies: false, // Disabled by default - api.json fn_body needs cleanup
-            is_for_dll: false, // Default is memtest mode
+            is_for_dll: false,         // Default is memtest mode
         }
     }
 }
@@ -168,8 +175,11 @@ pub fn generate_dll_api(api_data: &ApiData, project_root: &Path) -> Result<()> {
     let mut config = MemtestConfig::default();
     config.generate_fn_bodies = true; // Enable real function bodies for DLL
     config.is_for_dll = true; // This is for DLL include!(), not memtest crate
-    
-    let output_path = project_root.join("target").join("memtest").join("dll_api.rs");
+
+    let output_path = project_root
+        .join("target")
+        .join("memtest")
+        .join("dll_api.rs");
 
     // Get version data
     let version_name = api_data
@@ -190,14 +200,19 @@ pub fn generate_dll_api(api_data: &ApiData, project_root: &Path) -> Result<()> {
 
     // Generate only the dll module content (without the test lib.rs)
     let dll_content = generate_generated_rs(api_data, &config, &replacements)?;
-    
-    println!("  [SAVE] Writing dll_api.rs ({} bytes)...", dll_content.len());
+
+    println!(
+        "  [SAVE] Writing dll_api.rs ({} bytes)...",
+        dll_content.len()
+    );
     fs::write(&output_path, dll_content)
         .map_err(|e| format!("Failed to write dll_api.rs: {}", e))?;
 
     println!("[OK] Generated DLL API at: {}", output_path.display());
     println!("\nTo use in dll/src/lib.rs:");
-    println!("  include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/memtest/dll_api.rs\"));");
+    println!(
+        "  include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/memtest/dll_api.rs\"));"
+    );
 
     Ok(())
 }
@@ -317,14 +332,15 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
                 if let Some(external_path) = &class_data.external {
                     // Skip generic types - they can't be tested without concrete type parameters
                     let is_generic = class_data.generic_params.is_some();
-                    
+
                     // Skip types from crates we don't have as dependencies
-                    let has_valid_crate = valid_crate_prefixes.iter()
+                    let has_valid_crate = valid_crate_prefixes
+                        .iter()
                         .any(|prefix| external_path.starts_with(prefix));
                     if !has_valid_crate {
                         continue;
                     }
-                    
+
                     test_cases.push(TestCase {
                         version: version_name.clone(),
                         module: module_name.clone(),
@@ -348,12 +364,12 @@ fn generate_lib_rs(api_data: &ApiData) -> Result<String> {
         if test_case.is_generic {
             continue;
         }
-        
+
         // Skip types without struct_fields or enum_fields - they aren't generated in generated.rs
         if !test_case.has_struct && !test_case.has_enum {
             continue;
         }
-        
+
         output.push_str(&generate_size_and_align_test(&test_case)?);
         output.push_str("\n");
 
@@ -461,9 +477,10 @@ fn generate_discriminant_test(
     let variants: Vec<(String, bool)> = enum_fields
         .iter()
         .filter_map(|variant_map| {
-            variant_map.iter().next().map(|(name, data)| {
-                (name.clone(), data.r#type.is_some())
-            })
+            variant_map
+                .iter()
+                .next()
+                .map(|(name, data)| (name.clone(), data.r#type.is_some()))
         })
         .collect();
 
@@ -509,13 +526,15 @@ fn generate_discriminant_test(
     }
 
     output.push_str("\n");
-    output.push_str("    // Verify discriminants match between generated and transmuted external\n");
+    output
+        .push_str("    // Verify discriminants match between generated and transmuted external\n");
 
     // For variants without data, compare generated vs transmuted external discriminants
     for (idx, (variant_name, has_data)) in variants.iter().enumerate() {
         if !*has_data {
             output.push_str(&format!(
-                "    assert_eq!(gen_disc_{}, transmuted_disc_{}, \"Discriminant mismatch for variant {}: external type has different discriminant value\");\n",
+                "    assert_eq!(gen_disc_{}, transmuted_disc_{}, \"Discriminant mismatch for \
+                 variant {}: external type has different discriminant value\");\n",
                 idx, idx, variant_name
             ));
         }
@@ -567,7 +586,10 @@ fn generate_generated_rs(
 
     output.push_str("// Auto-generated API definitions from api.json for memtest\n");
     // Note: Using #[allow] instead of #![allow] for include!() compatibility
-    output.push_str("#[allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, clippy::all)]\n");
+    output.push_str(
+        "#[allow(dead_code, unused_imports, non_camel_case_types, non_snake_case, unused_unsafe, \
+         clippy::all)]\n",
+    );
     output.push_str("#[deny(improper_ctypes_definitions)]\n");
     output.push_str("mod __dll_api_inner {\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
@@ -677,7 +699,8 @@ fn generate_dll_module(
 
     println!("      [STATS] Collecting structs...");
     // Collect all structs for this version
-    // Use entry API to prefer versions with struct_fields/enum_fields over empty external references
+    // Use entry API to prefer versions with struct_fields/enum_fields over empty external
+    // references
     let mut structs_map: HashMap<String, StructMetadata> = HashMap::new();
     for (_module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
@@ -687,18 +710,18 @@ fn generate_dll_module(
             }
             // Always add prefix, even if type already has it (consistency)
             let prefixed_name = format!("{}{}", prefix, class_name);
-            
+
             // Check if this class has actual content (struct_fields or enum_fields)
-            let has_content = class_data.struct_fields.is_some() 
-                || class_data.enum_fields.is_some() 
+            let has_content = class_data.struct_fields.is_some()
+                || class_data.enum_fields.is_some()
                 || class_data.callback_typedef.is_some()
                 || class_data.type_alias.is_some();
-            
+
             // Only insert if:
             // 1. The type doesn't exist yet, or
             // 2. The new version has content and the existing one doesn't
             if let Some(existing) = structs_map.get(&prefixed_name) {
-                let existing_has_content = existing.struct_fields.is_some() 
+                let existing_has_content = existing.struct_fields.is_some()
                     || existing.enum_fields.is_some()
                     || existing.callback_typedef.is_some()
                     || existing.type_alias.is_some();
@@ -731,14 +754,16 @@ fn generate_dll_module(
     );
 
     // Generate Debug/PartialEq/PartialOrd implementations for VecDestructor types
-    // These contain function pointers which can't derive these traits, so we compare by pointer address
+    // These contain function pointers which can't derive these traits, so we compare by pointer
+    // address
     println!("      [IMPL] Generating VecDestructor trait implementations...");
     dll_code.push_str("\n    // ===== VecDestructor Trait Implementations =====\n");
     dll_code.push_str("    // Function pointers compared by address as usize\n\n");
-    
+
     for prefixed_name in structs_map.keys() {
         // Keys are already prefixed like "AzU8VecDestructor"
-        if prefixed_name.ends_with("VecDestructor") && !prefixed_name.ends_with("VecDestructorType") {
+        if prefixed_name.ends_with("VecDestructor") && !prefixed_name.ends_with("VecDestructorType")
+        {
             // Debug implementation
             dll_code.push_str(&format!(
                 r#"    impl core::fmt::Debug for {name} {{
@@ -766,7 +791,9 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // PartialOrd implementation
             dll_code.push_str(&format!(
@@ -776,13 +803,17 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // Eq implementation (since PartialEq is implemented)
             dll_code.push_str(&format!(
                 r#"    impl Eq for {name} {{ }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // Ord implementation
             dll_code.push_str(&format!(
@@ -802,7 +833,9 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // Hash implementation
             dll_code.push_str(&format!(
@@ -816,7 +849,9 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
         }
     }
 
@@ -827,19 +862,19 @@ fn generate_dll_module(
     // Based on vec_ref_element_type field in api.json
     println!("      [IMPL] Generating VecRef slice methods...");
     dll_code.push_str("\n    // ===== VecRef Slice Methods =====\n\n");
-    
+
     for (prefixed_name, struct_meta) in &structs_map {
         if let Some(element_type) = &struct_meta.vec_ref_element_type {
             let is_mut = struct_meta.vec_ref_is_mut;
             let unprefixed_name = prefixed_name.strip_prefix(prefix).unwrap_or(prefixed_name);
-            
+
             // Determine the element type with prefix if it's a custom type
             let prefixed_element = if PRIMITIVE_TYPES.contains(&element_type.as_str()) {
                 element_type.clone()
             } else {
                 format!("{}{}", prefix, element_type)
             };
-            
+
             if is_mut {
                 // Mutable VecRef: as_slice and as_mut_slice
                 dll_code.push_str(&format!(
@@ -858,7 +893,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, elem = prefixed_element));
+"#,
+                    name = prefixed_name,
+                    elem = prefixed_element
+                ));
             } else {
                 // Immutable VecRef: only as_slice
                 // Special case for Refstr (which is &str, not a slice)
@@ -891,7 +929,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, elem = prefixed_element));
+"#,
+                        name = prefixed_name,
+                        elem = prefixed_element
+                    ));
                 }
             }
         }
@@ -901,28 +942,32 @@ fn generate_dll_module(
     // These are slice wrappers that can derive traits based on their element type
     println!("      [IMPL] Generating VecRef trait implementations...");
     dll_code.push_str("\n    // ===== VecRef Trait Implementations =====\n\n");
-    
+
     // Types that don't implement Ord/Hash (floating point types)
     let no_ord_hash_types = ["f32", "f64"];
-    
+
     for (prefixed_name, struct_meta) in &structs_map {
         if let Some(element_type) = &struct_meta.vec_ref_element_type {
             let is_mut = struct_meta.vec_ref_is_mut;
             let unprefixed_name = prefixed_name.strip_prefix(prefix).unwrap_or(prefixed_name);
-            
+
             // Refstr uses as_str() instead of as_slice()
-            let slice_method = if unprefixed_name == "Refstr" { "as_str" } else { "as_slice" };
-            
+            let slice_method = if unprefixed_name == "Refstr" {
+                "as_str"
+            } else {
+                "as_slice"
+            };
+
             // Check if element type supports Ord/Hash
             let supports_ord_hash = !no_ord_hash_types.contains(&element_type.as_str());
-            
+
             // Determine the element type with prefix if it's a custom type
             let prefixed_element = if PRIMITIVE_TYPES.contains(&element_type.as_str()) {
                 element_type.clone()
             } else {
                 format!("{}{}", prefix, element_type)
             };
-            
+
             // Debug implementation
             dll_code.push_str(&format!(
                 r#"    impl core::fmt::Debug for {name} {{
@@ -931,7 +976,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, method = slice_method));
+"#,
+                name = prefixed_name,
+                method = slice_method
+            ));
 
             // Clone implementation (creates a new reference to same data)
             dll_code.push_str(&format!(
@@ -941,13 +989,17 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // Copy implementation (VecRef is just a fat pointer, so it's Copy)
             dll_code.push_str(&format!(
                 r#"    impl Copy for {name} {{}}
 
-"#, name = prefixed_name));
+"#,
+                name = prefixed_name
+            ));
 
             // PartialEq implementation (compare slices)
             dll_code.push_str(&format!(
@@ -957,7 +1009,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, method = slice_method));
+"#,
+                name = prefixed_name,
+                method = slice_method
+            ));
 
             // PartialOrd implementation (always available)
             dll_code.push_str(&format!(
@@ -967,7 +1022,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, method = slice_method));
+"#,
+                name = prefixed_name,
+                method = slice_method
+            ));
 
             // Eq, Ord and Hash only for types that support it (not f32/f64)
             if supports_ord_hash {
@@ -975,7 +1033,9 @@ fn generate_dll_module(
                 dll_code.push_str(&format!(
                     r#"    impl Eq for {name} {{}}
 
-"#, name = prefixed_name));
+"#,
+                    name = prefixed_name
+                ));
 
                 // Ord implementation
                 dll_code.push_str(&format!(
@@ -985,7 +1045,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, method = slice_method));
+"#,
+                    name = prefixed_name,
+                    method = slice_method
+                ));
 
                 // Hash implementation
                 dll_code.push_str(&format!(
@@ -995,7 +1058,10 @@ fn generate_dll_module(
         }}
     }}
 
-"#, name = prefixed_name, method = slice_method));
+"#,
+                    name = prefixed_name,
+                    method = slice_method
+                ));
             }
         }
     }
@@ -1013,13 +1079,15 @@ fn generate_dll_module(
     // when a struct has exactly one field whose type is a callback_typedef
 
     // Build a map from prefixed type name to external path for custom_impl types
-    let mut type_to_external: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut type_to_external: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for module_data in version_data.api.values() {
         for (class_name, class_data) in &module_data.classes {
             if let Some(external) = &class_data.external {
                 let prefixed_name = format!("{}{}", prefix, class_name);
-                // For DLL mode: Replace azul_dll:: with crate:: since the generated code runs inside azul-dll
-                // For memtest mode: Keep azul_dll:: as is since memtest uses azul_dll as a dependency
+                // For DLL mode: Replace azul_dll:: with crate:: since the generated code runs
+                // inside azul-dll For memtest mode: Keep azul_dll:: as is since
+                // memtest uses azul_dll as a dependency
                 let external_fixed = if config.is_for_dll {
                     external.replace("azul_dll::", "crate::")
                 } else {
@@ -1033,10 +1101,11 @@ fn generate_dll_module(
     println!("      [TARGET] Generating function bodies...");
     // Generate function implementations from api.json fn_body
     // All functions MUST have fn_body defined - missing fn_body will cause an error
-    let functions_map_ext = build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
+    let functions_map_ext =
+        build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
     println!("      [LINK] Found {} functions", functions_map_ext.len());
     dll_code.push_str("\n    // --- C-ABI Functions ---\n");
-    
+
     for (fn_name, fn_info) in &functions_map_ext {
         let return_str = if fn_info.return_type.is_empty() {
             "".to_string()
@@ -1051,7 +1120,8 @@ fn generate_dll_module(
             if let Some(external_path) = type_to_external.get(type_name) {
                 // Cast to external type, clone, cast back
                 format!(
-                    "core::mem::transmute::<{ext}, {local}>((*(object as *const {local} as *const {ext})).clone())",
+                    "core::mem::transmute::<{ext}, {local}>((*(object as *const {local} as *const \
+                     {ext})).clone())",
                     ext = external_path,
                     local = type_name
                 )
@@ -1092,22 +1162,23 @@ fn generate_dll_module(
             } else {
                 // No fn_body in api.json - ERROR! All functions must have fn_body defined
                 return Err(format!(
-                    "ERROR: Function '{}' has no fn_body defined in api.json. \
-                    All functions must have a fn_body to prevent unimplemented!() stubs in generated code.",
+                    "ERROR: Function '{}' has no fn_body defined in api.json. All functions must \
+                     have a fn_body to prevent unimplemented!() stubs in generated code.",
                     fn_name
                 ));
             }
         };
 
         dll_code.push_str(&format!(
-            "    #[allow(unused_variables)]\n    #[no_mangle]\n    pub unsafe extern \"C\" fn {}({}){} {{ {} }}\n",
+            "    #[allow(unused_variables)]\n    #[no_mangle]\n    pub unsafe extern \"C\" fn \
+             {}({}){} {{ {} }}\n",
             fn_name, fn_info.fn_args, return_str, fn_body
         ));
     }
     dll_code.push_str("    // --- End C-ABI Functions ---\n\n");
 
-    // NOTE: dll.rs patch is excluded for memtest - we only need struct definitions for memory layout tests
-    // The patch contains impl blocks that reference missing functions/types
+    // NOTE: dll.rs patch is excluded for memtest - we only need struct definitions for memory
+    // layout tests The patch contains impl blocks that reference missing functions/types
 
     dll_code.push_str("}\n\n");
     Ok(dll_code)
@@ -1180,23 +1251,29 @@ fn generate_public_api_modules(
 }
 
 /// Parse function arguments string into individual (name, type) pairs
-/// 
+///
 /// Input: "dom: &mut AzDom, children: AzDomVec"
 /// Output: [("dom", "&mut AzDom"), ("children", "AzDomVec")]
 fn parse_fn_args(fn_args: &str) -> Vec<(String, String)> {
     if fn_args.trim().is_empty() {
         return Vec::new();
     }
-    
+
     let mut result = Vec::new();
     let mut depth = 0;
     let mut current = String::new();
-    
+
     // Handle nested generics like Option<Vec<T>>
     for ch in fn_args.chars() {
         match ch {
-            '<' => { depth += 1; current.push(ch); }
-            '>' => { depth -= 1; current.push(ch); }
+            '<' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '>' => {
+                depth -= 1;
+                current.push(ch);
+            }
             ',' if depth == 0 => {
                 if !current.trim().is_empty() {
                     if let Some((name, ty)) = parse_single_arg(&current) {
@@ -1208,14 +1285,14 @@ fn parse_fn_args(fn_args: &str) -> Vec<(String, String)> {
             _ => current.push(ch),
         }
     }
-    
+
     // Don't forget the last argument
     if !current.trim().is_empty() {
         if let Some((name, ty)) = parse_single_arg(&current) {
             result.push((name, ty));
         }
     }
-    
+
     result
 }
 
@@ -1229,14 +1306,14 @@ fn parse_single_arg(arg: &str) -> Option<(String, String)> {
 }
 
 /// Generate a function body that transmutes between local (Az-prefixed) and external types
-/// 
+///
 /// The fn_body in api.json uses unprefixed types like "Dom::new(node_type)"
 /// We need to:
 /// 1. Convert the self parameter from Az-prefixed local type to external type (transmute in)
 /// 2. Convert ALL arguments from Az-prefixed local types to external types (transmute in)
 /// 3. Call the actual function on the external type
 /// 4. Convert the result back to Az-prefixed local type (transmute out)
-/// 
+///
 /// Now generates multi-line readable code instead of one giant line.
 fn generate_transmuted_fn_body(
     fn_body: &str,
@@ -1250,10 +1327,10 @@ fn generate_transmuted_fn_body(
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
-    
+
     // Transform the fn_body:
-    // 1. For DLL mode: Replace "azul_dll::" with "crate::" (generated code is included in azul-dll crate)
-    //    For memtest mode: Keep "azul_dll::" as is (memtest uses azul_dll as dependency)
+    // 1. For DLL mode: Replace "azul_dll::" with "crate::" (generated code is included in azul-dll
+    //    crate) For memtest mode: Keep "azul_dll::" as is (memtest uses azul_dll as dependency)
     // 2. Replace "self." with "lowercase(class_name)." (self parameter gets renamed)
     // 3. Replace "object." with "lowercase(class_name)." (legacy naming convention)
     // 4. Replace unqualified "TypeName::method(" with fully qualified path
@@ -1267,7 +1344,7 @@ fn generate_transmuted_fn_body(
             .replace("self.", &format!("{}.", self_var))
             .replace("object.", &format!("{}.", self_var))
     };
-    
+
     // For constructors: if fn_body starts with "TypeName::" (no "::" before it),
     // replace with the fully qualified external path
     // E.g., "RefAny::new_c(...)" -> "azul_core::refany::RefAny::new_c(...)"
@@ -1276,7 +1353,13 @@ fn generate_transmuted_fn_body(
         if let Some(colon_pos) = fn_body.find("::") {
             let potential_type = &fn_body[..colon_pos];
             // Check if it's a simple type name (no :: in it, starts with uppercase)
-            if !potential_type.contains("::") && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            if !potential_type.contains("::")
+                && potential_type
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+            {
                 // Look up the type in type_to_external
                 let prefixed_type = format!("{}{}", prefix, potential_type);
                 if let Some(external_path) = type_to_external.get(&prefixed_type) {
@@ -1291,26 +1374,28 @@ fn generate_transmuted_fn_body(
             }
         }
     }
-    
+
     let mut lines = Vec::new();
-    
+
     // Generate transmutations for ALL arguments on separate lines
     for (arg_name, arg_type) in &parsed_args {
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
-        
+
         // Get the external type for this argument
         // For DLL mode: Replace azul_dll with crate since generated code is included in azul-dll
         // For memtest mode: Keep azul_dll as is since memtest uses azul_dll as dependency
         let external_type = if is_for_dll {
-            type_to_external.get(&base_type)
+            type_to_external
+                .get(&base_type)
                 .map(|s| s.replace("azul_dll", "crate"))
                 .unwrap_or_else(|| base_type.clone())
         } else {
-            type_to_external.get(&base_type)
+            type_to_external
+                .get(&base_type)
                 .cloned()
                 .unwrap_or_else(|| base_type.clone())
         };
-        
+
         // Generate transmute line based on reference type
         let transmute_line = if is_mut {
             format!(
@@ -1331,10 +1416,10 @@ fn generate_transmuted_fn_body(
                 ext = external_type
             )
         };
-        
+
         lines.push(transmute_line);
     }
-    
+
     // Check if fn_body contains statements (has `;` before the last expression)
     let has_statements = fn_body.contains(';');
 
@@ -1350,43 +1435,51 @@ fn generate_transmuted_fn_body(
         // For DLL mode: Replace azul_dll with crate since generated code is included in azul-dll
         // For memtest mode: Keep azul_dll as is since memtest uses azul_dll as dependency
         let return_external = if is_for_dll {
-            type_to_external.get(return_type)
+            type_to_external
+                .get(return_type)
                 .map(|s| s.as_str())
                 .unwrap_or(return_type)
                 .replace("azul_dll", "crate")
         } else {
-            type_to_external.get(return_type)
+            type_to_external
+                .get(return_type)
                 .cloned()
                 .unwrap_or_else(|| return_type.to_string())
         };
-        
+
         if has_statements {
             // fn_body has statements - wrap in block and transmute the final result
-            lines.push(format!("    let __result: {} = {{ {} }};", return_external, fn_body));
+            lines.push(format!(
+                "    let __result: {} = {{ {} }};",
+                return_external, fn_body
+            ));
         } else {
             // Simple expression - assign to __result
-            lines.push(format!("    let __result: {} = {};", return_external, fn_body));
+            lines.push(format!(
+                "    let __result: {} = {};",
+                return_external, fn_body
+            ));
         }
-        
+
         lines.push(format!(
             "    core::mem::transmute::<{ext}, {local}>(__result)",
             ext = return_external,
             local = return_type
         ));
     }
-    
+
     // Join with newlines and wrap in block
     format!("{{\n{}\n}}", lines.join("\n"))
 }
 
 /// Parse a type string to extract reference/mut info and base type
-/// 
+///
 /// "&mut AzDom" -> (true, true, "AzDom")
 /// "&AzDom" -> (true, false, "AzDom")
 /// "AzDom" -> (false, false, "AzDom")
 fn parse_arg_type(ty: &str) -> (bool, bool, String) {
     let trimmed = ty.trim();
-    
+
     if trimmed.starts_with("&mut ") {
         (true, true, trimmed[5..].trim().to_string())
     } else if trimmed.starts_with("&") {
@@ -1398,14 +1491,18 @@ fn parse_arg_type(ty: &str) -> (bool, bool, String) {
 
 /// Primitive types that should never get an Az prefix
 const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
-    "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
-    "str", "char", "c_char", "c_schar", "c_uchar",
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
+    "u32", "u64", "u8", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
 ];
 
 /// Single-letter types are usually generic type parameters
 fn is_generic_type_param(type_name: &str) -> bool {
-    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    type_name.len() == 1
+        && type_name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
 }
 
 /// Generate re-exports for a module: pub use Az1Type as Type;
@@ -1425,7 +1522,10 @@ fn generate_reexports(
             }
             // Skip types without struct_fields or enum_fields - they aren't generated
             // Also include callback_typedef types
-            if class_data.struct_fields.is_none() && class_data.enum_fields.is_none() && class_data.callback_typedef.is_none() {
+            if class_data.struct_fields.is_none()
+                && class_data.enum_fields.is_none()
+                && class_data.callback_typedef.is_none()
+            {
                 continue;
             }
             output.push_str(&format!(
@@ -1531,8 +1631,12 @@ fn process_patch_content(
         // So crate::dll:: needs to become super::dll:: when inside pub mod vec
         adjusted_line = adjusted_line.replace("crate::dll::", "super::dll::");
         adjusted_line = adjusted_line.replace("crate::vec::", "super::vec::");
-        // crate::str::String -> super::str::AzString (String in api.json becomes AzString with prefix)
-        adjusted_line = adjusted_line.replace("crate::str::String", &format!("super::str::{}String", prefix));
+        // crate::str::String -> super::str::AzString (String in api.json becomes AzString with
+        // prefix)
+        adjusted_line = adjusted_line.replace(
+            "crate::str::String",
+            &format!("super::str::{}String", prefix),
+        );
         adjusted_line = adjusted_line.replace("crate::str::", "super::str::");
         adjusted_line = adjusted_line.replace("crate::option::", "super::option::");
         adjusted_line = adjusted_line.replace("crate::dom::", "super::dom::");

@@ -108,7 +108,11 @@ impl fmt::Display for AutofixMessage {
                 )
             }
             Self::IterationStarted { iteration, count } => {
-                write!(f, "INFO: Iteration {}: {} types to discover", iteration, count)
+                write!(
+                    f,
+                    "INFO: Iteration {}: {} types to discover",
+                    iteration, count
+                )
             }
             Self::IterationComplete { iteration } => {
                 write!(f, "OK: Iteration {} complete", iteration)
@@ -258,16 +262,20 @@ impl AutofixMessages {
         if !patch_summary.external_path_changes.is_empty() {
             // Deduplicate changes (same class may appear multiple times)
             let mut seen = std::collections::HashSet::new();
-            let unique_changes: Vec<_> = patch_summary.external_path_changes
+            let unique_changes: Vec<_> = patch_summary
+                .external_path_changes
                 .iter()
                 .filter(|c| seen.insert((&c.class_name, &c.old_path, &c.new_path)))
                 .collect();
-            
+
             println!("PATH CORRECTIONS ({}):", unique_changes.len());
-            
+
             // Only show first 15 unique changes
             for change in unique_changes.iter().take(15) {
-                println!("   {} : {} -> {}", change.class_name, change.old_path, change.new_path);
+                println!(
+                    "   {} : {} -> {}",
+                    change.class_name, change.old_path, change.new_path
+                );
             }
             if unique_changes.len() > 15 {
                 println!("   ... and {} more", unique_changes.len() - 15);
@@ -289,7 +297,10 @@ impl AutofixMessages {
         if patch_count > 0 {
             println!("NEXT STEPS:");
             println!("   1. Review:  ls {}", patches_dir.display());
-            println!("   2. Apply:   cargo run -- patch {}", patches_dir.display());
+            println!(
+                "   2. Apply:   cargo run -- patch {}",
+                patches_dir.display()
+            );
             println!("   3. Verify:  git diff api.json");
         } else {
             println!("No patches needed - API is up to date!");

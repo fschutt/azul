@@ -50,7 +50,7 @@
 //!
 //! This user-agent stylesheet integrates principles from normalize.css v8.0.1:
 //!
-//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and 
+//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and
 //    Jonathan Neal https://github.com/necolas/normalize.css
 //!
 //! The normalize.css project is licensed under the MIT License, which permits
@@ -440,7 +440,7 @@ static COUNTER_RESET_LIST_ITEM: CssProperty =
     CssProperty::CounterReset(CssPropertyValue::Exact(CounterReset::list_item()));
 
 // CSS Fragmentation (Page Breaking) Properties
-// 
+//
 // Per CSS Fragmentation Level 3 and paged media best practices,
 // certain elements should avoid page breaks inside them
 

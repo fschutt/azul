@@ -3,6 +3,7 @@
 //! Provides word and paragraph selection algorithms.
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
+
 use crate::text3::cache::{PositionedItem, ShapedCluster, ShapedItem, UnifiedLayout};
 
 /// Select the word at the given cursor position
@@ -200,4 +201,3 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
-

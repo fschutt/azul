@@ -73,9 +73,9 @@ pub use azul_css::props::basic::animation::{
     SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector,
 };
 use azul_css::{
-    props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
-    AzString, OptionString, OptionI16, OptionU16, StringVec, U8Vec,
     impl_result, impl_result_inner,
+    props::basic::{ColorU, LayoutSize, OptionColorU, OptionLayoutSize},
+    AzString, OptionI16, OptionString, OptionU16, StringVec, U8Vec,
 };
 #[cfg(feature = "svg")]
 use lyon::{
@@ -2182,9 +2182,7 @@ impl From<ParsedSvg> for azul_core::svg::Svg {
         // while still allowing us to move out the tree
         let mut parsed = core::mem::ManuallyDrop::new(parsed);
         // Take ownership of the tree by replacing it with a dummy
-        let tree = unsafe { 
-            core::ptr::read(&parsed.tree)
-        };
+        let tree = unsafe { core::ptr::read(&parsed.tree) };
         let tree_ptr = Box::into_raw(tree) as *const azul_core::svg::c_void;
         Self {
             tree: tree_ptr,
@@ -2203,12 +2201,18 @@ impl fmt::Debug for ParsedSvg {
 #[cfg(feature = "svg")]
 impl ParsedSvg {
     /// Parses an SVG from a string
-    pub fn from_string(svg_string: &str, parse_options: SvgParseOptions) -> Result<Self, SvgParseError> {
+    pub fn from_string(
+        svg_string: &str,
+        parse_options: SvgParseOptions,
+    ) -> Result<Self, SvgParseError> {
         svg_parse(svg_string.as_bytes(), parse_options)
     }
 
     /// Parses an SVG from bytes
-    pub fn from_bytes(svg_bytes: &[u8], parse_options: SvgParseOptions) -> Result<Self, SvgParseError> {
+    pub fn from_bytes(
+        svg_bytes: &[u8],
+        parse_options: SvgParseOptions,
+    ) -> Result<Self, SvgParseError> {
         svg_parse(svg_bytes, parse_options)
     }
 
@@ -2238,7 +2242,10 @@ fn svg_new(tree: usvg::Tree) -> ParsedSvg {
 
 /// NOTE: SVG file data may be Zlib compressed
 #[cfg(feature = "svg")]
-pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<ParsedSvg, SvgParseError> {
+pub fn svg_parse(
+    svg_file_data: &[u8],
+    options: SvgParseOptions,
+) -> Result<ParsedSvg, SvgParseError> {
     let rtree = usvg::Tree::from_data(svg_file_data, &translate_to_usvg_parseoptions(options))
         .map_err(translate_usvg_svgparserror)?;
 
@@ -2246,7 +2253,10 @@ pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Parse
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<ParsedSvg, SvgParseError> {
+pub fn svg_parse(
+    svg_file_data: &[u8],
+    options: SvgParseOptions,
+) -> Result<ParsedSvg, SvgParseError> {
     Err(SvgParseError::NoParserAvailable)
 }
 

@@ -1,16 +1,16 @@
 //! Paged media layout engine.
 //!
-//! This module provides infrastructure for multi-page document 
+//! This module provides infrastructure for multi-page document
 //! layout with CSS Paged Media support.
 //!
-//! The core concept is a **FragmentationContext**, which represents 
-//! a series of containers (fragmentainers) that content flows into 
-//! during layout. For continuous media (screens), we use a single 
-//! infinite container. For paged media (print), we use a series of 
+//! The core concept is a **FragmentationContext**, which represents
+//! a series of containers (fragmentainers) that content flows into
+//! during layout. For continuous media (screens), we use a single
+//! infinite container. For paged media (print), we use a series of
 //! page-sized containers.
 //!
-//! This approach allows the layout engine to make break decisions 
-//! during layout, respecting CSS properties like `break-before`, 
+//! This approach allows the layout engine to make break decisions
+//! during layout, respecting CSS properties like `break-before`,
 //! `break-after`, and `break-inside`.
 
 use azul_core::geom::{LogicalPosition, LogicalSize};
@@ -86,7 +86,7 @@ pub struct Fragmentainer {
     /// How much block-axis space has been used (typically vertical space)
     pub used_block_size: f32,
 
-    /// Whether this container has a fixed size (true for pages) or can 
+    /// Whether this container has a fixed size (true for pages) or can
     /// grow (false for continuous)
     pub is_fixed_size: bool,
 
@@ -103,14 +103,13 @@ pub struct LayoutBox {
 }
 
 impl Fragmentainer {
-
     /// Create a new fragmentainer with the given size.
     ///
     /// # Arguments
-    /// 
+    ///
     /// - `size` - The logical size (width and height) of this fragmentainer
-    /// - `is_fixed_size` - Whether this fragmentainer has a fixed size 
-    ///   (true for pages, false for continuous)
+    /// - `is_fixed_size` - Whether this fragmentainer has a fixed size (true for pages, false for
+    ///   continuous)
     pub fn new(size: LogicalSize, is_fixed_size: bool) -> Self {
         Self {
             size,
@@ -148,7 +147,7 @@ impl Fragmentainer {
     }
 
     /// Record that space has been used in this fragmentainer.
-    /// 
+    ///
     /// - `size` - The amount of block-axis space used
     pub fn use_space(&mut self, size: f32) {
         self.used_block_size += size;
@@ -228,7 +227,7 @@ impl FragmentationContext {
     /// - For regions, this fails if no more regions are available.
     ///
     /// # Returns
-    /// 
+    ///
     /// - `Ok(())` if the advance succeeded, `Err(String)` if it failed (e.g., no more regions).
     pub fn advance(&mut self) -> Result<(), String> {
         match self {
@@ -368,4 +367,3 @@ impl FragmentationState {
         page as f32 * self.page_content_height
     }
 }
-

@@ -11,9 +11,7 @@
 //! - This works identically across all platforms (X11, Wayland, macOS, Windows)
 
 use azul_core::{
-    callbacks::{
-        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
-    },
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner},
     geom::LogicalSize,
     menu::Menu,
     refany::RefAny,
@@ -37,10 +35,7 @@ struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(
-    data: &mut RefAny,
-    _info: &mut LayoutCallbackInfo,
-) -> StyledDom {
+extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 

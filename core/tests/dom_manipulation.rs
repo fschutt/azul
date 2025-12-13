@@ -3,10 +3,7 @@
 //! Tests for DOM tree construction, node management, and related operations.
 
 use azul_core::dom::{Dom, NodeDataInlineCssProperty, NodeType};
-use azul_css::props::{
-    basic::font::StyleFontSize,
-    property::CssProperty,
-};
+use azul_css::props::{basic::font::StyleFontSize, property::CssProperty};
 
 #[test]
 fn test_dom_div_creation() {
@@ -43,39 +40,22 @@ fn test_dom_with_multiple_children() {
 
 #[test]
 fn test_dom_with_children_vec() {
-    let dom = Dom::div().with_children(
-        vec![
-            Dom::text("One"),
-            Dom::text("Two"),
-            Dom::text("Three"),
-        ]
-        .into(),
-    );
+    let dom = Dom::div()
+        .with_children(vec![Dom::text("One"), Dom::text("Two"), Dom::text("Three")].into());
     assert_eq!(dom.children.len(), 3);
 }
 
 #[test]
 fn test_dom_nested_structure() {
-    let dom = Dom::div()
-        .with_child(
-            Dom::div()
-                .with_child(Dom::text("Nested"))
-        );
+    let dom = Dom::div().with_child(Dom::div().with_child(Dom::text("Nested")));
     assert_eq!(dom.children.len(), 1);
 }
 
 #[test]
 fn test_dom_deeply_nested() {
-    let dom = Dom::div()
-        .with_child(
-            Dom::div().with_child(
-                Dom::div().with_child(
-                    Dom::div().with_child(
-                        Dom::text("Deep")
-                    )
-                )
-            )
-        );
+    let dom = Dom::div().with_child(
+        Dom::div().with_child(Dom::div().with_child(Dom::div().with_child(Dom::text("Deep")))),
+    );
     assert_eq!(dom.children.len(), 1);
 }
 
@@ -83,13 +63,13 @@ fn test_dom_deeply_nested() {
 fn test_dom_node_types() {
     let div = Dom::div();
     assert!(matches!(div.root.node_type, NodeType::Div));
-    
+
     let p = Dom::new(NodeType::P);
     assert!(matches!(p.root.node_type, NodeType::P));
-    
+
     let span = Dom::new(NodeType::Span);
     assert!(matches!(span.root.node_type, NodeType::Span));
-    
+
     let h1 = Dom::new(NodeType::H1);
     assert!(matches!(h1.root.node_type, NodeType::H1));
 }
@@ -198,12 +178,12 @@ fn test_dom_table_structure() {
         .with_child(
             Dom::new(NodeType::Tr)
                 .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 1")))
-                .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 2")))
+                .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 2"))),
         )
         .with_child(
             Dom::new(NodeType::Tr)
                 .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 3")))
-                .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 4")))
+                .with_child(Dom::new(NodeType::Td).with_child(Dom::text("Cell 4"))),
         );
     assert_eq!(dom.children.len(), 2);
 }
@@ -259,7 +239,9 @@ fn test_dom_inline_elements() {
 
 #[test]
 fn test_dom_many_children() {
-    let children: Vec<Dom> = (0..100).map(|i| Dom::text(format!("Child {}", i))).collect();
+    let children: Vec<Dom> = (0..100)
+        .map(|i| Dom::text(format!("Child {}", i)))
+        .collect();
     let dom = Dom::div().with_children(children.into());
     assert_eq!(dom.children.len(), 100);
 }
@@ -291,7 +273,7 @@ fn test_dom_deep_tree() {
             Dom::div().with_child(create_deep(depth - 1))
         }
     }
-    
+
     let dom = create_deep(20);
     assert_eq!(dom.children.len(), 1);
 }

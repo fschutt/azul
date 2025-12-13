@@ -4214,44 +4214,64 @@ impl CssPropertyCache {
                         // If no parent, use the default font size (16px per CSS spec)
                         use azul_css::{
                             css::CssPropertyValue,
-                            props::basic::{font::StyleFontSize, pixel::PixelValue, length::SizeMetric},
+                            props::basic::{
+                                font::StyleFontSize, length::SizeMetric, pixel::PixelValue,
+                            },
                         };
-                        
+
                         const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
-                        
+
                         // Helper to resolve font-size with a reference value
-                        let resolve_font_size = |prop: &CssProperty, reference_px: f32| -> CssProperty {
+                        let resolve_font_size = |prop: &CssProperty,
+                                                 reference_px: f32|
+                         -> CssProperty {
                             if let CssProperty::FontSize(css_val) = prop {
                                 if let Some(font_size) = css_val.get_property() {
                                     let resolved_px = match font_size.inner.metric {
                                         SizeMetric::Px => font_size.inner.number.get(),
                                         SizeMetric::Pt => font_size.inner.number.get() * 1.333333,
                                         SizeMetric::In => font_size.inner.number.get() * 96.0,
-                                        SizeMetric::Cm => font_size.inner.number.get() * 37.7952755906,
-                                        SizeMetric::Mm => font_size.inner.number.get() * 3.7795275591,
-                                        SizeMetric::Em => font_size.inner.number.get() * reference_px,
-                                        SizeMetric::Rem => font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX,
-                                        SizeMetric::Percent => font_size.inner.number.get() / 100.0 * reference_px,
+                                        SizeMetric::Cm => {
+                                            font_size.inner.number.get() * 37.7952755906
+                                        }
+                                        SizeMetric::Mm => {
+                                            font_size.inner.number.get() * 3.7795275591
+                                        }
+                                        SizeMetric::Em => {
+                                            font_size.inner.number.get() * reference_px
+                                        }
+                                        SizeMetric::Rem => {
+                                            font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX
+                                        }
+                                        SizeMetric::Percent => {
+                                            font_size.inner.number.get() / 100.0 * reference_px
+                                        }
                                         // Viewport units need layout context
-                                        SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => {
+                                        SizeMetric::Vw
+                                        | SizeMetric::Vh
+                                        | SizeMetric::Vmin
+                                        | SizeMetric::Vmax => {
                                             return prop.clone();
                                         }
                                     };
                                     return CssProperty::FontSize(CssPropertyValue::Exact(
-                                        StyleFontSize { inner: PixelValue::px(resolved_px) }
+                                        StyleFontSize {
+                                            inner: PixelValue::px(resolved_px),
+                                        },
                                     ));
                                 }
                             }
                             prop.clone()
                         };
-                        
+
                         if let Some(parent_values) = parent_computed {
                             if let Some(parent_font_size) =
                                 parent_values.get(&CssPropertyType::FontSize)
                             {
                                 Self::resolve_property_dependency(prop, &parent_font_size.property)
                                     .unwrap_or_else(|| {
-                                        // Fallback: resolve against default if parent has relative value
+                                        // Fallback: resolve against default if parent has relative
+                                        // value
                                         resolve_font_size(prop, DEFAULT_FONT_SIZE_PX)
                                     })
                             } else {
@@ -4297,7 +4317,7 @@ impl CssPropertyCache {
             // Helper function to check if a font-size property has a relative unit
             fn has_relative_font_size_unit(prop: &CssProperty) -> bool {
                 use azul_css::props::basic::length::SizeMetric;
-                
+
                 if let CssProperty::FontSize(css_prop_val) = prop {
                     if let Some(font_size) = css_prop_val.get_property() {
                         match font_size.inner.metric {
@@ -4329,15 +4349,15 @@ impl CssPropertyCache {
                     // with unresolved relative value from restyle()
                     if *prop_type == CssPropertyType::FontSize {
                         if let Some(existing) = node_computed_values.get(prop_type) {
-                            if existing.origin == CssPropertyOrigin::Inherited 
-                               && has_relative_font_size_unit(prop) 
+                            if existing.origin == CssPropertyOrigin::Inherited
+                                && has_relative_font_size_unit(prop)
                             {
                                 // Skip: we already have the resolved value from parent
                                 continue;
                             }
                         }
                     }
-                    
+
                     let should_apply = match node_computed_values.get(prop_type) {
                         None => true,                                                      /* Not set yet */
                         Some(existing) => existing.origin == CssPropertyOrigin::Inherited, /* Override inherited */

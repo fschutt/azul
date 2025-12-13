@@ -22,6 +22,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 const BACKGROUND_COLOR: ColorU = ColorU {
@@ -874,10 +875,7 @@ impl TextInput {
     }
 }
 
-extern "C" fn default_on_focus_received(
-    mut text_input: RefAny,
-    mut info: CallbackInfo,
-) -> Update {
+extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -931,7 +929,9 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
         let inner = text_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
+            Some(TextInputOnFocusLost { callback, data }) => {
+                (callback.cb)(data.clone(), info.clone(), inner)
+            }
             None => Update::DoNothing,
         }
     };
@@ -949,12 +949,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     // Get the text changeset (replaces old keyboard_state.current_char API)
     let changeset = info.get_text_changeset()?;
     let inserted_text = changeset.inserted_text.clone();
-    
+
     // Early return if no text to insert
     if inserted_text.is_empty() {
         return None;
     }
-    
+
     let placeholder_node_id = info.get_first_child(info.get_hit_node())?;
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
     let _cursor_node_id = info.get_first_child(label_node_id)?;
@@ -997,7 +997,10 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
             internal.extend(inserted_text.chars().map(|c| c as u32));
             internal.into()
         };
-        text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_add(inserted_text.len());
+        text_input.inner.cursor_pos = text_input
+            .inner
+            .cursor_pos
+            .saturating_add(inserted_text.len());
 
         info.change_node_text(label_node_id, text_input.inner.get_text().into());
     }
@@ -1005,10 +1008,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     Some(result.update)
 }
 
-extern "C" fn default_on_virtual_key_down(
-    text_input: RefAny,
-    info: CallbackInfo,
-) -> Update {
+extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 

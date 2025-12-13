@@ -12,9 +12,7 @@
 //! - This provides native-quality menus on Wayland
 
 use azul_core::{
-    callbacks::{
-        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
-    },
+    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::Menu,
     refany::RefAny,
@@ -39,10 +37,7 @@ struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(
-    data: &mut RefAny,
-    _info: &mut LayoutCallbackInfo,
-) -> StyledDom {
+extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 
@@ -127,7 +122,7 @@ pub fn create_menu_popup_options(
             cb: menu_layout_callback,
         },
     };
-    
+
     // Store menu data in app_data (will be passed to callback)
     // Note: The app needs to ensure this RefAny is passed when creating the window
 

@@ -605,7 +605,9 @@ pub fn fullhittest_new_webrender(
                     ),
                     parent_dom_hash: azul_core::dom::DomNodeHash(node_id.index() as u64),
                     scroll_tag_id: azul_core::dom::ScrollTagId {
-                        inner: azul_core::dom::TagId { inner: node_id.index() as u64 },
+                        inner: azul_core::dom::TagId {
+                            inner: node_id.index() as u64,
+                        },
                     },
                 };
 
@@ -2133,7 +2135,7 @@ fn process_image_callback_updates(layout_window: &mut LayoutWindow, txn: &mut Wr
 ///
 /// Each IFrame gets its own WebRender pipeline with a stable PipelineId based on
 /// (dom_id, node_id). When an IFrame needs updating:
-/// 
+///
 /// 1. The IFrame callback was already re-invoked during the layout phase
 /// 2. The layout result for that IFrame's DOM exists in layout_results
 /// 3. We just need to rebuild and submit that specific IFrame's display list

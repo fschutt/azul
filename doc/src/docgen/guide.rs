@@ -15,10 +15,8 @@ pub struct Guide {
 /// Create a Guide from a markdown file path, content, and explicit title
 fn guide_from_md(md_filename: &str, title: &str, content: &'static str) -> Guide {
     // Remove .md extension for URL
-    let file_name = md_filename
-        .trim_end_matches(".md")
-        .to_string();
-    
+    let file_name = md_filename.trim_end_matches(".md").to_string();
+
     Guide {
         title: title.to_string(),
         file_name,
@@ -31,11 +29,11 @@ fn guide_from_md(md_filename: &str, title: &str, content: &'static str) -> Guide
 /// Note: We keep the first H1 header now since that's the real title
 fn preprocess_markdown_content(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
-    
+
     // Remove mermaid code blocks
     let mut result = Vec::new();
     let mut in_mermaid_block = false;
-    
+
     for line in lines {
         if line.trim().starts_with("```mermaid") {
             in_mermaid_block = true;
@@ -49,49 +47,76 @@ fn preprocess_markdown_content(content: &str) -> String {
         }
         result.push(line);
     }
-    
+
     result.join("\n")
 }
 
 /// Get a list of all guides
 pub fn get_guide_list() -> Vec<Guide> {
     vec![
-        guide_from_md("installation", "Installation", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/installation.md"
-        ))),
-        guide_from_md("getting-started-rust", "Getting Started (Rust)", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/getting-started-rust.md"
-        ))),
-        guide_from_md("getting-started-c", "Getting Started (C)", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/getting-started-c.md"
-        ))),
-        guide_from_md("getting-started-cpp", "Getting Started (C++)", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/getting-started-cpp.md"
-        ))),
-        guide_from_md("getting-started-python", "Getting Started (Python)", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/getting-started-python.md"
-        ))),
-        guide_from_md("css-styling", "CSS Styling", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/css-styling.md"
-        ))),
-        guide_from_md("widgets", "Widgets", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/widgets.md"
-        ))),
-        guide_from_md("architecture", "Architecture", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/architecture.md"
-        ))),
-        guide_from_md("comparison", "Comparison with Other Frameworks", include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/guide/comparison.md"
-        ))),
+        guide_from_md(
+            "installation",
+            "Installation",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/installation.md"
+            )),
+        ),
+        guide_from_md(
+            "getting-started-rust",
+            "Getting Started (Rust)",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/getting-started-rust.md"
+            )),
+        ),
+        guide_from_md(
+            "getting-started-c",
+            "Getting Started (C)",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/getting-started-c.md"
+            )),
+        ),
+        guide_from_md(
+            "getting-started-cpp",
+            "Getting Started (C++)",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/getting-started-cpp.md"
+            )),
+        ),
+        guide_from_md(
+            "getting-started-python",
+            "Getting Started (Python)",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/getting-started-python.md"
+            )),
+        ),
+        guide_from_md(
+            "css-styling",
+            "CSS Styling",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/css-styling.md")),
+        ),
+        guide_from_md(
+            "widgets",
+            "Widgets",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/widgets.md")),
+        ),
+        guide_from_md(
+            "architecture",
+            "Architecture",
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/guide/architecture.md"
+            )),
+        ),
+        guide_from_md(
+            "comparison",
+            "Comparison with Other Frameworks",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/comparison.md")),
+        ),
     ]
 }
 
@@ -99,10 +124,10 @@ pub fn get_guide_list() -> Vec<Guide> {
 pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let header_tags = crate::docgen::get_common_head_tags();
     let sidebar = crate::docgen::get_sidebar();
-    
+
     // Pre-process content: remove first H1 header (we add our own) and mermaid diagrams
     let processed_content = preprocess_markdown_content(&guide.content);
-    
+
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
         &comrak::Options {

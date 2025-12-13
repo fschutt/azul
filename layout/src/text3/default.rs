@@ -7,28 +7,29 @@ use allsorts::{
 use azul_core::{geom::LogicalSize, glyph::Placement};
 use azul_css::props::basic::FontRef;
 use rust_fontconfig::FcFontCache;
-use crate::text3::{
-    cache::{
-        BidiDirection, BidiLevel, FontManager, FontSelector, Glyph, GlyphOrientation, GlyphSource,
-        LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
-        TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
-    },
-    script::Script,
-};
+
 use crate::{
     font::parsed::ParsedFont,
-    text3::cache::{FontVariantCaps, FontVariantLigatures, FontVariantNumeric},
+    text3::{
+        cache::{
+            BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
+            FontVariantLigatures, FontVariantNumeric, Glyph, GlyphOrientation, GlyphSource,
+            LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
+            TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
+        },
+        script::Script,
+    },
 };
 
 /// Creates a FontRef from font bytes by parsing them into a ParsedFont.
 ///
 /// This is a bridge function that:
-/// 
+///
 /// 1. Parses the bytes into a ParsedFont
 /// 2. Wraps it in a FontRef with proper reference counting
 ///
 /// # Arguments
-/// 
+///
 /// - `font_bytes` - The raw font file data
 /// - `font_index` - Index of the font in a font collection (0 for single fonts)
 /// - `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
@@ -153,7 +154,7 @@ impl ParsedFontTrait for FontRef {
 }
 
 /// Extension trait for FontRef to provide access to font bytes and metrics
-/// 
+///
 /// This trait provides methods that require access to the inner ParsedFont data.
 pub trait FontRefExt {
     /// Get the original font bytes
@@ -169,10 +170,10 @@ impl FontRefExt for FontRef {
 
     fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {
         use azul_css::{OptionI16, OptionU16, OptionU32};
-        
+
         let parsed = get_parsed_font(self);
         let pdf = &parsed.pdf_font_metrics;
-        
+
         // PdfFontMetrics only has a subset of fields; fill others with defaults
         azul_css::props::basic::FontMetrics {
             // HEAD table fields
@@ -182,7 +183,7 @@ impl FontRefExt for FontRef {
             y_min: pdf.y_min,
             x_max: pdf.x_max,
             y_max: pdf.y_max,
-            
+
             // HHEA table fields
             ascender: pdf.ascender,
             descender: pdf.descender,
@@ -193,9 +194,9 @@ impl FontRefExt for FontRef {
             x_max_extent: 0,           // Not in PdfFontMetrics
             caret_slope_rise: pdf.caret_slope_rise,
             caret_slope_run: pdf.caret_slope_run,
-            caret_offset: 0,           // Not in PdfFontMetrics
-            num_h_metrics: 0,          // Not in PdfFontMetrics
-            
+            caret_offset: 0,  // Not in PdfFontMetrics
+            num_h_metrics: 0, // Not in PdfFontMetrics
+
             // OS/2 table fields
             x_avg_char_width: pdf.x_avg_char_width,
             us_weight_class: pdf.us_weight_class,
@@ -211,35 +212,35 @@ impl FontRefExt for FontRef {
             y_superscript_y_offset: 0, // Not in PdfFontMetrics
             y_strikeout_size: pdf.y_strikeout_size,
             y_strikeout_position: pdf.y_strikeout_position,
-            s_family_class: 0,         // Not in PdfFontMetrics
+            s_family_class: 0, // Not in PdfFontMetrics
             panose: azul_css::props::basic::Panose::zero(),
-            ul_unicode_range1: 0,      // Not in PdfFontMetrics
-            ul_unicode_range2: 0,      // Not in PdfFontMetrics
-            ul_unicode_range3: 0,      // Not in PdfFontMetrics
-            ul_unicode_range4: 0,      // Not in PdfFontMetrics
-            ach_vend_id: 0,            // Not in PdfFontMetrics
-            fs_selection: 0,           // Not in PdfFontMetrics
-            us_first_char_index: 0,    // Not in PdfFontMetrics
-            us_last_char_index: 0,     // Not in PdfFontMetrics
-            
+            ul_unicode_range1: 0,   // Not in PdfFontMetrics
+            ul_unicode_range2: 0,   // Not in PdfFontMetrics
+            ul_unicode_range3: 0,   // Not in PdfFontMetrics
+            ul_unicode_range4: 0,   // Not in PdfFontMetrics
+            ach_vend_id: 0,         // Not in PdfFontMetrics
+            fs_selection: 0,        // Not in PdfFontMetrics
+            us_first_char_index: 0, // Not in PdfFontMetrics
+            us_last_char_index: 0,  // Not in PdfFontMetrics
+
             // OS/2 version 0 fields (optional)
             s_typo_ascender: OptionI16::None,
             s_typo_descender: OptionI16::None,
             s_typo_line_gap: OptionI16::None,
             us_win_ascent: OptionU16::None,
             us_win_descent: OptionU16::None,
-            
+
             // OS/2 version 1 fields (optional)
             ul_code_page_range1: OptionU32::None,
             ul_code_page_range2: OptionU32::None,
-            
+
             // OS/2 version 2 fields (optional)
             sx_height: OptionI16::None,
             s_cap_height: OptionI16::None,
             us_default_char: OptionU16::None,
             us_break_char: OptionU16::None,
             us_max_context: OptionU16::None,
-            
+
             // OS/2 version 3 fields (optional)
             us_lower_optical_point_size: OptionU16::None,
             us_upper_optical_point_size: OptionU16::None,
@@ -255,7 +256,6 @@ impl FontRefExt for FontRef {
 // the common shaping implementation and convert the font reference type.
 
 impl ParsedFont {
-
     /// Internal helper that shapes text and returns Glyph
     /// Delegates to shape_text_internal and converts the font reference.
     fn shape_text_for_font_ref(

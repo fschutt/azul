@@ -31,7 +31,8 @@ fn test_margin_blocked_no_double_count() {
     //
     // Expected calculation:
     //   - Parent has padding, so child margins are BLOCKED from escaping
-    //   - Content-box = child.margin_top (30) + child.height (40) + child.margin_bottom (30) = 100px
+    //   - Content-box = child.margin_top (30) + child.height (40) + child.margin_bottom (30) =
+    //     100px
     //   - Total height = padding_top (20) + content_box (100) + padding_bottom (20) = 140px
 
     let dom = Dom::div()
@@ -160,7 +161,7 @@ fn test_margin_escape_excludes_from_parent_height() {
     let parent_rect = layout_window
         .get_node_layout_rect(root_id)
         .expect("parent rect");
-    
+
     // NOTE: According to strict CSS margin collapsing, both margins should escape,
     // giving parent height = 40px. However, our implementation currently keeps the
     // bottom margin inside, resulting in 70px. This is a known limitation.

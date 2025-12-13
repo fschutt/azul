@@ -1,10 +1,12 @@
 //! Pure functions for editing a `Vec<InlineContent>` based on selections.
 
 use std::sync::Arc;
-use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
+
 use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
 };
+
+use crate::text3::cache::{ContentIndex, InlineContent, StyledRun};
 
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
@@ -21,7 +23,6 @@ pub fn edit_text(
     selections: &[Selection],
     edit: &TextEdit,
 ) -> (Vec<InlineContent>, Vec<Selection>) {
-
     if selections.is_empty() {
         return (content.to_vec(), Vec::new());
     }
@@ -127,13 +128,12 @@ pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
-
     // This is a highly complex function. A full implementation needs to handle:
-    // 
+    //
     // - Deletions within a single text run.
     // - Deletions that span across multiple text runs.
     // - Deletions that include non-text items like images.
-    // 
+    //
     // For now, we provide a simplified version that handles deletion within a
     // single run.
 
@@ -287,13 +287,13 @@ pub fn delete_forward(
 /// This is useful for callbacks to inspect pending delete operations.
 ///
 /// # Arguments
-/// 
+///
 /// - `content` - The current text content
 /// - `selection` - The current selection (cursor or range)
 /// - `forward` - If true, delete forward (Delete key); if false, delete backward (Backspace key)
 ///
 /// # Returns
-/// 
+///
 /// - `Some((range, deleted_text))` - The range and text that would be deleted
 /// - `None` - Nothing would be deleted (e.g., cursor at start/end of document)
 pub fn inspect_delete(

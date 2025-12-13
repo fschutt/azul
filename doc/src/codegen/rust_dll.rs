@@ -43,14 +43,19 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
     // Primitive types that should never get an Az prefix
     const PRIMITIVE_TYPES: &[&str] = &[
-        "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
-        "slice", "u128", "u16", "u32", "u64", "u8", "usize", "c_void",
-        "str", "char", "c_char", "c_schar", "c_uchar",
+        "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128",
+        "u16", "u32", "u64", "u8", "usize", "c_void", "str", "char", "c_char", "c_schar",
+        "c_uchar",
     ];
 
     // Single-letter types are usually generic type parameters
     fn is_generic_type_param(type_name: &str) -> bool {
-        type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+        type_name.len() == 1
+            && type_name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
     }
 
     // Process all modules and classes
@@ -79,8 +84,14 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
 
             // Handle type aliases (generic type instantiations or pointer types)
             if let Some(type_alias_info) = &class_data.type_alias {
-                eprintln!("DEBUG: Generating type alias for {} - target: {}, ref_kind: {:?}, generic_args: {:?}", 
-                    class_name, type_alias_info.target, type_alias_info.ref_kind, type_alias_info.generic_args);
+                eprintln!(
+                    "DEBUG: Generating type alias for {} - target: {}, ref_kind: {:?}, \
+                     generic_args: {:?}",
+                    class_name,
+                    type_alias_info.target,
+                    type_alias_info.ref_kind,
+                    type_alias_info.generic_args
+                );
 
                 // Always add prefix, even if type already has it (consistency)
                 let class_ptr_name = format!("{}{}", PREFIX, class_name);
@@ -95,10 +106,22 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                 // Check if target is a primitive that doesn't need prefix (like c_void)
                 let target_is_primitive = matches!(
                     type_alias_info.target.as_str(),
-                    "c_void" | "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" 
-                    | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
+                    "c_void"
+                        | "bool"
+                        | "u8"
+                        | "i8"
+                        | "u16"
+                        | "i16"
+                        | "u32"
+                        | "i32"
+                        | "u64"
+                        | "i64"
+                        | "usize"
+                        | "isize"
+                        | "f32"
+                        | "f64"
                 );
-                
+
                 let target_with_prefix = if target_is_primitive {
                     type_alias_info.target.clone()
                 } else {
@@ -114,8 +137,20 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                         .map(|arg| {
                             let arg_is_primitive = matches!(
                                 arg.as_str(),
-                                "c_void" | "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" 
-                                | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
+                                "c_void"
+                                    | "bool"
+                                    | "u8"
+                                    | "i8"
+                                    | "u16"
+                                    | "i16"
+                                    | "u32"
+                                    | "i32"
+                                    | "u64"
+                                    | "i64"
+                                    | "usize"
+                                    | "isize"
+                                    | "f32"
+                                    | "f64"
                             );
                             if arg_is_primitive {
                                 arg.clone()
@@ -136,29 +171,26 @@ pub fn generate_rust_dll(api_data: &ApiData, version: &str) -> String {
                         // but handle them for completeness
                         RefKind::Ref => format!("&{}", target_with_prefix),
                         RefKind::RefMut => format!("&mut {}", target_with_prefix),
-                        // Special case: Box<c_void> is UB (c_void is !Sized), use *mut c_void instead
+                        // Special case: Box<c_void> is UB (c_void is !Sized), use *mut c_void
+                        // instead
                         RefKind::Boxed => {
                             if target_with_prefix.ends_with("c_void") {
                                 "*mut c_void".to_string()
                             } else {
                                 format!("Box<{}>", target_with_prefix)
                             }
-                        },
+                        }
                         RefKind::OptionBoxed => {
                             if target_with_prefix.ends_with("c_void") {
                                 "Option<*mut c_void>".to_string()
                             } else {
                                 format!("Option<Box<{}>>", target_with_prefix)
                             }
-                        },
+                        }
                     }
                 };
 
-                code.push_str(&format!(
-                    "pub type {} = {};\r\n",
-                    class_ptr_name,
-                    type_rhs
-                ));
+                code.push_str(&format!("pub type {} = {};\r\n", class_ptr_name, type_rhs));
 
                 continue; // Skip normal class generation for type aliases
             }

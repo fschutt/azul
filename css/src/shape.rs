@@ -283,7 +283,12 @@ impl CssShape {
     }
 }
 
-impl_option!(CssShape, OptionCssShape, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    CssShape,
+    OptionCssShape,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// A line segment representing available horizontal space at a given y-position.
 /// Used for line breaking within shaped containers.
@@ -370,11 +375,7 @@ impl ShapeRect {
     }
 }
 
-impl_option!(
-    ShapeRect,
-    OptionShapeRect,
-    [Debug, Copy, Clone, PartialEq]
-);
+impl_option!(ShapeRect, OptionShapeRect, [Debug, Copy, Clone, PartialEq]);
 
 impl CssShape {
     /// Computes the bounding box of this shape

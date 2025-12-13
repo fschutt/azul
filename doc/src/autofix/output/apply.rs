@@ -2,8 +2,8 @@
 //!
 //! This module handles applying patches to api.json.
 
-use std::path::Path;
-use std::fs;
+use std::{fs, path::Path};
+
 use crate::autofix::patches::PatchSet;
 
 /// Result of applying patches
@@ -20,11 +20,7 @@ pub struct ApplyResult {
 }
 
 /// Apply patches to api.json
-pub fn apply_patches(
-    api_json_path: &Path,
-    patches: &PatchSet,
-    dry_run: bool,
-) -> ApplyResult {
+pub fn apply_patches(api_json_path: &Path, patches: &PatchSet, dry_run: bool) -> ApplyResult {
     let mut result = ApplyResult {
         path_corrections_applied: 0,
         types_removed: 0,
@@ -36,7 +32,9 @@ pub fn apply_patches(
     let content = match fs::read_to_string(api_json_path) {
         Ok(c) => c,
         Err(e) => {
-            result.errors.push(format!("Failed to read api.json: {}", e));
+            result
+                .errors
+                .push(format!("Failed to read api.json: {}", e));
             return result;
         }
     };
@@ -45,7 +43,9 @@ pub fn apply_patches(
     let mut api: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(e) => {
-            result.errors.push(format!("Failed to parse api.json: {}", e));
+            result
+                .errors
+                .push(format!("Failed to parse api.json: {}", e));
             return result;
         }
     };
@@ -70,10 +70,7 @@ pub fn apply_patches(
         }
 
         // Remove unused types
-        let types_to_remove: Vec<String> = patches.types_to_remove
-            .iter()
-            .cloned()
-            .collect();
+        let types_to_remove: Vec<String> = patches.types_to_remove.iter().cloned().collect();
 
         for type_name in types_to_remove {
             if classes.remove(&type_name).is_some() {
@@ -87,15 +84,18 @@ pub fn apply_patches(
 
     if modified && !dry_run {
         // Write back the modified JSON
-        let output = serde_json::to_string_pretty(&api)
-            .unwrap_or_else(|e| {
-                result.errors.push(format!("Failed to serialize api.json: {}", e));
-                String::new()
-            });
+        let output = serde_json::to_string_pretty(&api).unwrap_or_else(|e| {
+            result
+                .errors
+                .push(format!("Failed to serialize api.json: {}", e));
+            String::new()
+        });
 
         if !output.is_empty() {
             if let Err(e) = fs::write(api_json_path, output) {
-                result.errors.push(format!("Failed to write api.json: {}", e));
+                result
+                    .errors
+                    .push(format!("Failed to write api.json: {}", e));
             }
         }
     }
@@ -105,10 +105,12 @@ pub fn apply_patches(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
+    use tempfile::NamedTempFile;
+
     use super::*;
     use crate::autofix::patches::PathCorrection;
-    use tempfile::NamedTempFile;
-    use std::io::Write;
 
     #[test]
     fn test_dry_run() {
@@ -122,7 +124,11 @@ mod tests {
 
         // Create a temp file
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"{{"classes": {{"Test": {{"external": "old::path"}}}}}}"#).unwrap();
+        writeln!(
+            file,
+            r#"{{"classes": {{"Test": {{"external": "old::path"}}}}}}"#
+        )
+        .unwrap();
 
         let result = apply_patches(file.path(), &patches, true);
 

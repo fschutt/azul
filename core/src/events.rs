@@ -332,9 +332,7 @@ pub enum EventData {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum EventType {
-
     // Mouse Events
-
     /// Mouse cursor is over the element
     MouseOver,
     /// Mouse cursor entered the element
@@ -353,7 +351,6 @@ pub enum EventType {
     ContextMenu,
 
     // Keyboard Events
-
     /// Key pressed down
     KeyDown,
     /// Key released
@@ -362,7 +359,6 @@ pub enum EventType {
     KeyPress,
 
     // Focus Events
-
     /// Element received focus
     Focus,
     /// Element lost focus
@@ -373,7 +369,6 @@ pub enum EventType {
     FocusOut,
 
     // Input Events
-
     /// Input value is being changed (fires on every keystroke)
     Input,
     /// Input value has changed (fires after editing complete)
@@ -386,7 +381,6 @@ pub enum EventType {
     Invalid,
 
     // Scroll Events
-
     /// Element is being scrolled
     Scroll,
     /// Scroll started
@@ -395,7 +389,6 @@ pub enum EventType {
     ScrollEnd,
 
     // Drag Events
-
     /// Drag operation started
     DragStart,
     /// Element is being dragged
@@ -412,7 +405,6 @@ pub enum EventType {
     Drop,
 
     // Touch Events
-
     /// Touch started
     TouchStart,
     /// Touch moved
@@ -423,7 +415,6 @@ pub enum EventType {
     TouchCancel,
 
     // Gesture Events
-
     /// Long press detected (touch or mouse held down)
     LongPress,
     /// Swipe gesture to the left
@@ -444,7 +435,6 @@ pub enum EventType {
     RotateCounterClockwise,
 
     // Clipboard Events
-
     /// Content copied to clipboard
     Copy,
     /// Content cut to clipboard
@@ -453,7 +443,6 @@ pub enum EventType {
     Paste,
 
     // Media Events
-
     /// Media playback started
     Play,
     /// Media playback paused
@@ -468,7 +457,6 @@ pub enum EventType {
     MediaError,
 
     // Lifecycle Events
-
     /// Component was mounted to the DOM
     Mount,
     /// Component will be unmounted from the DOM
@@ -479,7 +467,6 @@ pub enum EventType {
     Resize,
 
     // Window Events
-
     /// Window resized
     WindowResize,
     /// Window moved
@@ -494,7 +481,6 @@ pub enum EventType {
     ThemeChange,
 
     // File Events
-
     /// File is being hovered
     FileHover,
     /// File was dropped
@@ -1233,7 +1219,6 @@ pub enum HoverEventFilter {
     // These events are used internally by the framework for text selection
     // and other system-level features. They are NOT exposed to user callbacks
     // via the On enum and should be filtered out before callback dispatch.
-    
     /// Internal: Single click detected (for text cursor placement)
     /// This is distinct from MouseDown - it fires after MouseUp on the same element
     #[doc(hidden)]

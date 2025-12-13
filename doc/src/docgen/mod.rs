@@ -8,7 +8,7 @@ use std::{
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::api::{ApiData, LoadedExample, Language};
+use crate::api::{ApiData, Language, LoadedExample};
 
 const HTML_ROOT: &str = "https://azul.rs";
 
@@ -43,10 +43,7 @@ pub fn generate_docs(
     // Generate guide pages (version-agnostic, only one master version)
     for guide in guide::get_guide_list() {
         let guide_html = guide::generate_guide_html(&guide, latest_version);
-        docs.insert(
-            format!("guide/{}.html", guide.file_name),
-            guide_html,
-        );
+        docs.insert(format!("guide/{}.html", guide.file_name), guide_html);
     }
 
     // Generate combined guide page
@@ -90,7 +87,7 @@ struct ExampleRendered {
 impl ExampleRendered {
     fn from_loaded(e: LoadedExample, imageoutput_path: &Path, imageoutput_url: &str) -> Self {
         let name = &e.name;
-        
+
         // Write screenshot files
         let _ = std::fs::write(
             imageoutput_path.join(&format!("{name}.windows.png")),
@@ -104,15 +101,16 @@ impl ExampleRendered {
             imageoutput_path.join(&format!("{name}.mac.png")),
             &e.screenshot.mac,
         );
-        
+
         // Get C++ code for each version (fall back to legacy cpp if not available)
         // Note: store RAW code, not HTML-escaped - escape when inserting into HTML
         let get_cpp_code = |lang: Language| -> String {
-            e.code.get(lang)
+            e.code
+                .get(lang)
                 .map(|b| String::from_utf8_lossy(b).to_string())
                 .unwrap_or_else(|| String::from_utf8_lossy(&e.code.cpp).to_string())
         };
-        
+
         ExampleRendered {
             id: name.clone(),
             description: comrak::markdown_to_html(
@@ -169,11 +167,9 @@ fn generate_index_html(
         .into_iter()
         .map(|e| ExampleRendered::from_loaded(e, imageoutput_path, imageoutput_url))
         .collect();
-    
+
     // Filter examples for index display
-    let index_examples: Vec<&ExampleRendered> = ex.iter()
-        .filter(|e| e.show_on_index)
-        .collect();
+    let index_examples: Vec<&ExampleRendered> = ex.iter().filter(|e| e.show_on_index).collect();
 
     let index_html_template = include_str!("../../templates/index.template.html")
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
@@ -197,7 +193,10 @@ fn generate_index_html(
                 .replace("$$EXAMPLE_IMAGE_SOURCE_MAC$$", &ex.screenshot_mac)
                 .replace("$$EXAMPLE_IMAGE_SOURCE_WINDOWS$$", &ex.screenshot_windows)
                 .replace("$$IS_FIRST$$", if is_first { "true" } else { "false" })
-                .replace("$$INSTALL_DISPLAY$$", if is_first { "" } else { "display:none;" })
+                .replace(
+                    "$$INSTALL_DISPLAY$$",
+                    if is_first { "" } else { "display:none;" },
+                )
         })
         .collect::<Vec<_>>()
         .join("\r\n");
@@ -209,9 +208,10 @@ fn generate_index_html(
             .collect::<BTreeMap<_, _>>(),
     )
     .unwrap_or_default();
-    
+
     // Generate installation instructions JSON
-    let installation_json = generate_installation_json(&latest_version.installation, latest_version_str);
+    let installation_json =
+        generate_installation_json(&latest_version.installation, latest_version_str);
 
     Ok(index_html_template
         .replace("$$INDEX_SECTION_EXAMPLES$$", &examples_html)
@@ -224,7 +224,7 @@ fn generate_index_html(
 /// Generate JavaScript-compatible installation instructions
 fn generate_installation_json(installation: &crate::api::Installation, version: &str) -> String {
     use crate::api::InstallationStep;
-    
+
     #[derive(Serialize)]
     struct InstallationConfig {
         version: String,
@@ -234,7 +234,7 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
         /// Language configurations
         languages: BTreeMap<String, LanguageInstall>,
     }
-    
+
     #[derive(Serialize)]
     struct DialectJson {
         #[serde(rename = "displayName")]
@@ -242,7 +242,7 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
         default: String,
         variants: BTreeMap<String, VariantJson>,
     }
-    
+
     #[derive(Serialize)]
     struct VariantJson {
         #[serde(rename = "displayName")]
@@ -250,7 +250,7 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
         #[serde(rename = "altText")]
         alt_text: String,
     }
-    
+
     #[derive(Serialize)]
     struct LanguageInstall {
         #[serde(rename = "displayName")]
@@ -272,7 +272,7 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
         #[serde(skip_serializing_if = "Option::is_none")]
         macos: Option<Vec<StepJson>>,
     }
-    
+
     #[derive(Serialize, Clone)]
     struct StepJson {
         #[serde(rename = "type")]
@@ -281,95 +281,114 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
         language: Option<String>,
         content: String,
     }
-    
+
     fn convert_steps(steps: &[InstallationStep], hostname: &str, version: &str) -> Vec<StepJson> {
-        steps.iter().map(|step| {
-            let interpolated = step.interpolate(hostname, version);
-            match interpolated {
-                InstallationStep::Code { language, content } => StepJson {
-                    step_type: "code".to_string(),
-                    language: Some(language),
-                    content,
-                },
-                InstallationStep::Command { content } => StepJson {
-                    step_type: "command".to_string(),
-                    language: None,
-                    content,
-                },
-                InstallationStep::Text { content } => StepJson {
-                    step_type: "text".to_string(),
-                    language: None,
-                    content,
-                },
-            }
-        }).collect()
+        steps
+            .iter()
+            .map(|step| {
+                let interpolated = step.interpolate(hostname, version);
+                match interpolated {
+                    InstallationStep::Code { language, content } => StepJson {
+                        step_type: "code".to_string(),
+                        language: Some(language),
+                        content,
+                    },
+                    InstallationStep::Command { content } => StepJson {
+                        step_type: "command".to_string(),
+                        language: None,
+                        content,
+                    },
+                    InstallationStep::Text { content } => StepJson {
+                        step_type: "text".to_string(),
+                        language: None,
+                        content,
+                    },
+                }
+            })
+            .collect()
     }
-    
+
     let hostname = HTML_ROOT;
-    
+
     // Convert dialects
     let mut dialects = BTreeMap::new();
     for (key, dialect) in &installation.dialects {
         let mut variants = BTreeMap::new();
         for (var_key, var) in &dialect.variants {
-            variants.insert(var_key.clone(), VariantJson {
-                display_name: var.display_name.clone(),
-                alt_text: var.alt_text.clone(),
-            });
+            variants.insert(
+                var_key.clone(),
+                VariantJson {
+                    display_name: var.display_name.clone(),
+                    alt_text: var.alt_text.clone(),
+                },
+            );
         }
-        dialects.insert(key.clone(), DialectJson {
-            display_name: dialect.display_name.clone(),
-            default: dialect.default.clone(),
-            variants,
-        });
+        dialects.insert(
+            key.clone(),
+            DialectJson {
+                display_name: dialect.display_name.clone(),
+                default: dialect.default.clone(),
+                variants,
+            },
+        );
     }
-    
+
     // Convert languages
     let mut languages = BTreeMap::new();
     for (lang_key, lang_config) in &installation.languages {
-        let methods: Vec<String> = lang_config.methods
+        let methods: Vec<String> = lang_config
+            .methods
             .as_ref()
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default();
-        
+
         let mut method_steps = BTreeMap::new();
         if let Some(methods_map) = &lang_config.methods {
             for (method_key, method_config) in methods_map {
                 method_steps.insert(
                     method_key.clone(),
-                    convert_steps(&method_config.steps, hostname, version)
+                    convert_steps(&method_config.steps, hostname, version),
                 );
             }
         }
-        
+
         let (windows, linux, macos) = if let Some(platforms) = &lang_config.platforms {
             (
-                platforms.get("windows").map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms.get("linux").map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms.get("macos").map(|s| convert_steps(&s.steps, hostname, version)),
+                platforms
+                    .get("windows")
+                    .map(|s| convert_steps(&s.steps, hostname, version)),
+                platforms
+                    .get("linux")
+                    .map(|s| convert_steps(&s.steps, hostname, version)),
+                platforms
+                    .get("macos")
+                    .map(|s| convert_steps(&s.steps, hostname, version)),
             )
         } else {
             (None, None, None)
         };
-        
-        languages.insert(lang_key.clone(), LanguageInstall {
-            display_name: lang_config.display_name.clone(),
-            dialect_of: lang_config.dialect_of.clone(),
-            methods,
-            method_steps,
-            windows,
-            linux,
-            macos,
-        });
+
+        languages.insert(
+            lang_key.clone(),
+            LanguageInstall {
+                display_name: lang_config.display_name.clone(),
+                dialect_of: lang_config.dialect_of.clone(),
+                methods,
+                method_steps,
+                windows,
+                linux,
+                macos,
+            },
+        );
     }
-    
+
     let config = InstallationConfig {
         version: version.to_string(),
         hostname: hostname.to_string(),
         dialects,
         languages,
     };
-    
+
     serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -399,15 +418,20 @@ pub fn get_sidebar() -> String {
         "
         <nav>
         <ul class='nav-grid'>
-          <li><a href='https://azul.rs'>overview</a></li>
+          <li><a href='https://azul.rs'>overview</a></li>\
+         
           <li><a href='https://azul.rs/releases.html'>releases</a></li>
-          <li><a href='https://github.com/fschutt/azul'>code</a></li>
+          <li><a href='https://github.com/fschutt/azul'>code</a></li>\
+         
           <li><a href='https://discord.gg/V96ZGKqQvn'>discord</a></li>
-          <li><a href='https://azul.rs/guide.html'>guide</a></li>
+          <li><a href='https://azul.rs/guide.html'>guide</a></li>\
+         
           <li><a href='https://azul.rs/api.html'>api</a></li>
-          <li><a href='https://azul.rs/reftest.html'>reftests</a></li>
+          <li><a href='https://azul.rs/reftest.html'>reftests</a></li>\
+         
           <li><a href='https://azul.rs/blog.html'>blog</a></li>
-          <li><a href='https://azul.rs/donate.html'>donate</a></li>
+          <li><a href='https://azul.rs/donate.html'>donate</a></li>\
+         
         </ul>
       </nav>
     "

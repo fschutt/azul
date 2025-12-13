@@ -14,6 +14,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::Callback;
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
@@ -271,7 +272,12 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                        offset_x: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
+                        offset_y: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
                         color: ColorU {
                             r: 0,
                             g: 0,
@@ -289,7 +295,12 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                        offset_x: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
+                        offset_y: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
                         color: ColorU {
                             r: 0,
                             g: 0,
@@ -307,11 +318,11 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { 
-                            inner: PixelValue::const_px(0) 
-                        }, 
-                        offset_y: PixelValueNoPercent { 
-                            inner: PixelValue::const_px(0) 
+                        offset_x: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
+                        offset_y: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
                         },
                         color: ColorU {
                             r: 0,
@@ -330,11 +341,11 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { 
-                            inner: PixelValue::const_px(0) 
-                        }, 
-                        offset_y: PixelValueNoPercent { 
-                            inner: PixelValue::const_px(0) 
+                        offset_x: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
+                        },
+                        offset_y: PixelValueNoPercent {
+                            inner: PixelValue::const_px(0),
                         },
                         color: ColorU {
                             r: 0,
@@ -472,7 +483,12 @@ impl ProgressBar {
                         )),
                         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                                offset_x: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
+                                offset_y: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
                                 color: ColorU {
                                     r: 0,
                                     g: 51,
@@ -490,7 +506,12 @@ impl ProgressBar {
                         )),
                         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                                offset_x: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
+                                offset_y: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
                                 color: ColorU {
                                     r: 0,
                                     g: 51,
@@ -508,7 +529,12 @@ impl ProgressBar {
                         )),
                         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                                offset_x: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
+                                offset_y: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
                                 color: ColorU {
                                     r: 0,
                                     g: 51,
@@ -526,7 +552,12 @@ impl ProgressBar {
                         )),
                         NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                                offset_x: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
+                                offset_y: PixelValueNoPercent {
+                                    inner: PixelValue::const_px(0),
+                                },
                                 color: ColorU {
                                     r: 0,
                                     g: 51,

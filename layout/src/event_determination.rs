@@ -1,7 +1,7 @@
 //! Unified Event Determination
 //!
-//! This module provides the single source of truth for what 
-//! events occurred in a frame. It combines window state changes 
+//! This module provides the single source of truth for what
+//! events occurred in a frame. It combines window state changes
 //! with events from all managers (scroll, text input, etc.).
 
 use azul_core::{
@@ -16,14 +16,15 @@ use azul_core::{
     task::{Instant, SystemTick},
     window::{CursorPosition, WindowPosition},
 };
+
 use crate::window_state::FullWindowState;
 
 /// Unified event determination from all sources.
 ///
 /// This is the **single source of truth** for what events occurred in a frame.
-/// 
+///
 /// It combines:
-/// 
+///
 /// 1. Window state changes (resize, move, theme, etc.)
 /// 2. Manager-reported events (scroll, text input, focus, hover)
 /// 3. Deduplicates by node + event type
@@ -84,7 +85,7 @@ pub fn determine_events_from_managers<'a>(
 /// Detect window-level events by comparing states.
 ///
 /// This is a simple sub-function that only handles window-level changes:
-/// 
+///
 /// - Window resized
 /// - Window moved
 /// - Theme changed
@@ -204,7 +205,7 @@ fn detect_window_state_events(
 ///
 /// This is the full replacement for `create_events_from_states_with_gestures()`.
 /// It generates SyntheticEvents for all event types including:
-/// 
+///
 /// - Mouse button events (down/up for left/right/middle)
 /// - Mouse movement (MouseOver)
 /// - Keyboard events (VirtualKeyDown/Up)
@@ -236,7 +237,6 @@ pub fn determine_all_events(
     managers: &[&dyn EventProvider],
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
-
     let mut events = Vec::new();
 
     // Get root node for window-level events

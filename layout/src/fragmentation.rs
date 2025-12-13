@@ -13,7 +13,7 @@
 //! ## Algorithm Overview
 //!
 //! Unlike post-layout splitting, this module integrates fragmentation INTO layout:
-//! 
+//!
 //! 1. Classify each box's break behavior (splittable, keep-together, monolithic)
 //! 2. During layout, check if content fits in current fragmentainer
 //! 3. Apply break-before/break-after rules
@@ -22,7 +22,7 @@
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::fmt;
-use crate::solver3::display_list::{DisplayList, DisplayListItem};
+
 use azul_core::{
     dom::NodeId,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -30,6 +30,8 @@ use azul_core::{
 use azul_css::props::layout::fragmentation::{
     BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows,
 };
+
+use crate::solver3::display_list::{DisplayList, DisplayListItem};
 
 // Page Templates (Headers, Footers, Running Content)
 
@@ -544,14 +546,10 @@ impl Default for FragmentationDefaults {
 impl FragmentationLayoutContext {
     /// Create a new fragmentation context for paged layout
     pub fn new(page_size: LogicalSize, margins: PageMargins) -> Self {
-
         let template = PageTemplate::default();
 
         let page_content_height =
-            page_size.height 
-            - margins.vertical() 
-            - template.header_height 
-            - template.footer_height;
+            page_size.height - margins.vertical() - template.header_height - template.footer_height;
 
         Self {
             page_size,
@@ -754,14 +752,11 @@ impl FragmentationLayoutContext {
         let content_width = self.page_size.width - self.margins.horizontal();
 
         let x = match position {
-            PageSlotPosition::TopLeft | 
-            PageSlotPosition::BottomLeft => self.margins.left,
-            PageSlotPosition::TopCenter | 
-            PageSlotPosition::BottomCenter => {
+            PageSlotPosition::TopLeft | PageSlotPosition::BottomLeft => self.margins.left,
+            PageSlotPosition::TopCenter | PageSlotPosition::BottomCenter => {
                 self.margins.left + content_width / 2.0
             }
-            PageSlotPosition::TopRight | 
-            PageSlotPosition::BottomRight => {
+            PageSlotPosition::TopRight | PageSlotPosition::BottomRight => {
                 self.page_size.width - self.margins.right
             }
         };
@@ -962,4 +957,3 @@ fn to_upper_alpha(mut n: usize) -> String {
     }
     result
 }
-

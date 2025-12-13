@@ -82,8 +82,10 @@ fn test_flexbox_row_direction() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let container_rect = layout_window.get_node_layout_rect(root_id).expect("container rect");
-    
+    let container_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
+
     assert!(
         (container_rect.size.width - 300.0).abs() < 1.0,
         "Container width should be 300px, got {}",
@@ -114,8 +116,10 @@ fn test_flexbox_column_direction() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let container_rect = layout_window.get_node_layout_rect(root_id).expect("container rect");
-    
+    let container_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
+
     assert!(
         (container_rect.size.height - 200.0).abs() < 1.0,
         "Container height should be 200px, got {}",
@@ -146,7 +150,9 @@ fn test_flexbox_justify_content_center() {
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     // Test passes if no panic occurs during layout
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -173,7 +179,9 @@ fn test_flexbox_justify_content_space_between() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -198,7 +206,9 @@ fn test_flexbox_align_items_center() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -227,7 +237,9 @@ fn test_flexbox_flex_grow() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -253,7 +265,9 @@ fn test_flexbox_flex_shrink() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -280,7 +294,9 @@ fn test_flexbox_flex_wrap() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -307,7 +323,9 @@ fn test_flexbox_gap() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -316,7 +334,9 @@ fn test_flexbox_order() {
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("first".into())].into()))
-        .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("second".into())].into()));
+        .with_child(
+            Dom::div().with_ids_and_classes(vec![IdOrClass::Class("second".into())].into()),
+        );
 
     let css = r#"
         .container {
@@ -338,7 +358,9 @@ fn test_flexbox_order() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -349,8 +371,12 @@ fn test_flexbox_nested() {
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into())
-                .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-                .with_child(Dom::div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+                .with_child(
+                    Dom::div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
+                )
+                .with_child(
+                    Dom::div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
+                ),
         );
 
     let css = r#"
@@ -373,7 +399,9 @@ fn test_flexbox_nested() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("outer rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("outer rect");
 }
 
 #[test]
@@ -399,7 +427,9 @@ fn test_flexbox_min_max_size() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -424,7 +454,9 @@ fn test_flexbox_auto_margin() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -455,14 +487,15 @@ fn test_flexbox_align_self() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
 fn test_flexbox_empty_container() {
     // Test empty flex container
-    let dom = Dom::div()
-        .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
+    let dom = Dom::div().with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
 
     let css = r#"
         .container {
@@ -474,8 +507,10 @@ fn test_flexbox_empty_container() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let container_rect = layout_window.get_node_layout_rect(root_id).expect("container rect");
-    
+    let container_rect = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
+
     assert!(
         (container_rect.size.width - 300.0).abs() < 1.0,
         "Empty flex container width should be 300px, got {}",
@@ -506,7 +541,9 @@ fn test_flexbox_single_child() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -530,7 +567,9 @@ fn test_flexbox_percentage_width() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -541,7 +580,7 @@ fn test_flexbox_flex_basis_auto() {
         .with_child(
             Dom::div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into())
-                .with_child(Dom::text("Content"))
+                .with_child(Dom::text("Content")),
         );
 
     let css = r#"
@@ -557,7 +596,9 @@ fn test_flexbox_flex_basis_auto() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }
 
 #[test]
@@ -582,5 +623,7 @@ fn test_flexbox_flex_basis_zero() {
 
     let layout_window = layout_dom(dom, css, 1024.0, 768.0);
     let root_id = get_root_id();
-    let _ = layout_window.get_node_layout_rect(root_id).expect("container rect");
+    let _ = layout_window
+        .get_node_layout_rect(root_id)
+        .expect("container rect");
 }

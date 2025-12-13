@@ -1282,14 +1282,13 @@ pub trait PlatformWindowV2 {
                                                 InlineContent, StyleProperties, StyledRun,
                                             };
 
-                                            let new_content = vec![InlineContent::Text(
-                                                StyledRun {
+                                            let new_content =
+                                                vec![InlineContent::Text(StyledRun {
                                                     text: operation.pre_state.text_content.clone(),
                                                     // TODO: Preserve original style
                                                     style: Arc::new(StyleProperties::default()),
                                                     logical_start_byte: 0,
-                                                },
-                                            )];
+                                                })];
 
                                             // Update text cache with pre-state content
                                             layout_window.update_text_cache_after_edit(

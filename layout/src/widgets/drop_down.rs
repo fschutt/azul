@@ -1,7 +1,5 @@
 use azul_core::{
-    callbacks::{
-        CoreCallback, CoreCallbackData, Update,
-    },
+    callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, DomVec, EventFilter, FocusEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
         NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, TabIndex,
@@ -18,6 +16,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -872,8 +871,7 @@ const CSS_MATCH_7938442083662451131_PROPERTIES: &[NodeDataInlineCssProperty] = &
 const CSS_MATCH_7938442083662451131: NodeDataInlineCssPropertyVec =
     NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_7938442083662451131_PROPERTIES);
 
-pub type DropDownOnChoiceChangeCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+pub type DropDownOnChoiceChangeCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_callback!(
     DropDownOnChoiceChange,
     OptionDropDownOnChoiceChange,
@@ -1012,16 +1010,13 @@ extern "C" fn on_dropdown_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
         .iter()
         .enumerate()
         .map(|(idx, choice)| {
-            MenuItem::String(
-                StringMenuItem::new(choice.clone())
-                    .with_callback(
-                        RefAny::new(ChoiceCallbackData {
-                            choice_id: idx,
-                            on_choice_change: data.on_choice_change.clone(),
-                        }),
-                        on_choice_selected as usize,
-                    )
-            )
+            MenuItem::String(StringMenuItem::new(choice.clone()).with_callback(
+                RefAny::new(ChoiceCallbackData {
+                    choice_id: idx,
+                    on_choice_change: data.on_choice_change.clone(),
+                }),
+                on_choice_selected as usize,
+            ))
         })
         .collect();
 
@@ -1046,9 +1041,9 @@ extern "C" fn on_choice_selected(mut data: RefAny, info: CallbackInfo) -> Update
     let choice_id = data.choice_id;
 
     match data.on_choice_change.as_mut() {
-        Some(DropDownOnChoiceChange { data, callback }) => (callback.cb)(
-            data.clone(), info.clone(), choice_id
-        ),
+        Some(DropDownOnChoiceChange { data, callback }) => {
+            (callback.cb)(data.clone(), info.clone(), choice_id)
+        }
         None => Update::DoNothing,
     }
 }

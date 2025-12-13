@@ -19,19 +19,103 @@ const PREFIX: &str = "Az";
 
 /// C++ reserved keywords that cannot be used as identifiers
 const CPP_RESERVED_KEYWORDS: &[&str] = &[
-    "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit", 
-    "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch", 
-    "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", 
-    "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", 
-    "co_return", "co_yield", "decltype", "default", "delete", "do", "double", 
-    "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", 
-    "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", 
-    "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", 
-    "protected", "public", "reflexpr", "register", "reinterpret_cast", "requires", 
-    "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", 
-    "struct", "switch", "synchronized", "template", "this", "thread_local", "throw", 
-    "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", 
-    "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+    "alignas",
+    "alignof",
+    "and",
+    "and_eq",
+    "asm",
+    "atomic_cancel",
+    "atomic_commit",
+    "atomic_noexcept",
+    "auto",
+    "bitand",
+    "bitor",
+    "bool",
+    "break",
+    "case",
+    "catch",
+    "char",
+    "char8_t",
+    "char16_t",
+    "char32_t",
+    "class",
+    "compl",
+    "concept",
+    "const",
+    "consteval",
+    "constexpr",
+    "constinit",
+    "const_cast",
+    "continue",
+    "co_await",
+    "co_return",
+    "co_yield",
+    "decltype",
+    "default",
+    "delete",
+    "do",
+    "double",
+    "dynamic_cast",
+    "else",
+    "enum",
+    "explicit",
+    "export",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "friend",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "mutable",
+    "namespace",
+    "new",
+    "noexcept",
+    "not",
+    "not_eq",
+    "nullptr",
+    "operator",
+    "or",
+    "or_eq",
+    "private",
+    "protected",
+    "public",
+    "reflexpr",
+    "register",
+    "reinterpret_cast",
+    "requires",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "static_cast",
+    "struct",
+    "switch",
+    "synchronized",
+    "template",
+    "this",
+    "thread_local",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "typeid",
+    "typename",
+    "union",
+    "unsigned",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "wchar_t",
+    "while",
+    "xor",
+    "xor_eq",
 ];
 
 /// Escape C++ reserved keywords by appending an underscore
@@ -44,11 +128,11 @@ pub fn escape_cpp_keyword(name: &str) -> String {
 }
 
 /// Convert a Rust type (possibly with pointer prefix) to a C type.
-/// 
+///
 /// Handles types like "*mut c_void" -> "void*", "*const InstantPtr" -> "const AzInstantPtr*"
 fn rust_type_to_c_type(rust_type: &str, ref_kind: RefKind) -> String {
     let trimmed = rust_type.trim();
-    
+
     // Check if the type itself contains pointer syntax (e.g., "*mut c_void")
     let (ptr_prefix, base_type) = if trimmed.starts_with("*mut ") {
         ("*", trimmed.strip_prefix("*mut ").unwrap().trim())
@@ -61,14 +145,14 @@ fn rust_type_to_c_type(rust_type: &str, ref_kind: RefKind) -> String {
     } else {
         ("", trimmed)
     };
-    
+
     // Convert the base type to C
     let c_base_type = if is_primitive_arg(base_type) {
         replace_primitive_ctype(base_type)
     } else {
         format!("{}{}", PREFIX, base_type)
     };
-    
+
     // If the type itself had pointer syntax, apply it
     let with_embedded_ptr = if !ptr_prefix.is_empty() {
         if ptr_prefix == "const *" {
@@ -79,7 +163,7 @@ fn rust_type_to_c_type(rust_type: &str, ref_kind: RefKind) -> String {
     } else {
         c_base_type
     };
-    
+
     // Apply ref_kind only if there was no embedded pointer
     if !ptr_prefix.is_empty() {
         // Type already has pointer, ref_kind should be Value
@@ -97,41 +181,44 @@ fn rust_type_to_c_type(rust_type: &str, ref_kind: RefKind) -> String {
 }
 
 /// Generate a C function pointer typedef from a CallbackDefinition
-/// 
-/// Example output: `typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict, AzCallbackInfo* restrict);`
-/// 
+///
+/// Example output: `typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict, AzCallbackInfo*
+/// restrict);`
+///
 /// Note: `callback_name` already has the "Az" prefix from the sorted structs list.
-fn format_c_callback_typedef(
-    callback_name: &str,
-    callback_def: &CallbackDefinition,
-) -> String {
+fn format_c_callback_typedef(callback_name: &str, callback_def: &CallbackDefinition) -> String {
     // Determine return type - returns don't have ref_kind, so use Value
     let return_type = if let Some(ret) = &callback_def.returns {
         rust_type_to_c_type(&ret.r#type, RefKind::Value)
     } else {
         "void".to_string()
     };
-    
+
     // Build argument list
-    let args: Vec<String> = callback_def.fn_args.iter().map(|arg| {
-        rust_type_to_c_type(&arg.r#type, arg.ref_kind)
-    }).collect();
-    
+    let args: Vec<String> = callback_def
+        .fn_args
+        .iter()
+        .map(|arg| rust_type_to_c_type(&arg.r#type, arg.ref_kind))
+        .collect();
+
     let args_str = if args.is_empty() {
         "void".to_string()
     } else {
         args.join(", ")
     };
-    
+
     // callback_name already has the Az prefix from sorted structs
-    format!("typedef {} (*{})({});\r\n\r\n", return_type, callback_name, args_str)
+    format!(
+        "typedef {} (*{})({});\r\n\r\n",
+        return_type, callback_name, args_str
+    )
 }
 
 /// Extract array info from a type string for code generation
 /// Returns (base_type, c_array_suffix) where c_array_suffix is like "[4]" for arrays
 fn extract_array_from_type(type_str: &str) -> (String, String) {
     let trimmed = type_str.trim();
-    
+
     // Check if it's an array type: [T; N]
     if trimmed.starts_with('[') && trimmed.ends_with(']') {
         let inner = &trimmed[1..trimmed.len() - 1];
@@ -143,7 +230,7 @@ fn extract_array_from_type(type_str: &str) -> (String, String) {
             }
         }
     }
-    
+
     (trimmed.to_string(), String::new())
 }
 
@@ -155,7 +242,7 @@ fn convert_array_suffix_to_c(rust_suffix: &str) -> String {
     }
     // Format is "; N]" from analyze_type
     if rust_suffix.starts_with(';') && rust_suffix.ends_with(']') {
-        let num_str = rust_suffix[1..rust_suffix.len()-1].trim();
+        let num_str = rust_suffix[1..rust_suffix.len() - 1].trim();
         return format!("[{}]", num_str);
     }
     // Fallback: just use it as-is (shouldn't happen)
@@ -187,8 +274,12 @@ fn generate_monomorphized_type(
     version_data: &crate::api::VersionData,
 ) {
     // Check if the target class has a u8 repr
-    let is_u8_repr = target_class.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-    
+    let is_u8_repr = target_class
+        .repr
+        .as_ref()
+        .map(|r| r.contains("u8"))
+        .unwrap_or(false);
+
     // For CssPropertyValue<T>, the target is an enum with variants like:
     // Auto, None, Inherit, Initial, Exact(T)
     if let Some(enum_fields) = &target_class.enum_fields {
@@ -205,14 +296,20 @@ fn generate_monomorphized_type(
                 code.push_str(&format!("   {}_Tag__Force8Bit = 0xFF,\r\n", struct_name));
             }
             code.push_str("};\r\n");
-            code.push_str(&format!("typedef enum {}_Tag {}_Tag;\r\n\r\n", struct_name, struct_name));
-            
+            code.push_str(&format!(
+                "typedef enum {}_Tag {}_Tag;\r\n\r\n",
+                struct_name, struct_name
+            ));
+
             // Generate variant structs
             for variant_map in enum_fields {
                 for (variant_name, variant_data) in variant_map {
-                    code.push_str(&format!("struct {}Variant_{} {{\r\n", struct_name, variant_name));
+                    code.push_str(&format!(
+                        "struct {}Variant_{} {{\r\n",
+                        struct_name, variant_name
+                    ));
                     code.push_str(&format!("    {}_Tag tag;\r\n", struct_name));
-                    
+
                     if let Some(variant_type) = &variant_data.r#type {
                         // Extract array info and substitute generic type parameter
                         let (base_type, array_suffix) = extract_array_from_type(variant_type);
@@ -226,26 +323,34 @@ fn generate_monomorphized_type(
                         } else {
                             base_type
                         };
-                        
+
                         if is_primitive_arg(&concrete_type) {
                             let c_type = replace_primitive_ctype(&concrete_type);
                             code.push_str(&format!("    {} payload{};\r\n", c_type, array_suffix));
                         } else {
-                            code.push_str(&format!("    {}{} payload{};\r\n", PREFIX, concrete_type, array_suffix));
+                            code.push_str(&format!(
+                                "    {}{} payload{};\r\n",
+                                PREFIX, concrete_type, array_suffix
+                            ));
                         }
                     }
-                    
+
                     code.push_str("};\r\n");
-                    code.push_str(&format!("typedef struct {}Variant_{} {}Variant_{};\r\n\r\n", 
-                        struct_name, variant_name, struct_name, variant_name));
+                    code.push_str(&format!(
+                        "typedef struct {}Variant_{} {}Variant_{};\r\n\r\n",
+                        struct_name, variant_name, struct_name, variant_name
+                    ));
                 }
             }
-            
+
             // Generate the union itself
             code.push_str(&format!("union {} {{\r\n", struct_name));
             for variant_map in enum_fields {
                 for (variant_name, _) in variant_map {
-                    code.push_str(&format!("    {}Variant_{} {};\r\n", struct_name, variant_name, variant_name));
+                    code.push_str(&format!(
+                        "    {}Variant_{} {};\r\n",
+                        struct_name, variant_name, variant_name
+                    ));
                 }
             }
             code.push_str("};\r\n\r\n");
@@ -263,7 +368,10 @@ fn generate_monomorphized_type(
             }
             code.push_str("};\r\n");
             // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
-            code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
+            code.push_str(&format!(
+                "typedef enum {} {};\r\n\r\n",
+                struct_name, struct_name
+            ));
         }
     } else if let Some(struct_fields) = &target_class.struct_fields {
         // Struct monomorphization - substitute generic type params
@@ -272,10 +380,11 @@ fn generate_monomorphized_type(
             for (field_name, field_data) in field_map {
                 let field_type = &field_data.r#type;
                 let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(&field_data.ref_kind);
-                let explicit_array_suffix = field_data.arraysize
+                let explicit_array_suffix = field_data
+                    .arraysize
                     .map(|n| format!("[{}]", n))
                     .unwrap_or_default();
-                
+
                 // Substitute generic type parameter
                 let concrete_type = if is_generic_type_param(field_type) {
                     if let Some(arg) = type_alias.generic_args.first() {
@@ -286,7 +395,7 @@ fn generate_monomorphized_type(
                 } else {
                     field_type.clone()
                 };
-                
+
                 // Check if this is an inline array type like [u8; 4]
                 let (base_type, inline_array_suffix) = extract_array_from_type(&concrete_type);
                 let array_suffix = if !inline_array_suffix.is_empty() {
@@ -294,14 +403,18 @@ fn generate_monomorphized_type(
                 } else {
                     explicit_array_suffix
                 };
-                
+
                 if is_primitive_arg(&base_type) {
                     let c_type = replace_primitive_ctype(&base_type);
-                    code.push_str(&format!("    {}{}{} {}{};\r\n", 
-                        c_ptr_prefix, c_type, c_ptr_suffix, field_name, array_suffix));
+                    code.push_str(&format!(
+                        "    {}{}{} {}{};\r\n",
+                        c_ptr_prefix, c_type, c_ptr_suffix, field_name, array_suffix
+                    ));
                 } else {
-                    code.push_str(&format!("    {}{}{}{} {}{};\r\n", 
-                        c_ptr_prefix, PREFIX, base_type, c_ptr_suffix, field_name, array_suffix));
+                    code.push_str(&format!(
+                        "    {}{}{}{} {}{};\r\n",
+                        c_ptr_prefix, PREFIX, base_type, c_ptr_suffix, field_name, array_suffix
+                    ));
                 }
             }
         }
@@ -319,7 +432,7 @@ fn generate_tagged_union(
 ) {
     // Determine if this is a u8 enum that needs size enforcement
     let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-    
+
     // Generate tag enum (use _Tag suffix to avoid clashing with standalone enums)
     code.push_str(&format!("enum {}_Tag {{\r\n", struct_name));
     for variant_map in enum_fields {
@@ -332,27 +445,40 @@ fn generate_tagged_union(
         code.push_str(&format!("   {}_Tag__Force8Bit = 0xFF,\r\n", struct_name));
     }
     code.push_str("};\r\n");
-    code.push_str(&format!("typedef enum {}_Tag {}_Tag;\r\n\r\n", struct_name, struct_name));
+    code.push_str(&format!(
+        "typedef enum {}_Tag {}_Tag;\r\n\r\n",
+        struct_name, struct_name
+    ));
 
     // Generate variant structs
     for variant_map in enum_fields {
         for (variant_name, variant_data) in variant_map {
-            code.push_str(&format!("struct {}Variant_{} {{\r\n", struct_name, variant_name));
+            code.push_str(&format!(
+                "struct {}Variant_{} {{\r\n",
+                struct_name, variant_name
+            ));
             code.push_str(&format!("    {}_Tag tag;\r\n", struct_name));
-            
+
             if let Some(variant_type) = &variant_data.r#type {
                 let (base_type, array_suffix) = extract_array_from_type(variant_type);
                 if is_primitive_arg(&base_type) {
                     let c_type = replace_primitive_ctype(&base_type);
                     code.push_str(&format!("    {} payload{};\r\n", c_type, array_suffix));
-                } else if let Some((_, type_class_name)) = search_for_class_by_class_name(version_data, &base_type) {
-                    code.push_str(&format!("    {}{} payload{};\r\n", PREFIX, type_class_name, array_suffix));
+                } else if let Some((_, type_class_name)) =
+                    search_for_class_by_class_name(version_data, &base_type)
+                {
+                    code.push_str(&format!(
+                        "    {}{} payload{};\r\n",
+                        PREFIX, type_class_name, array_suffix
+                    ));
                 }
             }
-            
+
             code.push_str("};\r\n");
-            code.push_str(&format!("typedef struct {}Variant_{} {}Variant_{};\r\n\r\n", 
-                struct_name, variant_name, struct_name, variant_name));
+            code.push_str(&format!(
+                "typedef struct {}Variant_{} {}Variant_{};\r\n\r\n",
+                struct_name, variant_name, struct_name, variant_name
+            ));
         }
     }
 
@@ -360,7 +486,10 @@ fn generate_tagged_union(
     code.push_str(&format!("union {} {{\r\n", struct_name));
     for variant_map in enum_fields {
         for (variant_name, _) in variant_map {
-            code.push_str(&format!("    {}Variant_{} {};\r\n", struct_name, variant_name, variant_name));
+            code.push_str(&format!(
+                "    {}Variant_{} {};\r\n",
+                struct_name, variant_name, variant_name
+            ));
         }
     }
     code.push_str("};\r\n\r\n");
@@ -413,7 +542,7 @@ fn format_c_function_args(
 
             // Escape C++ reserved keywords
             let safe_arg_name = escape_cpp_keyword(arg_name);
-            
+
             let (prefix_ptr, base_type, _suffix) = analyze_type(arg_type);
 
             if is_primitive_arg(&base_type) {
@@ -528,53 +657,68 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
 
     // Collect callbacks for later
     let mut callbacks: Vec<(&String, &CallbackDefinition)> = Vec::new();
-    
+
     // Phase 1: Forward declarations for ALL types (needed for recursive references)
     // Note: In C++, enum forward declarations are not allowed without a base type,
     // so we wrap enum forward declarations in #ifndef __cplusplus
     code.push_str("/* FORWARD DECLARATIONS */\r\n\r\n");
-    
+
     // First: struct/union forward declarations (valid in both C and C++)
     for (struct_name, class_data) in &structs {
         if class_data.callback_typedef.is_some() {
             continue; // Skip callbacks
         }
-        
+
         // Skip generic types - they are templates for monomorphized versions
         // and have unresolved type parameters like "T"
         if class_data.generic_params.is_some() {
             continue;
         }
-        
+
         // If it has struct_fields, it's definitely a struct (even if it also has type_alias)
         if class_data.struct_fields.is_some() {
             code.push_str(&format!("struct {};\r\n", struct_name));
-            code.push_str(&format!("typedef struct {} {};\r\n", struct_name, struct_name));
+            code.push_str(&format!(
+                "typedef struct {} {};\r\n",
+                struct_name, struct_name
+            ));
             continue;
         }
-        
+
         // Type aliases with generics (and no struct_fields) need to check the target type
         if let Some(type_alias) = &class_data.type_alias {
             if !type_alias.generic_args.is_empty() {
                 // Look up the target type to determine if it's a struct or enum
                 let target = &type_alias.target;
-                if let Some((_, target_class)) = search_for_class_by_class_name(version_data, target) {
-                    if let Some(target_data) = version_data.api.values()
+                if let Some((_, target_class)) =
+                    search_for_class_by_class_name(version_data, target)
+                {
+                    if let Some(target_data) = version_data
+                        .api
+                        .values()
                         .find_map(|m| m.classes.get(target_class))
                     {
                         if target_data.struct_fields.is_some() {
                             // Target is a struct, so monomorphized type is also a struct
                             code.push_str(&format!("struct {};\r\n", struct_name));
-                            code.push_str(&format!("typedef struct {} {};\r\n", struct_name, struct_name));
+                            code.push_str(&format!(
+                                "typedef struct {} {};\r\n",
+                                struct_name, struct_name
+                            ));
                             continue;
                         } else if target_data.enum_fields.is_some() {
                             // Target is an enum - check if it's a union (enum with data)
-                            let is_union = target_data.enum_fields.as_ref()
+                            let is_union = target_data
+                                .enum_fields
+                                .as_ref()
                                 .map(|f| enum_is_union(f))
                                 .unwrap_or(false);
                             if is_union {
                                 code.push_str(&format!("union {};\r\n", struct_name));
-                                code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
+                                code.push_str(&format!(
+                                    "typedef union {} {};\r\n",
+                                    struct_name, struct_name
+                                ));
                             }
                             // Skip plain enums here - they go in the #ifndef __cplusplus block
                             continue;
@@ -583,20 +727,28 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 }
                 // Fallback: if target not found, assume union for backwards compatibility
                 code.push_str(&format!("union {};\r\n", struct_name));
-                code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
+                code.push_str(&format!(
+                    "typedef union {} {};\r\n",
+                    struct_name, struct_name
+                ));
                 continue;
             }
             // Simple type aliases don't need forward declarations
             continue;
         }
-        
+
         if class_data.enum_fields.is_some() {
-            let is_union = class_data.enum_fields.as_ref()
+            let is_union = class_data
+                .enum_fields
+                .as_ref()
                 .map(|f| enum_is_union(f))
                 .unwrap_or(false);
             if is_union {
                 code.push_str(&format!("union {};\r\n", struct_name));
-                code.push_str(&format!("typedef union {} {};\r\n", struct_name, struct_name));
+                code.push_str(&format!(
+                    "typedef union {} {};\r\n",
+                    struct_name, struct_name
+                ));
             }
             // Plain enums: no forward declaration needed - full definition comes in Phase 2.5
         }
@@ -606,45 +758,63 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     // Phase 2.5: Simple enum definitions BEFORE callbacks
     // This is needed because callbacks may use enum types as return values
     code.push_str("/* SIMPLE ENUM DEFINITIONS (needed before callbacks) */\r\n\r\n");
-    let mut enums_already_generated: std::collections::HashSet<String> = std::collections::HashSet::new();
-    
+    let mut enums_already_generated: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
     for (struct_name, class_data) in &structs {
         if class_data.callback_typedef.is_some() {
             continue;
         }
-        
+
         // Skip generic types - they are templates for monomorphized versions
         if class_data.generic_params.is_some() {
             continue;
         }
-        
+
         // Handle enum from type_alias (monomorphized generic)
         if let Some(type_alias) = &class_data.type_alias {
             if !type_alias.generic_args.is_empty() {
                 let target = &type_alias.target;
-                if let Some((_, target_class)) = search_for_class_by_class_name(version_data, target) {
-                    if let Some(target_data) = version_data.api.values()
+                if let Some((_, target_class)) =
+                    search_for_class_by_class_name(version_data, target)
+                {
+                    if let Some(target_data) = version_data
+                        .api
+                        .values()
                         .find_map(|m| m.classes.get(target_class))
                     {
                         if let Some(enum_fields) = &target_data.enum_fields {
                             if !enum_is_union(enum_fields) {
                                 // Check if target has u8 repr
-                                let is_u8_repr = target_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-                                
+                                let is_u8_repr = target_data
+                                    .repr
+                                    .as_ref()
+                                    .map(|r| r.contains("u8"))
+                                    .unwrap_or(false);
+
                                 // Simple enum from monomorphized type
                                 code.push_str(&format!("enum {} {{\r\n", struct_name));
                                 for variant_map in enum_fields {
                                     for (variant_name, _) in variant_map {
-                                        code.push_str(&format!("   {}_{},\r\n", struct_name, variant_name));
+                                        code.push_str(&format!(
+                                            "   {}_{},\r\n",
+                                            struct_name, variant_name
+                                        ));
                                     }
                                 }
                                 // Add sentinel value to force enum size for u8 repr
                                 if is_u8_repr {
-                                    code.push_str(&format!("   {}_Force8Bit = 0xFF,\r\n", struct_name));
+                                    code.push_str(&format!(
+                                        "   {}_Force8Bit = 0xFF,\r\n",
+                                        struct_name
+                                    ));
                                 }
                                 code.push_str("};\r\n");
                                 // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
-                                code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
+                                code.push_str(&format!(
+                                    "typedef enum {} {};\r\n\r\n",
+                                    struct_name, struct_name
+                                ));
                                 enums_already_generated.insert(struct_name.clone());
                             }
                         }
@@ -653,12 +823,16 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             }
             continue;
         }
-        
+
         // Generate simple enum definitions
         if let Some(enum_fields) = &class_data.enum_fields {
             // Check if this enum has a u8 repr
-            let is_u8_repr = class_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-            
+            let is_u8_repr = class_data
+                .repr
+                .as_ref()
+                .map(|r| r.contains("u8"))
+                .unwrap_or(false);
+
             if !enum_is_union(enum_fields) {
                 code.push_str(&format!("enum {} {{\r\n", struct_name));
                 for variant_map in enum_fields {
@@ -672,7 +846,10 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 }
                 code.push_str("};\r\n");
                 // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
-                code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
+                code.push_str(&format!(
+                    "typedef enum {} {};\r\n\r\n",
+                    struct_name, struct_name
+                ));
                 enums_already_generated.insert(struct_name.clone());
             }
         }
@@ -680,33 +857,39 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
 
     // Phase 3: Type aliases (simple typedefs that reference other types)
     // Skip types that have struct_fields - they will be generated as actual structs
-    code.push_str("/* TYPE ALIASES */\r\n\r\n");;
+    code.push_str("/* TYPE ALIASES */\r\n\r\n");
     for (struct_name, class_data) in &structs {
         // Skip if it has struct_fields - it's a real struct, not just a typedef
         if class_data.struct_fields.is_some() {
             continue;
         }
-        
+
         // Skip generic types - they are templates for monomorphized versions
         if class_data.generic_params.is_some() {
             continue;
         }
-        
+
         if let Some(type_alias) = &class_data.type_alias {
             let target = &type_alias.target;
             let ref_kind = &type_alias.ref_kind;
-            
+
             if is_primitive_arg(target) {
                 // Simple primitive alias (like CoreCallbackType -> usize)
                 let c_type = replace_primitive_ctype(target);
                 // Apply ref_kind for pointer types
                 let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(ref_kind);
-                code.push_str(&format!("typedef {}{}{} {};\r\n", c_ptr_prefix, c_type, c_ptr_suffix, struct_name));
+                code.push_str(&format!(
+                    "typedef {}{}{} {};\r\n",
+                    c_ptr_prefix, c_type, c_ptr_suffix, struct_name
+                ));
             } else if type_alias.generic_args.is_empty() {
                 // Non-generic type alias - typedef to the target struct
                 // Apply ref_kind for pointer types (e.g., HwndHandle = *mut c_void)
                 let (c_ptr_prefix, c_ptr_suffix) = ref_kind_to_c_syntax(ref_kind);
-                code.push_str(&format!("typedef {}{}{}{} {};\r\n", c_ptr_prefix, PREFIX, target, c_ptr_suffix, struct_name));
+                code.push_str(&format!(
+                    "typedef {}{}{}{} {};\r\n",
+                    c_ptr_prefix, PREFIX, target, c_ptr_suffix, struct_name
+                ));
             }
             // Generic type aliases are handled in the main definition loop
         }
@@ -731,12 +914,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         if class_data.callback_typedef.is_some() {
             continue;
         }
-        
+
         // Skip generic types - they are templates for monomorphized versions
         if class_data.generic_params.is_some() {
             continue;
         }
-        
+
         // If it has struct_fields, generate as struct (ignore type_alias)
         if class_data.struct_fields.is_some() {
             // Will be handled below
@@ -746,14 +929,22 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 // Skip simple type aliases (already handled in Phase 2)
                 continue;
             }
-            
+
             // Handle generic type alias - monomorphize it
             let target = &type_alias.target;
             if let Some((_, target_class)) = search_for_class_by_class_name(version_data, target) {
-                if let Some(target_data) = version_data.api.values()
+                if let Some(target_data) = version_data
+                    .api
+                    .values()
                     .find_map(|m| m.classes.get(target_class))
                 {
-                    generate_monomorphized_type(&mut code, struct_name, type_alias, target_data, version_data);
+                    generate_monomorphized_type(
+                        &mut code,
+                        struct_name,
+                        type_alias,
+                        target_data,
+                        version_data,
+                    );
                 }
             }
             continue;
@@ -767,7 +958,8 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 for (field_name, field_data) in field_map {
                     let field_type = &field_data.r#type;
                     let ref_kind = &field_data.ref_kind;
-                    let explicit_array_suffix = field_data.arraysize
+                    let explicit_array_suffix = field_data
+                        .arraysize
                         .map(|n| format!("[{}]", n))
                         .unwrap_or_default();
 
@@ -792,7 +984,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     {
                         code.push_str(&format!(
                             "    {}{}{}{} {}{};\r\n",
-                            c_ptr_prefix, PREFIX, type_class_name, c_ptr_suffix, field_name, array_suffix
+                            c_ptr_prefix,
+                            PREFIX,
+                            type_class_name,
+                            c_ptr_suffix,
+                            field_name,
+                            array_suffix
                         ));
                     }
                 }
@@ -803,8 +1000,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         // Generate enum definition
         else if let Some(enum_fields) = &class_data.enum_fields {
             // Check if this enum has a u8 repr
-            let is_u8_repr = class_data.repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-            
+            let is_u8_repr = class_data
+                .repr
+                .as_ref()
+                .map(|r| r.contains("u8"))
+                .unwrap_or(false);
+
             if !enum_is_union(enum_fields) {
                 // Simple enum - skip if already generated in Phase 2.5
                 if !enums_already_generated.contains(struct_name) {
@@ -820,18 +1021,27 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     }
                     code.push_str("};\r\n");
                     // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
-                    code.push_str(&format!("typedef enum {} {};\r\n\r\n", struct_name, struct_name));
+                    code.push_str(&format!(
+                        "typedef enum {} {};\r\n\r\n",
+                        struct_name, struct_name
+                    ));
                 }
             } else {
                 // Tagged union
-                generate_tagged_union(&mut code, struct_name, enum_fields, version_data, class_data.repr.as_deref());
+                generate_tagged_union(
+                    &mut code,
+                    struct_name,
+                    enum_fields,
+                    version_data,
+                    class_data.repr.as_deref(),
+                );
             }
         }
     }
 
     // Generate macro definitions for enum unions and Vector constructors
     code.push_str("/* MACROS for union enum construction and vector initialization */\r\n\r\n");
-    
+
     // C99 designated initializer macros - only available in C, not C++
     code.push_str("#ifndef __cplusplus\r\n\r\n");
 
@@ -869,36 +1079,41 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         if struct_name.ends_with("Vec") && class_data.struct_fields.is_some() {
             if let Some(struct_fields) = &class_data.struct_fields {
                 // Check if it has ptr, len, cap, destructor fields
-                let field_names: Vec<&String> = struct_fields.iter()
-                    .flat_map(|m| m.keys())
-                    .collect();
-                
+                let field_names: Vec<&String> =
+                    struct_fields.iter().flat_map(|m| m.keys()).collect();
+
                 let has_vec_structure = field_names.contains(&&"ptr".to_string())
                     && field_names.contains(&&"len".to_string())
                     && field_names.contains(&&"cap".to_string())
                     && field_names.contains(&&"destructor".to_string());
-                
+
                 if has_vec_structure {
                     // Find the destructor type name
-                    let destructor_type = struct_fields.iter()
+                    let destructor_type = struct_fields
+                        .iter()
                         .flat_map(|m| m.iter())
                         .find(|(name, _)| *name == "destructor")
                         .map(|(_, data)| &data.r#type);
-                    
+
                     if let Some(destr_type) = destructor_type {
                         // Generate the empty macro
-                        // Format: #define AzXxxVec_empty { .ptr = 0, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzXxxVecDestructor_Tag_NoDestructor } } }
-                        code.push_str(&format!(
-                            "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
-                            struct_name, 
-                            destr_type
-                        ));
+                        // Format: #define AzXxxVec_empty { .ptr = 0, .len = 0, .cap = 0,
+                        // .destructor = { .NoDestructor = { .tag =
+                        // AzXxxVecDestructor_Tag_NoDestructor } } }
+                        code.push_str(
+                            &format!(
+                                "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
+                                 \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = \
+                                 {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
+                                struct_name, destr_type
+                            ),
+                        );
                     }
                 }
             }
         }
     }
-    
+
     code.push_str("#endif /* __cplusplus */\r\n\r\n");
 
     // Generate function declarations
@@ -910,7 +1125,7 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             if class_data.generic_params.is_some() {
                 continue;
             }
-            
+
             let class_ptr_name = format!("{}{}", PREFIX, class_name);
             let c_is_stack_allocated = class_is_stack_allocated(class_data);
             let class_can_be_copied = class_data
@@ -1020,7 +1235,7 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     || treat_external_as_ptr
                     || class_has_recursive_destructor
                     || class_has_custom_drop);
-            
+
             if needs_delete {
                 code.push_str(&format!(
                     "extern DLLIMPORT void {}_delete({}* restrict instance);\r\n",
@@ -1068,20 +1283,20 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
         if class_data.generic_params.is_some() {
             continue;
         }
-        
+
         if let Some(enum_fields) = &class_data.enum_fields {
             if enum_is_union(enum_fields) {
                 for variant_map in enum_fields {
                     for (variant_name, variant_data) in variant_map {
                         if let Some(variant_type) = &variant_data.r#type {
                             let (prefix, base_type, suffix) = analyze_type(variant_type);
-                            
+
                             // Skip array types - they require different handling
                             // and can cause pointer type mismatches
                             if variant_type.starts_with('[') || !suffix.is_empty() {
                                 continue;
                             }
-                            
+
                             // Get proper C type for the variant
                             let c_variant_type = if is_primitive_arg(&base_type) {
                                 replace_primitive_ctype(&base_type)
@@ -1168,7 +1383,12 @@ pub struct SortedStructs<'a> {
 
 /// Helper function to check if a type name is a generic type parameter (single uppercase letter)
 fn is_generic_type_param(type_name: &str) -> bool {
-    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    type_name.len() == 1
+        && type_name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
 }
 
 /// Get all type dependencies for a class (field types, variant types, type_alias targets)
@@ -1177,7 +1397,7 @@ fn get_type_dependencies(
     version_data: &crate::api::VersionData,
 ) -> Vec<String> {
     let mut deps = Vec::new();
-    
+
     // Struct fields
     if let Some(struct_fields) = &class_data.struct_fields {
         for field_map in struct_fields {
@@ -1189,7 +1409,7 @@ fn get_type_dependencies(
             }
         }
     }
-    
+
     // Enum variants
     if let Some(enum_fields) = &class_data.enum_fields {
         for variant_map in enum_fields {
@@ -1203,7 +1423,7 @@ fn get_type_dependencies(
             }
         }
     }
-    
+
     // Type alias target and generic args
     if let Some(type_alias) = &class_data.type_alias {
         let target = &type_alias.target;
@@ -1217,7 +1437,7 @@ fn get_type_dependencies(
             }
         }
     }
-    
+
     deps
 }
 
@@ -1231,34 +1451,34 @@ fn calculate_dependency_depths(
 ) -> HashMap<String, usize> {
     let mut depths: HashMap<String, usize> = HashMap::new();
     let mut changed = true;
-    
+
     // Initialize: callbacks and types with only primitives have depth 0
     for (struct_name, class_data) in all_structs {
         if class_data.callback_typedef.is_some() {
             depths.insert(struct_name.clone(), 0);
             continue;
         }
-        
+
         let deps = get_type_dependencies(class_data, version_data);
         if deps.is_empty() {
             depths.insert(struct_name.clone(), 0);
         }
     }
-    
+
     // Iteratively resolve depths
     let mut iteration = 0;
     while changed && iteration < 500 {
         changed = false;
         iteration += 1;
-        
+
         for (struct_name, class_data) in all_structs {
             if depths.contains_key(struct_name) {
                 continue; // Already resolved
             }
-            
+
             let deps = get_type_dependencies(class_data, version_data);
             let mut max_dep_depth: Option<usize> = Some(0);
-            
+
             for dep in &deps {
                 // Skip forward-declared recursive types
                 if let Some(forward_type) = forward_declarations.get(struct_name) {
@@ -1266,7 +1486,7 @@ fn calculate_dependency_depths(
                         continue;
                     }
                 }
-                
+
                 // Find the dependency in all_structs
                 let dep_name = format!("{}{}", prefix, dep);
                 if let Some(&dep_depth) = depths.get(&dep_name) {
@@ -1277,43 +1497,50 @@ fn calculate_dependency_depths(
                     break;
                 }
             }
-            
+
             if let Some(max_depth) = max_dep_depth {
                 depths.insert(struct_name.clone(), max_depth + 1);
                 changed = true;
             }
         }
     }
-    
+
     // Any remaining types without depth get assigned based on their dependencies
-    // This handles circular dependencies by giving higher depth to types that depend on more unresolved types
+    // This handles circular dependencies by giving higher depth to types that depend on more
+    // unresolved types
     let max_depth = depths.values().copied().max().unwrap_or(0);
-    let unresolved: Vec<String> = all_structs.keys()
+    let unresolved: Vec<String> = all_structs
+        .keys()
         .filter(|k| !depths.contains_key(*k))
         .cloned()
         .collect();
-    
-    // For unresolved types, try to order them by counting how many other unresolved types they depend on
-    let mut unresolved_order: Vec<(String, usize)> = unresolved.iter().map(|struct_name| {
-        let class_data = all_structs.get(struct_name).unwrap();
-        let deps = get_type_dependencies(class_data, version_data);
-        let unresolved_deps = deps.iter()
-            .filter(|dep| {
-                let dep_name = format!("{}{}", prefix, dep);
-                !depths.contains_key(&dep_name) && unresolved.contains(&dep_name)
-            })
-            .count();
-        (struct_name.clone(), unresolved_deps)
-    }).collect();
-    
+
+    // For unresolved types, try to order them by counting how many other unresolved types they
+    // depend on
+    let mut unresolved_order: Vec<(String, usize)> = unresolved
+        .iter()
+        .map(|struct_name| {
+            let class_data = all_structs.get(struct_name).unwrap();
+            let deps = get_type_dependencies(class_data, version_data);
+            let unresolved_deps = deps
+                .iter()
+                .filter(|dep| {
+                    let dep_name = format!("{}{}", prefix, dep);
+                    !depths.contains_key(&dep_name) && unresolved.contains(&dep_name)
+                })
+                .count();
+            (struct_name.clone(), unresolved_deps)
+        })
+        .collect();
+
     // Sort by number of unresolved dependencies (fewer = earlier = lower depth)
     unresolved_order.sort_by_key(|(_, count)| *count);
-    
+
     // Assign depths incrementally
     for (i, (struct_name, _)) in unresolved_order.into_iter().enumerate() {
         depths.insert(struct_name, max_depth + 1 + i);
     }
-    
+
     depths
 }
 
@@ -1339,39 +1566,37 @@ pub fn sort_structs_by_dependencies<'a>(
     // Automatically add all Vec types from the "vec" module - they contain their element type
     // which may create circular dependencies
     let mut forward_declarations = HashMap::new();
-    
+
     // Find Vec types and add forward declarations for their element types
     for (_module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             // Check if this is a Vec type (has ptr, len, cap, destructor fields)
             if let Some(struct_fields) = &class_data.struct_fields {
-                let field_names: Vec<&String> = struct_fields.iter()
-                    .flat_map(|m| m.keys())
-                    .collect();
-                
+                let field_names: Vec<&String> =
+                    struct_fields.iter().flat_map(|m| m.keys()).collect();
+
                 let is_vec_type = field_names.contains(&&"ptr".to_string())
                     && field_names.contains(&&"len".to_string())
                     && field_names.contains(&&"cap".to_string())
                     && field_names.contains(&&"destructor".to_string());
-                
+
                 if is_vec_type {
                     // Get the element type from the ptr field
-                    if let Some(ptr_field) = struct_fields.iter()
+                    if let Some(ptr_field) = struct_fields
+                        .iter()
                         .flat_map(|m| m.iter())
                         .find(|(name, _)| *name == "ptr")
                     {
                         let elem_type = &ptr_field.1.r#type;
                         // Don't add primitive types or c_void
                         if !is_primitive_arg(elem_type) && elem_type != "c_void" {
-                            forward_declarations.insert(
-                                format!("{}{}", prefix, class_name),
-                                elem_type.clone()
-                            );
+                            forward_declarations
+                                .insert(format!("{}{}", prefix, class_name), elem_type.clone());
                         }
                     }
                 }
             }
-            
+
             // Note: We no longer try to detect circular dependencies in enum types
             // because the heuristic (name containment) was too aggressive and incorrectly
             // marked types like NodeDataInlineCssProperty -> CssProperty as circular.
@@ -1381,18 +1606,20 @@ pub fn sort_structs_by_dependencies<'a>(
     }
 
     // Calculate dependency depths for all types
-    let depths = calculate_dependency_depths(&all_structs, version_data, prefix, &forward_declarations);
-    
+    let depths =
+        calculate_dependency_depths(&all_structs, version_data, prefix, &forward_declarations);
+
     // Sort structs by depth (ascending)
-    let mut structs_with_depths: Vec<_> = all_structs.iter()
+    let mut structs_with_depths: Vec<_> = all_structs
+        .iter()
         .map(|(name, data)| {
             let depth = depths.get(name).copied().unwrap_or(usize::MAX);
             (name.clone(), *data, depth)
         })
         .collect();
-    
+
     structs_with_depths.sort_by_key(|(_, _, depth)| *depth);
-    
+
     // Build the sorted IndexMap
     let sorted_structs: IndexMap<String, &crate::api::ClassData> = structs_with_depths
         .into_iter()
@@ -1419,7 +1646,7 @@ pub struct StructSizeInfo {
 /// This outputs a C file that can be compiled and run to check struct sizes
 pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
     let mut code = String::new();
-    
+
     code.push_str("/* Auto-generated C struct size test */\n");
     code.push_str("/* This file validates that C struct sizes match Rust sizes */\n");
     code.push_str("\n");
@@ -1438,9 +1665,9 @@ pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
     code.push_str("    int errors = 0;\n");
     code.push_str("    int total = 0;\n");
     code.push_str("\n");
-    
+
     let version_data = api_data.get_version(version).unwrap();
-    
+
     // Collect all struct names
     for (_module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
@@ -1448,9 +1675,9 @@ pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
             if class_data.type_alias.is_some() {
                 continue;
             }
-            
+
             let c_name = format!("{}{}", PREFIX, class_name);
-            
+
             code.push_str(&format!(
                 "    printf(\"Checking {}: C size = %zu\\n\", sizeof({}));\n",
                 c_name, c_name
@@ -1458,7 +1685,7 @@ pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
             code.push_str("    total++;\n");
         }
     }
-    
+
     code.push_str("\n");
     code.push_str("    printf(\"\\n=== Size Check Complete ===\\n\");\n");
     code.push_str("    printf(\"Checked %d structs\\n\", total);\n");
@@ -1469,7 +1696,7 @@ pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
     code.push_str("    printf(\"PASSED: All sizes match\\n\");\n");
     code.push_str("    return 0;\n");
     code.push_str("}\n");
-    
+
     code
 }
 
@@ -1478,20 +1705,20 @@ pub fn generate_c_size_test(api_data: &ApiData, version: &str) -> String {
 pub fn collect_struct_sizes(api_data: &ApiData, version: &str) -> Vec<StructSizeInfo> {
     let version_data = api_data.get_version(version).unwrap();
     let mut sizes = Vec::new();
-    
+
     for (_module_name, module) in &version_data.api {
         for (class_name, class_data) in &module.classes {
             // Skip types that won't have a C struct representation (type aliases)
             if class_data.type_alias.is_some() {
                 continue;
             }
-            
+
             sizes.push(StructSizeInfo {
                 c_name: format!("{}{}", PREFIX, class_name),
                 expected_size: 0, // Will be computed at runtime
             });
         }
     }
-    
+
     sizes
 }

@@ -15,6 +15,7 @@ use azul_css::{
     },
     *,
 };
+
 use crate::callbacks::{Callback, CallbackInfo};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -1188,8 +1189,7 @@ pub struct TabHeaderState {
     pub active_tab: usize,
 }
 
-pub type TabOnClickCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, TabHeaderState) -> Update;
+pub type TabOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo, TabHeaderState) -> Update;
 impl_callback!(
     TabOnClick,
     OptionTabOnClick,
@@ -1443,7 +1443,9 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             let onclick = &mut tab_local_dataset.on_click;
 
             match onclick.as_mut() {
-                Some(TabOnClick { callback, data }) => (callback.cb)(data.clone(), info.clone(), tab_header_state),
+                Some(TabOnClick { callback, data }) => {
+                    (callback.cb)(data.clone(), info.clone(), tab_header_state)
+                }
                 None => Update::DoNothing,
             }
         };

@@ -12,13 +12,14 @@ use core::{
 };
 
 use azul_css::{
-    props::basic::{ColorF, ColorU},
-    props::style::StyleTransformVec,
+    props::{
+        basic::{ColorF, ColorU},
+        style::StyleTransformVec,
+    },
     AzString, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
-    ctypes::*, gl, GLvoid, GLsync, GLeglImageOES, 
-    GenericGlContext, GlType as GlContextGlType,
+    ctypes::*, gl, GLeglImageOES, GLsync, GLvoid, GenericGlContext, GlType as GlContextGlType,
 };
 
 pub use crate::glconst::*;
@@ -591,23 +592,14 @@ pub struct DebugMessage {
     pub severity: GLenum,
 }
 
-impl_vec!(
-    DebugMessage,
-    DebugMessageVec,
-    DebugMessageVecDestructor
-);
+impl_vec!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor);
 impl_vec_debug!(DebugMessage, DebugMessageVec);
 impl_vec_partialord!(DebugMessage, DebugMessageVec);
 impl_vec_ord!(DebugMessage, DebugMessageVec);
-impl_vec_clone!(
-    DebugMessage,
-    DebugMessageVec,
-    DebugMessageVecDestructor
-);
+impl_vec_clone!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor);
 impl_vec_partialeq!(DebugMessage, DebugMessageVec);
 impl_vec_eq!(DebugMessage, DebugMessageVec);
 impl_vec_hash!(DebugMessage, DebugMessageVec);
-
 
 impl_vec!(GLint, GLintVec, GLintVecDestructor);
 impl_vec_debug!(GLint, GLintVec);

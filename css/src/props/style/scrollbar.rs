@@ -583,7 +583,10 @@ pub fn parse_style_scrollbar_color<'a>(
     let thumb = parse_css_color(thumb_str)?;
     let track = parse_css_color(track_str)?;
 
-    Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom { thumb, track }))
+    Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+        thumb,
+        track,
+    }))
 }
 
 #[derive(Clone, PartialEq)]

@@ -44,7 +44,7 @@ use azul_css::props::{
 /// Manages the infinite canvas coordinate system with page boundaries.
 ///
 /// The `PageGeometer` tracks page dimensions and provides utilities for:
-/// 
+///
 /// - Determining which page a Y coordinate falls on
 /// - Calculating the next page start position
 /// - Checking if content crosses page boundaries
@@ -894,12 +894,12 @@ impl PageTemplate {
 
 // Fake @page support (temporary solution)
 //
-// The following structures provide a programmatic API to configure 
-// page headers and footers WITHOUT full CSS @page rule parsing. 
+// The following structures provide a programmatic API to configure
+// page headers and footers WITHOUT full CSS @page rule parsing.
 // This is a temporary solution until proper CSS @page support is implemented.
 //
 // Usage example:
-// 
+//
 // ```rust
 // let config = FakePageConfig::new()
 //     .with_footer_page_numbers()
@@ -920,7 +920,6 @@ impl PageTemplate {
 /// - Custom text in header and/or footer
 /// - Number format (decimal, roman numerals, alphabetic, greek)
 /// - Skip first page option
-///
 #[derive(Debug, Clone)]
 pub struct FakePageConfig {
     /// Show header on pages

@@ -106,10 +106,7 @@ pub enum CallbackChange {
 
     // Content Modifications
     /// Change the text content of a node
-    ChangeNodeText {
-        node_id: DomNodeId,
-        text: AzString,
-    },
+    ChangeNodeText { node_id: DomNodeId, text: AzString },
     /// Change the image of a node
     ChangeNodeImage {
         dom_id: DomId,
@@ -999,7 +996,7 @@ impl CallbackInfo {
     /// # Example
     /// ```ignore
     /// use azul_core::selection::{
-    ///   Selection, SelectionRange, TextCursor, 
+    ///   Selection, SelectionRange, TextCursor,
     ///   GraphemeClusterId, CursorAffinity
     /// };
     ///
@@ -2817,8 +2814,7 @@ impl From<OptionMenuCallback> for Option<MenuCallback> {
 /// **IMPORTANT**: In azul-core, this is stored as `CoreRenderImageCallbackType = usize`
 /// to avoid circular dependencies. The actual function pointer is cast to usize for
 /// storage in the data model, then unsafely cast back to this type when invoked.
-pub type RenderImageCallbackType =
-    extern "C" fn(RefAny, RenderImageCallbackInfo) -> ImageRef;
+pub type RenderImageCallbackType = extern "C" fn(RefAny, RenderImageCallbackInfo) -> ImageRef;
 
 /// Callback that returns a rendered OpenGL texture
 ///

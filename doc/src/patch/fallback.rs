@@ -37,7 +37,10 @@ pub fn find_type_in_workspace(project_root: &Path, type_name: &str) -> Result<(S
     // Find all src directories
     let src_dirs = find_src_directories(project_root)?;
 
-    println!("    [DIR] Found {} src directories to search", src_dirs.len());
+    println!(
+        "    [DIR] Found {} src directories to search",
+        src_dirs.len()
+    );
 
     // Search each src directory for the type
     for src_dir in src_dirs {

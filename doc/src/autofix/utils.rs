@@ -234,7 +234,7 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
 /// This is needed because some types in the source code already have the "Az" prefix
 /// (e.g., `AzDuration` in azul_dll), but when stored in api.json they should not have it
 /// since the code generator will add the prefix when generating FFI code.
-/// 
+///
 /// IMPORTANT: This should ONLY be called for types from azul_dll module, not for types
 /// like AzString from azul_core which intentionally have "Az" in their name.
 pub fn normalize_az_prefix(type_name: &str) -> String {
@@ -242,7 +242,12 @@ pub fn normalize_az_prefix(type_name: &str) -> String {
     // This prevents stripping from types like "Azure" where "Az" is part of the name
     if type_name.starts_with("Az") && type_name.len() > 2 {
         let rest = &type_name[2..];
-        if rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if rest
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             return rest.to_string();
         }
     }
@@ -256,7 +261,11 @@ pub fn normalize_az_prefix(type_name: &str) -> String {
 pub fn should_normalize_az_prefix(type_name: &str) -> bool {
     if type_name.starts_with("Az") && type_name.len() > 2 {
         let rest = &type_name[2..];
-        return rest.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+        return rest
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
     }
     false
 }
@@ -272,11 +281,11 @@ pub fn should_normalize_az_prefix(type_name: &str) -> bool {
 /// - "T" -> ("T", RefKind::Value)
 pub fn extract_type_and_ref_kind(type_str: &str) -> (String, crate::api::RefKind) {
     use crate::api::RefKind;
-    
+
     // Normalize spacing first
     let normalized = type_str.replace(" ", "");
     let trimmed = normalized.trim();
-    
+
     // Check for raw pointers
     if trimmed.starts_with("*const") {
         let inner = trimmed[6..].trim_start();
@@ -286,7 +295,7 @@ pub fn extract_type_and_ref_kind(type_str: &str) -> (String, crate::api::RefKind
         let inner = trimmed[4..].trim_start();
         return (inner.to_string(), RefKind::MutPtr);
     }
-    
+
     // Check for references
     if trimmed.starts_with("&mut") {
         let inner = trimmed[4..].trim_start();
@@ -296,19 +305,19 @@ pub fn extract_type_and_ref_kind(type_str: &str) -> (String, crate::api::RefKind
         let inner = trimmed[1..].trim_start();
         return (inner.to_string(), RefKind::Ref);
     }
-    
+
     // Check for Option<Box<T>>
     if let Some(inner) = extract_generic_type(trimmed, "Option") {
         if let Some(box_inner) = extract_generic_type(&inner, "Box") {
             return (box_inner, RefKind::OptionBoxed);
         }
     }
-    
+
     // Check for Box<T>
     if let Some(inner) = extract_generic_type(trimmed, "Box") {
         return (inner, RefKind::Boxed);
     }
-    
+
     // No wrapper - it's a value type
     (trimmed.to_string(), RefKind::Value)
 }

@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::autofix::types::{TypeParser, ParsedType};
+use crate::autofix::types::{ParsedType, TypeParser};
 
 /// Result of reachability analysis
 #[derive(Debug)]
@@ -49,10 +49,7 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
     let reachable = bfs_reachability(&entry_points, &type_deps);
 
     // Step 4: Unreachable = All - Reachable
-    let unreachable: HashSet<String> = all_types
-        .difference(&reachable)
-        .cloned()
-        .collect();
+    let unreachable: HashSet<String> = all_types.difference(&reachable).cloned().collect();
 
     ReachabilityAnalysis {
         reachable,
@@ -128,7 +125,9 @@ fn extract_fn_types(parser: &TypeParser, fn_def: &serde_json::Value, out: &mut H
             }
         } else if let Some(args_obj) = fn_args.as_object() {
             // Legacy format: flat object (deprecated, order not preserved!)
-            eprintln!("WARNING: fn_args is a flat object instead of array - argument order may be lost!");
+            eprintln!(
+                "WARNING: fn_args is a flat object instead of array - argument order may be lost!"
+            );
             for (key, val) in args_obj {
                 if key == "self" || key == "doc" || key == "type" {
                     continue;
@@ -159,30 +158,57 @@ fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<St
     // Critical types that are always entry points (used externally)
     let critical_types = [
         // Core UI types
-        "Dom", "StyledDom", "NodeData", "DomNodeId",
+        "Dom",
+        "StyledDom",
+        "NodeData",
+        "DomNodeId",
         // Callbacks
-        "Callback", "IFrameCallback", "RenderImageCallback",
-        "TimerCallback", "ThreadCallback", "WriteBackCallback",
+        "Callback",
+        "IFrameCallback",
+        "RenderImageCallback",
+        "TimerCallback",
+        "ThreadCallback",
+        "WriteBackCallback",
         // Rendering
-        "Gl", "Texture", "RawImage", "ImageRef",
+        "Gl",
+        "Texture",
+        "RawImage",
+        "ImageRef",
         // System interaction
-        "Clipboard", "SystemClipboard", "File",
+        "Clipboard",
+        "SystemClipboard",
+        "File",
         // Resources
-        "ImageCache", "FontCache",
+        "ImageCache",
+        "FontCache",
         // Window
-        "WindowState", "Monitor",
+        "WindowState",
+        "Monitor",
         // CSS
-        "Css", "CssProperty", "CssPropertyValue",
+        "Css",
+        "CssProperty",
+        "CssPropertyValue",
         // Events
-        "CallbackInfo", "HitTest",
+        "CallbackInfo",
+        "HitTest",
         // Animations
-        "Animation", "AnimationRepeat",
+        "Animation",
+        "AnimationRepeat",
         // Menus
-        "Menu", "MenuItem",
+        "Menu",
+        "MenuItem",
         // Widgets
-        "Button", "CheckBox", "TextInput", "NumberInput",
-        "Slider", "Dropdown", "ColorInput", "ProgressBar",
-        "Frame", "TabContainer", "TabHeader",
+        "Button",
+        "CheckBox",
+        "TextInput",
+        "NumberInput",
+        "Slider",
+        "Dropdown",
+        "ColorInput",
+        "ProgressBar",
+        "Frame",
+        "TabContainer",
+        "TabHeader",
     ];
 
     for ty in &critical_types {
@@ -193,7 +219,12 @@ fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<St
     if let Some(classes) = api.get("classes").and_then(|v| v.as_object()) {
         for (class_name, class_def) in classes {
             // Classes with constructors are entry points
-            if class_def.get("constructors").and_then(|v| v.as_object()).map(|m| !m.is_empty()).unwrap_or(false) {
+            if class_def
+                .get("constructors")
+                .and_then(|v| v.as_object())
+                .map(|m| !m.is_empty())
+                .unwrap_or(false)
+            {
                 entry_points.insert(class_name.clone());
             }
 
@@ -201,7 +232,11 @@ fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<St
             if let Some(funcs) = class_def.get("functions").and_then(|v| v.as_object()) {
                 for (_fn_name, fn_def) in funcs {
                     // Skip internal-only functions
-                    if fn_def.get("internal_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if fn_def
+                        .get("internal_only")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
                         continue;
                     }
 
@@ -247,8 +282,9 @@ fn bfs_reachability(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_critical_types_always_reachable() {

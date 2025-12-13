@@ -606,9 +606,15 @@ impl<'a> SceneBuilder<'a> {
 
         builder.clip_tree_builder.begin();
 
-        eprintln!("[SceneBuilder::build] Calling build_all for pipeline {:?}", root_pipeline_id);
+        eprintln!(
+            "[SceneBuilder::build] Calling build_all for pipeline {:?}",
+            root_pipeline_id
+        );
         builder.build_all(root_pipeline_id, &root_pipeline);
-        eprintln!("[SceneBuilder::build] build_all completed, prim_instances.len()={}", builder.prim_instances.len());
+        eprintln!(
+            "[SceneBuilder::build] build_all completed, prim_instances.len()={}",
+            builder.prim_instances.len()
+        );
 
         // Construct the picture cache primitive instance(s) from the tile cache builder
         let (tile_cache_config, tile_cache_pictures) = builder.tile_cache_builder.build(
@@ -888,10 +894,16 @@ impl<'a> SceneBuilder<'a> {
             kind: ContextKind::Root,
         }];
         let mut traversal = root_pipeline.display_list.iter();
-        eprintln!("[build_all] Starting traversal, display_list.size_in_bytes()={}", root_pipeline.display_list.display_list.size_in_bytes());
+        eprintln!(
+            "[build_all] Starting traversal, display_list.size_in_bytes()={}",
+            root_pipeline.display_list.display_list.size_in_bytes()
+        );
 
         'outer: while let Some(bc) = stack.pop() {
-            eprintln!("[build_all] Processing context, stack.len()={}", stack.len());
+            eprintln!(
+                "[build_all] Processing context, stack.len()={}",
+                stack.len()
+            );
             loop {
                 let item = match traversal.next() {
                     Some(item) => {
@@ -906,7 +918,10 @@ impl<'a> SceneBuilder<'a> {
 
                 match item.item() {
                     DisplayItem::PushStackingContext(ref info) => {
-                        eprintln!("[build_all] DisplayItem::PushStackingContext - spatial_id={:?}", info.spatial_id);
+                        eprintln!(
+                            "[build_all] DisplayItem::PushStackingContext - spatial_id={:?}",
+                            info.spatial_id
+                        );
                         let spatial_node_index = self.get_space(info.spatial_id);
                         let mut subtraversal = item.sub_iter();
                         // Avoid doing unnecessary work for empty stacking contexts.
@@ -916,9 +931,11 @@ impl<'a> SceneBuilder<'a> {
                         // which are still visible on an empty stacking context
                         let is_empty = subtraversal.current_stacking_context_empty();
                         let has_no_filters = item.filters().is_empty();
-                        eprintln!("[build_all] SC check: is_empty={}, has_no_filters={}", is_empty, has_no_filters);
-                        if is_empty && has_no_filters
-                        {
+                        eprintln!(
+                            "[build_all] SC check: is_empty={}, has_no_filters={}",
+                            is_empty, has_no_filters
+                        );
+                        if is_empty && has_no_filters {
                             eprintln!("[build_all] SKIPPING empty stacking context!");
                             subtraversal.skip_current_stacking_context();
                             traversal = subtraversal;
@@ -1842,11 +1859,17 @@ impl<'a> SceneBuilder<'a> {
         // If we have a valid stacking context, the primitive gets added to that.
         // Otherwise, it gets added to a top-level picture cache slice.
 
-        eprintln!("[scene_building::add_primitive_to_draw_list] sc_stack.len()={}, prim_rect={:?}", self.sc_stack.len(), prim_rect);
+        eprintln!(
+            "[scene_building::add_primitive_to_draw_list] sc_stack.len()={}, prim_rect={:?}",
+            self.sc_stack.len(),
+            prim_rect
+        );
 
         match self.sc_stack.last_mut() {
             Some(stacking_context) => {
-                eprintln!("[scene_building::add_primitive_to_draw_list] Adding to stacking_context");
+                eprintln!(
+                    "[scene_building::add_primitive_to_draw_list] Adding to stacking_context"
+                );
                 stacking_context.prim_list.add_prim(
                     prim_instance,
                     prim_rect,
@@ -1857,7 +1880,10 @@ impl<'a> SceneBuilder<'a> {
                 );
             }
             None => {
-                eprintln!("[scene_building::add_primitive_to_draw_list] Adding to tile_cache_builder (no SC)");
+                eprintln!(
+                    "[scene_building::add_primitive_to_draw_list] Adding to tile_cache_builder \
+                     (no SC)"
+                );
                 self.tile_cache_builder.add_prim(
                     prim_instance,
                     prim_rect,
@@ -2207,7 +2233,11 @@ impl<'a> SceneBuilder<'a> {
     }
 
     fn pop_stacking_context(&mut self, info: StackingContextInfo) {
-        eprintln!("[scene_building::pop_stacking_context] START - pop_stacking_context={}, pop_containing_block={}", info.pop_stacking_context, info.pop_containing_block);
+        eprintln!(
+            "[scene_building::pop_stacking_context] START - pop_stacking_context={}, \
+             pop_containing_block={}",
+            info.pop_stacking_context, info.pop_containing_block
+        );
         self.clip_tree_builder.pop_clip();
 
         // Pop off current raster space (pushed unconditionally in push_stacking_context)
@@ -4574,7 +4604,10 @@ fn filter_ops_for_compositing(input_filters: &[FilterOp]) -> Vec<Filter> {
     // TODO(gw): Now that we resolve these later on,
     //           we could probably make it a bit
     //           more efficient than cloning these here.
-    input_filters.iter().map(|filter| (*filter).into()).collect()
+    input_filters
+        .iter()
+        .map(|filter| (*filter).into())
+        .collect()
 }
 
 fn filter_datas_for_compositing(input_filter_datas: &Vec<&FilterData>) -> Vec<FilterData> {
@@ -4604,10 +4637,7 @@ fn filter_primitives_for_compositing(
     // TODO(gw): Now that we resolve these later on,
     //           we could probably make it a bit
     //           more efficient than cloning these here.
-    input_filter_primitives
-        .iter()
-        .copied()
-        .collect()
+    input_filter_primitives.iter().copied().collect()
 }
 
 fn process_repeat_size(

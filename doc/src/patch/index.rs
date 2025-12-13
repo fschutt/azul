@@ -40,7 +40,7 @@ fn is_type_imported_in_use_statement(source: &str, type_name: &str) -> bool {
     let Ok(syntax_tree) = syn::parse_file(source) else {
         return false;
     };
-    
+
     for item in &syntax_tree.items {
         if let Item::Use(use_item) = item {
             if use_tree_contains_ident(&use_item.tree, type_name) {
@@ -58,7 +58,10 @@ fn use_tree_contains_ident(tree: &UseTree, ident: &str) -> bool {
         UseTree::Name(name) => name.ident == ident,
         UseTree::Rename(rename) => rename.ident == ident || rename.rename == ident,
         UseTree::Glob(_) => false, // Can't determine from glob
-        UseTree::Group(group) => group.items.iter().any(|t| use_tree_contains_ident(t, ident)),
+        UseTree::Group(group) => group
+            .items
+            .iter()
+            .any(|t| use_tree_contains_ident(t, ident)),
     }
 }
 
@@ -67,24 +70,27 @@ fn find_macro_invocations(source: &str) -> Vec<(String, String)> {
     let Ok(syntax_tree) = syn::parse_file(source) else {
         return Vec::new();
     };
-    
+
     let mut results = Vec::new();
-    
+
     for item in &syntax_tree.items {
         if let Item::Macro(macro_item) = item {
             // Get macro name (last segment of path)
-            let macro_name = macro_item.mac.path.segments
+            let macro_name = macro_item
+                .mac
+                .path
+                .segments
                 .last()
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
-            
+
             // Get the tokens inside the macro
             let args = macro_item.mac.tokens.to_string();
-            
+
             results.push((macro_name, args));
         }
     }
-    
+
     results
 }
 
@@ -175,12 +181,12 @@ pub struct VariantInfo {
 /// Extract derive traits from #[derive(...)] attributes
 fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
     let mut derives = Vec::new();
-    
+
     for attr in attrs {
         if !attr.path().is_ident("derive") {
             continue;
         }
-        
+
         // Parse the derive attribute content
         let attr_str = attr.meta.to_token_stream().to_string();
         // Format: derive(Trait1, Trait2, ...)
@@ -191,11 +197,7 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
                 for trait_name in content.split(',') {
                     let trait_name = trait_name.trim();
                     // Remove any path prefix (e.g., "core::fmt::Debug" -> "Debug")
-                    let simple_name = trait_name
-                        .rsplit("::")
-                        .next()
-                        .unwrap_or(trait_name)
-                        .trim();
+                    let simple_name = trait_name.rsplit("::").next().unwrap_or(trait_name).trim();
                     if !simple_name.is_empty() {
                         derives.push(simple_name.to_string());
                     }
@@ -203,7 +205,7 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
             }
         }
     }
-    
+
     derives
 }
 
@@ -211,47 +213,66 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
 /// Returns a map from type name to list of traits implemented for that type
 fn extract_implemented_traits_from_items(items: &[syn::Item]) -> HashMap<String, Vec<String>> {
     let mut traits_map: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     // Standard library traits we care about
     let standard_traits = [
-        "Clone", "Copy", "Debug", "Default", "Display",
-        "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
-        "Drop", "Send", "Sync", "Sized",
-        "From", "Into", "TryFrom", "TryInto",
-        "AsRef", "AsMut", "Deref", "DerefMut",
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "Display",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+        "Drop",
+        "Send",
+        "Sync",
+        "Sized",
+        "From",
+        "Into",
+        "TryFrom",
+        "TryInto",
+        "AsRef",
+        "AsMut",
+        "Deref",
+        "DerefMut",
     ];
-    
+
     for item in items {
         if let syn::Item::Impl(impl_block) = item {
             // We only care about trait implementations, not inherent impls
             if let Some((_, trait_path, _)) = &impl_block.trait_ {
                 // Get the trait name (last segment of the path)
-                let trait_name = trait_path.segments.last()
+                let trait_name = trait_path
+                    .segments
+                    .last()
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
-                
+
                 // Only track standard library traits
                 if !standard_traits.contains(&trait_name.as_str()) {
                     continue;
                 }
-                
+
                 // Get the type name this is implemented for
                 if let syn::Type::Path(type_path) = &*impl_block.self_ty {
-                    let type_name = type_path.path.segments.last()
+                    let type_name = type_path
+                        .path
+                        .segments
+                        .last()
                         .map(|s| s.ident.to_string())
                         .unwrap_or_default();
-                    
+
                     if !type_name.is_empty() && !trait_name.is_empty() {
-                        traits_map
-                            .entry(type_name)
-                            .or_default()
-                            .push(trait_name);
+                        traits_map.entry(type_name).or_default().push(trait_name);
                     }
                 }
             }
         }
     }
-    
+
     traits_map
 }
 
@@ -262,7 +283,7 @@ fn extract_implemented_traits_from_items(items: &[syn::Item]) -> HashMap<String,
 /// - impl_option!(Type, OptionType, copy = false, clone = false, [Debug])
 fn extract_derives_from_impl_option_macro(tokens_str: &str) -> Vec<String> {
     let mut derives = Vec::new();
-    
+
     // Find the [...] part containing the derives
     if let Some(bracket_start) = tokens_str.find('[') {
         if let Some(bracket_end) = tokens_str.rfind(']') {
@@ -276,7 +297,7 @@ fn extract_derives_from_impl_option_macro(tokens_str: &str) -> Vec<String> {
             }
         }
     }
-    
+
     // If no [...] found, return default derives for backwards compatibility
     if derives.is_empty() {
         derives = vec![
@@ -287,7 +308,7 @@ fn extract_derives_from_impl_option_macro(tokens_str: &str) -> Vec<String> {
             "Copy".to_string(),
         ];
     }
-    
+
     derives
 }
 
@@ -298,14 +319,14 @@ pub struct MacroGeneratedType {
     pub element_type: String,
     pub destructor_name: Option<String>,
     pub derives: Vec<String>,
-    pub is_vec: bool,  // true for impl_vec!, false for impl_option!
+    pub is_vec: bool, // true for impl_vec!, false for impl_option!
 }
 
 /// Extract types generated by impl_vec! and impl_option! macros from parsed syn items
 /// Also extracts trait information from impl_vec_*! macro calls
 fn extract_macro_generated_types_from_items(items: &[syn::Item]) -> Vec<MacroGeneratedType> {
     let mut generated_types: HashMap<String, MacroGeneratedType> = HashMap::new();
-    
+
     // Mapping from macro name to trait it implements
     let macro_to_trait: &[(&str, &str)] = &[
         ("impl_vec_debug", "Debug"),
@@ -316,46 +337,56 @@ fn extract_macro_generated_types_from_items(items: &[syn::Item]) -> Vec<MacroGen
         ("impl_vec_ord", "Ord"),
         ("impl_vec_hash", "Hash"),
     ];
-    
+
     for item in items {
         if let syn::Item::Macro(m) = item {
-            let macro_name = m.mac.path.segments.last()
+            let macro_name = m
+                .mac
+                .path
+                .segments
+                .last()
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
-            
+
             // Parse macro tokens as comma-separated identifiers
             let tokens_str = m.mac.tokens.to_string();
             let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
-            
+
             if macro_name == "impl_vec" && args.len() >= 2 {
                 // impl_vec!(ElementType, VecTypeName, DestructorName)
                 let element_type = args[0].to_string();
                 let vec_type_name = args[1].to_string();
                 let destructor_name = args.get(2).map(|s| s.to_string());
-                
-                generated_types.insert(vec_type_name.clone(), MacroGeneratedType {
-                    type_name: vec_type_name,
-                    element_type,
-                    destructor_name,
-                    derives: Vec::new(),
-                    is_vec: true,
-                });
+
+                generated_types.insert(
+                    vec_type_name.clone(),
+                    MacroGeneratedType {
+                        type_name: vec_type_name,
+                        element_type,
+                        destructor_name,
+                        derives: Vec::new(),
+                        is_vec: true,
+                    },
+                );
             } else if macro_name == "impl_option" && args.len() >= 2 {
                 // impl_option!(ElementType, OptionTypeName, [Derives]) or
                 // impl_option!(ElementType, OptionTypeName, copy = false, [Derives])
                 let element_type = args[0].to_string();
                 let option_type_name = args[1].to_string();
-                
+
                 // Extract derives from the [...] part in the macro call
                 let derives = extract_derives_from_impl_option_macro(&tokens_str);
-                
-                generated_types.insert(option_type_name.clone(), MacroGeneratedType {
-                    type_name: option_type_name,
-                    element_type,
-                    destructor_name: None,
-                    derives,
-                    is_vec: false,
-                });
+
+                generated_types.insert(
+                    option_type_name.clone(),
+                    MacroGeneratedType {
+                        type_name: option_type_name,
+                        element_type,
+                        destructor_name: None,
+                        derives,
+                        is_vec: false,
+                    },
+                );
             } else {
                 // Check for impl_vec_*! trait macros
                 for (trait_macro, trait_name) in macro_to_trait {
@@ -363,7 +394,7 @@ fn extract_macro_generated_types_from_items(items: &[syn::Item]) -> Vec<MacroGen
                         // impl_vec_debug!(ElementType, VecTypeName) or
                         // impl_vec_clone!(ElementType, VecTypeName, DestructorName)
                         let vec_type_name = args[1].to_string();
-                        
+
                         // Add trait to existing type or create placeholder
                         generated_types
                             .entry(vec_type_name.clone())
@@ -388,15 +419,17 @@ fn extract_macro_generated_types_from_items(items: &[syn::Item]) -> Vec<MacroGen
             }
         }
     }
-    
+
     generated_types.into_values().collect()
 }
 
 /// Extract trait implementations from impl_vec_*! macro calls in parsed syn items
 /// Returns a map from type name to list of traits implemented via macros
-fn extract_impl_vec_traits_from_items(items: &[syn::Item]) -> std::collections::HashMap<String, Vec<String>> {
+fn extract_impl_vec_traits_from_items(
+    items: &[syn::Item],
+) -> std::collections::HashMap<String, Vec<String>> {
     let mut traits_map: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     let macro_to_trait: &[(&str, &str)] = &[
         ("impl_vec_debug", "Debug"),
         ("impl_vec_clone", "Clone"),
@@ -406,18 +439,22 @@ fn extract_impl_vec_traits_from_items(items: &[syn::Item]) -> std::collections::
         ("impl_vec_ord", "Ord"),
         ("impl_vec_hash", "Hash"),
     ];
-    
+
     for item in items {
         if let syn::Item::Macro(m) = item {
-            let macro_name = m.mac.path.segments.last()
+            let macro_name = m
+                .mac
+                .path
+                .segments
+                .last()
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
-            
+
             for (trait_macro, trait_name) in macro_to_trait {
                 if macro_name == *trait_macro {
                     let tokens_str = m.mac.tokens.to_string();
                     let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
-                    
+
                     if args.len() >= 2 {
                         let vec_type_name = args[1].to_string();
                         traits_map
@@ -428,12 +465,12 @@ fn extract_impl_vec_traits_from_items(items: &[syn::Item]) -> std::collections::
                     break;
                 }
             }
-            
+
             // Also handle impl_option! which provides several traits from the [...] part
             if macro_name == "impl_option" {
                 let tokens_str = m.mac.tokens.to_string();
                 let args: Vec<&str> = tokens_str.split(',').map(|s| s.trim()).collect();
-                
+
                 if args.len() >= 2 {
                     let option_type_name = args[1].to_string();
                     let derives = extract_derives_from_impl_option_macro(&tokens_str);
@@ -447,7 +484,7 @@ fn extract_impl_vec_traits_from_items(items: &[syn::Item]) -> std::collections::
             }
         }
     }
-    
+
     traits_map
 }
 
@@ -554,10 +591,16 @@ impl WorkspaceIndex {
         let parsed_files: Vec<_> = file_contents
             .par_iter()
             .filter_map(|(file_path, content)| {
-                match parse_rust_file_from_content(file_path, content, project_root, crate_names_ref) {
+                match parse_rust_file_from_content(
+                    file_path,
+                    content,
+                    project_root,
+                    crate_names_ref,
+                ) {
                     Ok(parsed) => Some((file_path.clone(), content.clone(), parsed)),
                     Err(e) => {
-                        // Silently skip unparseable files (likely syntax errors or non-module files)
+                        // Silently skip unparseable files (likely syntax errors or non-module
+                        // files)
                         if verbose && !file_path.to_string_lossy().contains("/target/") {
                             eprintln!("    [WARN]  Failed to parse {}: {}", file_path.display(), e);
                         }
@@ -578,7 +621,7 @@ impl WorkspaceIndex {
         for (file_path, content, parsed_file) in parsed_files {
             // Store file source for string-based search
             index.file_sources.insert(file_path.clone(), content);
-            
+
             // Extract all type definitions from this file
             for type_info in extract_types_from_file(&parsed_file)? {
                 index
@@ -604,7 +647,8 @@ impl WorkspaceIndex {
     }
 
     /// Look up a type by name
-    /// Will also try with "Az" prefix if not found (api.json uses "String", workspace has "AzString")
+    /// Will also try with "Az" prefix if not found (api.json uses "String", workspace has
+    /// "AzString")
     pub fn find_type(&self, type_name: &str) -> Option<&[ParsedTypeInfo]> {
         // First try exact match
         if let Some(v) = self.types.get(type_name) {
@@ -624,7 +668,7 @@ impl WorkspaceIndex {
         if let Some(found) = candidates.iter().find(|info| info.full_path == type_path) {
             return Some(found);
         }
-        
+
         // Try with "Az" prefix in path (api.json has "String", workspace has "AzString")
         let az_prefixed_path = {
             let parts: Vec<&str> = type_path.rsplitn(2, "::").collect();
@@ -634,7 +678,9 @@ impl WorkspaceIndex {
                 format!("Az{}", type_path)
             }
         };
-        candidates.iter().find(|info| info.full_path == az_prefixed_path)
+        candidates
+            .iter()
+            .find(|info| info.full_path == az_prefixed_path)
     }
 
     /// Find a type by string-based search in source files
@@ -653,7 +699,7 @@ impl WorkspaceIndex {
         let az_prefixed = format!("Az{}", type_name);
         self.find_type_by_string_search_inner(&az_prefixed)
     }
-    
+
     fn find_type_by_string_search_inner(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         let mut best_match: Option<(&PathBuf, i32, bool)> = None; // (path, score, is_from_macro)
 
@@ -682,7 +728,8 @@ impl WorkspaceIndex {
                 continue;
             }
 
-            let (score, is_from_macro) = self.calculate_match_score_with_macro_info(source, type_name);
+            let (score, is_from_macro) =
+                self.calculate_match_score_with_macro_info(source, type_name);
 
             if let Some((_, current_score, _)) = best_match {
                 if score > current_score {
@@ -702,20 +749,18 @@ impl WorkspaceIndex {
                         Some("C".to_string())
                     } else {
                         // Try to extract repr from source
-                        self.file_sources
-                            .get(file_path)
-                            .and_then(|s| {
-                                // Simple extraction - look for #[repr(C)] or #[repr(C, u8)]
-                                if s.contains("#[repr(C, u8)]") {
-                                    Some("C, u8".to_string())
-                                } else if s.contains("#[repr(C)]") {
-                                    Some("C".to_string())
-                                } else {
-                                    None
-                                }
-                            })
+                        self.file_sources.get(file_path).and_then(|s| {
+                            // Simple extraction - look for #[repr(C)] or #[repr(C, u8)]
+                            if s.contains("#[repr(C, u8)]") {
+                                Some("C, u8".to_string())
+                            } else if s.contains("#[repr(C)]") {
+                                Some("C".to_string())
+                            } else {
+                                None
+                            }
+                        })
                     };
-                    
+
                     return Some(ParsedTypeInfo {
                         full_path: full_path.clone(),
                         type_name: type_name.to_string(),
@@ -774,7 +819,7 @@ impl WorkspaceIndex {
 
             if tokens.contains(&type_name) {
                 score += 1000; // Very high priority
-                
+
                 // Check if this macro is known to generate #[repr(C)] types
                 if REPR_C_MACROS.contains(&macro_name.as_str()) {
                     is_from_macro = true;
@@ -850,7 +895,7 @@ impl WorkspaceIndex {
                 ("dll/src/", "azul_dll"),
                 ("doc/src/", "azul_doc"),
             ];
-            
+
             let mut found = None;
             for (pattern, crate_name) in known_crates {
                 if let Some(idx) = path_str.find(pattern) {
@@ -859,7 +904,7 @@ impl WorkspaceIndex {
                     break;
                 }
             }
-            
+
             if let Some((name, rel_path)) = found {
                 (name, rel_path)
             } else {
@@ -907,13 +952,13 @@ impl WorkspaceIndex {
     }
 
     /// Convert a ParsedTypeInfo to API format
-    pub fn to_oracle_info(
-        &self,
-        type_info: &ParsedTypeInfo,
-    ) -> OracleTypeInfo {
+    pub fn to_oracle_info(&self, type_info: &ParsedTypeInfo) -> OracleTypeInfo {
         match &type_info.kind {
             TypeKind::Struct {
-                fields, repr, derives, ..
+                fields,
+                repr,
+                derives,
+                ..
             } => {
                 let mut api_fields = IndexMap::new();
                 for (name, field) in fields {
@@ -936,11 +981,7 @@ impl WorkspaceIndex {
                     is_enum: false,
                 }
             }
-            TypeKind::Enum {
-                variants,
-                repr,
-                ..
-            } => {
+            TypeKind::Enum { variants, repr, .. } => {
                 let mut api_variants = IndexMap::new();
                 for (name, variant) in variants {
                     api_variants.insert(
@@ -1094,7 +1135,7 @@ fn parse_rust_file(
 ) -> Result<ParsedFile> {
     let source = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read {}", file_path.display()))?;
-    
+
     parse_rust_file_from_content(file_path, &source, project_root, crate_names)
 }
 
@@ -1188,7 +1229,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     if let Some(field_name) = field.ident.as_ref() {
                         let field_ty = field.ty.to_token_stream().to_string();
                         // Extract base type and ref_kind from the type string
-                        let (base_type, ref_kind) = crate::autofix::utils::extract_type_and_ref_kind(&field_ty);
+                        let (base_type, ref_kind) =
+                            crate::autofix::utils::extract_type_and_ref_kind(&field_ty);
                         // Clean up the base type (path segments, etc.)
                         let cleaned_type = crate::autofix::utils::clean_type_string(&base_type);
                         fields.insert(
@@ -1210,7 +1252,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     }
                     if let syn::Meta::List(list) = &attr.meta {
                         let tokens = list.tokens.to_string();
-                        let repr_value = tokens.split(',')
+                        let repr_value = tokens
+                            .split(',')
                             .map(|s| s.trim())
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -1223,7 +1266,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 
                 // Extract derive traits from #[derive(...)] attributes
                 let derives = extract_derives(&s.attrs);
-                
+
                 // Get implemented traits for this type (from impl Trait for Type blocks)
                 let implemented_traits = impl_traits.get(&type_name).cloned().unwrap_or_default();
 
@@ -1257,27 +1300,29 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 let mut variants = IndexMap::new();
                 for variant in &e.variants {
                     let variant_name = variant.ident.to_string();
-                    
+
                     // Check for repr(C) violations: variants can only have 0 or 1 field
                     let field_count = variant.fields.len();
                     if field_count > 1 {
                         eprintln!(
-                            "[WARNING] repr(C) violation in enum '{}' variant '{}': \
-                             has {} fields but repr(C) enums can only have 0 or 1 field per variant. \
-                             File: {}",
-                            type_name, variant_name, field_count, parsed_file.path.display()
+                            "[WARNING] repr(C) violation in enum '{}' variant '{}': has {} fields \
+                             but repr(C) enums can only have 0 or 1 field per variant. File: {}",
+                            type_name,
+                            variant_name,
+                            field_count,
+                            parsed_file.path.display()
                         );
                         // Skip this variant - it cannot be represented in FFI
                         continue;
                     }
-                    
+
                     let variant_ty = if variant.fields.is_empty() {
                         None
                     } else {
                         // Exactly one field - safe for repr(C)
                         let field = variant.fields.iter().next().unwrap();
                         Some(crate::autofix::utils::clean_type_string(
-                            &field.ty.to_token_stream().to_string()
+                            &field.ty.to_token_stream().to_string(),
                         ))
                     };
 
@@ -1298,7 +1343,8 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     }
                     if let syn::Meta::List(list) = &attr.meta {
                         let tokens = list.tokens.to_string();
-                        let repr_value = tokens.split(',')
+                        let repr_value = tokens
+                            .split(',')
                             .map(|s| s.trim())
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -1311,7 +1357,7 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 
                 // Extract derive traits from #[derive(...)] attributes
                 let derives = extract_derives(&e.attrs);
-                
+
                 // Get implemented traits for this type (from impl Trait for Type blocks)
                 let implemented_traits = impl_traits.get(&type_name).cloned().unwrap_or_default();
 
@@ -1340,10 +1386,12 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                 // Check if this is an extern "C" fn type (callback typedef)
                 if let syn::Type::BareFn(bare_fn) = &*t.ty {
                     // Parse the callback function arguments
-                    let fn_args: Vec<CallbackArgInfo> = bare_fn.inputs.iter().map(|arg| {
-                        parse_callback_arg(&arg.ty)
-                    }).collect();
-                    
+                    let fn_args: Vec<CallbackArgInfo> = bare_fn
+                        .inputs
+                        .iter()
+                        .map(|arg| parse_callback_arg(&arg.ty))
+                        .collect();
+
                     // Parse the return type
                     let returns = match &bare_fn.output {
                         syn::ReturnType::Default => None,
@@ -1397,8 +1445,12 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
     // Post-process: Extract traits from impl_vec_*! macro calls and add to Vec types
     // Re-parse the file to get the items for macro analysis
     let syntax_tree_for_macros: syn::File = syn::parse_str(&parsed_file.syntax_tree)
-        .unwrap_or_else(|_| syn::File { shebang: None, attrs: vec![], items: vec![] });
-    
+        .unwrap_or_else(|_| syn::File {
+            shebang: None,
+            attrs: vec![],
+            items: vec![],
+        });
+
     let impl_vec_traits = extract_impl_vec_traits_from_items(&syntax_tree_for_macros.items);
     for type_info in &mut types {
         if let Some(traits) = impl_vec_traits.get(&type_info.type_name) {
@@ -1419,47 +1471,58 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
     // Also create synthetic types for impl_vec!/impl_option! generated types
     // These types are not directly visible to syn because they're generated by macros
     let macro_generated = extract_macro_generated_types_from_items(&syntax_tree_for_macros.items);
-    let existing_type_names: std::collections::HashSet<String> = types.iter()
-        .map(|t| t.type_name.clone())
-        .collect();
-    
+    let existing_type_names: std::collections::HashSet<String> =
+        types.iter().map(|t| t.type_name.clone()).collect();
+
     for gen_type in macro_generated {
         // Only add if not already found by syn parser
         if !existing_type_names.contains(&gen_type.type_name) {
             let full_path = build_full_path(&crate_name, &module_path, &gen_type.type_name);
-            
+
             // Create synthetic struct for Vec/Option types
             // Vec types have: ptr, len, cap, destructor
             // Option types have: None, Some variants
             if gen_type.is_vec {
                 let mut fields = IndexMap::new();
-                fields.insert("ptr".to_string(), FieldInfo {
-                    name: "ptr".to_string(),
-                    ty: gen_type.element_type.clone(),
-                    ref_kind: crate::api::RefKind::ConstPtr,
-                    doc: None,
-                });
-                fields.insert("len".to_string(), FieldInfo {
-                    name: "len".to_string(),
-                    ty: "usize".to_string(),
-                    ref_kind: crate::api::RefKind::Value,
-                    doc: None,
-                });
-                fields.insert("cap".to_string(), FieldInfo {
-                    name: "cap".to_string(),
-                    ty: "usize".to_string(),
-                    ref_kind: crate::api::RefKind::Value,
-                    doc: None,
-                });
-                if let Some(destructor) = &gen_type.destructor_name {
-                    fields.insert("destructor".to_string(), FieldInfo {
-                        name: "destructor".to_string(),
-                        ty: destructor.clone(),
+                fields.insert(
+                    "ptr".to_string(),
+                    FieldInfo {
+                        name: "ptr".to_string(),
+                        ty: gen_type.element_type.clone(),
+                        ref_kind: crate::api::RefKind::ConstPtr,
+                        doc: None,
+                    },
+                );
+                fields.insert(
+                    "len".to_string(),
+                    FieldInfo {
+                        name: "len".to_string(),
+                        ty: "usize".to_string(),
                         ref_kind: crate::api::RefKind::Value,
                         doc: None,
-                    });
+                    },
+                );
+                fields.insert(
+                    "cap".to_string(),
+                    FieldInfo {
+                        name: "cap".to_string(),
+                        ty: "usize".to_string(),
+                        ref_kind: crate::api::RefKind::Value,
+                        doc: None,
+                    },
+                );
+                if let Some(destructor) = &gen_type.destructor_name {
+                    fields.insert(
+                        "destructor".to_string(),
+                        FieldInfo {
+                            name: "destructor".to_string(),
+                            ty: destructor.clone(),
+                            ref_kind: crate::api::RefKind::Value,
+                            doc: None,
+                        },
+                    );
                 }
-                
+
                 types.push(ParsedTypeInfo {
                     full_path,
                     type_name: gen_type.type_name.clone(),
@@ -1468,38 +1531,52 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Struct {
                         fields,
                         repr: Some("C".to_string()),
-                        doc: Some(vec![format!("Wrapper over a Rust-allocated `Vec<{}>", gen_type.element_type)]),
+                        doc: Some(vec![format!(
+                            "Wrapper over a Rust-allocated `Vec<{}>",
+                            gen_type.element_type
+                        )]),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),
                         derives: gen_type.derives,
                     },
                     source_code: String::new(), // No source code for macro-generated types
                 });
-                
+
                 // Also create the Destructor enum if it has a destructor
                 if let Some(ref destructor_name) = gen_type.destructor_name {
                     if !existing_type_names.contains(destructor_name) {
-                        let destructor_full_path = build_full_path(&crate_name, &module_path, destructor_name);
-                        
-                        // Create the destructor enum with variants: DefaultRust, NoDestructor, External
+                        let destructor_full_path =
+                            build_full_path(&crate_name, &module_path, destructor_name);
+
+                        // Create the destructor enum with variants: DefaultRust, NoDestructor,
+                        // External
                         let mut variants = IndexMap::new();
-                        variants.insert("DefaultRust".to_string(), VariantInfo {
-                            name: "DefaultRust".to_string(),
-                            ty: None,
-                            doc: None,
-                        });
-                        variants.insert("NoDestructor".to_string(), VariantInfo {
-                            name: "NoDestructor".to_string(),
-                            ty: None,
-                            doc: None,
-                        });
+                        variants.insert(
+                            "DefaultRust".to_string(),
+                            VariantInfo {
+                                name: "DefaultRust".to_string(),
+                                ty: None,
+                                doc: None,
+                            },
+                        );
+                        variants.insert(
+                            "NoDestructor".to_string(),
+                            VariantInfo {
+                                name: "NoDestructor".to_string(),
+                                ty: None,
+                                doc: None,
+                            },
+                        );
                         // External variant takes a function pointer
-                        variants.insert("External".to_string(), VariantInfo {
-                            name: "External".to_string(),
-                            ty: Some(format!("extern \"C\" fn(*mut {})", gen_type.type_name)),
-                            doc: None,
-                        });
-                        
+                        variants.insert(
+                            "External".to_string(),
+                            VariantInfo {
+                                name: "External".to_string(),
+                                ty: Some(format!("extern \"C\" fn(*mut {})", gen_type.type_name)),
+                                doc: None,
+                            },
+                        );
+
                         types.push(ParsedTypeInfo {
                             full_path: destructor_full_path,
                             type_name: destructor_name.clone(),
@@ -1511,7 +1588,11 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                                 doc: Some(vec![format!("Destructor for `{}`", gen_type.type_name)]),
                                 generic_params: Vec::new(),
                                 implemented_traits: Vec::new(),
-                                derives: vec!["Debug".to_string(), "Copy".to_string(), "Clone".to_string()],
+                                derives: vec![
+                                    "Debug".to_string(),
+                                    "Copy".to_string(),
+                                    "Clone".to_string(),
+                                ],
                             },
                             source_code: String::new(),
                         });
@@ -1520,17 +1601,23 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
             } else {
                 // Option types - create synthetic enum with None/Some variants
                 let mut variants = IndexMap::new();
-                variants.insert("None".to_string(), VariantInfo {
-                    name: "None".to_string(),
-                    ty: None,
-                    doc: None,
-                });
-                variants.insert("Some".to_string(), VariantInfo {
-                    name: "Some".to_string(),
-                    ty: Some(gen_type.element_type.clone()),
-                    doc: None,
-                });
-                
+                variants.insert(
+                    "None".to_string(),
+                    VariantInfo {
+                        name: "None".to_string(),
+                        ty: None,
+                        doc: None,
+                    },
+                );
+                variants.insert(
+                    "Some".to_string(),
+                    VariantInfo {
+                        name: "Some".to_string(),
+                        ty: Some(gen_type.element_type.clone()),
+                        doc: None,
+                    },
+                );
+
                 types.push(ParsedTypeInfo {
                     full_path,
                     type_name: gen_type.type_name.clone(),
@@ -1539,7 +1626,10 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                     kind: TypeKind::Enum {
                         variants,
                         repr: Some("C".to_string()),
-                        doc: Some(vec![format!("Option<{}> but FFI-safe", gen_type.element_type)]),
+                        doc: Some(vec![format!(
+                            "Option<{}> but FFI-safe",
+                            gen_type.element_type
+                        )]),
                         generic_params: Vec::new(),
                         implemented_traits: Vec::new(),
                         derives: gen_type.derives,
@@ -1558,13 +1648,12 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
 /// Parse a callback function argument to extract type and ref_kind
 fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
     use crate::api::RefKind;
-    
+
     match ty {
         syn::Type::Ptr(ptr) => {
             // Handle *const T or *mut T
-            let inner_type = crate::autofix::utils::clean_type_string(
-                &ptr.elem.to_token_stream().to_string()
-            );
+            let inner_type =
+                crate::autofix::utils::clean_type_string(&ptr.elem.to_token_stream().to_string());
             let ref_kind = if ptr.mutability.is_some() {
                 RefKind::MutPtr
             } else {
@@ -1578,7 +1667,7 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
         syn::Type::Reference(reference) => {
             // Handle &T or &mut T
             let inner_type = crate::autofix::utils::clean_type_string(
-                &reference.elem.to_token_stream().to_string()
+                &reference.elem.to_token_stream().to_string(),
             );
             let ref_kind = if reference.mutability.is_some() {
                 RefKind::RefMut
@@ -1592,9 +1681,8 @@ fn parse_callback_arg(ty: &syn::Type) -> CallbackArgInfo {
         }
         _ => {
             // Value type
-            let type_str = crate::autofix::utils::clean_type_string(
-                &ty.to_token_stream().to_string()
-            );
+            let type_str =
+                crate::autofix::utils::clean_type_string(&ty.to_token_stream().to_string());
             CallbackArgInfo {
                 ty: type_str,
                 ref_kind: RefKind::Value,

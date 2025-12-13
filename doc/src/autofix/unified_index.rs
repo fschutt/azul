@@ -9,17 +9,19 @@
 
 use std::path::Path;
 
-use crate::autofix::type_index::TypeIndex;
-use crate::patch::index::{ParsedTypeInfo, WorkspaceIndex};
+use crate::{
+    autofix::type_index::TypeIndex,
+    patch::index::{ParsedTypeInfo, WorkspaceIndex},
+};
 
 /// Trait for type lookups - implemented by both TypeIndex and WorkspaceIndex
 pub trait TypeLookup {
     /// Find a type by name
     fn find_type(&self, type_name: &str) -> Option<Vec<ParsedTypeInfo>>;
-    
+
     /// Find a type by full path
     fn find_type_by_path(&self, type_path: &str) -> Option<ParsedTypeInfo>;
-    
+
     /// Find a type by string search (for macro-defined types)
     fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo>;
 }
@@ -29,11 +31,11 @@ impl TypeLookup for TypeIndex {
     fn find_type(&self, type_name: &str) -> Option<Vec<ParsedTypeInfo>> {
         self.find_type(type_name)
     }
-    
+
     fn find_type_by_path(&self, type_path: &str) -> Option<ParsedTypeInfo> {
         self.find_type_by_path(type_path)
     }
-    
+
     fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         self.find_type_by_string_search(type_name)
     }
@@ -44,11 +46,11 @@ impl TypeLookup for WorkspaceIndex {
     fn find_type(&self, type_name: &str) -> Option<Vec<ParsedTypeInfo>> {
         self.find_type(type_name).map(|v| v.to_vec())
     }
-    
+
     fn find_type_by_path(&self, type_path: &str) -> Option<ParsedTypeInfo> {
         self.find_type_by_path(type_path).cloned()
     }
-    
+
     fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         self.find_type_by_string_search(type_name)
     }
@@ -67,18 +69,18 @@ impl UnifiedTypeIndex {
     pub fn build(workspace_root: &Path, verbose: bool) -> anyhow::Result<Self> {
         let type_index = TypeIndex::build(workspace_root, verbose)?;
         let workspace_index = WorkspaceIndex::build(workspace_root)?;
-        
+
         Ok(Self {
             type_index,
             workspace_index,
         })
     }
-    
+
     /// Get access to the underlying TypeIndex
     pub fn type_index(&self) -> &TypeIndex {
         &self.type_index
     }
-    
+
     /// Get access to the underlying WorkspaceIndex
     pub fn workspace_index(&self) -> &WorkspaceIndex {
         &self.workspace_index
@@ -92,27 +94,29 @@ impl TypeLookup for UnifiedTypeIndex {
         if let Some(parsed) = self.type_index.find_type(type_name) {
             return Some(parsed);
         }
-        
+
         // Fall back to WorkspaceIndex
-        self.workspace_index.find_type(type_name).map(|v| v.to_vec())
+        self.workspace_index
+            .find_type(type_name)
+            .map(|v| v.to_vec())
     }
-    
+
     fn find_type_by_path(&self, type_path: &str) -> Option<ParsedTypeInfo> {
         // First try TypeIndex
         if let Some(parsed) = self.type_index.find_type_by_path(type_path) {
             return Some(parsed);
         }
-        
+
         // Fall back to WorkspaceIndex
         self.workspace_index.find_type_by_path(type_path).cloned()
     }
-    
+
     fn find_type_by_string_search(&self, type_name: &str) -> Option<ParsedTypeInfo> {
         // First try TypeIndex
         if let Some(parsed) = self.type_index.find_type_by_string_search(type_name) {
             return Some(parsed);
         }
-        
+
         // Fall back to WorkspaceIndex
         self.workspace_index.find_type_by_string_search(type_name)
     }

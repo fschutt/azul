@@ -39,10 +39,8 @@ fn test_page_template_content_height() {
 #[test]
 #[ignore] // Requires LogicalSize import
 fn test_fragmentation_context_page_advance() {
-    let mut ctx = FragmentationLayoutContext::new(
-        LogicalSize::new(600.0, 800.0),
-        PageMargins::uniform(50.0),
-    );
+    let mut ctx =
+        FragmentationLayoutContext::new(LogicalSize::new(600.0, 800.0), PageMargins::uniform(50.0));
 
     assert_eq!(ctx.current_page, 0);
     assert_eq!(ctx.counter.page_number, 1);
@@ -56,10 +54,8 @@ fn test_fragmentation_context_page_advance() {
 #[test]
 #[ignore] // Requires LogicalSize and PageBreak imports
 fn test_break_decision_monolithic() {
-    let ctx = FragmentationLayoutContext::new(
-        LogicalSize::new(600.0, 800.0),
-        PageMargins::uniform(50.0),
-    );
+    let ctx =
+        FragmentationLayoutContext::new(LogicalSize::new(600.0, 800.0), PageMargins::uniform(50.0));
 
     // Small monolithic box should fit
     let behavior = BoxBreakBehavior::Monolithic { height: 100.0 };

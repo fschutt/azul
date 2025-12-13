@@ -48,31 +48,31 @@ fn deserialize_doc<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Er
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::{self, Visitor, SeqAccess};
-    
+    use serde::de::{self, SeqAccess, Visitor};
+
     struct DocVisitor;
-    
+
     impl<'de> Visitor<'de> for DocVisitor {
         type Value = Option<Vec<String>>;
-        
+
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             formatter.write_str("null, a string, or an array of strings")
         }
-        
+
         fn visit_none<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
             Ok(None)
         }
-        
+
         fn visit_unit<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
             Ok(None)
         }
-        
+
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -83,7 +83,7 @@ where
                 Ok(Some(vec![v.to_string()]))
             }
         }
-        
+
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -94,7 +94,7 @@ where
                 Ok(Some(vec![v]))
             }
         }
-        
+
         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
         where
             A: SeqAccess<'de>,
@@ -110,7 +110,7 @@ where
             }
         }
     }
-    
+
     deserializer.deserialize_any(DocVisitor)
 }
 
@@ -231,7 +231,7 @@ impl Os {
     pub fn all() -> &'static [Os] {
         &[Os::Windows, Os::Linux, Os::Macos]
     }
-    
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Os::Windows => "windows",
@@ -270,7 +270,7 @@ impl Language {
             Language::Python,
         ]
     }
-    
+
     pub fn cpp_versions() -> &'static [Language] {
         &[
             Language::Cpp03,
@@ -281,7 +281,7 @@ impl Language {
             Language::Cpp23,
         ]
     }
-    
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Language::Rust => "rust",
@@ -295,7 +295,7 @@ impl Language {
             Language::Python => "python",
         }
     }
-    
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Language::Rust => "Rust",
@@ -309,14 +309,19 @@ impl Language {
             Language::Python => "Python",
         }
     }
-    
+
     pub fn is_cpp(&self) -> bool {
-        matches!(self, 
-            Language::Cpp03 | Language::Cpp11 | Language::Cpp14 |
-            Language::Cpp17 | Language::Cpp20 | Language::Cpp23
+        matches!(
+            self,
+            Language::Cpp03
+                | Language::Cpp11
+                | Language::Cpp14
+                | Language::Cpp17
+                | Language::Cpp20
+                | Language::Cpp23
         )
     }
-    
+
     pub fn cpp_std_flag(&self) -> Option<&'static str> {
         match self {
             Language::Cpp03 => Some("-std=c++03"),
@@ -386,7 +391,8 @@ pub struct MethodConfig {
 /// Supports dialects (language groups like C++) and multiple methods per language
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Installation {
-    /// Dialect configurations (e.g., cpp -> { displayName: "C++", default: "cpp23", variants: {...} })
+    /// Dialect configurations (e.g., cpp -> { displayName: "C++", default: "cpp23", variants:
+    /// {...} })
     #[serde(default)]
     pub dialects: std::collections::HashMap<String, DialectConfig>,
     /// Language-specific installation instructions
@@ -398,8 +404,9 @@ impl Installation {
     /// Get the list of top-level languages (excluding dialect variants shown separately)
     pub fn get_top_level_languages(&self) -> Vec<&str> {
         let mut langs: Vec<&str> = Vec::new();
-        let dialect_keys: std::collections::HashSet<&str> = self.dialects.keys().map(|s| s.as_str()).collect();
-        
+        let dialect_keys: std::collections::HashSet<&str> =
+            self.dialects.keys().map(|s| s.as_str()).collect();
+
         for (key, config) in &self.languages {
             // Skip if this is a dialect variant (has dialectOf set)
             if config.dialect_of.is_some() {
@@ -407,29 +414,29 @@ impl Installation {
             }
             langs.push(key.as_str());
         }
-        
+
         // Add dialect groups
         for key in &dialect_keys {
             langs.push(key);
         }
-        
+
         langs
     }
-    
+
     /// Get installation steps for a specific language and OS
     pub fn get_steps(&self, lang: &str, os: &str) -> Option<&InstallationSteps> {
         let lang_config = self.languages.get(lang)?;
-        
+
         // If the language has platform-specific installation
         if let Some(platforms) = &lang_config.platforms {
             return platforms.get(os);
         }
-        
+
         // If the language has methods, return the first method's steps wrapped
         // (This is a simplified view - for methods, use get_method_steps)
         None
     }
-    
+
     /// Get the methods available for a language
     pub fn get_methods(&self, lang: &str) -> Vec<&str> {
         self.languages
@@ -438,24 +445,24 @@ impl Installation {
             .map(|m| m.keys().map(|s| s.as_str()).collect())
             .unwrap_or_default()
     }
-    
+
     /// Get installation steps for a specific method
     pub fn get_method_steps(&self, lang: &str, method: &str) -> Option<InstallationSteps> {
         let lang_config = self.languages.get(lang)?;
         let methods = lang_config.methods.as_ref()?;
         let method_config = methods.get(method)?;
-        
+
         Some(InstallationSteps {
             description: method_config.description.clone(),
             steps: method_config.steps.clone(),
         })
     }
-    
+
     /// Get dialect configuration for a language group
     pub fn get_dialect(&self, group: &str) -> Option<&DialectConfig> {
         self.dialects.get(group)
     }
-    
+
     /// Check if a language is a dialect of a group
     pub fn is_dialect(&self, lang: &str) -> bool {
         self.languages
@@ -463,7 +470,7 @@ impl Installation {
             .and_then(|c| c.dialect_of.as_ref())
             .is_some()
     }
-    
+
     /// Get the dialect group for a language (if any)
     pub fn get_dialect_group(&self, lang: &str) -> Option<&str> {
         self.languages
@@ -506,18 +513,11 @@ pub struct InstallationSteps {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum InstallationStep {
     /// A code block to show (not executable)
-    Code {
-        language: String,
-        content: String,
-    },
+    Code { language: String, content: String },
     /// A shell command to run
-    Command {
-        content: String,
-    },
+    Command { content: String },
     /// Descriptive text
-    Text {
-        content: String,
-    },
+    Text { content: String },
 }
 
 impl InstallationStep {
@@ -525,9 +525,9 @@ impl InstallationStep {
     pub fn interpolate(&self, hostname: &str, version: &str) -> Self {
         let do_interpolate = |s: &str| {
             s.replace("$HOSTNAME", hostname)
-             .replace("$VERSION", version)
+                .replace("$VERSION", version)
         };
-        
+
         match self {
             InstallationStep::Code { language, content } => InstallationStep::Code {
                 language: language.clone(),
@@ -555,7 +555,9 @@ pub struct Example {
     pub description: Vec<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Paths to example source files for each language
 /// Supports both old format (single cpp) and new format (per-C++ standard)
@@ -602,10 +604,11 @@ impl ExampleCodePaths {
             Language::Cpp23 => self.cpp23.as_deref().or(self.cpp.as_deref()),
         }
     }
-    
+
     /// Get the best available C++ path (prefer cpp23, fall back to legacy cpp)
     pub fn get_default_cpp_path(&self) -> Option<&str> {
-        self.cpp23.as_deref()
+        self.cpp23
+            .as_deref()
             .or(self.cpp20.as_deref())
             .or(self.cpp17.as_deref())
             .or(self.cpp14.as_deref())
@@ -634,27 +637,33 @@ impl Example {
     ) -> anyhow::Result<LoadedExample> {
         let base_path = Path::new(filerelativepath);
         let img_path = Path::new(imagerelativepath);
-        
+
         // Load required language files
         let c = std::fs::read(base_path.join(&self.code.c))
             .context(format!("failed to load C code for example {}", self.name))?;
-        let rust = std::fs::read(base_path.join(&self.code.rust))
-            .context(format!("failed to load Rust code for example {}", self.name))?;
-        let python = std::fs::read(base_path.join(&self.code.python))
-            .context(format!("failed to load Python code for example {}", self.name))?;
-        
+        let rust = std::fs::read(base_path.join(&self.code.rust)).context(format!(
+            "failed to load Rust code for example {}",
+            self.name
+        ))?;
+        let python = std::fs::read(base_path.join(&self.code.python)).context(format!(
+            "failed to load Python code for example {}",
+            self.name
+        ))?;
+
         // Load C++ code - try versioned paths first, then fall back to legacy
-        let cpp = self.code.get_default_cpp_path()
+        let cpp = self
+            .code
+            .get_default_cpp_path()
             .and_then(|p| std::fs::read(base_path.join(p)).ok())
             .unwrap_or_default();
-        
+
         // Load C++ versions (optional - may not all exist)
         let load_cpp_version = |path: &Option<String>| -> Vec<u8> {
             path.as_ref()
                 .and_then(|p| std::fs::read(base_path.join(p)).ok())
                 .unwrap_or_default()
         };
-        
+
         let cpp_versions = CppVersionedCode {
             cpp03: load_cpp_version(&self.code.cpp03),
             cpp11: load_cpp_version(&self.code.cpp11),
@@ -663,7 +672,7 @@ impl Example {
             cpp20: load_cpp_version(&self.code.cpp20),
             cpp23: load_cpp_version(&self.code.cpp23),
         };
-        
+
         Ok(LoadedExample {
             name: self.name.clone(),
             alt: self.alt.clone(),
@@ -677,12 +686,20 @@ impl Example {
                 python,
             },
             screenshot: OsDepFiles {
-                windows: std::fs::read(img_path.join(&self.screenshot.windows))
-                    .context(format!("failed to load Windows screenshot for example {}", self.name))?,
-                linux: std::fs::read(img_path.join(&self.screenshot.linux))
-                    .context(format!("failed to load Linux screenshot for example {}", self.name))?,
-                mac: std::fs::read(img_path.join(&self.screenshot.mac))
-                    .context(format!("failed to load macOS screenshot for example {}", self.name))?,
+                windows: std::fs::read(img_path.join(&self.screenshot.windows)).context(
+                    format!(
+                        "failed to load Windows screenshot for example {}",
+                        self.name
+                    ),
+                )?,
+                linux: std::fs::read(img_path.join(&self.screenshot.linux)).context(format!(
+                    "failed to load Linux screenshot for example {}",
+                    self.name
+                ))?,
+                mac: std::fs::read(img_path.join(&self.screenshot.mac)).context(format!(
+                    "failed to load macOS screenshot for example {}",
+                    self.name
+                ))?,
             },
         })
     }
@@ -734,18 +751,30 @@ impl CppVersionedCode {
             Language::Cpp23 => &self.cpp23,
             _ => return None,
         };
-        if code.is_empty() { None } else { Some(code) }
+        if code.is_empty() {
+            None
+        } else {
+            Some(code)
+        }
     }
-    
+
     /// Get the best available C++ code (prefer newest standard)
     pub fn get_best(&self) -> &[u8] {
-        if !self.cpp23.is_empty() { &self.cpp23 }
-        else if !self.cpp20.is_empty() { &self.cpp20 }
-        else if !self.cpp17.is_empty() { &self.cpp17 }
-        else if !self.cpp14.is_empty() { &self.cpp14 }
-        else if !self.cpp11.is_empty() { &self.cpp11 }
-        else if !self.cpp03.is_empty() { &self.cpp03 }
-        else { &[] }
+        if !self.cpp23.is_empty() {
+            &self.cpp23
+        } else if !self.cpp20.is_empty() {
+            &self.cpp20
+        } else if !self.cpp17.is_empty() {
+            &self.cpp17
+        } else if !self.cpp14.is_empty() {
+            &self.cpp14
+        } else if !self.cpp11.is_empty() {
+            &self.cpp11
+        } else if !self.cpp03.is_empty() {
+            &self.cpp03
+        } else {
+            &[]
+        }
     }
 }
 
@@ -768,15 +797,22 @@ impl LangDepFiles {
             Language::C => Some(&self.c),
             Language::Rust => Some(&self.rust),
             Language::Python => Some(&self.python),
-            Language::Cpp03 | Language::Cpp11 | Language::Cpp14 |
-            Language::Cpp17 | Language::Cpp20 | Language::Cpp23 => {
+            Language::Cpp03
+            | Language::Cpp11
+            | Language::Cpp14
+            | Language::Cpp17
+            | Language::Cpp20
+            | Language::Cpp23 => {
                 // Try versioned code first, fall back to legacy cpp
-                self.cpp_versions.get(lang)
-                    .or(if self.cpp.is_empty() { None } else { Some(&self.cpp[..]) })
+                self.cpp_versions.get(lang).or(if self.cpp.is_empty() {
+                    None
+                } else {
+                    Some(&self.cpp[..])
+                })
             }
         }
     }
-    
+
     /// Get the best available C++ code
     pub fn get_cpp(&self) -> &[u8] {
         let versioned = self.cpp_versions.get_best();
@@ -811,7 +847,11 @@ impl VersionData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModuleData {
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
     // Using IndexMap to preserve class order within a module
     pub classes: IndexMap<String, ClassData>,
@@ -830,7 +870,11 @@ impl ModuleData {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ClassData {
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
@@ -945,7 +989,8 @@ pub struct ConstantData {
 pub struct TypeAliasInfo {
     /// The target type (e.g., "c_void" for pointer aliases, "CssPropertyValue" for generics)
     pub target: String,
-    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
+    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default
+    /// "value" (T)
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
     /// Generic arguments for instantiation (e.g., ["LayoutZIndex"])
@@ -956,13 +1001,19 @@ pub struct TypeAliasInfo {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct FieldData {
     pub r#type: String,
-    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default "value" (T)
+    /// Reference kind for pointer types: "constptr" (*const T), "mutptr" (*mut T), or default
+    /// "value" (T)
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
-    /// Array size for fixed-size arrays. If Some(N), the type is [T; N] where T is in `type` field.
+    /// Array size for fixed-size arrays. If Some(N), the type is [T; N] where T is in `type`
+    /// field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arraysize: Option<usize>,
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Vec<String>>, // For field-level derives like #[pyo3(get, set)]
@@ -973,13 +1024,21 @@ pub struct EnumVariantData {
     // Variants might not have an associated type (e.g., simple enums like MsgBoxIcon)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FunctionData {
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.
@@ -1009,7 +1068,11 @@ pub struct FunctionData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReturnTypeData {
     pub r#type: String,
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
 }
 
@@ -1028,7 +1091,11 @@ pub struct CallbackArgData {
     /// Uses same RefKind as struct fields for consistency
     #[serde(default, skip_serializing_if = "is_ref_kind_value")]
     pub ref_kind: RefKind,
-    #[serde(default, skip_serializing_if = "is_none_or_empty_vec", deserialize_with = "deserialize_doc")]
+    #[serde(
+        default,
+        skip_serializing_if = "is_none_or_empty_vec",
+        deserialize_with = "deserialize_doc"
+    )]
     pub doc: Option<Vec<String>>,
 }
 
@@ -1221,7 +1288,7 @@ pub fn extract_base_type(type_str: &str) -> String {
     if let Some(start) = trimmed.find('<') {
         if let Some(end) = trimmed.rfind('>') {
             let inner = &trimmed[start + 1..end];
-            
+
             // If inner contains a comma (e.g., HashMap<K, V>), take only the first type
             // This avoids creating invalid types like "String, String"
             let first_type = if let Some(comma_pos) = find_top_level_comma(inner) {
@@ -1229,7 +1296,7 @@ pub fn extract_base_type(type_str: &str) -> String {
             } else {
                 inner.trim()
             };
-            
+
             // Recursively extract from inner type
             return extract_base_type(first_type);
         }
@@ -1309,31 +1376,35 @@ pub fn is_behind_pointer(type_str: &str) -> bool {
 /// Primitive types that should never be added to the API as classes
 /// These are built-in language types that don't need Az prefix
 const PRIMITIVE_TYPES: &[&str] = &[
-    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", 
-    "slice", "u128", "u16", "u32", "u64", "u8", "()", "usize", "c_void",
-    "str", "char", "c_char", "c_schar", "c_uchar",
+    "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
+    "u32", "u64", "u8", "()", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
 ];
 
 /// Single-letter types are usually generic type parameters
 fn is_generic_type_param(type_name: &str) -> bool {
-    type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+    type_name.len() == 1
+        && type_name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
 }
 
 /// Extract base type INCLUDING types behind pointers
 /// Used for unused type analysis where we need to track all references
 pub fn extract_base_type_including_pointers(type_str: &str) -> Option<String> {
     let base_type = extract_base_type(type_str);
-    
+
     // Don't return primitive types - they're built-in and shouldn't be in API
     if PRIMITIVE_TYPES.contains(&base_type.as_str()) {
         return None;
     }
-    
+
     // Don't return single-letter generic type parameters (T, U, V, etc.)
     if is_generic_type_param(&base_type) {
         return None;
     }
-    
+
     Some(base_type)
 }
 
@@ -1346,17 +1417,17 @@ pub fn extract_base_type_if_not_opaque(type_str: &str) -> Option<String> {
     }
 
     let base_type = extract_base_type(type_str);
-    
+
     // Don't return primitive types - they're built-in and shouldn't be in API
     if PRIMITIVE_TYPES.contains(&base_type.as_str()) {
         return None;
     }
-    
+
     // Don't return single-letter generic type parameters (T, U, V, etc.)
     if is_generic_type_param(&base_type) {
         return None;
     }
-    
+
     Some(base_type)
 }
 
@@ -1378,9 +1449,10 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
 }
 
 /// Collect all type references from the entire API, along with reference chains
-/// Returns (types, reference_chains) where reference_chains maps type_name -> first_chain_description
+/// Returns (types, reference_chains) where reference_chains maps type_name ->
+/// first_chain_description
 pub fn collect_all_referenced_types_from_api_with_chains(
-    api_data: &crate::api::ApiData
+    api_data: &crate::api::ApiData,
 ) -> (HashSet<String>, HashMap<String, String>) {
     let mut types = HashSet::new();
     let mut chains: HashMap<String, String> = HashMap::new();
@@ -1395,12 +1467,17 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         // Each item is a map like {"arg_name": "type"}
                         for param_map in &fn_data.fn_args {
                             for (param_name, param_type_str) in param_map {
-                                if let Some(param_type) = extract_base_type_if_not_opaque(param_type_str) {
+                                if let Some(param_type) =
+                                    extract_base_type_if_not_opaque(param_type_str)
+                                {
                                     if !types.contains(&param_type) {
                                         types.insert(param_type.clone());
                                         chains.insert(
                                             param_type,
-                                            format!("{}::{}() param '{}'", class_name, fn_name, param_name)
+                                            format!(
+                                                "{}::{}() param '{}'",
+                                                class_name, fn_name, param_name
+                                            ),
                                         );
                                     }
                                 }
@@ -1408,31 +1485,38 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         }
                         // Return type
                         if let Some(ret_type) = &fn_data.returns {
-                            if let Some(base_type) = extract_base_type_if_not_opaque(&ret_type.r#type) {
+                            if let Some(base_type) =
+                                extract_base_type_if_not_opaque(&ret_type.r#type)
+                            {
                                 if !types.contains(&base_type) {
                                     types.insert(base_type.clone());
                                     chains.insert(
                                         base_type,
-                                        format!("{}::{}() returns", class_name, fn_name)
+                                        format!("{}::{}() returns", class_name, fn_name),
                                     );
                                 }
                             }
                         }
                     }
                 }
-                
+
                 // Track types from constructors
                 if let Some(constructors) = &class_data.constructors {
                     for (ctor_name, ctor_data) in constructors {
                         // Same structure as functions
                         for param_map in &ctor_data.fn_args {
                             for (param_name, param_type_str) in param_map {
-                                if let Some(param_type) = extract_base_type_if_not_opaque(param_type_str) {
+                                if let Some(param_type) =
+                                    extract_base_type_if_not_opaque(param_type_str)
+                                {
                                     if !types.contains(&param_type) {
                                         types.insert(param_type.clone());
                                         chains.insert(
                                             param_type,
-                                            format!("{}::{}() param '{}'", class_name, ctor_name, param_name)
+                                            format!(
+                                                "{}::{}() param '{}'",
+                                                class_name, ctor_name, param_name
+                                            ),
                                         );
                                     }
                                 }
@@ -1440,35 +1524,41 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         }
                     }
                 }
-                
-                // Track types from struct fields - struct_fields is Vec<IndexMap<String, FieldData>>
+
+                // Track types from struct fields - struct_fields is Vec<IndexMap<String,
+                // FieldData>>
                 if let Some(fields_vec) = &class_data.struct_fields {
                     for field_map in fields_vec {
                         for (field_name, field_data) in field_map {
-                            if let Some(field_type) = extract_base_type_if_not_opaque(&field_data.r#type) {
+                            if let Some(field_type) =
+                                extract_base_type_if_not_opaque(&field_data.r#type)
+                            {
                                 if !types.contains(&field_type) {
                                     types.insert(field_type.clone());
                                     chains.insert(
                                         field_type,
-                                        format!("{}.{}", class_name, field_name)
+                                        format!("{}.{}", class_name, field_name),
                                     );
                                 }
                             }
                         }
                     }
                 }
-                
-                // Track types from enum variants - enum_fields is Vec<IndexMap<String, EnumVariantData>>
+
+                // Track types from enum variants - enum_fields is Vec<IndexMap<String,
+                // EnumVariantData>>
                 if let Some(variants_vec) = &class_data.enum_fields {
                     for variant_map in variants_vec {
                         for (variant_name, variant_data) in variant_map {
                             if let Some(variant_type) = &variant_data.r#type {
-                                if let Some(base_type) = extract_base_type_if_not_opaque(variant_type) {
+                                if let Some(base_type) =
+                                    extract_base_type_if_not_opaque(variant_type)
+                                {
                                     if !types.contains(&base_type) {
                                         types.insert(base_type.clone());
                                         chains.insert(
                                             base_type,
-                                            format!("{}::{}", class_name, variant_name)
+                                            format!("{}::{}", class_name, variant_name),
                                         );
                                     }
                                 }
@@ -1476,16 +1566,18 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         }
                     }
                 }
-                
+
                 // Track callback typedef types - fn_args is Vec<CallbackArgData>
                 if let Some(callback_def) = &class_data.callback_typedef {
                     for (idx, param_data) in callback_def.fn_args.iter().enumerate() {
-                        if let Some(param_type) = extract_base_type_if_not_opaque(&param_data.r#type) {
+                        if let Some(param_type) =
+                            extract_base_type_if_not_opaque(&param_data.r#type)
+                        {
                             if !types.contains(&param_type) {
                                 types.insert(param_type.clone());
                                 chains.insert(
                                     param_type,
-                                    format!("callback {} arg#{}", class_name, idx)
+                                    format!("callback {} arg#{}", class_name, idx),
                                 );
                             }
                         }
@@ -1494,10 +1586,8 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         if let Some(base_type) = extract_base_type_if_not_opaque(&ret.r#type) {
                             if !types.contains(&base_type) {
                                 types.insert(base_type.clone());
-                                chains.insert(
-                                    base_type,
-                                    format!("callback {} returns", class_name)
-                                );
+                                chains
+                                    .insert(base_type, format!("callback {} returns", class_name));
                             }
                         }
                     }
@@ -1510,106 +1600,120 @@ pub fn collect_all_referenced_types_from_api_with_chains(
 }
 
 /// Find types in api.json that are never used by any function or other type
-/// 
+///
 /// This performs a reachability analysis starting from:
 /// 1. All functions (constructors, functions) - their parameters and return types
 /// 2. All callback_typedef types (they are entry points for callbacks)
-/// 
+///
 /// Then recursively follows struct fields and enum variants to find all reachable types.
 /// Returns the set of type names that are defined but never reachable.
 pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
     let mut reachable_types: HashSet<String> = HashSet::new();
     let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new(); // type_name -> (module, version)
-    
+
     // Collect all defined types and build a lookup for their definitions
     // Important: Keep only the "most complete" definition (one with struct_fields or enum_fields)
     let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
-    
+
     for (version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Only track as "defined type" if it has a real definition
-                let has_body = class_data.struct_fields.is_some() 
+                let has_body = class_data.struct_fields.is_some()
                     || class_data.enum_fields.is_some()
                     || class_data.callback_typedef.is_some()
                     || class_data.type_alias.is_some()
                     || class_data.functions.is_some()
                     || class_data.constructors.is_some();
-                
+
                 // Track all occurrences for "unused" detection
                 all_defined_types.insert(
-                    class_name.clone(), 
-                    (module_name.clone(), version_name.clone())
+                    class_name.clone(),
+                    (module_name.clone(), version_name.clone()),
                 );
-                
+
                 // For type_definitions, prefer the version with struct/enum fields
                 let existing = type_definitions.get(class_name);
                 let should_replace = match existing {
                     None => true,
                     Some(existing_data) => {
                         // Replace if existing has no body but new one has body
-                        let existing_has_body = existing_data.struct_fields.is_some() 
+                        let existing_has_body = existing_data.struct_fields.is_some()
                             || existing_data.enum_fields.is_some()
                             || existing_data.callback_typedef.is_some()
                             || existing_data.type_alias.is_some();
                         !existing_has_body && has_body
                     }
                 };
-                
+
                 if should_replace {
                     type_definitions.insert(class_name.clone(), class_data);
                 }
             }
         }
     }
-    
+
     // Phase 1: Collect all "entry point" types from functions and constructors
     let mut types_to_process: Vec<String> = Vec::new();
-    
+
     for (_version_name, version_data) in &api_data.0 {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Add the class itself if it has functions or constructors
                 // (it's part of the public API)
-                let has_functions = class_data.functions.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
-                let has_constructors = class_data.constructors.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+                let has_functions = class_data
+                    .functions
+                    .as_ref()
+                    .map(|f| !f.is_empty())
+                    .unwrap_or(false);
+                let has_constructors = class_data
+                    .constructors
+                    .as_ref()
+                    .map(|c| !c.is_empty())
+                    .unwrap_or(false);
                 let is_callback_typedef = class_data.callback_typedef.is_some();
-                
+
                 if has_functions || has_constructors || is_callback_typedef {
                     if !reachable_types.contains(class_name) {
                         reachable_types.insert(class_name.clone());
                         types_to_process.push(class_name.clone());
                     }
                 }
-                
+
                 // Extract types from functions
                 if let Some(functions) = &class_data.functions {
                     for (_fn_name, fn_data) in functions {
                         for type_name in extract_types_from_function_data(fn_data) {
-                            if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                            if !reachable_types.contains(&type_name)
+                                && all_defined_types.contains_key(&type_name)
+                            {
                                 reachable_types.insert(type_name.clone());
                                 types_to_process.push(type_name);
                             }
                         }
                     }
                 }
-                
+
                 // Extract types from constructors
                 if let Some(constructors) = &class_data.constructors {
                     for (_ctor_name, ctor_data) in constructors {
                         for type_name in extract_types_from_function_data(ctor_data) {
-                            if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                            if !reachable_types.contains(&type_name)
+                                && all_defined_types.contains_key(&type_name)
+                            {
                                 reachable_types.insert(type_name.clone());
                                 types_to_process.push(type_name);
                             }
                         }
                     }
                 }
-                
+
                 // Extract types from callback_typedef
                 if let Some(callback_def) = &class_data.callback_typedef {
                     for type_name in extract_types_from_callback_definition(callback_def) {
-                        if !reachable_types.contains(&type_name) && all_defined_types.contains_key(&type_name) {
+                        if !reachable_types.contains(&type_name)
+                            && all_defined_types.contains_key(&type_name)
+                        {
                             reachable_types.insert(type_name.clone());
                             types_to_process.push(type_name);
                         }
@@ -1618,16 +1722,16 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
             }
         }
     }
-    
+
     // Phase 2: Recursively follow struct fields and enum variants
     // Use _all variants to include types behind pointers (important for Vec element types)
     let mut iteration = 0;
     let max_iterations = 100; // Safety limit
-    
+
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
         let current_batch: Vec<String> = types_to_process.drain(..).collect();
-        
+
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
                 // Extract types from struct fields (including pointer types)
@@ -1635,7 +1739,9 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                     for field_map in struct_fields {
                         for (_field_name, field_data) in field_map {
                             for referenced_type in extract_types_from_field_data_all(field_data) {
-                                if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
+                                if !reachable_types.contains(&referenced_type)
+                                    && all_defined_types.contains_key(&referenced_type)
+                                {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
                                 }
@@ -1643,13 +1749,16 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                         }
                     }
                 }
-                
+
                 // Extract types from enum variants (including pointer types)
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
                         for (_variant_name, variant_data) in variant_map {
-                            for referenced_type in extract_types_from_enum_variant_all(variant_data) {
-                                if !reachable_types.contains(&referenced_type) && all_defined_types.contains_key(&referenced_type) {
+                            for referenced_type in extract_types_from_enum_variant_all(variant_data)
+                            {
+                                if !reachable_types.contains(&referenced_type)
+                                    && all_defined_types.contains_key(&referenced_type)
+                                {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
                                 }
@@ -1657,18 +1766,24 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                         }
                     }
                 }
-                
+
                 // Extract types from type_alias (including pointer types)
                 if let Some(type_alias) = &class_data.type_alias {
-                    if let Some(base_type) = extract_base_type_including_pointers(&type_alias.target) {
-                        if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
+                    if let Some(base_type) =
+                        extract_base_type_including_pointers(&type_alias.target)
+                    {
+                        if !reachable_types.contains(&base_type)
+                            && all_defined_types.contains_key(&base_type)
+                        {
                             reachable_types.insert(base_type.clone());
                             types_to_process.push(base_type);
                         }
                     }
                     for generic_arg in &type_alias.generic_args {
                         if let Some(base_type) = extract_base_type_including_pointers(generic_arg) {
-                            if !reachable_types.contains(&base_type) && all_defined_types.contains_key(&base_type) {
+                            if !reachable_types.contains(&base_type)
+                                && all_defined_types.contains_key(&base_type)
+                            {
                                 reachable_types.insert(base_type.clone());
                                 types_to_process.push(base_type);
                             }
@@ -1678,10 +1793,10 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
             }
         }
     }
-    
+
     // Phase 3: Find all types that are defined but not reachable
     let mut unused: Vec<UnusedTypeInfo> = Vec::new();
-    
+
     for (type_name, (module_name, version_name)) in &all_defined_types {
         if !reachable_types.contains(type_name) {
             unused.push(UnusedTypeInfo {
@@ -1691,85 +1806,84 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
             });
         }
     }
-    
+
     // Sort by module, then by type name for consistent output
-    unused.sort_by(|a, b| {
-        match a.module_name.cmp(&b.module_name) {
-            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
-            other => other,
-        }
+    unused.sort_by(|a, b| match a.module_name.cmp(&b.module_name) {
+        std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+        other => other,
     });
-    
+
     unused
 }
 
 /// Find ALL unused types recursively by simulating removal
-/// 
+///
 /// This works by iteratively:
 /// 1. Finding unused types in the current API
 /// 2. Removing them from consideration completely (as if they don't exist)
 /// 3. Running the analysis again to find newly-unused types
 /// 4. Repeating until no new unused types are found
-/// 
+///
 /// This catches types that become unused only after other unused types are removed.
 pub fn find_all_unused_types_recursive(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
     let mut all_unused: Vec<UnusedTypeInfo> = Vec::new();
     let mut removed_types: HashSet<String> = HashSet::new();
     let mut iteration = 0;
     let max_iterations = 50; // Safety limit
-    
+
     loop {
         iteration += 1;
         if iteration > max_iterations {
-            eprintln!("[WARN] Max iterations ({}) reached in find_all_unused_types_recursive", max_iterations);
+            eprintln!(
+                "[WARN] Max iterations ({}) reached in find_all_unused_types_recursive",
+                max_iterations
+            );
             break;
         }
-        
+
         // Find unused types, treating already-removed types as non-existent
         let unused = find_unused_types_simulating_removal(api_data, &removed_types);
-        
+
         if unused.is_empty() {
             // No more unused types found
             break;
         }
-        
+
         // Mark these types as "removed" for the next iteration
         for ut in &unused {
             removed_types.insert(ut.type_name.clone());
         }
-        
+
         all_unused.extend(unused);
     }
-    
+
     // Sort by module, then by type name for consistent output
-    all_unused.sort_by(|a, b| {
-        match a.module_name.cmp(&b.module_name) {
-            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
-            other => other,
-        }
+    all_unused.sort_by(|a, b| match a.module_name.cmp(&b.module_name) {
+        std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+        other => other,
     });
-    
+
     // Deduplicate (same type might be in multiple modules with same name)
     all_unused.dedup_by(|a, b| a.type_name == b.type_name && a.module_name == b.module_name);
-    
+
     all_unused
 }
 
 /// Find unused types, simulating that some types have already been removed
-/// 
+///
 /// This is a helper for find_all_unused_types_recursive.
 /// Types in `removed` are treated as if they were already removed from the API:
 /// - They are not included in all_defined_types
 /// - They are not considered as entry points
 /// - References TO them are ignored (as if they don't exist)
 fn find_unused_types_simulating_removal(
-    api_data: &crate::api::ApiData, 
-    removed: &HashSet<String>
+    api_data: &crate::api::ApiData,
+    removed: &HashSet<String>,
 ) -> Vec<UnusedTypeInfo> {
     let mut reachable_types: HashSet<String> = HashSet::new();
     let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new();
     let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
-    
+
     // First pass: collect all type definitions, EXCLUDING removed types
     for (version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
@@ -1778,46 +1892,46 @@ fn find_unused_types_simulating_removal(
                 if removed.contains(class_name) {
                     continue;
                 }
-                
-                let has_body = class_data.struct_fields.is_some() 
+
+                let has_body = class_data.struct_fields.is_some()
                     || class_data.enum_fields.is_some()
                     || class_data.callback_typedef.is_some()
                     || class_data.type_alias.is_some()
                     || class_data.functions.is_some()
                     || class_data.constructors.is_some();
-                
+
                 all_defined_types.insert(
-                    class_name.clone(), 
-                    (module_name.clone(), version_name.clone())
+                    class_name.clone(),
+                    (module_name.clone(), version_name.clone()),
                 );
-                
+
                 let existing = type_definitions.get(class_name);
                 let should_replace = match existing {
                     None => true,
                     Some(existing_data) => {
-                        let existing_has_body = existing_data.struct_fields.is_some() 
+                        let existing_has_body = existing_data.struct_fields.is_some()
                             || existing_data.enum_fields.is_some()
                             || existing_data.callback_typedef.is_some()
                             || existing_data.type_alias.is_some();
                         !existing_has_body && has_body
                     }
                 };
-                
+
                 if should_replace {
                     type_definitions.insert(class_name.clone(), class_data);
                 }
             }
         }
     }
-    
+
     // Helper closure to check if a type is valid (exists and not removed)
     let is_valid_type = |type_name: &String| -> bool {
         !removed.contains(type_name) && all_defined_types.contains_key(type_name)
     };
-    
+
     // Phase 1: Collect entry points (functions, constructors, callbacks)
     let mut types_to_process: Vec<String> = Vec::new();
-    
+
     for (_version_name, version_data) in &api_data.0 {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
@@ -1825,11 +1939,19 @@ fn find_unused_types_simulating_removal(
                 if removed.contains(class_name) {
                     continue;
                 }
-                
-                let has_functions = class_data.functions.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
-                let has_constructors = class_data.constructors.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+
+                let has_functions = class_data
+                    .functions
+                    .as_ref()
+                    .map(|f| !f.is_empty())
+                    .unwrap_or(false);
+                let has_constructors = class_data
+                    .constructors
+                    .as_ref()
+                    .map(|c| !c.is_empty())
+                    .unwrap_or(false);
                 let is_callback_typedef = class_data.callback_typedef.is_some();
-                
+
                 // If this type has functions/constructors/callbacks, it's an entry point
                 if has_functions || has_constructors || is_callback_typedef {
                     if !reachable_types.contains(class_name) {
@@ -1837,7 +1959,7 @@ fn find_unused_types_simulating_removal(
                         types_to_process.push(class_name.clone());
                     }
                 }
-                
+
                 // Also mark types referenced by functions/constructors as reachable
                 if let Some(functions) = &class_data.functions {
                     for (_fn_name, fn_data) in functions {
@@ -1849,7 +1971,7 @@ fn find_unused_types_simulating_removal(
                         }
                     }
                 }
-                
+
                 if let Some(constructors) = &class_data.constructors {
                     for (_ctor_name, ctor_data) in constructors {
                         for type_name in extract_types_from_function_data(ctor_data) {
@@ -1860,7 +1982,7 @@ fn find_unused_types_simulating_removal(
                         }
                     }
                 }
-                
+
                 if let Some(callback_def) = &class_data.callback_typedef {
                     for type_name in extract_types_from_callback_definition(callback_def) {
                         if !reachable_types.contains(&type_name) && is_valid_type(&type_name) {
@@ -1872,16 +1994,16 @@ fn find_unused_types_simulating_removal(
             }
         }
     }
-    
+
     // Phase 2: Recursively follow struct fields and enum variants
     // Use _all variants to include types behind pointers (important for Vec element types)
     let mut iteration = 0;
     let max_iterations = 100;
-    
+
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
         let current_batch: Vec<String> = types_to_process.drain(..).collect();
-        
+
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
                 // Process struct fields (including pointer types)
@@ -1889,7 +2011,9 @@ fn find_unused_types_simulating_removal(
                     for field_map in struct_fields {
                         for (_field_name, field_data) in field_map {
                             for referenced_type in extract_types_from_field_data_all(field_data) {
-                                if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
+                                if !reachable_types.contains(&referenced_type)
+                                    && is_valid_type(&referenced_type)
+                                {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
                                 }
@@ -1897,13 +2021,16 @@ fn find_unused_types_simulating_removal(
                         }
                     }
                 }
-                
+
                 // Process enum variants (including pointer types)
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
                         for (_variant_name, variant_data) in variant_map {
-                            for referenced_type in extract_types_from_enum_variant_all(variant_data) {
-                                if !reachable_types.contains(&referenced_type) && is_valid_type(&referenced_type) {
+                            for referenced_type in extract_types_from_enum_variant_all(variant_data)
+                            {
+                                if !reachable_types.contains(&referenced_type)
+                                    && is_valid_type(&referenced_type)
+                                {
                                     reachable_types.insert(referenced_type.clone());
                                     types_to_process.push(referenced_type);
                                 }
@@ -1911,10 +2038,12 @@ fn find_unused_types_simulating_removal(
                         }
                     }
                 }
-                
+
                 // Process type aliases (including pointer types)
                 if let Some(type_alias) = &class_data.type_alias {
-                    if let Some(base_type) = extract_base_type_including_pointers(&type_alias.target) {
+                    if let Some(base_type) =
+                        extract_base_type_including_pointers(&type_alias.target)
+                    {
                         if !reachable_types.contains(&base_type) && is_valid_type(&base_type) {
                             reachable_types.insert(base_type.clone());
                             types_to_process.push(base_type);
@@ -1932,10 +2061,10 @@ fn find_unused_types_simulating_removal(
             }
         }
     }
-    
+
     // Phase 3: Find unreachable types (types that are defined but not reachable)
     let mut unused: Vec<UnusedTypeInfo> = Vec::new();
-    
+
     for (type_name, (module_name, version_name)) in &all_defined_types {
         if !reachable_types.contains(type_name) {
             unused.push(UnusedTypeInfo {
@@ -1945,28 +2074,27 @@ fn find_unused_types_simulating_removal(
             });
         }
     }
-    
-    unused.sort_by(|a, b| {
-        match a.module_name.cmp(&b.module_name) {
-            std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
-            other => other,
-        }
+
+    unused.sort_by(|a, b| match a.module_name.cmp(&b.module_name) {
+        std::cmp::Ordering::Equal => a.type_name.cmp(&b.type_name),
+        other => other,
     });
-    
+
     unused
 }
 
 /// Generate removal patches for unused types
-/// 
+///
 /// Creates patch files that will remove unused types from the API when applied.
 /// One patch file is created per module, containing all removal operations for that module.
 pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::patch::ApiPatch> {
     use std::collections::BTreeMap;
-    use crate::patch::{ApiPatch, VersionPatch, ModulePatch, ClassPatch};
-    
+
+    use crate::patch::{ApiPatch, ClassPatch, ModulePatch, VersionPatch};
+
     // Group unused types by version and module
     let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
-    
+
     for unused in unused_types {
         grouped
             .entry(unused.version_name.clone())
@@ -1975,14 +2103,14 @@ pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::p
             .or_default()
             .push(unused.type_name.clone());
     }
-    
+
     // Create one patch per module
     let mut patches = Vec::new();
-    
+
     for (version_name, modules) in grouped {
         for (module_name, type_names) in modules {
             let mut module_patch = ModulePatch::default();
-            
+
             for type_name in type_names {
                 module_patch.classes.insert(
                     type_name,
@@ -1992,40 +2120,45 @@ pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::p
                     },
                 );
             }
-            
+
             let mut version_patch = VersionPatch::default();
-            version_patch.modules.insert(module_name.clone(), module_patch);
-            
+            version_patch
+                .modules
+                .insert(module_name.clone(), module_patch);
+
             let mut api_patch = ApiPatch::default();
-            api_patch.versions.insert(version_name.clone(), version_patch);
-            
+            api_patch
+                .versions
+                .insert(version_name.clone(), version_patch);
+
             patches.push(api_patch);
         }
     }
-    
+
     patches
 }
 
 /// Remove empty modules from the API data
-/// 
+///
 /// Returns the number of modules removed
 pub fn remove_empty_modules(api_data: &mut ApiData) -> usize {
     let mut total_removed = 0;
-    
+
     for (_version_name, version_data) in &mut api_data.0 {
-        let empty_modules: Vec<String> = version_data.api
+        let empty_modules: Vec<String> = version_data
+            .api
             .iter()
             .filter(|(_, module_data)| module_data.classes.is_empty())
             .map(|(module_name, _)| module_name.clone())
             .collect();
-        
+
         for module_name in &empty_modules {
             version_data.api.shift_remove(module_name);
             println!("  [REMOVE] Removed empty module: {}", module_name);
             total_removed += 1;
         }
     }
-    
+
     total_removed
 }
 
@@ -2039,14 +2172,14 @@ pub struct UnusedTypeInfo {
 
 /// Extract array size from a type string like "[T; N]" and normalize it.
 /// Returns (base_type, array_size) where array_size is Some(N) if it's an array.
-/// 
+///
 /// Examples:
 /// - "[f32; 20]" -> ("f32", Some(20))
 /// - "[FloatValue; 4]" -> ("FloatValue", Some(4))
 /// - "String" -> ("String", None)
 fn extract_array_info(type_str: &str) -> (String, Option<usize>) {
     let trimmed = type_str.trim();
-    
+
     // Check if it's an array type: [T; N]
     if trimmed.starts_with('[') && trimmed.ends_with(']') {
         let inner = &trimmed[1..trimmed.len() - 1];
@@ -2058,19 +2191,19 @@ fn extract_array_info(type_str: &str) -> (String, Option<usize>) {
             }
         }
     }
-    
+
     (trimmed.to_string(), None)
 }
 
 /// Normalize array types in api.json by extracting `[T; N]` into separate fields.
-/// 
+///
 /// Before: `{ "type": "[f32; 20]" }`
 /// After:  `{ "type": "f32", "arraysize": 20 }`
-/// 
+///
 /// This should be run after syn parsing to simplify downstream code generation.
 pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
     let mut count = 0;
-    
+
     for (_version_name, version_data) in &mut api_data.0 {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
@@ -2079,7 +2212,8 @@ pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
                     for field_map in struct_fields {
                         for (_field_name, field_data) in field_map {
                             if field_data.arraysize.is_none() {
-                                let (base_type, array_size) = extract_array_info(&field_data.r#type);
+                                let (base_type, array_size) =
+                                    extract_array_info(&field_data.r#type);
                                 if let Some(size) = array_size {
                                     field_data.r#type = base_type;
                                     field_data.arraysize = Some(size);
@@ -2089,71 +2223,87 @@ pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
                         }
                     }
                 }
-                
+
                 // Process enum variant types (keep type as-is for now since no arraysize field)
                 // Arrays in enum variants are rare and can be handled manually if needed
             }
         }
     }
-    
+
     count
 }
 
 /// Normalize type_alias entries in api.json by extracting pointer types into ref_kind.
-/// 
+///
 /// Before: `{ "target": "*mut c_void", "generic_args": [] }`
 /// After:  `{ "target": "c_void", "ref_kind": "mutptr" }`
-/// 
+///
 /// Before: `{ "target": "PhysicalPosition<i32>" }`
 /// After:  `{ "target": "PhysicalPosition", "generic_args": ["i32"] }`
-/// 
+///
 /// This ensures:
 /// 1. Pointer prefixes (*const, *mut) are extracted to ref_kind field
 /// 2. Embedded generics (e.g., Foo<Bar>) are extracted to generic_args
 /// 3. Empty generic_args are removed (via serde skip_serializing_if)
 pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
     use crate::autofix::types::ref_kind::RefKind;
-    
+
     let mut count = 0;
-    
+
     for (_version_name, version_data) in &mut api_data.0 {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 if let Some(type_alias) = &mut class_data.type_alias {
                     let target = &type_alias.target;
                     let mut modified = false;
-                    
+
                     // Extract pointer prefix from target
                     let (new_target, new_ref_kind) = if target.starts_with("*const ") {
                         modified = true;
-                        (target.strip_prefix("*const ").unwrap().trim().to_string(), Some(RefKind::ConstPtr))
+                        (
+                            target.strip_prefix("*const ").unwrap().trim().to_string(),
+                            Some(RefKind::ConstPtr),
+                        )
                     } else if target.starts_with("*mut ") {
                         modified = true;
-                        (target.strip_prefix("*mut ").unwrap().trim().to_string(), Some(RefKind::MutPtr))
+                        (
+                            target.strip_prefix("*mut ").unwrap().trim().to_string(),
+                            Some(RefKind::MutPtr),
+                        )
                     } else if target.starts_with("* const ") {
                         modified = true;
-                        (target.strip_prefix("* const ").unwrap().trim().to_string(), Some(RefKind::ConstPtr))
+                        (
+                            target.strip_prefix("* const ").unwrap().trim().to_string(),
+                            Some(RefKind::ConstPtr),
+                        )
                     } else if target.starts_with("* mut ") {
                         modified = true;
-                        (target.strip_prefix("* mut ").unwrap().trim().to_string(), Some(RefKind::MutPtr))
+                        (
+                            target.strip_prefix("* mut ").unwrap().trim().to_string(),
+                            Some(RefKind::MutPtr),
+                        )
                     } else {
                         (target.clone(), None)
                     };
-                    
+
                     // Extract embedded generics if generic_args is empty
-                    let (final_target, extracted_generic_args) = if type_alias.generic_args.is_empty() {
-                        if let Some(open_idx) = new_target.find('<') {
-                            if let Some(close_idx) = new_target.rfind('>') {
-                                let base = new_target[..open_idx].trim().to_string();
-                                let args_str = &new_target[open_idx + 1..close_idx];
-                                let args: Vec<String> = args_str
-                                    .split(',')
-                                    .map(|s| s.trim().to_string())
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                if !args.is_empty() {
-                                    modified = true;
-                                    (base, args)
+                    let (final_target, extracted_generic_args) =
+                        if type_alias.generic_args.is_empty() {
+                            if let Some(open_idx) = new_target.find('<') {
+                                if let Some(close_idx) = new_target.rfind('>') {
+                                    let base = new_target[..open_idx].trim().to_string();
+                                    let args_str = &new_target[open_idx + 1..close_idx];
+                                    let args: Vec<String> = args_str
+                                        .split(',')
+                                        .map(|s| s.trim().to_string())
+                                        .filter(|s| !s.is_empty())
+                                        .collect();
+                                    if !args.is_empty() {
+                                        modified = true;
+                                        (base, args)
+                                    } else {
+                                        (new_target, vec![])
+                                    }
                                 } else {
                                     (new_target, vec![])
                                 }
@@ -2162,11 +2312,8 @@ pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
                             }
                         } else {
                             (new_target, vec![])
-                        }
-                    } else {
-                        (new_target, vec![])
-                    };
-                    
+                        };
+
                     if modified {
                         type_alias.target = final_target;
                         if let Some(rk) = new_ref_kind {
@@ -2183,7 +2330,7 @@ pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
             }
         }
     }
-    
+
     count
 }
 
