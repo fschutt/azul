@@ -249,6 +249,9 @@ pub struct VersionData {
     /// Installation instructions per language/OS
     #[serde(default)]
     pub installation: Installation,
+    /// Package metadata for generating .deb/.rpm packages via NFPM
+    #[serde(default)]
+    pub package: Option<PackageConfig>,
     /// Examples to view on the frontpage
     #[serde(default)]
     pub examples: Vec<Example>,
@@ -257,6 +260,94 @@ pub struct VersionData {
     pub notes: Vec<String>,
     // Using IndexMap to preserve module order as read from JSON
     pub api: IndexMap<String, ModuleData>,
+}
+
+/// Configuration for generating Linux packages (.deb, .rpm) via NFPM
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PackageConfig {
+    /// Package name (e.g., "azul")
+    #[serde(default)]
+    pub name: String,
+    /// Package description
+    #[serde(default)]
+    pub description: String,
+    /// Project homepage URL
+    #[serde(default)]
+    pub homepage: String,
+    /// Repository URL
+    #[serde(default)]
+    pub repository: String,
+    /// License identifier (e.g., "MIT")
+    #[serde(default)]
+    pub license: String,
+    /// Debian section (e.g., "libs")
+    #[serde(default)]
+    pub section: String,
+    /// Debian priority (e.g., "optional")
+    #[serde(default)]
+    pub priority: String,
+    /// Package maintainer in "Name <email>" format
+    #[serde(default)]
+    pub maintainer: String,
+    /// Vendor name
+    #[serde(default)]
+    pub vendor: String,
+    /// Linux/Debian-specific package configuration
+    #[serde(default)]
+    pub linux: LinuxPackageConfig,
+    /// RPM-specific configuration
+    #[serde(default)]
+    pub rpm: RpmPackageConfig,
+}
+
+/// Linux/Debian-specific package dependencies and contents
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct LinuxPackageConfig {
+    /// Required dependencies (package must have these installed)
+    #[serde(default)]
+    pub depends: Vec<String>,
+    /// Recommended packages (should be installed for full functionality)
+    #[serde(default)]
+    pub recommends: Vec<String>,
+    /// Suggested packages (optional, nice to have)
+    #[serde(default)]
+    pub suggests: Vec<String>,
+    /// Files to include in the package
+    #[serde(default)]
+    pub contents: Vec<PackageContent>,
+}
+
+/// RPM-specific package configuration
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct RpmPackageConfig {
+    /// Package group (e.g., "Development/Libraries")
+    #[serde(default)]
+    pub group: String,
+    /// Required dependencies
+    #[serde(default)]
+    pub depends: Vec<String>,
+    /// Recommended packages
+    #[serde(default)]
+    pub recommends: Vec<String>,
+    /// Suggested packages
+    #[serde(default)]
+    pub suggests: Vec<String>,
+}
+
+/// A file or directory to include in the package
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageContent {
+    /// Source path (relative to build directory)
+    pub src: String,
+    /// Destination path in the installed package
+    pub dst: String,
+    /// Type of content: "file", "dir", "config", "symlink"
+    #[serde(rename = "type", default = "default_content_type")]
+    pub content_type: String,
+}
+
+fn default_content_type() -> String {
+    "file".to_string()
 }
 
 pub type OsId = String;

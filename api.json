@@ -3,6 +3,50 @@
     "apiversion": 1,
     "git": "0ad5f6d3",
     "date": "2025-04-03",
+    "package": {
+      "name": "azul",
+      "description": "Desktop GUI Framework for Rust, C, C++ and Python. Cross-platform, immediate-mode GUI with native look and feel.",
+      "homepage": "https://azul.rs",
+      "repository": "https://github.com/fschutt/azul",
+      "license": "MIT",
+      "section": "libs",
+      "priority": "optional",
+      "linux": {
+        "depends": [
+          "libc6"
+        ],
+        "recommends": [
+          "libx11-6",
+          "libegl1",
+          "libxkbcommon0",
+          "libfontconfig1"
+        ],
+        "suggests": [
+          "libgtk-3-0",
+          "libdbus-1-3"
+        ],
+        "contents": [
+          { "src": "libazul.so", "dst": "/usr/lib/libazul.so" },
+          { "src": "azul.h", "dst": "/usr/include/azul.h" },
+          { "src": "LICENSE", "dst": "/usr/share/doc/azul/LICENSE" }
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "glibc"
+        ],
+        "recommends": [
+          "libX11",
+          "mesa-libEGL",
+          "libxkbcommon",
+          "fontconfig"
+        ],
+        "suggests": [
+          "gtk3",
+          "dbus-libs"
+        ]
+      }
+    },
     "installation": {
       "tabOrder": ["python", "c", "cpp", "rust"],
       "dialects": {

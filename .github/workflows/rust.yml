@@ -579,6 +579,73 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  build_linux_packages:
+    name: Build Linux Packages (.deb/.rpm)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    needs: build_binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: azul-linux-amd64
+          path: target/release
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.86.0
+
+      - name: Install NFPM
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Generate C header
+        run: |
+          cargo run -r -p azul-doc codegen c
+
+      - name: Generate NFPM config from api.json
+        run: |
+          cargo run -r -p azul-doc nfpm
+
+      - name: Prepare package files
+        run: |
+          mkdir -p target/packages
+          cp target/release/libazul.so target/packages/
+          cp target/codegen/azul.h target/packages/
+          cp LICENSE target/packages/
+
+      - name: Build .deb package
+        run: |
+          cd target/packages
+          nfpm pkg --packager deb --target .
+
+      - name: Build .rpm package
+        run: |
+          cd target/packages
+          nfpm pkg --packager rpm --target .
+
+      - name: Upload .deb package
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-amd64-deb
+          path: target/packages/*.deb
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload .rpm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: azul-linux-amd64-rpm
+          path: target/packages/*.rpm
+          retention-days: 30
+          if-no-files-found: error
+
   build_pages_fast:
     name: Fast Build Pages
     if: github.event.inputs.run_mode == 'fast-deploy'

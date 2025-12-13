@@ -941,51 +941,39 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <br/>
 
               <strong>Links:</strong>
-              \
          <ul>
-                <li><a href='https://azul.rs/api/{version}.html'>Documentation for this \
-         release</a></li>
+                <li><a href='https://azul.rs/api/{version}.html'>Documentation for this release</a></li>
                 <li><a href='https://azul.rs/guide'>Guide</a></li>
-                \
          <br/>
-
-                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub \
-         release</a></li>
-                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>\
-         
+                <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release</a></li>
+                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
                 <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
-              \
          </ul>
 
               <br/>
 
               <strong>Files:</strong>
               <br/>
-              \
          <ul>
                 {windows_assets}
               </ul>
               <ul>
-                {linux_assets}\
-         
+                {linux_assets}
               </ul>
               <ul>
                 {macos_assets}
               </ul>
 
-              \
          <br/>
 
               <strong>C Header:</strong>
               <br/>
               <ul>
-                \
          {c_header_link}
               </ul>
               
               <br/>
-              <strong>C++ \
-         Headers (choose your standard):</strong>
+              <strong>C++ Headers:</strong>
               <ul>
                 {cpp_header_links}\
          
@@ -1133,4 +1121,129 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
 
     println!("Static assets copied successfully");
     Ok(())
+}
+
+/// Generate NFPM configuration YAML from api.json package metadata
+///
+/// This function reads the package configuration from api.json and generates
+/// an nfpm.yaml file that can be used to build .deb, .rpm, and .apk packages.
+///
+/// # Arguments
+/// * `version` - The version string to use (e.g., "0.0.5")
+/// * `api_data` - The parsed api.json data
+/// * `output_dir` - Directory where nfpm.yaml should be written
+///
+/// # Returns
+/// The path to the generated nfpm.yaml file, or an error if package config is missing
+pub fn generate_nfpm_yaml(
+    version: &str,
+    api_data: &ApiData,
+    output_dir: &Path,
+) -> Result<PathBuf> {
+    let version_data = api_data
+        .get_version(version)
+        .ok_or_else(|| anyhow::anyhow!("Version {} not found in api.json", version))?;
+
+    let package = version_data
+        .package
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No package configuration found for version {}", version))?;
+
+    let yaml = generate_nfpm_yaml_content(version, package);
+
+    // Write the file
+    fs::create_dir_all(output_dir)?;
+    let output_path = output_dir.join("nfpm.yaml");
+    fs::write(&output_path, &yaml)?;
+
+    println!("Generated NFPM config: {}", output_path.display());
+    Ok(output_path)
+}
+
+/// Generate NFPM YAML content from package config
+fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig) -> String {
+    let mut yaml = String::new();
+
+    // Basic package info
+    yaml.push_str(&format!("name: {}\n", package.name));
+    yaml.push_str("arch: amd64\n");
+    yaml.push_str("platform: linux\n");
+    yaml.push_str(&format!("version: {}\n", version));
+    if !package.maintainer.is_empty() {
+        yaml.push_str(&format!("maintainer: {}\n", package.maintainer));
+    }
+    yaml.push_str(&format!("description: |\n  {}\n", package.description));
+    yaml.push_str(&format!("homepage: {}\n", package.homepage));
+    yaml.push_str(&format!("license: \"{}\"\n", package.license));
+    if !package.vendor.is_empty() {
+        yaml.push_str(&format!("vendor: {}\n", package.vendor));
+    }
+    if !package.section.is_empty() {
+        yaml.push_str(&format!("section: {}\n", package.section));
+    }
+    if !package.priority.is_empty() {
+        yaml.push_str(&format!("priority: {}\n", package.priority));
+    }
+
+    // Dependencies (for .deb packages)
+    if !package.linux.depends.is_empty() {
+        yaml.push_str("\ndepends:\n");
+        for dep in &package.linux.depends {
+            yaml.push_str(&format!("  - {}\n", dep));
+        }
+    }
+
+    if !package.linux.recommends.is_empty() {
+        yaml.push_str("\nrecommends:\n");
+        for rec in &package.linux.recommends {
+            yaml.push_str(&format!("  - {}\n", rec));
+        }
+    }
+
+    if !package.linux.suggests.is_empty() {
+        yaml.push_str("\nsuggests:\n");
+        for sug in &package.linux.suggests {
+            yaml.push_str(&format!("  - {}\n", sug));
+        }
+    }
+
+    // RPM-specific configuration
+    if !package.rpm.group.is_empty() || !package.rpm.depends.is_empty() {
+        yaml.push_str("\nrpm:\n");
+        if !package.rpm.group.is_empty() {
+            yaml.push_str(&format!("  group: {}\n", package.rpm.group));
+        }
+        if !package.rpm.depends.is_empty() {
+            yaml.push_str("  depends:\n");
+            for dep in &package.rpm.depends {
+                yaml.push_str(&format!("    - {}\n", dep));
+            }
+        }
+        if !package.rpm.recommends.is_empty() {
+            yaml.push_str("  recommends:\n");
+            for rec in &package.rpm.recommends {
+                yaml.push_str(&format!("    - {}\n", rec));
+            }
+        }
+        if !package.rpm.suggests.is_empty() {
+            yaml.push_str("  suggests:\n");
+            for sug in &package.rpm.suggests {
+                yaml.push_str(&format!("    - {}\n", sug));
+            }
+        }
+    }
+
+    // Contents (files to include) - now under linux
+    if !package.linux.contents.is_empty() {
+        yaml.push_str("\ncontents:\n");
+        for content in &package.linux.contents {
+            yaml.push_str(&format!("  - src: {}\n", content.src));
+            yaml.push_str(&format!("    dst: {}\n", content.dst));
+            if !content.content_type.is_empty() && content.content_type != "file" {
+                yaml.push_str(&format!("    type: {}\n", content.content_type));
+            }
+        }
+    }
+
+    yaml
 }

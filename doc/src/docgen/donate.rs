@@ -179,7 +179,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Support Azul GUI Framework Development</title>
+  <title>Support Azul</title>
   {common_head_tags}
   <style>
     {donation_css}
@@ -197,11 +197,12 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       {sidebar}
     </aside>
     <main>
-      <h1>Support Azul Development</h1>
+      <h1>Support Azul!</h1>
       
       <div class="donation-intro">
         <p>Azul is an open-source GUI framework that relies on community support to continue development. 
         Your contributions help maintain the project, implement new features, and keep resources available to everyone.</p>
+        <p></p>
         <p>Choose one of the options below to support the project:</p>
       </div>
       

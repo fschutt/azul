@@ -833,6 +833,25 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
+        ["nfpm", version] => {
+            // Generate NFPM configuration YAML from api.json package metadata
+            let api_data = load_api_json(&api_path)?;
+            let output_dir = project_root.join("target").join("packages");
+            println!("[NFPM] Generating nfpm.yaml for version {}...\n", version);
+            dllgen::deploy::generate_nfpm_yaml(version, &api_data, &output_dir)?;
+            return Ok(());
+        }
+        ["nfpm"] => {
+            // Use latest version if not specified
+            let api_data = load_api_json(&api_path)?;
+            let version = api_data
+                .get_latest_version_str()
+                .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
+            let output_dir = project_root.join("target").join("packages");
+            println!("[NFPM] Generating nfpm.yaml for version {}...\n", version);
+            dllgen::deploy::generate_nfpm_yaml(&version, &api_data, &output_dir)?;
+            return Ok(());
+        }
         ["reftest", "headless", test_name] => {
             println!("Running headless reftest for: {}", test_name);
 
@@ -1452,6 +1471,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    codegen [rust|c|cpp|python|all] - Generate language bindings");
     println!("    memtest [run]                 - Generate and optionally run memory layout tests");
     println!("    memtest dll                   - Generate DLL API definitions for include!()");
+    println!("    nfpm [version]                - Generate NFPM config for Linux packages");
     println!();
     println!("  TESTING:");
     println!("    reftest                       - Run all reftests");

@@ -293,7 +293,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
         "<!DOCTYPE html>
         <html lang='en'>
         <head>
-        <title>User guide for azul v{version}</title>
+        <title>User Guide</title>
 
         {header_tags}
         </head>
@@ -310,7 +310,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
             {sidebar}
         </aside>
         <main>
-            <h1>User guide for azul v{version}</h1>
+            <h1>User Guide</h1>
             <div>
             <ul>{version_items}</ul>
             </div>
