@@ -38,10 +38,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ===================================================================
-  # ==                  CI WORKFLOW ('ci' mode)                      ==
-  # ===================================================================
-
   lint_and_check:
     name: Lint & Static Checks
     # Run this job for push, pull_request, or if 'ci' or 'prod-deploy' mode is manually selected
@@ -84,10 +80,6 @@ jobs:
           cargo check -p azul-core
           cargo check -p azul-layout
           cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
-
-  # ===================================================================
-  # ==         C/C++ HEADER GENERATION & VALIDATION                  ==
-  # ===================================================================
 
   codegen_headers:
     name: Generate & Validate C/C++ Headers
@@ -155,10 +147,6 @@ jobs:
           cd target/codegen
           clang++ -std=c++2b -fsyntax-only -I. cpp/azul_cpp23.hpp
           echo "C++23 header compiles successfully"
-
-  # ===================================================================
-  # ==         VERIFY EXAMPLES COMPILE (All Languages/Standards)     ==
-  # ===================================================================
 
   verify_examples:
     name: Verify Examples Compile (${{ matrix.os }})
@@ -357,10 +345,6 @@ jobs:
 
       - name: Run reftest
         run: cargo run -r -p azul-doc reftest
-
-  # ===================================================================
-  # ==          FFI SAFETY TESTS (Address Sanitizer + Miri)          ==
-  # ===================================================================
 
   ffi_safety_tests:
     name: FFI Safety Tests (ASan + Miri)
@@ -594,11 +578,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ===================================================================
-  # ==            FAST DEPLOYMENT ('fast-deploy' mode)               ==
-  # ==   Skips builds and reftests - just generates and deploys      ==
-  # ===================================================================
-
   build_pages_fast:
     name: Fast Build Pages
     if: github.event.inputs.run_mode == 'fast-deploy'
@@ -652,11 +631,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  # ===================================================================
-  # ==      FAST DEPLOYMENT WITH REFTESTS ('fast-deploy-with-reftests')
-  # ==   Skips platform builds but includes reftests                 ==
-  # ===================================================================
 
   build_pages_fast_with_reftests:
     name: Fast Build Pages with Reftests
@@ -714,11 +688,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  # ===================================================================
-  # ==               PAGES DEPLOYMENT ('deploy' mode)                ==
-  # ==         Tolerant mode - deploys even if builds fail           ==
-  # ===================================================================
 
   build_pages:
     name: Build Pages on ${{ matrix.os }}
@@ -811,11 +780,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  # ===================================================================
-  # ==           PROD DEPLOYMENT ('prod-deploy' mode)                ==
-  # ==    Strict mode - fails if any test or build fails             ==
-  # ===================================================================
 
   build_pages_prod:
     name: Build Pages (Prod) on ${{ matrix.os }}
