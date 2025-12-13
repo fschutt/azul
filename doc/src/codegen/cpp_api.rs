@@ -106,6 +106,21 @@ impl CppVersion {
     pub fn has_string_view(&self) -> bool {
         matches!(self, CppVersion::Cpp17 | CppVersion::Cpp20 | CppVersion::Cpp23)
     }
+    
+    /// Check if this version supports std::expected (C++23)
+    pub fn has_expected(&self) -> bool {
+        matches!(self, CppVersion::Cpp23)
+    }
+    
+    /// Check if this version supports scoped enums / enum class (C++11+)
+    pub fn has_enum_class(&self) -> bool {
+        !matches!(self, CppVersion::Cpp03)
+    }
+    
+    /// Check if this version supports std::function (C++11+)
+    pub fn has_std_function(&self) -> bool {
+        !matches!(self, CppVersion::Cpp03)
+    }
 }
 
 /// Generate C++ API code from API data (default version: C++11)
@@ -330,6 +345,25 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
     code.push_str("// All classes use RAII for memory management.\r\n");
     code.push_str("//\r\n");
     
+    // Add version-specific feature documentation
+    if cpp_version.has_string_view() {
+        code.push_str("// C++17+ FEATURES:\r\n");
+        code.push_str("//   - String supports std::string_view constructor and conversion\r\n");
+        code.push_str("//   - Option types support toStdOptional() and std::optional conversion\r\n");
+        code.push_str("//   - [[nodiscard]] attributes for static constructors\r\n");
+        code.push_str("//\r\n");
+    }
+    if cpp_version.has_span() {
+        code.push_str("// C++20+ FEATURES:\r\n");
+        code.push_str("//   - Vec types support toSpan() and std::span conversion for zero-copy access\r\n");
+        code.push_str("//\r\n");
+    }
+    if cpp_version.has_expected() {
+        code.push_str("// C++23 FEATURES:\r\n");
+        code.push_str("//   - Result types support toStdExpected() and std::expected conversion\r\n");
+        code.push_str("//\r\n");
+    }
+    
     // Add C++03 specific documentation
     if !cpp_version.has_move_semantics() {
         code.push_str("// C++03 MOVE EMULATION (Colvin-Gibbons Trick)\r\n");
@@ -406,6 +440,15 @@ pub fn generate_cpp_api_versioned(api_data: &ApiData, version: &str, cpp_version
     }
     if cpp_version.has_span() {
         code.push_str("#include <span>\r\n");
+    }
+    if cpp_version.has_string_view() {
+        code.push_str("#include <string_view>\r\n");
+    }
+    if cpp_version.has_expected() {
+        code.push_str("#include <expected>\r\n");
+    }
+    if cpp_version.has_std_function() {
+        code.push_str("#include <functional>\r\n");
     }
     code.push_str("\r\n");
     
@@ -704,6 +747,15 @@ fn generate_cpp_class_declaration(
                 code.push_str(&format!("    std::vector<{}> toStdVector() const {{ return std::vector<{}>(begin(), end()); }}\r\n", 
                     c_elem_type, c_elem_type));
             }
+            
+            // C++20+: add toSpan() helper for zero-copy access via std::span
+            if cpp_version.has_span() {
+                code.push_str(&format!("    std::span<const {}> toSpan() const {{ return std::span<const {}>(begin(), size()); }}\r\n",
+                    c_elem_type, c_elem_type));
+                code.push_str(&format!("    std::span<{}> toSpan() {{ return std::span<{}>(begin(), size()); }}\r\n",
+                    c_elem_type, c_elem_type));
+                code.push_str(&format!("    operator std::span<const {}>() const {{ return toSpan(); }}\r\n", c_elem_type));
+            }
         }
     }
     
@@ -717,11 +769,20 @@ fn generate_cpp_class_declaration(
         } else {
             code.push_str("    explicit String(const char* s) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(s), 0, std::strlen(s))) {}\r\n");
         }
+        // C++17+: add std::string_view constructor for zero-copy input
+        if cpp_version.has_string_view() {
+            code.push_str("    String(std::string_view sv) : inner_(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>(sv.data()), 0, sv.size())) {}\r\n");
+        }
         code.push_str("    const char* c_str() const { return reinterpret_cast<const char*>(inner_.vec.ptr); }\r\n");
         code.push_str("    size_t length() const { return inner_.vec.len; }\r\n");
         if cpp_version.has_move_semantics() {
             code.push_str("    std::string toStdString() const { return std::string(c_str(), length()); }\r\n");
             code.push_str("    operator std::string() const { return toStdString(); }\r\n");
+        }
+        // C++17+: add std::string_view conversion for zero-copy output
+        if cpp_version.has_string_view() {
+            code.push_str("    std::string_view toStringView() const { return std::string_view(c_str(), length()); }\r\n");
+            code.push_str("    operator std::string_view() const { return toStringView(); }\r\n");
         }
     }
     
@@ -753,6 +814,13 @@ fn generate_cpp_class_declaration(
             // unwrapOr() - returns the inner value or a default
             code.push_str(&format!("    {} unwrapOr(const {}& defaultValue) const {{ return isSome() ? inner_.Some.payload : defaultValue; }}\r\n", 
                 c_inner_type, c_inner_type));
+            
+            // C++17+: add std::optional conversion
+            if cpp_version.has_optional() {
+                code.push_str(&format!("    std::optional<{}> toStdOptional() const {{ return isSome() ? std::optional<{}>(inner_.Some.payload) : std::nullopt; }}\r\n",
+                    c_inner_type, c_inner_type));
+                code.push_str(&format!("    operator std::optional<{}>() const {{ return toStdOptional(); }}\r\n", c_inner_type));
+            }
         }
     }
     
@@ -788,6 +856,14 @@ fn generate_cpp_class_declaration(
             // unwrapErr() - returns the Err value, undefined behavior if Ok
             code.push_str(&format!("    const {}& unwrapErr() const {{ return inner_.Err.payload; }}\r\n", c_err_type));
             code.push_str(&format!("    {}& unwrapErr() {{ return inner_.Err.payload; }}\r\n", c_err_type));
+            
+            // C++23: add std::expected conversion
+            if cpp_version.has_expected() {
+                code.push_str(&format!("    std::expected<{}, {}> toStdExpected() const {{\r\n", c_ok_type, c_err_type));
+                code.push_str(&format!("        return isOk() ? std::expected<{}, {}>(inner_.Ok.payload) : std::unexpected(inner_.Err.payload);\r\n", c_ok_type, c_err_type));
+                code.push_str("    }\r\n");
+                code.push_str(&format!("    operator std::expected<{}, {}>() const {{ return toStdExpected(); }}\r\n", c_ok_type, c_err_type));
+            }
         }
     }
     
