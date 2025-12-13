@@ -17,11 +17,6 @@
 //! 2. If not, resolves it from CSS rules + inline styles
 //! 3. Caches the result for subsequent frames
 //!
-//! # Memory
-//!
-//! The cache size grows with DOM size × number of distinct property values.
-//! Properties with default values are not cached to save memory.
-//!
 //! # Thread Safety
 //!
 //! Not thread-safe. Each window has its own cache instance.
@@ -3857,7 +3852,8 @@ impl CssPropertyCache {
             SizeMetric::Em => return None, // Reference can't be relative
             SizeMetric::Rem => return None, // Reference can't be relative
             SizeMetric::Percent => return None, // Reference can't be relative
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, /* Reference can't be viewport-relative */
+            // Reference can't be viewport-relative
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,
         };
 
         // Resolve target based on reference
@@ -3868,9 +3864,11 @@ impl CssPropertyCache {
             SizeMetric::Cm => target_pixel_value.number.get() * 37.7952755906,
             SizeMetric::Mm => target_pixel_value.number.get() * 3.7795275591,
             SizeMetric::Em => target_pixel_value.number.get() * reference_px,
-            SizeMetric::Rem => target_pixel_value.number.get() * reference_px, /* Use reference as root font-size */
+            // Use reference as root font-size
+            SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None, /* Need viewport context */
+            // Need viewport context
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => return None,
         };
 
         // Create a new property with the resolved value
@@ -3965,18 +3963,19 @@ impl CssPropertyCache {
     ///
     /// This analyzes the property value and creates a chain of dependencies that can be
     /// resolved later during layout. For example:
+    /// 
     /// - `font-size: 16px` → Absolute chain with 16.0 pixels
     /// - `font-size: 1.5em` → Em chain depending on parent's font-size
     /// - `font-size: 150%` → Percent chain depending on parent's font-size
     /// - `padding: 2em` → Em chain depending on current node's font-size
     ///
     /// # Arguments
+    /// 
     /// * `node_id` - The node this property belongs to
     /// * `parent_id` - The parent node (for inheritance)
     /// * `property` - The CSS property to analyze
     ///
-    /// # Returns
-    /// A dependency chain, or None if the property doesn't support chaining
+    /// Returns a dependency chain, or None if the property doesn't support chaining
     fn build_dependency_chain(
         &self,
         node_id: NodeId,
@@ -4054,9 +4053,6 @@ impl CssPropertyCache {
     ///
     /// This is critical for text nodes: UA CSS properties (like font-weight: bold for H1)
     /// must be in the cascade maps so they can be inherited by child text nodes.
-    ///
-    /// # Arguments
-    /// * `node_data` - Array of node data indexed by NodeId
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::props::property::CssPropertyType;
 
@@ -4125,300 +4121,278 @@ impl CssPropertyCache {
 
     /// Compute inherited values and dependency chains for all nodes in the DOM tree.
     ///
-    /// This implements a dependency-chain-based CSS inheritance system:
-    /// 1. Walk the DOM tree in depth-first order
-    /// 2. For each node, compute the cascade priority (inherited → cascaded → css → inline → user)
-    /// 3. For relative values (em, %, rem), create a dependency chain
-    /// 4. Store both the raw property value AND its dependency chain
-    /// 5. Return a list of nodes whose values changed
-    ///
-    /// The dependency chains are later resolved during layout when all context is available.
-    /// This avoids premature resolution of % values that depend on layout dimensions.
-    ///
-    /// IMPORTANT: Call apply_ua_css() BEFORE this function to ensure UA CSS properties
-    /// are available for inheritance (especially for text nodes).
-    ///
-    /// # Arguments
-    /// * `node_hierarchy` - The DOM tree structure
-    /// * `node_data` - Array of node data indexed by NodeId
-    ///
-    /// # Returns
-    /// Vector of NodeIds whose computed values changed and need re-layout
+    /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
+    /// (inherited → cascaded → css → inline → user), create dependency chains for
+    /// relative values. Call `apply_ua_css()` before this function.
     pub fn compute_inherited_values(
         &mut self,
         node_hierarchy: &[NodeHierarchyItem],
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
-        use alloc::vec::Vec;
+        node_hierarchy
+            .iter()
+            .enumerate()
+            .filter_map(|(node_index, hierarchy_item)| {
+                let node_id = NodeId::new(node_index);
+                let parent_id = hierarchy_item.parent_id();
+                let parent_computed = parent_id.and_then(|pid| self.computed_values.get(&pid).cloned());
 
-        let mut changed_nodes = Vec::new();
+                let mut ctx = InheritanceContext {
+                    node_id,
+                    parent_id,
+                    computed_values: BTreeMap::new(),
+                    dependency_chains: BTreeMap::new(),
+                };
 
-        // Walk tree in depth-first order to ensure parents are processed before children
-        for (node_index, hierarchy_item) in node_hierarchy.iter().enumerate() {
-            let node_id = NodeId::new(node_index);
-            let parent_id = hierarchy_item.parent_id();
-
-            let node_type = &node_data[node_index].node_type;
-
-            // Get parent's computed values for inheritance
-            let parent_computed = parent_id.and_then(|pid| self.computed_values.get(&pid));
-
-            // Start with empty maps for this node
-            let mut node_computed_values = BTreeMap::new();
-            let mut node_dependency_chains = BTreeMap::new();
-
-            // Step 1: Inherit inheritable properties from parent
-            if let Some(parent_values) = parent_computed {
-                for (prop_type, prop_with_origin) in parent_values.iter() {
-                    if prop_type.is_inheritable() {
-                        // Mark as inherited from parent
-                        node_computed_values.insert(
-                            *prop_type,
-                            CssPropertyWithOrigin {
-                                property: prop_with_origin.property.clone(),
-                                origin: CssPropertyOrigin::Inherited,
-                            },
-                        );
-
-                        // DON'T inherit the dependency chain for font-size!
-                        // Font-size should be inherited as a COMPUTED VALUE (pixels), not as a
-                        // relative value (em). If we inherit the chain,
-                        // we'll resolve "2em" twice (2em * parent = 32px, then 32px * parent =
-                        // 64px). Only inherit chains for properties that
-                        // truly inherit their relative values.
-                        if *prop_type != CssPropertyType::FontSize {
-                            if let Some(parent_chains) =
-                                parent_id.and_then(|pid| self.dependency_chains.get(&pid))
-                            {
-                                if let Some(chain) = parent_chains.get(prop_type) {
-                                    node_dependency_chains.insert(*prop_type, chain.clone());
-                                }
-                            }
-                        }
-                    }
+                // Step 1: Inherit from parent
+                if let Some(ref parent_values) = parent_computed {
+                    self.inherit_from_parent(&mut ctx, parent_values);
                 }
+
+                // Steps 2-5: Apply cascade in priority order
+                self.apply_cascade_properties(&mut ctx, node_id, &parent_computed, node_data, node_index);
+
+                // Check for changes and store
+                let changed = self.store_if_changed(&ctx);
+                changed.then_some(node_id)
+            })
+            .collect()
+    }
+
+    /// Inherit inheritable properties from parent node
+    fn inherit_from_parent(
+        &self,
+        ctx: &mut InheritanceContext,
+        parent_values: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+    ) {
+        for (prop_type, prop_with_origin) in parent_values.iter().filter(|(pt, _)| pt.is_inheritable()) {
+            ctx.computed_values.insert(
+                *prop_type,
+                CssPropertyWithOrigin {
+                    property: prop_with_origin.property.clone(),
+                    origin: CssPropertyOrigin::Inherited,
+                },
+            );
+
+            // Don't inherit font-size chains (would cause double resolution)
+            if *prop_type == CssPropertyType::FontSize {
+                continue;
             }
 
-            // Helper macro to process a property and resolve dependencies
-            // This marks the property as Own (not inherited)
-            macro_rules! process_property {
-                ($prop:expr) => {{
-                    let prop = $prop;
-                    let prop_type = prop.get_type();
-
-                    // Try to resolve em/% values:
-                    // - For font-size: use parent's font-size as reference
-                    // - For other properties with em: use current node's font-size as reference
-                    // - For other properties with %: defer to layout (needs containing block)
-                    let resolved_prop = if prop_type == CssPropertyType::FontSize {
-                        // Font-size em/% refers to PARENT's font-size
-                        // If no parent, use the default font size (16px per CSS spec)
-                        use azul_css::{
-                            css::CssPropertyValue,
-                            props::basic::{
-                                font::StyleFontSize, length::SizeMetric, pixel::PixelValue,
-                            },
-                        };
-
-                        const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
-
-                        // Helper to resolve font-size with a reference value
-                        let resolve_font_size = |prop: &CssProperty,
-                                                 reference_px: f32|
-                         -> CssProperty {
-                            if let CssProperty::FontSize(css_val) = prop {
-                                if let Some(font_size) = css_val.get_property() {
-                                    let resolved_px = match font_size.inner.metric {
-                                        SizeMetric::Px => font_size.inner.number.get(),
-                                        SizeMetric::Pt => font_size.inner.number.get() * 1.333333,
-                                        SizeMetric::In => font_size.inner.number.get() * 96.0,
-                                        SizeMetric::Cm => {
-                                            font_size.inner.number.get() * 37.7952755906
-                                        }
-                                        SizeMetric::Mm => {
-                                            font_size.inner.number.get() * 3.7795275591
-                                        }
-                                        SizeMetric::Em => {
-                                            font_size.inner.number.get() * reference_px
-                                        }
-                                        SizeMetric::Rem => {
-                                            font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX
-                                        }
-                                        SizeMetric::Percent => {
-                                            font_size.inner.number.get() / 100.0 * reference_px
-                                        }
-                                        // Viewport units need layout context
-                                        SizeMetric::Vw
-                                        | SizeMetric::Vh
-                                        | SizeMetric::Vmin
-                                        | SizeMetric::Vmax => {
-                                            return prop.clone();
-                                        }
-                                    };
-                                    return CssProperty::FontSize(CssPropertyValue::Exact(
-                                        StyleFontSize {
-                                            inner: PixelValue::px(resolved_px),
-                                        },
-                                    ));
-                                }
-                            }
-                            prop.clone()
-                        };
-
-                        if let Some(parent_values) = parent_computed {
-                            if let Some(parent_font_size) =
-                                parent_values.get(&CssPropertyType::FontSize)
-                            {
-                                Self::resolve_property_dependency(prop, &parent_font_size.property)
-                                    .unwrap_or_else(|| {
-                                        // Fallback: resolve against default if parent has relative
-                                        // value
-                                        resolve_font_size(prop, DEFAULT_FONT_SIZE_PX)
-                                    })
-                            } else {
-                                // Parent exists but has no font-size: use default
-                                resolve_font_size(prop, DEFAULT_FONT_SIZE_PX)
-                            }
-                        } else {
-                            // No parent: resolve against default (16px)
-                            resolve_font_size(prop, DEFAULT_FONT_SIZE_PX)
-                        }
-                    } else {
-                        // Other properties with em refer to CURRENT element's font-size
-                        // We need to look up the current element's computed font-size
-                        if let Some(current_font_size) =
-                            node_computed_values.get(&CssPropertyType::FontSize)
-                        {
-                            Self::resolve_property_dependency(prop, &current_font_size.property)
-                                .unwrap_or_else(|| prop.clone())
-                        } else {
-                            // No font-size computed yet, store as-is
-                            prop.clone()
-                        }
-                    };
-
-                    // Mark as Own property (not inherited)
-                    node_computed_values.insert(
-                        prop_type,
-                        CssPropertyWithOrigin {
-                            property: resolved_prop.clone(),
-                            origin: CssPropertyOrigin::Own,
-                        },
-                    );
-
-                    // Build dependency chain for this property (for tracking invalidations)
-                    if let Some(chain) =
-                        self.build_dependency_chain(node_id, parent_id, &resolved_prop)
-                    {
-                        node_dependency_chains.insert(prop_type, chain);
-                    }
-                }};
+            if let Some(chain) = ctx.parent_id
+                .and_then(|pid| self.dependency_chains.get(&pid))
+                .and_then(|chains| chains.get(prop_type))
+            {
+                ctx.dependency_chains.insert(*prop_type, chain.clone());
             }
+        }
+    }
 
-            // Helper function to check if a font-size property has a relative unit
-            fn has_relative_font_size_unit(prop: &CssProperty) -> bool {
-                use azul_css::props::basic::length::SizeMetric;
-
-                if let CssProperty::FontSize(css_prop_val) = prop {
-                    if let Some(font_size) = css_prop_val.get_property() {
-                        match font_size.inner.metric {
-                            SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent => true,
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
+    /// Apply all cascade properties in priority order
+    fn apply_cascade_properties(
+        &self,
+        ctx: &mut InheritanceContext,
+        node_id: NodeId,
+        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+        node_data: &[NodeData],
+        node_index: usize,
+    ) {
+        // Step 2: Cascaded properties (UA CSS)
+        if let Some(cascaded_props) = self.cascaded_normal_props.get(&node_id).cloned() {
+            for (prop_type, prop) in cascaded_props.iter() {
+                if self.should_apply_cascaded(&ctx.computed_values, *prop_type, prop) {
+                    self.process_property(ctx, prop, parent_computed);
                 }
-            }
-
-            // Step 2: Apply cascaded properties (UA CSS, properties from previous inheritance
-            // iterations) These are the node's OWN properties, not inherited from
-            // parent Only apply if not already set OR if existing value is inherited
-            // (own properties override inherited)
-            //
-            // EXCEPTION for FontSize: restyle() copies FontSize values to children for
-            // inheritance, but those are unresolved values (like 1.5em). If we already have
-            // a properly inherited FontSize (from Step 1 which gets the resolved value),
-            // we should NOT override it with the unresolved value from cascaded_props.
-            // The resolved value from the parent is correct; re-resolving would double-apply
-            // the multiplier.
-            if let Some(cascaded_props) = self.cascaded_normal_props.get(&node_id).cloned() {
-                for (prop_type, prop) in cascaded_props.iter() {
-                    // Special handling for FontSize: don't override inherited resolved value
-                    // with unresolved relative value from restyle()
-                    if *prop_type == CssPropertyType::FontSize {
-                        if let Some(existing) = node_computed_values.get(prop_type) {
-                            if existing.origin == CssPropertyOrigin::Inherited
-                                && has_relative_font_size_unit(prop)
-                            {
-                                // Skip: we already have the resolved value from parent
-                                continue;
-                            }
-                        }
-                    }
-
-                    let should_apply = match node_computed_values.get(prop_type) {
-                        None => true,                                                      /* Not set yet */
-                        Some(existing) => existing.origin == CssPropertyOrigin::Inherited, /* Override inherited */
-                    };
-
-                    if should_apply {
-                        process_property!(prop);
-                    }
-                }
-            }
-
-            // Step 3: Override with CSS properties (from stylesheets)
-            if let Some(css_props) = self.css_normal_props.get(&node_id) {
-                for (_, prop) in css_props.iter() {
-                    process_property!(prop);
-                }
-            }
-
-            // Step 4: Override with inline CSS properties (from style attribute)
-            for inline_prop in node_data[node_index].inline_css_props.iter() {
-                if let NodeDataInlineCssProperty::Normal(prop) = inline_prop {
-                    process_property!(prop);
-                }
-            }
-
-            // Step 5: Override with user-overridden properties (from callbacks)
-            if let Some(user_props) = self.user_overridden_properties.get(&node_id) {
-                for (_, prop) in user_props.iter() {
-                    process_property!(prop);
-                }
-            }
-
-            // Check if computed values or chains changed
-            let values_changed = self
-                .computed_values
-                .get(&node_id)
-                .map(|old| old != &node_computed_values)
-                .unwrap_or(true);
-
-            let chains_changed = self
-                .dependency_chains
-                .get(&node_id)
-                .map(|old| old != &node_dependency_chains)
-                .unwrap_or(!node_dependency_chains.is_empty());
-
-            if values_changed || chains_changed {
-                changed_nodes.push(node_id);
-            }
-
-            // Store the computed values and chains
-            self.computed_values.insert(node_id, node_computed_values);
-            if !node_dependency_chains.is_empty() {
-                self.dependency_chains
-                    .insert(node_id, node_dependency_chains);
             }
         }
 
-        changed_nodes
+        // Step 3: CSS properties (stylesheets)
+        if let Some(css_props) = self.css_normal_props.get(&node_id) {
+            for (_, prop) in css_props.iter() {
+                self.process_property(ctx, prop, parent_computed);
+            }
+        }
+
+        // Step 4: Inline CSS properties
+        for inline_prop in node_data[node_index].inline_css_props.iter() {
+            if let NodeDataInlineCssProperty::Normal(prop) = inline_prop {
+                self.process_property(ctx, prop, parent_computed);
+            }
+        }
+
+        // Step 5: User-overridden properties
+        if let Some(user_props) = self.user_overridden_properties.get(&node_id) {
+            for (_, prop) in user_props.iter() {
+                self.process_property(ctx, prop, parent_computed);
+            }
+        }
     }
 
+    /// Check if a cascaded property should be applied
+    fn should_apply_cascaded(
+        &self,
+        computed: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+        prop_type: CssPropertyType,
+        prop: &CssProperty,
+    ) -> bool {
+        // Skip relative font-size if we already have inherited resolved value
+        if prop_type == CssPropertyType::FontSize {
+            if let Some(existing) = computed.get(&prop_type) {
+                if existing.origin == CssPropertyOrigin::Inherited && Self::has_relative_font_size_unit(prop) {
+                    return false;
+                }
+            }
+        }
+
+        match computed.get(&prop_type) {
+            None => true,
+            Some(existing) => existing.origin == CssPropertyOrigin::Inherited,
+        }
+    }
+
+    /// Process a single property: resolve dependencies and store
+    fn process_property(
+        &self,
+        ctx: &mut InheritanceContext,
+        prop: &CssProperty,
+        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+    ) {
+        let prop_type = prop.get_type();
+
+        let resolved = if prop_type == CssPropertyType::FontSize {
+            self.resolve_font_size_property(prop, parent_computed)
+        } else {
+            self.resolve_other_property(prop, &ctx.computed_values)
+        };
+
+        ctx.computed_values.insert(
+            prop_type,
+            CssPropertyWithOrigin {
+                property: resolved.clone(),
+                origin: CssPropertyOrigin::Own,
+            },
+        );
+
+        if let Some(chain) = self.build_dependency_chain(ctx.node_id, ctx.parent_id, &resolved) {
+            ctx.dependency_chains.insert(prop_type, chain);
+        }
+    }
+
+    /// Resolve font-size property (uses parent's font-size as reference)
+    fn resolve_font_size_property(
+        &self,
+        prop: &CssProperty,
+        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+    ) -> CssProperty {
+        const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+        let parent_font_size = parent_computed
+            .as_ref()
+            .and_then(|p| p.get(&CssPropertyType::FontSize));
+
+        match parent_font_size {
+            Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property)
+                .unwrap_or_else(|| Self::resolve_font_size_to_pixels(prop, DEFAULT_FONT_SIZE_PX)),
+            None => Self::resolve_font_size_to_pixels(prop, DEFAULT_FONT_SIZE_PX),
+        }
+    }
+
+    /// Resolve other properties (uses current node's font-size as reference)
+    fn resolve_other_property(
+        &self,
+        prop: &CssProperty,
+        computed: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+    ) -> CssProperty {
+        computed
+            .get(&CssPropertyType::FontSize)
+            .and_then(|fs| Self::resolve_property_dependency(prop, &fs.property))
+            .unwrap_or_else(|| prop.clone())
+    }
+
+    /// Convert font-size to absolute pixels
+    fn resolve_font_size_to_pixels(prop: &CssProperty, reference_px: f32) -> CssProperty {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
+        };
+
+        const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
+
+        let CssProperty::FontSize(css_val) = prop else {
+            return prop.clone();
+        };
+
+        let Some(font_size) = css_val.get_property() else {
+            return prop.clone();
+        };
+
+        let resolved_px = match font_size.inner.metric {
+            SizeMetric::Px => font_size.inner.number.get(),
+            SizeMetric::Pt => font_size.inner.number.get() * 1.333333,
+            SizeMetric::In => font_size.inner.number.get() * 96.0,
+            SizeMetric::Cm => font_size.inner.number.get() * 37.7952755906,
+            SizeMetric::Mm => font_size.inner.number.get() * 3.7795275591,
+            SizeMetric::Em => font_size.inner.number.get() * reference_px,
+            SizeMetric::Rem => font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX,
+            SizeMetric::Percent => font_size.inner.number.get() / 100.0 * reference_px,
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => {
+                return prop.clone();
+            }
+        };
+
+        CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+            inner: PixelValue::px(resolved_px),
+        }))
+    }
+
+    /// Check if font-size has relative unit (em, rem, %)
+    fn has_relative_font_size_unit(prop: &CssProperty) -> bool {
+        use azul_css::props::basic::length::SizeMetric;
+
+        let CssProperty::FontSize(css_val) = prop else {
+            return false;
+        };
+
+        css_val
+            .get_property()
+            .map(|fs| matches!(fs.inner.metric, SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent))
+            .unwrap_or(false)
+    }
+
+    /// Store computed values if changed, returns true if values were updated
+    fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
+        let values_changed = self
+            .computed_values
+            .get(&ctx.node_id)
+            .map(|old| old != &ctx.computed_values)
+            .unwrap_or(true);
+
+        let chains_changed = self
+            .dependency_chains
+            .get(&ctx.node_id)
+            .map(|old| old != &ctx.dependency_chains)
+            .unwrap_or(!ctx.dependency_chains.is_empty());
+
+        let changed = values_changed || chains_changed;
+
+        self.computed_values.insert(ctx.node_id, ctx.computed_values.clone());
+        if !ctx.dependency_chains.is_empty() {
+            self.dependency_chains.insert(ctx.node_id, ctx.dependency_chains.clone());
+        }
+
+        changed
+    }
+}
+
+/// Context for computing inherited values for a single node
+struct InheritanceContext {
+    node_id: NodeId,
+    parent_id: Option<NodeId>,
+    computed_values: BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+    dependency_chains: BTreeMap<CssPropertyType, CssDependencyChain>,
+}
+
+impl CssPropertyCache {
     /// Resolve a dependency chain to an absolute pixel value.
     ///
     /// This walks through the chain and resolves each dependency:
@@ -4440,57 +4414,53 @@ impl CssPropertyCache {
         property_type: CssPropertyType,
         root_font_size: f32,
     ) -> Option<f32> {
-        // Get the dependency chain for this node/property (immutable borrow)
-        let chain = self
-            .dependency_chains
-            .get(&node_id)
-            .and_then(|chains| chains.get(&property_type))?;
+        let chain = self.get_chain(node_id, property_type)?;
 
-        // If already cached, return it
         if let Some(cached) = chain.cached_pixels {
             return Some(cached);
         }
 
-        // We need to resolve but can't mutate - collect steps first
-        let steps = chain.steps.clone();
-        let mut current_value: Option<f32> = None;
+        chain
+            .steps
+            .clone()
+            .iter()
+            .try_fold(None, |_, step| {
+                Some(self.resolve_step(step, property_type, root_font_size))
+            })?
+    }
 
-        for step in &steps {
-            match step {
-                CssDependencyChainStep::Absolute { pixels } => {
-                    current_value = Some(*pixels);
-                }
-                CssDependencyChainStep::Percent {
-                    source_node,
-                    factor,
-                } => {
-                    // Try to get from cached chains first
-                    let source_val = self
-                        .dependency_chains
-                        .get(source_node)
-                        .and_then(|chains| chains.get(&property_type))
-                        .and_then(|chain| chain.cached_pixels)?;
-                    current_value = Some(source_val * factor);
-                }
-                CssDependencyChainStep::Em {
-                    source_node,
-                    factor,
-                } => {
-                    // For em, we need the source node's font-size
-                    let font_size = self
-                        .dependency_chains
-                        .get(source_node)
-                        .and_then(|chains| chains.get(&CssPropertyType::FontSize))
-                        .and_then(|chain| chain.cached_pixels)?;
-                    current_value = Some(font_size * factor);
-                }
-                CssDependencyChainStep::Rem { factor } => {
-                    current_value = Some(root_font_size * factor);
-                }
+    /// Get a dependency chain for a node/property pair
+    fn get_chain(&self, node_id: NodeId, property_type: CssPropertyType) -> Option<&CssDependencyChain> {
+        self.dependency_chains
+            .get(&node_id)
+            .and_then(|chains| chains.get(&property_type))
+    }
+
+    /// Resolve a single step in a dependency chain
+    fn resolve_step(
+        &self,
+        step: &CssDependencyChainStep,
+        property_type: CssPropertyType,
+        root_font_size: f32,
+    ) -> Option<f32> {
+        match step {
+            CssDependencyChainStep::Absolute { pixels } => Some(*pixels),
+            CssDependencyChainStep::Percent { source_node, factor } => {
+                let source_val = self.get_cached_pixels(*source_node, property_type)?;
+                Some(source_val * factor)
             }
+            CssDependencyChainStep::Em { source_node, factor } => {
+                let font_size = self.get_cached_pixels(*source_node, CssPropertyType::FontSize)?;
+                Some(font_size * factor)
+            }
+            CssDependencyChainStep::Rem { factor } => Some(root_font_size * factor),
         }
+    }
 
-        current_value
+    /// Get cached pixel value for a node's property
+    fn get_cached_pixels(&self, node_id: NodeId, property_type: CssPropertyType) -> Option<f32> {
+        self.get_chain(node_id, property_type)
+            .and_then(|chain| chain.cached_pixels)
     }
 
     /// Update a property value and invalidate all dependent chains.
@@ -4515,55 +4485,68 @@ impl CssPropertyCache {
         node_id: NodeId,
         property: CssProperty,
         node_hierarchy: &[NodeHierarchyItem],
-        node_data: &[NodeData],
+        _node_data: &[NodeData],
     ) -> Vec<NodeId> {
-        use alloc::vec::Vec;
-
         let prop_type = property.get_type();
-        let mut affected_nodes = Vec::new();
 
-        // Step 1: Update the property value (mark as Own since it's an override)
+        self.update_computed_property(node_id, property.clone());
+        self.rebuild_dependency_chain(node_id, prop_type, &property, node_hierarchy);
+
+        let mut affected = self.invalidate_dependents(node_id);
+        affected.push(node_id);
+        affected
+    }
+
+    /// Update a property in computed_values with Own origin
+    fn update_computed_property(&mut self, node_id: NodeId, property: CssProperty) {
         self.computed_values
             .entry(node_id)
             .or_insert_with(BTreeMap::new)
             .insert(
-                prop_type,
+                property.get_type(),
                 CssPropertyWithOrigin {
-                    property: property.clone(),
+                    property,
                     origin: CssPropertyOrigin::Own,
                 },
             );
+    }
 
-        // Step 2: Rebuild the dependency chain
+    /// Rebuild the dependency chain for a property
+    fn rebuild_dependency_chain(
+        &mut self,
+        node_id: NodeId,
+        prop_type: CssPropertyType,
+        property: &CssProperty,
+        node_hierarchy: &[NodeHierarchyItem],
+    ) {
         let parent_id = node_hierarchy
             .get(node_id.index())
             .and_then(|h| h.parent_id());
-        if let Some(chain) = self.build_dependency_chain(node_id, parent_id, &property) {
+
+        if let Some(chain) = self.build_dependency_chain(node_id, parent_id, property) {
             self.dependency_chains
                 .entry(node_id)
                 .or_insert_with(BTreeMap::new)
                 .insert(prop_type, chain);
         }
+    }
 
-        // Step 3: Find and invalidate all dependent chains
-        for (dep_node_id, chains) in self.dependency_chains.iter_mut() {
-            let mut node_affected = false;
-
-            for (dep_prop_type, chain) in chains.iter_mut() {
-                if chain.depends_on(node_id) {
-                    // Invalidate the cached value
-                    chain.cached_pixels = None;
-                    node_affected = true;
-                }
-            }
-
-            if node_affected {
-                affected_nodes.push(*dep_node_id);
-            }
-        }
-
-        affected_nodes.push(node_id);
-        affected_nodes
+    /// Invalidate cached values for all chains that depend on a node
+    fn invalidate_dependents(&mut self, node_id: NodeId) -> Vec<NodeId> {
+        self.dependency_chains
+            .iter_mut()
+            .filter_map(|(dep_node_id, chains)| {
+                let affected = chains.values_mut().any(|chain| {
+                    if chain.depends_on(node_id) {
+                        chain.cached_pixels = None;
+                        true
+                    } else {
+                        false
+                    }
+                });
+                affected.then_some(*dep_node_id)
+            })
+            .collect()
     }
 }
 

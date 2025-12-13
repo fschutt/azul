@@ -9,34 +9,6 @@
 //! - **Hot reload**: Track file changes and rebuild UI incrementally
 //! - **Error reporting**: Detailed syntax error messages with line/column info
 //!
-//! # File Format
-//!
-//! `.azul` files are XML documents with special syntax:
-//!
-//! ```xml
-//! <app>
-//!   <style>
-//!     .button { background: blue; }
-//!   </style>
-//!   
-//!   <button class="button">Click me</button>
-//! </app>
-//! ```
-//!
-//! # Architecture
-//!
-//! The parsing process:
-//! 1. Tokenize XML into tag/attribute/text nodes
-//! 2. Build DOM tree from XML structure
-//! 3. Extract CSS from `<style>` tags
-//! 4. Resolve component references
-//! 5. Apply inline styles
-//!
-//! # Performance
-//!
-//! Parsing is done on-demand and results are cached. File watching detects changes
-//! for hot reload in development mode.
-//!
 //! # Examples
 //!
 //! ```rust,no_run,ignore

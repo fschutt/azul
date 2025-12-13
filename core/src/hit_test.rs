@@ -250,8 +250,9 @@ impl ScrollStates {
             .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
-    /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
-    /// since that is only relevant when we are actually querying the renderer.
+    /// Updating (add to) the existing scroll amount does not update the
+    /// `entry.used_this_frame`, since that is only relevant when we are 
+    /// actually querying the renderer.
     pub fn scroll_node(
         &mut self,
         node: &OverflowingScrollNode,
