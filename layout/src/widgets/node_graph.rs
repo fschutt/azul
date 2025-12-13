@@ -901,7 +901,8 @@ impl NodeGraph {
                                 let context_menu_local_dataset =
                                     RefAny::new(ContextMenuEntryLocalDataset {
                                         node_type: *node_type_id,
-                                        backref: node_graph_local_dataset.clone(), // RefAny<NodeGraphLocalDataset>
+                                        // RefAny<NodeGraphLocalDataset>
+                                        backref: node_graph_local_dataset.clone(),
                                     });
 
                                 MenuItem::String(

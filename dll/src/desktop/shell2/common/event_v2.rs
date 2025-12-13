@@ -1196,7 +1196,8 @@ pub trait PlatformWindowV2 {
                         KeyboardShortcut::Copy => {
                             // Handle Ctrl+C: Copy selected text to clipboard
                             if let Some(layout_window) = self.get_layout_window() {
-                                let dom_id = azul_core::dom::DomId { inner: 0 }; // TODO: Map target to correct DOM
+                                // TODO: Map target to correct DOM
+                                let dom_id = azul_core::dom::DomId { inner: 0 };
                                 if let Some(clipboard_content) =
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
@@ -1208,7 +1209,8 @@ pub trait PlatformWindowV2 {
                         KeyboardShortcut::Cut => {
                             // Handle Ctrl+X: Copy to clipboard and delete selection
                             if let Some(layout_window) = self.get_layout_window_mut() {
-                                let dom_id = azul_core::dom::DomId { inner: 0 }; // TODO: Map target to correct DOM
+                                // TODO: Map target to correct DOM
+                                let dom_id = azul_core::dom::DomId { inner: 0 };
 
                                 // First, copy to clipboard
                                 if let Some(clipboard_content) =
@@ -1283,7 +1285,8 @@ pub trait PlatformWindowV2 {
                                             let new_content = vec![InlineContent::Text(
                                                 StyledRun {
                                                     text: operation.pre_state.text_content.clone(),
-                                                    style: Arc::new(StyleProperties::default()), /* TODO: Preserve original style */
+                                                    // TODO: Preserve original style
+                                                    style: Arc::new(StyleProperties::default()),
                                                     logical_start_byte: 0,
                                                 },
                                             )];

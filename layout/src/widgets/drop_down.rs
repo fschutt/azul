@@ -1046,7 +1046,9 @@ extern "C" fn on_choice_selected(mut data: RefAny, info: CallbackInfo) -> Update
     let choice_id = data.choice_id;
 
     match data.on_choice_change.as_mut() {
-        Some(DropDownOnChoiceChange { data, callback }) => (callback.cb)(data.clone(), info.clone(), choice_id),
+        Some(DropDownOnChoiceChange { data, callback }) => (callback.cb)(
+            data.clone(), info.clone(), choice_id
+        ),
         None => Update::DoNothing,
     }
 }

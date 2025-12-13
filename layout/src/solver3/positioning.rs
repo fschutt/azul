@@ -319,7 +319,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 let parent_node_state =
                     &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].state;
                 let parent_wm =
-                    get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state).unwrap_or_default();
+                    get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state)
+                    .unwrap_or_default();
                 let parent_used_size = parent_node.used_size.unwrap_or_default();
                 parent_node.box_props.inner_size(parent_used_size, parent_wm)
             })

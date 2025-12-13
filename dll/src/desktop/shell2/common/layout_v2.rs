@@ -185,7 +185,9 @@ pub fn generate_frame(
     );
 
     let mut txn = WrTransaction::new();
-    wr_translate2::generate_frame(&mut txn, layout_window, render_api, true); // Display list was rebuilt
+
+    // Display list was rebuilt
+    wr_translate2::generate_frame(&mut txn, layout_window, render_api, true);
 
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }

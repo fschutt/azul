@@ -999,7 +999,11 @@ macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
         fn format_as_rust_code(&self, _tabs: usize) -> String {
             match self {
                 $(
-                    $enum_name::$enum_type => String::from(concat!(stringify!($enum_name), "::", stringify!($enum_type))),
+                    $enum_name::$enum_type => {
+                        String::from(
+                            concat!(stringify!($enum_name), "::", stringify!($enum_type))
+                        )
+                    },
                 )+
             }
         }

@@ -80,7 +80,9 @@ pub enum LayoutOverflowParseError<'a> {
 
 impl_debug_as_display!(LayoutOverflowParseError<'a>);
 impl_display! { LayoutOverflowParseError<'a>, {
-    InvalidValue(val) => format!("Invalid overflow value: \"{}\". Expected 'scroll', 'auto', 'hidden', 'visible', or 'clip'.", val),
+    InvalidValue(val) => format!(
+        "Invalid overflow value: \"{}\". Expected 'scroll', 'auto', 'hidden', 'visible', or 'clip'.", val
+    ),
 }}
 
 /// An owned version of `LayoutOverflowParseError`.

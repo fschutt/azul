@@ -275,7 +275,9 @@ mod input {
             let inner = check_box.inner.clone();
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
+                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(
+                    data.clone(), info.clone(), inner
+                ),
                 None => Update::DoNothing,
             }
         };

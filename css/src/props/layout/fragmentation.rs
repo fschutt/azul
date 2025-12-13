@@ -334,7 +334,8 @@ mod parser {
             impl $error_owned_name {
                 pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
                      match self {
-                        Self::ParseInt(_e, s) => $error_name::NegativeValue(s), // Can't reconstruct ParseIntError
+                        // Can't reconstruct ParseIntError
+                        Self::ParseInt(_e, s) => $error_name::NegativeValue(s),
                         Self::NegativeValue(s) => $error_name::NegativeValue(s),
                     }
                 }

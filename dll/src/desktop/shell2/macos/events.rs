@@ -1107,13 +1107,14 @@ impl MacOSWindow {
                             string_item.children.as_ref().len()
                         );
                     } else {
+                        use crate::desktop::shell2::macos::menu;
                         // Leaf item - wire up callback using the same system as menu bar
                         if let Some(callback) = string_item.callback.as_option() {
                             let tag = menu_state.register_callback(callback.clone());
                             menu_item.setTag(tag as isize);
 
                             // Use shared AzulMenuTarget for callback dispatch
-                            let target = crate::desktop::shell2::macos::menu::AzulMenuTarget::shared_instance(*mtm);
+                            let target = menu::AzulMenuTarget::shared_instance(*mtm);
                             unsafe {
                                 menu_item.setTarget(Some(&target));
                                 menu_item.setAction(Some(objc2::sel!(menuItemAction:)));
@@ -1122,7 +1123,7 @@ impl MacOSWindow {
 
                         // Set keyboard shortcut if present
                         if let Some(ref accelerator) = string_item.accelerator.into_option() {
-                            crate::desktop::shell2::macos::menu::set_menu_item_accelerator(
+                            menu::set_menu_item_accelerator(
                                 &menu_item,
                                 accelerator,
                             );

@@ -262,7 +262,17 @@ macro_rules! multi_type_parser {
             ),
             $([
                 $identifier_string, $enum_type,
-                concat!("assert_eq!(", stringify!($fn), "(\"", $identifier_string, "\"), Ok(", stringify!($return), "::", stringify!($enum_type), "));")
+                concat!(
+                    "assert_eq!(", 
+                    stringify!($fn), 
+                    "(\"", 
+                    $identifier_string, 
+                    "\"), Ok(", 
+                    stringify!($return), 
+                    "::", 
+                    stringify!($enum_type), 
+                    "));"
+                )
             ]),+
         );
     };

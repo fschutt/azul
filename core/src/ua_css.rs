@@ -50,7 +50,8 @@
 //!
 //! This user-agent stylesheet integrates principles from normalize.css v8.0.1:
 //!
-//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and Jonathan Neal https://github.com/necolas/normalize.css
+//! - **normalize.css License**: MIT License Copyright (c) Nicolas Gallagher and 
+//    Jonathan Neal https://github.com/necolas/normalize.css
 //!
 //! The normalize.css project is licensed under the MIT License, which permits
 //! commercial use, modification, distribution, and private use. The full license
@@ -550,9 +551,11 @@ pub fn get_ua_property(
         // the same as width: 100%. The difference is critical for flexbox: width: auto
         // allows flex-grow/flex-shrink to control sizing, while width: 100% prevents it.
         (NT::Div, PT::Display) => Some(&DISPLAY_BLOCK),
-        // (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT), // REMOVED - blocks have width: auto by default
         (NT::P, PT::Display) => Some(&DISPLAY_BLOCK),
-        // (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT), // REMOVED - blocks have width: auto by default
+        // REMOVED - blocks have width: auto by default
+        // (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT),
+        // REMOVED - blocks have width: auto by default
+        // (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
         (NT::P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Main, PT::Display) => Some(&DISPLAY_BLOCK),

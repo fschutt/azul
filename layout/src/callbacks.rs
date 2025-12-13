@@ -998,7 +998,10 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```ignore
-    /// use azul_core::selection::{Selection, SelectionRange, TextCursor, GraphemeClusterId, CursorAffinity};
+    /// use azul_core::selection::{
+    ///   Selection, SelectionRange, TextCursor, 
+    ///   GraphemeClusterId, CursorAffinity
+    /// };
     ///
     /// On::DoubleClick -> |info| {
     ///     // Select entire word

@@ -13,7 +13,7 @@ extern crate azul_css;
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
 pub mod macros;
-/// Type definitions for various types of callbacks, as well as focus and scroll handling
+/// Type definitions for various types of callbacks plus focus and scroll handling
 #[macro_use]
 pub mod callbacks;
 /// `Dom` construction, `NodeData` and `NodeType` management functions

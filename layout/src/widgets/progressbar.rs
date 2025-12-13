@@ -307,7 +307,12 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                        offset_x: PixelValueNoPercent { 
+                            inner: PixelValue::const_px(0) 
+                        }, 
+                        offset_y: PixelValueNoPercent { 
+                            inner: PixelValue::const_px(0) 
+                        },
                         color: ColorU {
                             r: 0,
                             g: 0,
@@ -325,7 +330,12 @@ impl ProgressBar {
                 )),
                 NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
-                        offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                        offset_x: PixelValueNoPercent { 
+                            inner: PixelValue::const_px(0) 
+                        }, 
+                        offset_y: PixelValueNoPercent { 
+                            inner: PixelValue::const_px(0) 
+                        },
                         color: ColorU {
                             r: 0,
                             g: 0,

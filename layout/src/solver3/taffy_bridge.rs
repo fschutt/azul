@@ -1383,7 +1383,8 @@ fn from_layout_width(val: LayoutWidth) -> Dimension {
             match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
+                    // p is already normalized (0.0-1.0)
+                    Some(p) => Dimension::percent(p.get()),
                     None => Dimension::auto(),
                 },
             }
@@ -1400,7 +1401,8 @@ fn from_layout_height(val: LayoutHeight) -> Dimension {
             match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    Some(p) => Dimension::percent(p.get()), // p is already normalized (0.0-1.0)
+                     // p is already normalized (0.0-1.0)
+                    Some(p) => Dimension::percent(p.get()),
                     None => Dimension::auto(),
                 },
             }

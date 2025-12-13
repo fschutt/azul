@@ -419,7 +419,8 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 
     // FIX: Taffy interprets known_dimensions as Border Box size.
     // CSS width/height properties define Content Box size (by default, box-sizing: content-box).
-    // We must add border and padding to the explicit dimensions to get the correct Border Box size for Taffy.
+    // We must add border and padding to the explicit dimensions to get the correct Border 
+    // Box size for Taffy.
     let width_adjustment = node.box_props.border.left + node.box_props.border.right + 
                           node.box_props.padding.left + node.box_props.padding.right;
     let height_adjustment = node.box_props.border.top + node.box_props.border.bottom + 

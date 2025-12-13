@@ -48,7 +48,8 @@ use crate::{
     },
     solver3::{
         getters::{
-            get_background_color, get_background_contents, get_border_info, get_border_radius, get_caret_style,
+            get_background_color, get_background_contents, get_border_info, 
+            get_border_radius, get_caret_style,
             get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout, get_selection_style,
             get_style_border_radius, get_z_index, BorderInfo, CaretStyle, SelectionStyle,
         },

@@ -326,8 +326,9 @@ impl LayoutWindow {
     /// For full initialization with WindowInternal compatibility, use `new_full()`.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
+            // Default width, will be updated on first layout
             #[cfg(feature = "pdf")]
-            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0), /* Default width, will be updated on first layout */
+            fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 calculated_positions: BTreeMap::new(),

@@ -782,8 +782,8 @@ pub mod defaults {
             },
         },
         system::{
-            DesktopEnvironment, Platform, SystemColors, SystemFonts, SystemMetrics, SystemStyle,
-            Theme,
+            DesktopEnvironment, Platform, SystemColors, SystemFonts, 
+            SystemMetrics, SystemStyle, Theme,
         },
     };
 
