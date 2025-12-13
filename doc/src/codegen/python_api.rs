@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+use super::memtest::{generate_generated_rs, MemtestConfig, TypeReplacements};
+
 const PREFIX: &str = "Az";
 
 // Recursive types - they cause "infinite size" errors in PyO3
@@ -862,9 +864,33 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     ));
     code.push_str("// Generated for PyO3 v0.27.2\r\n");
     code.push_str("// This file is included via include!() in dll/src/lib.rs\r\n");
+    code.push_str("// This file is STANDALONE and does NOT depend on the c-api feature.\r\n");
     code.push_str("\r\n");
 
-    // Imports
+    // Generate the complete DLL API (structs, enums, functions) inline
+    // This makes python-extension completely independent from c-api feature
+    code.push_str("// ============================================================================\r\n");
+    code.push_str("// GENERATED C-API TYPES (standalone, not imported from crate::ffi::dll)\r\n");
+    code.push_str("// ============================================================================\r\n\r\n");
+    
+    // Generate the DLL API inline
+    let config = MemtestConfig {
+        remove_serde: false,
+        remove_optional_features: vec![],
+        generate_fn_bodies: true,
+        is_for_dll: true,
+    };
+    let replacements = TypeReplacements::new(version_data).unwrap();
+    let dll_api_code = generate_generated_rs(api_data, &config, &replacements)
+        .expect("Failed to generate DLL API for Python bindings");
+    code.push_str(&dll_api_code);
+    code.push_str("\r\n\r\n");
+
+    // Now use types from the inline-generated code
+    code.push_str("use __dll_api_inner::dll::*;\r\n");
+    code.push_str("\r\n");
+
+    // PyO3 imports
     code.push_str("use core::ffi::c_void;\r\n");
     code.push_str("use core::mem;\r\n");
     code.push_str("use pyo3::prelude::*;\r\n");
@@ -872,101 +898,21 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("use pyo3::exceptions::PyException;\r\n");
     code.push_str("\r\n");
 
-    // Import VecDestructor types and other internal types from C-API
-    // These are needed for Vec types which have destructor fields
-    // NOTE: AzU8VecDestructor and AzStringVecDestructor are imported in python-patch/api.rs
-    // NOTE: Callback+data pair types (IFrameNode, ButtonOnClick, etc.) are NOT imported
-    //       because we generate Python wrapper types for them
-    // NOTE: AzStringMenuItem and AzInstantPtr are generated as opaque wrapper types
-    code.push_str("// Import internal types from C-API (destructors, NodeData, etc.)\r\n");
-    code.push_str("use crate::ffi::dll::{\r\n");
-    code.push_str("    // Types used in struct fields that are not generated\r\n");
-    code.push_str("    AzNodeData,\r\n");
-    code.push_str("    AzCoreCallbackData,\r\n");
-    // Removed: AzStringMenuItem - generated as opaque wrapper
-    // Removed: AzInstantPtr - generated as opaque wrapper
-    code.push_str("    // GL VecRef types used in Gl methods\r\n");
-    code.push_str("    AzGLenumVecRef,\r\n");
-    code.push_str("    AzI32VecRef,\r\n");
-    code.push_str("    AzOptionU8VecRef,\r\n");
-    code.push_str("    // VecDestructor types for owned Vec memory management\r\n");
-    code.push_str("    AzAccessibilityActionVecDestructor,\r\n");
-    code.push_str("    AzAccessibilityStateVecDestructor,\r\n");
-    code.push_str("    AzAttributeVecDestructor,\r\n");
-    code.push_str("    AzCascadeInfoVecDestructor,\r\n");
-    code.push_str("    AzCoreCallbackDataVecDestructor,\r\n");
-    code.push_str("    AzCssDeclarationVecDestructor,\r\n");
-    code.push_str("    AzCssPathSelectorVecDestructor,\r\n");
-    code.push_str("    AzCssRuleBlockVecDestructor,\r\n");
-    code.push_str("    AzDebugMessageVecDestructor,\r\n");
-    code.push_str("    AzDomVecDestructor,\r\n");
-    code.push_str("    AzF32VecDestructor,\r\n");
-    code.push_str("    AzGLintVecDestructor,\r\n");
-    code.push_str("    AzGLuintVecDestructor,\r\n");
-    code.push_str("    AzGridTrackSizingVecDestructor,\r\n");
-    code.push_str("    AzIdOrClassVecDestructor,\r\n");
-    code.push_str("    AzListViewRowVecDestructor,\r\n");
-    code.push_str("    AzMenuItemVecDestructor,\r\n");
-    code.push_str("    AzMonitorVecDestructor,\r\n");
-    code.push_str("    AzNodeDataInlineCssPropertyVecDestructor,\r\n");
-    code.push_str("    AzNodeDataVecDestructor,\r\n");
-    code.push_str("    AzNodeHierarchyItemVecDestructor,\r\n");
-    code.push_str("    AzNodeIdVecDestructor,\r\n");
-    code.push_str("    AzNormalizedLinearColorStopVecDestructor,\r\n");
-    code.push_str("    AzNormalizedRadialColorStopVecDestructor,\r\n");
-    code.push_str("    AzParentWithNodeDepthVecDestructor,\r\n");
-    code.push_str("    AzScanCodeVecDestructor,\r\n");
-    code.push_str("    AzShapePointVecDestructor,\r\n");
-    code.push_str("    AzStringPairVecDestructor,\r\n");
-    // Removed: AzStringVecDestructor - imported in python-patch/api.rs
-    code.push_str("    AzStyleBackgroundContentVecDestructor,\r\n");
-    code.push_str("    AzStyleBackgroundPositionVecDestructor,\r\n");
-    code.push_str("    AzStyleBackgroundRepeatVecDestructor,\r\n");
-    code.push_str("    AzStyleBackgroundSizeVecDestructor,\r\n");
-    code.push_str("    AzStyledNodeVecDestructor,\r\n");
-    code.push_str("    AzStyleFilterVecDestructor,\r\n");
-    code.push_str("    AzStyleFontFamilyVecDestructor,\r\n");
-    code.push_str("    AzStylesheetVecDestructor,\r\n");
-    code.push_str("    AzStyleTransformVecDestructor,\r\n");
-    code.push_str("    AzSvgMultiPolygonVecDestructor,\r\n");
-    code.push_str("    AzSvgPathElementVecDestructor,\r\n");
-    code.push_str("    AzSvgPathVecDestructor,\r\n");
-    code.push_str("    AzSvgSimpleNodeVecDestructor,\r\n");
-    code.push_str("    AzSvgVertexVecDestructor,\r\n");
-    // Removed: AzTabVecDestructor - does not exist
-    code.push_str("    AzTagIdToNodeIdMappingVecDestructor,\r\n");
-    // Removed: AzTessellatedSvgNodeVecDestructor - does not exist
-    code.push_str("    AzU16VecDestructor,\r\n");
-    code.push_str("    AzU32VecDestructor,\r\n");
-    // Removed: AzU8VecDestructor - imported in python-patch/api.rs
-    code.push_str("    AzVertexAttributeVecDestructor,\r\n");
-    code.push_str("    AzVideoModeVecDestructor,\r\n");
-    code.push_str("    AzVirtualKeyCodeVecDestructor,\r\n");
-    // Removed: AzXmlNodeVecDestructor - does not exist
-    code.push_str("    AzXmlNodeChildVecDestructor,\r\n");
-    code.push_str("    AzXWindowTypeVecDestructor,\r\n");
-    code.push_str("};\r\n");
-    code.push_str("\r\n");
-
-    // GL type definitions
-    code.push_str("// GL type definitions\r\n");
-    code.push_str("type GLuint = u32; type AzGLuint = GLuint;\r\n");
-    code.push_str("type GLint = i32; type AzGLint = GLint;\r\n");
-    code.push_str("type GLint64 = i64; type AzGLint64 = GLint64;\r\n");
-    code.push_str("type GLuint64 = u64; type AzGLuint64 = GLuint64;\r\n");
-    code.push_str("type GLenum = u32; type AzGLenum = GLenum;\r\n");
-    code.push_str("type GLintptr = isize; type AzGLintptr = GLintptr;\r\n");
-    code.push_str("type GLboolean = u8; type AzGLboolean = GLboolean;\r\n");
-    code.push_str("type GLsizeiptr = isize; type AzGLsizeiptr = GLsizeiptr;\r\n");
-    code.push_str("type GLvoid = c_void; type AzGLvoid = GLvoid;\r\n");
-    code.push_str("type GLbitfield = u32; type AzGLbitfield = GLbitfield;\r\n");
-    code.push_str("type GLsizei = i32; type AzGLsizei = GLsizei;\r\n");
-    code.push_str("type GLclampf = f32; type AzGLclampf = GLclampf;\r\n");
-    code.push_str("type GLfloat = f32; type AzGLfloat = GLfloat;\r\n");
-    code.push_str("type AzF32 = f32;\r\n");
-    code.push_str("type AzU16 = u16;\r\n");
-    code.push_str("type AzU32 = u32;\r\n");
-    code.push_str("type AzScanCode = u32;\r\n");
+    // GL type aliases for Python API (these alias the already-generated types)
+    code.push_str("// GL type aliases for Python API\r\n");
+    code.push_str("type AzGLuint = GLuint;\r\n");
+    code.push_str("type AzGLint = GLint;\r\n");
+    code.push_str("type AzGLint64 = GLint64;\r\n");
+    code.push_str("type AzGLuint64 = GLuint64;\r\n");
+    code.push_str("type AzGLenum = GLenum;\r\n");
+    code.push_str("type AzGLintptr = GLintptr;\r\n");
+    code.push_str("type AzGLboolean = GLboolean;\r\n");
+    code.push_str("type AzGLsizeiptr = GLsizeiptr;\r\n");
+    code.push_str("type AzGLvoid = GLvoid;\r\n");
+    code.push_str("type AzGLbitfield = GLbitfield;\r\n");
+    code.push_str("type AzGLsizei = GLsizei;\r\n");
+    code.push_str("type AzGLclampf = GLclampf;\r\n");
+    code.push_str("type AzGLfloat = GLfloat;\r\n");
     code.push_str("\r\n");
 
     // Manual patches for callbacks and complex types
@@ -1197,7 +1143,8 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
 /// These types wrap the C-API type directly without exposing fields
 fn generate_opaque_wrapper_struct(class_name: &str, prefix: &str) -> String {
     let struct_name = format!("{}{}", prefix, class_name);
-    let c_api_type = format!("crate::ffi::dll::Az{}", class_name);
+    // Use full path to C-API type to avoid self-reference
+    let c_api_type = format!("__dll_api_inner::dll::Az{}", class_name);
     
     let mut code = String::new();
     code.push_str(&format!("// Opaque wrapper for {} (contains callbacks/pointers)\r\n", class_name));
@@ -1453,7 +1400,7 @@ fn generate_clone_impl(class_name: &str, class_data: &ClassData, prefix: &str) -
         code.push_str("    fn clone(&self) -> Self {\r\n");
         code.push_str(&format!(
             "        unsafe {{ \
-             mem::transmute(crate::ffi::dll::{}{}_deepCopy(mem::transmute(self))) }}\r\n",
+             mem::transmute({}{}_deepCopy(mem::transmute(self))) }}\r\n",
             prefix, class_name
         ));
         code.push_str("    }\r\n");
@@ -1538,7 +1485,7 @@ fn generate_debug_impl(class_name: &str, class_data: &ClassData, prefix: &str) -
         code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
         code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
         code.push_str(&format!(
-            "        let capi: &crate::ffi::dll::{} = unsafe {{ mem::transmute(self) }};\r\n",
+            "        let capi: &{} = unsafe {{ mem::transmute(self) }};\r\n",
             type_name
         ));
         code.push_str("        core::fmt::Debug::fmt(capi, f)\r\n");
@@ -1583,7 +1530,7 @@ fn generate_drop_impl(class_name: &str, class_data: &ClassData, prefix: &str) ->
     code.push_str(&format!("impl Drop for {} {{\r\n", type_name));
     code.push_str("    fn drop(&mut self) {\r\n");
     code.push_str(&format!(
-        "        unsafe {{ crate::ffi::dll::{}{}_delete(mem::transmute(self)); }}\r\n",
+        "        unsafe {{ {}{}_delete(mem::transmute(self)); }}\r\n",
         prefix, class_name
     ));
     code.push_str("    }\r\n");
@@ -1950,7 +1897,7 @@ fn generate_function(
     code.push_str("        unsafe {\r\n");
 
     // Build call expression
-    let mut call = format!("crate::ffi::dll::{}(", c_fn_name);
+    let mut call = format!("{}(", c_fn_name);
 
     // Self argument
     if !is_static {
@@ -2036,17 +1983,17 @@ fn generate_callback_data_pair_wrapper(
     code.push_str("}\r\n\r\n");
 
     // 2. Generate the trampoline function
-    // Use C-API types (crate::ffi::dll::Az*) for the signature so it matches
+    // Use C-API types (__dll_api_inner::dll::Az*) for the signature so it matches
     // what the C-API callback type expects
     let info_type_az = format!("{}{}", prefix, cb_sig.info_type);
     let return_type_az = format!("{}{}", prefix, cb_sig.return_type);
 
-    // C-API types for the function signature
-    let capi_return_type = format!("crate::ffi::dll::{}{}", prefix, cb_sig.return_type);
-    let capi_info_type = format!("crate::ffi::dll::{}{}", prefix, cb_sig.info_type);
+    // C-API types for the function signature - use full path to avoid conflicts with Python wrappers
+    let capi_return_type = format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.return_type);
+    let capi_info_type = format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.info_type);
 
     // Also need C-API RefAny type
-    let capi_refany_type = "crate::ffi::dll::AzRefAny";
+    let capi_refany_type = "__dll_api_inner::dll::AzRefAny";
 
     // Build extra args for signature (using C-API types)
     let mut extra_args_sig = String::new();
@@ -2055,7 +2002,7 @@ fn generate_callback_data_pair_wrapper(
         let capi_arg_type = if is_primitive_arg(type_name) {
             type_name.clone()
         } else {
-            format!("crate::ffi::dll::{}{}", prefix, type_name)
+            format!("__dll_api_inner::dll::{}{}", prefix, type_name)
         };
         extra_args_sig.push_str(&format!(", {}: {}", name, capi_arg_type));
     }
@@ -2074,8 +2021,8 @@ fn generate_callback_data_pair_wrapper(
     let default_expr = match cb_sig.return_type.as_str() {
         "Update" => format!("{}::DoNothing", capi_return_type),
         "OnTextInputReturn" => format!(
-            "{} {{ update: crate::ffi::dll::AzUpdate::DoNothing, valid: \
-             crate::ffi::dll::AzTextInputValid::Yes }}",
+            "{} {{ update: __dll_api_inner::dll::AzUpdate::DoNothing, valid: \
+             __dll_api_inner::dll::AzTextInputValid::Yes }}",
             capi_return_type
         ),
         "()" => "()".to_string(),
@@ -2171,7 +2118,8 @@ fn generate_callback_data_pair_struct(
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
-    let cb_struct_name = format!("{}{}", prefix, cb_type);
+    let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, class_name);
+    let cb_struct_name = format!("__dll_api_inner::dll::{}{}", prefix, cb_type);
 
     code.push_str(&format!(
         "/// {} - Python wrapper for callback+data pair\r\n",
@@ -2183,8 +2131,8 @@ fn generate_callback_data_pair_struct(
     ));
     code.push_str(&format!("pub struct {} {{\r\n", struct_name));
     code.push_str(&format!(
-        "    pub inner: crate::ffi::dll::{},\r\n",
-        struct_name
+        "    pub inner: {},\r\n",
+        c_api_type
     ));
     code.push_str("}\r\n\r\n");
 
@@ -2226,11 +2174,11 @@ fn generate_callback_data_pair_struct(
     // Create the C-API struct using the correct callback type name from api.json
     code.push_str("        Ok(Self {\r\n");
     code.push_str(&format!(
-        "            inner: crate::ffi::dll::{} {{\r\n",
-        struct_name
+        "            inner: {} {{\r\n",
+        c_api_type
     ));
     code.push_str(&format!(
-        "                {}: crate::ffi::dll::{} {{\r\n",
+        "                {}: {} {{\r\n",
         cb_field_name, cb_struct_name
     ));
     code.push_str(&format!("                    cb: {},\r\n", trampoline_name));
@@ -2381,7 +2329,7 @@ fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &Versio
     }
 
     // For types that are imported from C-API with IntoPyObject impls, use just Az{type}
-    // without the crate::ffi::dll:: path since they're already imported
+    // without the  path since they're already imported
     if IMPORTED_CAPI_TYPES.contains(&base_type.as_str()) {
         return format!(
             "{}Az{}{}",

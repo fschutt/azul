@@ -5,40 +5,16 @@
 // All types referenced here must be either:
 // - Defined in this file
 // - Defined in the generated python_capi.rs (AzFoo types)
-// - Available via crate::ffi (C-API functions from dll_api.rs)
+// - Available via __dll_api_inner::dll (inline-generated C-API types)
 // - Available via azul_core:: (internal types)
 
 use pyo3::gc::{PyVisit, PyTraverseError};
 use pyo3::conversion::IntoPyObject;
 
-// Import types from C-API that are used by helper functions and manual implementations
-// NOTE: Vec types like AzU8Vec, AzMonitorVec are now generated, so don't import them
-use crate::ffi::dll::{
-    // String and basic Vec types - these are skipped in generator due to conflicting trait impls
-    // They have manual FromPyObject/IntoPyObject implementations below
-    AzString,
-    AzU8Vec,
-    AzStringVec,
-    // Ref/RefMut types for slices (not generated, used in helper functions)
-    AzRefstr,
-    AzU8VecRef,
-    AzU8VecRefMut,
-    AzF32VecRef,
-    AzGLuintVecRef,
-    AzGLintVecRefMut,
-    AzGLint64VecRefMut,
-    AzGLbooleanVecRefMut,
-    AzGLfloatVecRefMut,
-    AzRefstrVecRef,
-    AzTessellatedSvgNodeVecRef,
-    // Destructor types for Vec ownership (enum with function pointer variants)
-    AzU8VecDestructor,
-    AzStringVecDestructor,
-    // Layout callback type for WindowCreateOptions
-    AzLayoutCallbackType,
-    AzLayoutCallback,
-    AzLayoutCallbackInner,
-};
+// NOTE: All AzFoo types are now available directly because:
+// 1. They are generated inline in __dll_api_inner::dll 
+// 2. We have `use __dll_api_inner::dll::*;` at the top of the file
+// So no additional imports are needed here!
 
 // helper functions for type conversion
 fn pystring_to_azstring(input: &String) -> AzString {
@@ -515,11 +491,11 @@ impl AzApp {
         let refany = azul_core::refany::RefAny::new(app_data);
 
         // Get default app config
-        let app_config = unsafe { crate::ffi::dll::AzAppConfig_new() };
+        let app_config = unsafe { AzAppConfig_new() };
 
         // Call C-API to create the app
         let app = unsafe {
-            crate::ffi::dll::AzApp_new(
+            AzApp_new(
                 mem::transmute(refany),
                 app_config,
             )
@@ -536,7 +512,7 @@ impl AzApp {
         // Note: We need to set the layout callback in the window
         // For now, just run with the window as-is
         unsafe {
-            crate::ffi::dll::AzApp_run(
+            AzApp_run(
                 mem::transmute(self),
                 window.inner.clone(),
             );
@@ -546,7 +522,7 @@ impl AzApp {
     /// Add another window to the application
     fn add_window(&mut self, window: AzWindowCreateOptions) {
         unsafe {
-            crate::ffi::dll::AzApp_addWindow(
+            AzApp_addWindow(
                 mem::transmute(self),
                 window.inner.clone(),
             );
@@ -556,7 +532,7 @@ impl AzApp {
     /// Get the list of available monitors
     fn get_monitors(&self) -> AzMonitorVec {
         unsafe {
-            mem::transmute(crate::ffi::dll::AzApp_getMonitors(
+            mem::transmute(AzApp_getMonitors(
                 mem::transmute(self),
             ))
         }
@@ -599,7 +575,7 @@ impl Drop for AzApp {
     fn drop(&mut self) {
         if self.run_destructor {
             unsafe {
-                crate::ffi::dll::AzApp_delete(mem::transmute(self));
+                AzApp_delete(mem::transmute(self));
             }
         }
     }
@@ -636,9 +612,12 @@ impl AzLayoutCallbackInfo {
 //
 /// Options for creating a new window
 /// NOTE: This is a simplified version for Python - some fields are not exposed
+// NOTE: We use a type alias to avoid naming conflicts with the C-API type
+type CApiWindowCreateOptions = __dll_api_inner::dll::AzWindowCreateOptions;
+
 #[pyclass(name = "WindowCreateOptions", module = "azul", unsendable)]
 pub struct AzWindowCreateOptions {
-    inner: crate::ffi::dll::AzWindowCreateOptions,
+    inner: CApiWindowCreateOptions,
 }
 
 #[pymethods]

@@ -576,7 +576,7 @@ fn sanitize_name(name: &str) -> String {
         .to_lowercase()
 }
 
-fn generate_generated_rs(
+pub fn generate_generated_rs(
     api_data: &ApiData,
     config: &MemtestConfig,
     replacements: &TypeReplacements,

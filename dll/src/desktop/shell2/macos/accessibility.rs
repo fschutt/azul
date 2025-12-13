@@ -205,6 +205,7 @@ impl MacOSAccessibilityAdapter {
 
 // Stub for when accessibility feature is disabled
 #[cfg(not(feature = "a11y"))]
+#[derive(Clone, Copy)]
 pub struct MacOSAccessibilityAdapter;
 
 #[cfg(not(feature = "a11y"))]
