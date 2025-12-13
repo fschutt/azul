@@ -1,11 +1,9 @@
 
-    
     use alloc::string;
 
     #[cfg(all(feature = "serde-support"))]
     use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-    
     #[cfg(feature = "serde-support")]
     impl Serialize for crate::str::String {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -15,7 +13,6 @@
         }
     }
 
-    
     #[cfg(feature = "serde-support")]
     impl<'de> Deserialize<'de> for crate::str::String {
         fn deserialize<D>(deserializer: D) -> Result<crate::str::String, D::Error>
@@ -26,64 +23,54 @@
         }
     }
 
-
-    
     impl From<&'static str> for crate::str::String {
         fn from(v: &'static str) -> crate::str::String {
             crate::str::String::from_const_str(v)
         }
     }
 
-    
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
             crate::str::String::from_string(s)
         }
     }
 
-    
     impl AsRef<str> for crate::str::String {
         fn as_ref(&self) -> &str {
             self.as_str()
         }
     }
 
-    
     impl core::fmt::Debug for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    
     impl core::fmt::Display for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    
     impl Clone for crate::str::String {
         fn clone(&self) -> Self {
             Self { vec: self.vec.clone() }
         }
     }
 
-    
     impl PartialEq for crate::str::String {
         fn eq(&self, other: &Self) -> bool {
             self.as_str() == other.as_str()
         }
     }
 
-    
     impl PartialOrd for crate::str::String {
         fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
             self.as_str().partial_cmp(other.as_str())
         }
     }
 
-    
     impl crate::str::String {
 
         #[inline(always)]

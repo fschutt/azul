@@ -35,14 +35,14 @@ def main():
     with open(api_file, 'r', encoding='utf-8') as f:
         api_data = json.load(f)
     
-    print(f"\n🔄 Replacing raw pointer types...")
+    print(f"\n[ INFO ] Replacing raw pointer types...")
     replace_raw_pointer_types(api_data)
     
-    print(f"\n💾 Saving {api_file}...")
+    print(f"\n[ INFO ] Saving {api_file}...")
     with open(api_file, 'w', encoding='utf-8') as f:
         json.dump(api_data, f, indent=2, ensure_ascii=False)
     
-    print(f"\n✅ Done!")
+    print(f"\n[ OK ] Done!")
 
 if __name__ == "__main__":
     main()

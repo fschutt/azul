@@ -32,7 +32,6 @@ gfortran main.f90 azul.o -L. -lazul -o azul_app
 ./azul_app
 ```
 
-
 ### Key Fortran Nuances
 
 1.  **`bind(c)`**: This is essential. It tells the compiler to use C ABI conventions 

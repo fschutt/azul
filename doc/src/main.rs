@@ -112,9 +112,7 @@ fn main() -> anyhow::Result<()> {
             patch::explain_patches(&patches_dir)?;
             return Ok(());
         }
-        // ====================================================================
-        // FUNCTION MANAGEMENT COMMANDS
-        // ====================================================================
+        // function management commands
         ["autofix", "list", type_spec] => {
             // List functions for a type: autofix list Dom
             // Or with module prefix: autofix list dom.Dom
@@ -140,7 +138,7 @@ fn main() -> anyhow::Result<()> {
 
                     if !result.source_only.is_empty() {
                         println!(
-                            "📦 In source only ({} - need to add to api.json):",
+                            "[ INFO ] In source only ({} - need to add to api.json):",
                             result.source_only.len()
                         );
                         for name in &result.source_only {
@@ -151,7 +149,7 @@ fn main() -> anyhow::Result<()> {
 
                     if !result.api_only.is_empty() {
                         println!(
-                            "📄 In api.json only ({} - may be stale):",
+                            "[ INFO ] In api.json only ({} - may be stale):",
                             result.api_only.len()
                         );
                         for name in &result.api_only {

@@ -10,7 +10,6 @@ const PREFIX: &str = "Az";
 const LIB_CLASS: &str = "AzulLibrary"; 
 const LIB_FILENAME: &str = "azul";
 
-
 /*
 
     For **Smalltalk**, specifically modern environments like 
@@ -85,7 +84,6 @@ const LIB_FILENAME: &str = "azul";
     "Run"
     AzulLibrary azAppRun: app options: opts.
 */
-
 
 /// Maps C types to Pharo/UnifiedFFI types
 fn map_to_uffi_type(ty: &str) -> String {

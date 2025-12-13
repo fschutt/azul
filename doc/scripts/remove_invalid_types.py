@@ -118,7 +118,6 @@ def fix_api_json(api_path: Path) -> dict:
     
     return stats
 
-
 def main():
     script_dir = Path(__file__).parent
     api_path = script_dir.parent.parent / 'api.json'
@@ -129,7 +128,6 @@ def main():
     
     print(f"[FIX] Scanning {api_path} for invalid entries...")
     fix_api_json(api_path)
-
 
 if __name__ == '__main__':
     main()

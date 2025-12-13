@@ -113,7 +113,7 @@ def main():
     for filepath in sorted(files):
         process_file(filepath)
     
-    print(f"\n✅ Processed {len(files)} files")
+    print(f"\n[ OK ] Processed {len(files)} files")
 
 if __name__ == '__main__':
     main()

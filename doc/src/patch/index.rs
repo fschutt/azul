@@ -16,9 +16,6 @@ use syn::{File, Item, UseTree};
 
 use crate::api::{EnumVariantData, FieldData};
 
-// ============================================================================
-// OracleTypeInfo - type information discovered from source
-// ============================================================================
 
 /// Information discovered about a type from source code parsing
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -30,9 +27,6 @@ pub struct OracleTypeInfo {
     pub is_enum: bool,
 }
 
-// ============================================================================
-// Syn-based helper functions (replacing regex)
-// ============================================================================
 
 /// Check if a type name is imported via a `use` statement in the given source.
 /// If so, this file is NOT the definition site for that type.

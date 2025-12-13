@@ -5,7 +5,6 @@ use crate::{
     utils::string::snake_case_to_lower_camel,
 };
 
-
 /*
 
 azul-java/
@@ -58,7 +57,6 @@ azul-java/
 // JNA automatically extracts the DLL from src/main/resources if you conform 
 // to its path standards (e.g., linux-x86-64).
 
-
 import rs.azul.Azul;
 import com.sun.jna.Pointer;
 
@@ -81,7 +79,6 @@ public class Main {
 }
 
 */
-
 
 // For Maven
 pub fn get_pom_xml() -> String {

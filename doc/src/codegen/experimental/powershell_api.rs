@@ -23,8 +23,6 @@ We will generate a **PowerShell Module (`Azul.psm1`)**.
 3.  **Wrappers**: We generate "Cmdlets" (Functions) like `New-AzApp` that wrap the underlying 
     .NET calls for a native PowerShell feel.
 
-
-
 ### Usage in PowerShell
 
 1.  **Generate**: Run generator to get `Azul.psm1`.

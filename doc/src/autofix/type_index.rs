@@ -22,10 +22,7 @@ use syn::{File, Item, UseTree};
 // Re-export RefKind from the types module for use elsewhere
 pub use crate::autofix::types::RefKind;
 
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
-
+// data structures
 /// How `self` is passed to a method
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelfKind {
@@ -184,10 +181,7 @@ pub struct CallbackArg {
     pub ref_kind: RefKind,
 }
 
-// ============================================================================
-// MACRO EXPANSION
-// ============================================================================
-
+// macro expansion
 impl TypeDefinition {
     /// Expand a MacroGenerated type into a real Struct/Enum/CallbackTypedef.
     /// Returns the original kind if not MacroGenerated.
@@ -620,10 +614,7 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
     None
 }
 
-// ============================================================================
-// TYPE INDEX
-// ============================================================================
-
+// type index
 /// Fast lookup index for type definitions
 #[derive(Debug, Default)]
 pub struct TypeIndex {
@@ -854,10 +845,8 @@ impl TypeIndex {
         self.by_path.insert(full_path, arc);
     }
 
-    // ========================================================================
-    // COMPATIBILITY METHODS (for WorkspaceIndex replacement)
-    // ========================================================================
-
+    // // compatibility methods (for workspaceindex replacement)
+    //
     /// Find a type by name and return as ParsedTypeInfo (WorkspaceIndex compatibility)
     /// Also tries with "Az" prefix if not found
     pub fn find_type(&self, type_name: &str) -> Option<Vec<crate::patch::index::ParsedTypeInfo>> {
@@ -932,10 +921,7 @@ impl TypeIndex {
     }
 }
 
-// ============================================================================
-// FILE COLLECTION
-// ============================================================================
-
+// file collection
 /// Recursively collect all .rs files in a directory
 fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir: &Path) {
     let entries = match fs::read_dir(dir) {
@@ -959,10 +945,7 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
     }
 }
 
-// ============================================================================
-// FILE PARSING
-// ============================================================================
-
+// file parsing
 /// Parse a single file and extract type definitions
 fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
     let content = fs::read_to_string(file_path)
@@ -1162,10 +1145,7 @@ fn build_full_path(crate_name: &str, module_path: &str, type_name: &str) -> Stri
     }
 }
 
-// ============================================================================
-// TYPE EXTRACTION
-// ============================================================================
-
+// type extraction
 /// Strip the "Az" prefix from a type name if present.
 /// For example, `AzInstantPtr` -> `InstantPtr`, `String` -> `String`
 /// This is used because source code uses "Az" prefixes for disambiguation,
@@ -1797,9 +1777,8 @@ fn extract_macro_generated_types(
             }
         }
 
-        // ====================================================================
-        // CSS PROPERTY MACROS - Generate wrapper structs around PixelValue/etc.
-        // ====================================================================
+        // // css property macros - generate wrapper structs around pixelvalue/etc.
+        //
         "define_dimension_property" => {
             // define_dimension_property!(LayoutMaxWidth, || Self { inner:
             // PixelValue::px(core::f32::MAX) }); Generates a struct with #[repr(C)] and
@@ -1994,10 +1973,7 @@ fn extract_macro_generated_types(
     types
 }
 
-// ============================================================================
-// HELPERS
-// ============================================================================
-
+// helpers
 /// Extract the #[repr(...)] attribute value if present.
 /// Returns Some("C"), Some("C, u8"), Some("transparent"), etc. or None if no repr attribute.
 fn extract_repr_attr(attrs: &[syn::Attribute]) -> Option<String> {
@@ -2350,10 +2326,7 @@ fn clean_type_string(s: &str) -> String {
         .replace("& 'a", "&'a")
 }
 
-// ============================================================================
-// UNIT TESTS
-// ============================================================================
-
+// unit tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2831,9 +2804,7 @@ pub struct IFrameCallbackInfo {
     pub bounds: (f32, f32, f32, f32),
 }
 
-// ============================================================================
-// CALLBACK TYPEDEFS - These are the critical types we need to parse correctly
-// ============================================================================
+// Callback typedefs - these are the critical types we need to parse correctly
 
 /// Layout callback - takes &mut RefAny and &mut LayoutCallbackInfo
 pub type LayoutCallbackType = extern "C" fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom;
@@ -2883,10 +2854,8 @@ pub struct OnTextInputReturn {
         let type_map: std::collections::HashMap<&str, &TypeDefinition> =
             types.iter().map(|t| (t.type_name.as_str(), t)).collect();
 
-        // ====================================================================
-        // Verify struct extractions
-        // ====================================================================
-
+        // // verify struct extractions
+        //
         // Update enum
         let update = type_map.get("Update").expect("Update enum not found");
         assert!(
@@ -2903,10 +2872,8 @@ pub struct OnTextInputReturn {
             refany.kind
         );
 
-        // ====================================================================
-        // Verify callback_typedef extractions - THE CRITICAL PART
-        // ====================================================================
-
+        // // verify callback_typedef extractions - the critical part
+        //
         // LayoutCallbackType: fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom
         let layout_cb = type_map
             .get("LayoutCallbackType")

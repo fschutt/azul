@@ -40,10 +40,7 @@ use crate::ffi::dll::{
     AzLayoutCallbackInner,
 };
 
-// ============================================================================
-// HELPER FUNCTIONS FOR TYPE CONVERSION
-// ============================================================================
-
+// helper functions for type conversion
 fn pystring_to_azstring(input: &String) -> AzString {
     input.clone().into()
 }
@@ -113,10 +110,7 @@ fn pylist_tessellated_svg_node(input: &Vec<AzTessellatedSvgNode>) -> AzTessellat
     AzTessellatedSvgNodeVecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
 
-// ============================================================================
-// FROM IMPLEMENTATIONS FOR TYPE CONVERSION
-// ============================================================================
-
+// from implementations for type conversion
 impl From<String> for AzString {
     fn from(s: String) -> AzString {
         let bytes = s.into_bytes();
@@ -164,11 +158,9 @@ impl From<Vec<u8>> for AzU8Vec {
     }
 }
 
-// ============================================================================
-// PYO3 CONVERSION TRAITS FOR AZUL TYPES (PyO3 0.27 API)
-// These allow PyO3 to automatically convert between Python and Rust types
-// ============================================================================
-
+// // pyo3 conversion traits for azul types (pyo3 0.27 api)
+// these allow pyo3 to automatically convert between python and rust types
+//
 use pyo3::Borrowed;
 
 // --- AzString <-> Python str ---
@@ -263,11 +255,9 @@ impl AzStringVec {
     }
 }
 
-// ============================================================================
-// CALLBACK WRAPPER TYPES (stored inside RefAny)
-// These hold Python objects and are the key to the callback system
-// ============================================================================
-
+// // callback wrapper types (stored inside refany)
+// these hold python objects and are the key to the callback system
+//
 /// Holds Python objects for the main App (data + layout callback)
 #[repr(C)]
 pub struct AppDataTy {
@@ -330,11 +320,9 @@ pub struct DatasetTy {
     pub _py_data: Option<Py<PyAny>>,
 }
 
-// ============================================================================
-// EXTERN "C" TRAMPOLINES
-// These are called by the C-API and invoke Python callbacks
-// ============================================================================
-
+// // extern "c" trampolines
+// these are called by the c-api and invoke python callbacks
+//
 /// Trampoline for layout callbacks
 /// 
 /// The RefAny contains an AppDataTy which holds both:
@@ -489,10 +477,7 @@ extern "C" fn invoke_py_iframe(
 // complex types (TimerCallbackInfo, TimerCallbackReturn) that are not
 // easily exposed to Python. This is a TODO for future work.
 
-// ============================================================================
-// APP IMPLEMENTATION
-// ============================================================================
-
+// app implementation
 /// The main application - runs the event loop
 #[pyclass(name = "App", module = "azul", unsendable)]
 pub struct AzApp {
@@ -620,11 +605,9 @@ impl Drop for AzApp {
     }
 }
 
-// ============================================================================
-// LAYOUT CALLBACK INFO (needs unsendable due to pointers)
-// Must match C-API layout exactly for mem::transmute to work
-// ============================================================================
-
+// // layout callback info (needs unsendable due to pointers)
+// must match c-api layout exactly for mem::transmute to work
+//
 /// Information passed to layout callbacks
 #[pyclass(name = "LayoutCallbackInfo", module = "azul", unsendable)]
 #[repr(C)]
@@ -647,12 +630,10 @@ impl AzLayoutCallbackInfo {
     }
 }
 
-// ============================================================================
-// WINDOW CREATE OPTIONS
-// We implement this manually because the C-API version contains callbacks
-// The struct layout must match the C-API exactly for mem::transmute to work
-// ============================================================================
-
+// // window create options
+// we implement this manually because the c-api version contains callbacks
+// the struct layout must match the c-api exactly for mem::transmute to work
+//
 /// Options for creating a new window
 /// NOTE: This is a simplified version for Python - some fields are not exposed
 #[pyclass(name = "WindowCreateOptions", module = "azul", unsendable)]
@@ -690,7 +671,6 @@ impl Clone for AzWindowCreateOptions {
     }
 }
 
-// ============================================================================
-// NOTE: RefAny is NOT exposed to Python users!
-// It's used internally to store Python objects, but users never interact with it.
-// ============================================================================
+// // note: refany is not exposed to python users!
+// it's used internally to store python objects, but users never interact with it.
+//

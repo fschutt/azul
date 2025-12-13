@@ -901,7 +901,6 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     <body>
       <div class='center'>\
          
-
         <aside>
           <header>
             <a href='https://azul.rs/'>

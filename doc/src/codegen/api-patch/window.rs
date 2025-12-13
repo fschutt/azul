@@ -1,5 +1,4 @@
 
-    
     impl LayoutSize {
         #[inline(always)]
         pub const fn new(width: isize, height: isize) -> Self { Self { width, height } }
@@ -7,7 +6,6 @@
         pub const fn zero() -> Self { Self::new(0, 0) }
     }
 
-    
     impl LayoutPoint {
         #[inline(always)]
         pub const fn new(x: isize, y: isize) -> Self { Self { x, y } }
@@ -15,7 +13,6 @@
         pub const fn zero() -> Self { Self::new(0, 0) }
     }
 
-    
     impl LayoutRect {
         #[inline(always)]
         pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }

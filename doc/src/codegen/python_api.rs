@@ -23,11 +23,9 @@ const RECURSIVE_TYPES: &[&str] = &[
     "ResultXmlXmlError", // Uses Xml which is skipped
 ];
 
-// ============================================================================
-// PROPERTY-BASED TYPE CLASSIFICATION
-// Instead of hardcoding type names, we detect properties from api.json
-// ============================================================================
-
+// // property-based type classification
+// instead of hardcoding type names, we detect properties from api.json
+//
 /// Check if a type is a callback typedef (function pointer type)
 /// These have `callback_typedef` field in api.json
 fn is_callback_typedef(class_data: &ClassData) -> bool {
@@ -686,10 +684,8 @@ fn should_skip_type(class_name: &str, class_data: &ClassData, version_data: &Ver
     false
 }
 
-// ============================================================================
 // TYPE ALIAS INSTANTIATION
 // For type aliases like StyleCursorValue = CssPropertyValue<StyleCursor>
-// ============================================================================
 
 /// Instantiate a type alias by resolving its generic target
 /// Resolve a type alias to its underlying type, following alias chains
@@ -801,10 +797,7 @@ fn instantiate_type_alias(
     Some(new_class)
 }
 
-// ============================================================================
-// MAIN GENERATOR FUNCTION
-// ============================================================================
-
+// main generator function
 /// Generate Python API code from API data using PyO3 0.27.2
 pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     let mut code = String::new();
@@ -1152,10 +1145,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code
 }
 
-// ============================================================================
-// STRUCT GENERATION
-// ============================================================================
-
+// struct generation
 fn generate_struct_definition(
     class_name: &str,
     class_data: &ClassData,
@@ -1365,10 +1355,8 @@ fn generate_enum_definition(
     code
 }
 
-// ============================================================================
-// CLONE/DROP IMPLEMENTATIONS
-// ============================================================================
-
+// // clone/drop implementations
+//
 fn generate_clone_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
@@ -1512,10 +1500,7 @@ fn generate_drop_impl(class_name: &str, class_data: &ClassData, prefix: &str) ->
     code
 }
 
-// ============================================================================
-// PYMETHODS GENERATION
-// ============================================================================
-
+// pymethods generation
 fn generate_struct_pymethods(
     class_name: &str,
     class_data: &ClassData,
@@ -1919,11 +1904,9 @@ fn get_self_type(fn_data: &FunctionData) -> (String, String) {
     (String::new(), String::new())
 }
 
-// ============================================================================
-// CALLBACK+DATA PAIR GENERATION
-// Unified generator for all callback+data structs (IFrameNode, ButtonOnClick, etc.)
-// ============================================================================
-
+// // callback+data pair generation
+// unified generator for all callback+data structs (iframenode, buttononclick, etc.)
+//
 /// Generate wrapper type + trampoline for a callback+data pair
 fn generate_callback_data_pair_wrapper(
     class_name: &str,
@@ -2185,10 +2168,7 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
-// ============================================================================
-// PYTHON MODULE GENERATION
-// ============================================================================
-
+// python module generation
 fn generate_python_module(
     structs: &[(String, ClassData)],
     enums: &[(String, ClassData)],
@@ -2246,10 +2226,7 @@ fn generate_python_module(
     code
 }
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
+// helper functions
 /// Types that are skipped and should use the C-API type directly
 /// This must match the MANUAL_TYPES list in should_skip_type
 const CAPI_TYPES: &[&str] = &[

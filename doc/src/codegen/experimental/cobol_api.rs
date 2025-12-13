@@ -35,7 +35,6 @@ const PREFIX: &str = "AZ";
     ./azul_app
     ```
 
-
     ### Key COBOL Nuances
 
     1.  **`BY VALUE` vs `BY REFERENCE`**:
@@ -106,7 +105,6 @@ const PREFIX: &str = "AZ";
 
         STOP RUN.
 */
-
 
 /// Convert snake_case or PascalCase to COBOL-CASE (Upper with hyphens)
 fn to_cobol_case(s: &str) -> String {

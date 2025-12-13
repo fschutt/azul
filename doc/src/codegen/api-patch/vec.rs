@@ -1,19 +1,16 @@
 
-    
     use core::iter;
     
     use core::fmt;
     
     use core::cmp;
 
-    
     use alloc::vec::{self, Vec};
     
     use alloc::slice;
     
     use alloc::string;
 
-    
     use crate::gl::{
         GLint as AzGLint,
         GLuint as AzGLuint,
@@ -21,12 +18,10 @@
 
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident, $c_destructor_fn_name:ident, $crate_dll_delete_fn:ident) => (
 
-        
         unsafe impl Send for $struct_name { }
         
         unsafe impl Sync for $struct_name { }
 
-        
         impl fmt::Debug for $destructor_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match self {
@@ -37,7 +32,6 @@
             }
         }
 
-        
         impl PartialEq for $destructor_name {
             fn eq(&self, rhs: &Self) -> bool {
                 match (self, rhs) {
@@ -49,14 +43,12 @@
             }
         }
 
-        
         impl PartialOrd for $destructor_name {
             fn partial_cmp(&self, _rhs: &Self) -> Option<cmp::Ordering> {
                 None
             }
         }
 
-        
         impl $struct_name {
 
             #[inline]
@@ -133,35 +125,30 @@
             }
         }
 
-        
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
                 unsafe { slice::from_raw_parts(self.ptr, self.len) }
             }
         }
 
-        
         impl iter::FromIterator<$struct_type> for $struct_name {
             fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
                 Self::from_vec(Vec::from_iter(iter))
             }
         }
 
-        
         impl From<Vec<$struct_type>> for $struct_name {
             fn from(input: Vec<$struct_type>) -> $struct_name {
                 Self::from_vec(input)
             }
         }
 
-        
         impl From<&'static [$struct_type]> for $struct_name {
             fn from(input: &'static [$struct_type]) -> $struct_name {
                 Self::from_const_slice(input)
             }
         }
 
-        
         impl Drop for $struct_name {
             fn drop(&mut self) {
                 match self.destructor {
@@ -174,21 +161,18 @@
             }
         }
 
-        
         impl fmt::Debug for $struct_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.as_ref().fmt(f)
             }
         }
 
-        
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
                 self.as_ref().partial_cmp(rhs.as_ref())
             }
         }
 
-        
         impl PartialEq for $struct_name {
             fn eq(&self, rhs: &Self) -> bool {
                 self.as_ref().eq(rhs.as_ref())
@@ -219,7 +203,6 @@
             }
         }
 
-        
         impl Clone for $struct_name {
             fn clone(&self) -> Self {
                 self.clone_self()

@@ -1,144 +1,120 @@
 
-    
     impl Refstr {
         fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
     }
 
-    
     impl From<&str> for Refstr {
         fn from(s: &str) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl RefstrVecRef {
         fn as_slice(&self) -> &[Refstr] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&[Refstr]> for RefstrVecRef {
         fn from(s: &[Refstr]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl From<&mut [GLint64]> for GLint64VecRefMut {
         fn from(s: &mut [GLint64]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLint64VecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    
     impl From<&mut [GLfloat]> for GLfloatVecRefMut {
         fn from(s: &mut [GLfloat]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLfloatVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    
     impl From<&mut [GLint]> for GLintVecRefMut {
         fn from(s: &mut [GLint]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLintVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    
     impl From<&[GLuint]> for GLuintVecRef {
         fn from(s: &[GLuint]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLuintVecRef {
         fn as_slice(&self) -> &[GLuint] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&[GLenum]> for GLenumVecRef {
         fn from(s: &[GLenum]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLenumVecRef {
         fn as_slice(&self) -> &[GLenum] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&[u8]> for U8VecRef {
         fn from(s: &[u8]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl U8VecRef {
         fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&[f32]> for F32VecRef {
         fn from(s: &[f32]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl F32VecRef {
         fn as_slice(&self) -> &[f32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&[i32]> for I32VecRef {
         fn from(s: &[i32]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    
     impl I32VecRef {
         fn as_slice(&self) -> &[i32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    
     impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
         fn from(s: &mut [GLboolean]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    
     impl GLbooleanVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    
     impl From<&mut [u8]> for U8VecRefMut {
         fn from(s: &mut [u8]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    
     impl U8VecRefMut {
         fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
@@ -220,6 +196,3 @@
     pub type GLDEBUGPROCAMD = Option<extern "system" fn(id: GLuint, category: GLenum, severity: GLenum, length: GLsizei, message: *const GLchar, userParam: *mut c_void)>;
     pub type GLhalfNV = c_ushort;
     pub type GLvdpauSurfaceNV = GLintptr;
-
-
-

@@ -17,7 +17,6 @@ from urllib.parse import urlparse, unquote
 from html.parser import HTMLParser
 from typing import Set, Dict, List, Tuple
 
-
 class LinkExtractor(HTMLParser):
     """Extract all links from HTML content."""
     
@@ -40,7 +39,6 @@ class LinkExtractor(HTMLParser):
         if 'data-src' in attrs_dict:
             self.links.append(('data-src', attrs_dict['data-src']))
 
-
 def get_all_html_files(deploy_dir: Path) -> List[Path]:
     """Get all HTML files in the deploy directory."""
     html_files = []
@@ -49,7 +47,6 @@ def get_all_html_files(deploy_dir: Path) -> List[Path]:
             if file.endswith('.html'):
                 html_files.append(Path(root) / file)
     return html_files
-
 
 def extract_links_from_file(html_file: Path) -> List[Tuple[str, str]]:
     """Extract all links from an HTML file."""
@@ -61,7 +58,6 @@ def extract_links_from_file(html_file: Path) -> List[Tuple[str, str]]:
     except Exception as e:
         print(f"  Warning: Could not parse {html_file}: {e}")
         return []
-
 
 def is_internal_link(url: str) -> bool:
     """Check if a URL is an internal link that should be validated."""
@@ -87,7 +83,6 @@ def is_internal_link(url: str) -> bool:
         return False
         
     return True
-
 
 def resolve_link(link: str, current_file: Path, deploy_dir: Path) -> Path:
     """Resolve a link to an absolute path."""
@@ -120,7 +115,6 @@ def resolve_link(link: str, current_file: Path, deploy_dir: Path) -> Path:
             resolved = html_version
         
     return resolved
-
 
 def check_links(deploy_dir: Path) -> Tuple[int, int, List[Tuple[Path, str, str]]]:
     """
@@ -178,7 +172,6 @@ def check_links(deploy_dir: Path) -> Tuple[int, int, List[Tuple[Path, str, str]]
     
     return total_links, broken_links, broken_details
 
-
 def main():
     # Determine deploy directory
     if len(sys.argv) > 1:
@@ -203,10 +196,10 @@ def main():
     print()
     
     if broken == 0:
-        print("✅ All links are valid!")
+        print("[ OK ] All links are valid!")
         sys.exit(0)
     else:
-        print(f"❌ Found {broken} broken links:")
+        print(f"[ ERROR ] Found {broken} broken links:")
         print()
         
         # Group by file
@@ -224,7 +217,6 @@ def main():
             print()
         
         sys.exit(1)
-
 
 if __name__ == '__main__':
     main()

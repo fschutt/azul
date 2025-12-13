@@ -102,4 +102,3 @@ fn get_node_display(styled_dom: &StyledDom, node_id: NodeId) -> Option<LayoutDis
         .get_display(node_data, &node_id, node_state)
         .and_then(|value| value.get_property().cloned())
 }
-

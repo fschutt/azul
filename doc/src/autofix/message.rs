@@ -421,7 +421,7 @@ impl PatchSummary {
         }
 
         if self.is_empty() {
-            println!("✨ No changes to apply - API is up to date!");
+            println!("[ OK ] No changes to apply - API is up to date!");
         }
     }
 

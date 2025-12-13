@@ -22,10 +22,7 @@ use syn::{
 
 use super::type_index::{TypeDefKind, TypeDefinition, TypeIndex};
 
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
-
+// data structures
 /// All types reachable from a set of entry points
 #[derive(Debug, Default)]
 pub struct ResolvedTypeSet {
@@ -121,10 +118,7 @@ impl ResolutionContext {
     }
 }
 
-// ============================================================================
-// TYPE RESOLVER
-// ============================================================================
-
+// type resolver
 /// Resolve all types reachable from a set of entry points
 pub struct TypeResolver<'a> {
     index: &'a TypeIndex,
@@ -513,10 +507,7 @@ impl<'a> TypeResolver<'a> {
     }
 }
 
-// ============================================================================
-// FUNCTION PARAMETER EXTRACTION
-// ============================================================================
-
+// function parameter extraction
 /// Extracted function information
 #[derive(Debug, Clone)]
 pub struct FunctionInfo {
@@ -693,10 +684,7 @@ fn extract_functions_from_items(
     }
 }
 
-// ============================================================================
-// HELPERS - AST-BASED TYPE EXTRACTION
-// ============================================================================
-
+// helpers - ast-based type extraction
 /// Check if a type expression is C-compatible by parsing it and analyzing the AST
 /// Returns Some(warning_message) if not compatible
 fn check_c_compatibility(type_str: &str) -> Option<String> {
@@ -1105,10 +1093,7 @@ fn clean_type(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-// ============================================================================
-// RESOLVE ALL FROM WORKSPACE
-// ============================================================================
-
+// resolve all from workspace
 /// Resolve all types referenced by functions in the workspace
 pub fn resolve_all_workspace_types(
     index: &TypeIndex,
@@ -1154,10 +1139,7 @@ pub fn resolve_all_workspace_types(
     result
 }
 
-// ============================================================================
-// UNIT TESTS
-// ============================================================================
-
+// unit tests
 #[cfg(test)]
 mod tests {
     use super::*;

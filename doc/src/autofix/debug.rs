@@ -362,10 +362,7 @@ fn kind_to_string(kind: &TypeDefKind) -> &'static str {
     }
 }
 
-// ============================================================================
-// UNIT TESTS
-// ============================================================================
-
+// unit tests
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -494,10 +491,8 @@ mod tests {
         types
     }
 
-    // ========================================================================
-    // Test: Use imports are skipped
-    // ========================================================================
-
+    // // test: use imports are skipped
+    //
     #[test]
     fn test_use_imports_not_indexed() {
         let source = r#"
@@ -519,10 +514,8 @@ mod tests {
         assert!(index.resolve("ReExportedType", None).is_none());
     }
 
-    // ========================================================================
-    // Test: Struct fields are correctly extracted
-    // ========================================================================
-
+    // // test: struct fields are correctly extracted
+    //
     #[test]
     fn test_struct_fields_extracted() {
         let source = r#"
@@ -548,10 +541,8 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Test: Enum variants are correctly extracted
-    // ========================================================================
-
+    // // test: enum variants are correctly extracted
+    //
     #[test]
     fn test_enum_variants_extracted() {
         let source = r#"
@@ -596,10 +587,8 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Test: Type resolution follows field types
-    // ========================================================================
-
+    // // test: type resolution follows field types
+    //
     #[test]
     fn test_recursive_type_resolution() {
         let source = r#"
@@ -634,10 +623,8 @@ mod tests {
         assert!(!result.resolved.contains_key("String"));
     }
 
-    // ========================================================================
-    // Test: Cycle detection
-    // ========================================================================
-
+    // // test: cycle detection
+    //
     #[test]
     fn test_cycle_detection() {
         let source = r#"
@@ -662,10 +649,8 @@ mod tests {
         assert!(result.resolved.contains_key("NodeB"));
     }
 
-    // ========================================================================
-    // Test: Missing type detection
-    // ========================================================================
-
+    // // test: missing type detection
+    //
     #[test]
     fn test_missing_type_detection() {
         let source = r#"
@@ -686,10 +671,8 @@ mod tests {
         assert!(result.unresolved.contains_key("NonExistentType"));
     }
 
-    // ========================================================================
-    // Test: Prefer same crate resolution
-    // ========================================================================
-
+    // // test: prefer same crate resolution
+    //
     #[test]
     fn test_prefer_same_crate() {
         let source_core = r#"

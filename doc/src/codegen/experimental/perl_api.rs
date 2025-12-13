@@ -12,7 +12,6 @@ supports "Records" (Structs) and memory management.
 
 This generator produces a single `Azul.pm` module.
 
-
 1.  **Dependencies**:
 
     ```bash
@@ -21,7 +20,6 @@ This generator produces a single `Azul.pm` module.
 
 2.  **Setup**: Place `Azul.pm` in a `lib/` directory. Place `libazul.so`/`azul.dll` in a 
     place where the system can find it (or modify the `find_lib` line in the generated code).
-
 
 ### Key Perl Details
 

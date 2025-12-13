@@ -1,26 +1,22 @@
 
-    
     impl Default for Dom {
         fn default() -> Self {
             Dom::div()
         }
     }
 
-    
     impl Default for NodeData {
         fn default() -> Self {
             NodeData::new(NodeType::Div)
         }
     }
 
-    
     impl Default for TabIndex {
         fn default() -> Self {
             TabIndex::Auto
         }
     }
 
-    
     impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -38,7 +34,6 @@
         }
     }
 
-    
     impl core::iter::FromIterator<NodeData> for Dom {
         fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -57,7 +52,6 @@
         }
     }
 
-    
     impl core::iter::FromIterator<NodeType> for Dom {
         fn from_iter<I: core::iter::IntoIterator<Item=NodeType>>(iter: I) -> Self {
             iter.into_iter().map(|i| {
@@ -68,14 +62,12 @@
         }
     }
 
-    
     impl From<On> for AzEventFilter {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
         }
     }
 
-    
     impl NodeData {
         pub const fn const_new(node_type: NodeType) -> Self {
             use crate::option::{OptionRefAny, OptionTabIndex};
@@ -103,7 +95,6 @@
         }
     }
 
-    
     impl Dom {
 
         pub const fn const_new(node_data: NodeData) -> Self {

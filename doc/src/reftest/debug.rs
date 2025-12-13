@@ -163,7 +163,7 @@ pub fn run_debug_analysis(config: DebugConfig) -> anyhow::Result<()> {
     if diff_count <= PASS_THRESHOLD {
         let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
         println!(
-            "\n✅ Test '{}' passes ({} pixels different = {:.3}%, threshold 0.5%). No debug \
+            "\n[ OK ] Test '{}' passes ({} pixels different = {:.3}%, threshold 0.5%). No debug \
              needed.",
             config.test_name, diff_count, percentage
         );
@@ -255,7 +255,7 @@ pub fn run_debug_analysis(config: DebugConfig) -> anyhow::Result<()> {
         .join(format!("{}_response.md", config.test_name));
     fs::write(&response_path, &response)?;
 
-    println!("\n📝 Response saved to: {:?}", response_path);
+    println!("\n[ INFO ] Response saved to: {:?}", response_path);
     println!("\n{}", "=".repeat(80));
     println!("{}", response);
     println!("{}", "=".repeat(80));

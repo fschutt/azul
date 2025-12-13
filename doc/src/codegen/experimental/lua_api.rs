@@ -23,7 +23,6 @@ This generator produces a single `azul.lua` file.
 1.  Place `azul.lua` in your project.
 2.  Ensure `libazul.so` (or dll/dylib) is in the library path (or current directory).
 
-
 ### Key LuaJIT Specifics
 
 1.  **`ffi.metatype`**: This is the magic that turns C structs into Lua objects.
@@ -32,7 +31,6 @@ This generator produces a single `azul.lua` file.
 2.  **Strings**: Lua strings are immutable. Passing a Lua string to a `const char*` argument in C works automatically.
     *   *Warning*: If the C code stores that pointer for later use (asynchronous), you must copy it in C, because the Lua string might be garbage collected.
 3.  **Structs by Value**: LuaJIT FFI supports passing structs by value perfectly. If `AzColor` is a struct, `func(color)` works if `color` is a `cdata<AzColor>`.
-
 
 */
 

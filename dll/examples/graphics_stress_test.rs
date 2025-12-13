@@ -41,7 +41,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
             padding: 20px;
             background-color: #1a1a2e;
         ")
-        // === ROW 1: Gradients with rounded corners and box shadows ===
+        // row 1: gradients with rounded corners and box shadows
         .with_child(
             Dom::div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
@@ -79,7 +79,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                         ")
                 )
         )
-        // === ROW 2: Filter effect boxes ===
+        // row 2: filter effect boxes
         .with_child(
             Dom::div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
@@ -118,7 +118,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                         ")
                 )
         )
-        // === ROW 3: Bordered boxes with text ===
+        // row 3: bordered boxes with text
         .with_child(
             Dom::div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
@@ -174,7 +174,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                         ")
                 )
         )
-        // === ROW 4: Shadow cascade ===
+        // row 4: shadow cascade
         .with_child(
             Dom::div()
                 .with_inline_style("display: flex; flex-direction: row; gap: 20px;")

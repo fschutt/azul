@@ -13,10 +13,7 @@ use crate::{
     patch::{ApiPatch, ClassPatch, ModulePatch, VersionPatch},
 };
 
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
-
+// data structures
 /// Represents a function from either source code or api.json
 #[derive(Debug, Clone)]
 pub struct FunctionInfo {
@@ -60,10 +57,7 @@ pub struct FunctionDiff {
     pub differences: Vec<String>,
 }
 
-// ============================================================================
-// CONVERSION FUNCTIONS
-// ============================================================================
-
+// conversion functions
 /// Convert a MethodDef to FunctionInfo
 pub fn method_to_function_info(method: &MethodDef) -> FunctionInfo {
     let args: Vec<(String, String, String)> = method
@@ -113,10 +107,7 @@ pub fn self_kind_to_fn_ptr(self_kind: &Option<SelfKind>) -> String {
     }
 }
 
-// ============================================================================
-// COMPARISON FUNCTIONS
-// ============================================================================
-
+// comparison functions
 /// Compare methods from source code with functions in api.json for a type
 pub fn compare_type_functions(
     type_def: &TypeDefinition,
@@ -289,10 +280,7 @@ pub fn find_type_module<'a>(type_name: &str, version_data: &'a VersionData) -> O
     None
 }
 
-// ============================================================================
-// FN_BODY GENERATION
-// ============================================================================
-
+// fn_body generation
 /// Generate fn_body for a method based on its signature
 /// This creates the FFI wrapper function body that bridges Rust to C
 pub fn generate_fn_body(method: &MethodDef, full_path: &str) -> String {
@@ -418,10 +406,7 @@ fn generate_destructor_body(method: &MethodDef) -> String {
     "core::mem::drop(object)".to_string()
 }
 
-// ============================================================================
-// RETURN TYPE CONVERSION FOR FFI
-// ============================================================================
-
+// return type conversion for ffi
 /// Convert Rust return types to api.json format:
 /// - `Result<X, Y>` -> `ResultXY` (with `.into()` added to fn_body)
 /// - `Option<X>` -> `OptionX` (with `.into()` added to fn_body)
@@ -559,10 +544,8 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
     (trimmed.to_string(), None)
 }
 
-// ============================================================================
-// HELPER FUNCTIONS FOR LIST/ADD/REMOVE
-// ============================================================================
-
+// // helper functions for list/add/remove
+//
 /// List all functions for a type, comparing source vs api.json
 pub fn list_type_functions(
     type_name: &str,
@@ -651,10 +634,7 @@ fn is_primitive_type(type_name: &str) -> bool {
     PRIMITIVES.contains(&type_name)
 }
 
-// ============================================================================
-// PATCH GENERATION
-// ============================================================================
-
+// patch generation
 /// Generate a patch to add functions to api.json
 pub fn generate_add_functions_patch(
     type_name: &str,
@@ -851,10 +831,7 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
     }
 }
 
-// ============================================================================
-// TYPE ADDITION WITH TRANSITIVE DEPENDENCIES
-// ============================================================================
-
+// type addition with transitive dependencies
 use super::{diff::TypeAddition, module_map::determine_module};
 
 /// Result of adding a type with its dependencies

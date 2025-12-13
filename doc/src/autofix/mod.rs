@@ -64,10 +64,7 @@ pub fn should_suppress_type_not_found(type_name: &str) -> bool {
         || (trimmed.len() < 10 && trimmed.chars().all(|c| c.is_lowercase() || c == '_'))
 }
 
-// ============================================================================
-// MAIN ENTRY POINT
-// ============================================================================
-
+// main entry point
 /// Main autofix implementation
 ///
 /// This version:
@@ -1086,10 +1083,7 @@ fn generate_module_move_patch(module_move: &diff::ModuleMove) -> String {
         .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
 }
 
-// ============================================================================
-// FFI SAFETY CHECKS
-// ============================================================================
-
+// ffi safety checks
 /// An FFI safety warning for a type
 #[derive(Debug)]
 pub struct FfiSafetyWarning {
@@ -1391,7 +1385,7 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
 
     println!(
         "\n{} {} FFI safety issues:",
-        "⚠️  WARNING:".yellow().bold(),
+        "[ WARN ]  WARNING:".yellow().bold(),
         warnings.len().to_string().red().bold()
     );
 
@@ -1522,7 +1516,7 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 field_name,
                 array_type,
             } => {
-                println!("  {} {}", "⚠".yellow(), warning.type_name.white());
+                println!("  {} {}", "[ WARN ]".yellow(), warning.type_name.white());
                 println!(
                     "    {} Field '{}' uses array type: {}",
                     "→".dimmed(),

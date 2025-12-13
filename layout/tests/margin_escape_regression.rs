@@ -178,7 +178,7 @@ fn test_sibling_margins_included_in_parent_height() {
     // Regression test for bug: sibling margins incorrectly subtracted from parent height
     //
     // BUG: Code incorrectly subtracted total_sibling_margins from content-box height:
-    //   ❌ content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins
+    //   [ ERROR ] content_box_height = main_pen - total_escaped_top_margin - total_sibling_margins
     //
     // This was wrong because sibling margins are the space BETWEEN children,
     // which is part of the parent's content layout, not outside it.
@@ -193,7 +193,7 @@ fn test_sibling_margins_included_in_parent_height() {
     //   - Collapsed margin between children = max(30, 40) = 40px
     //   - Parent height = 40 + 40 + 50 = 130px (includes the gap)
     //
-    // Bug behavior: Parent height = 90px (130 - 40 sibling margin) ❌
+    // Bug behavior: Parent height = 90px (130 - 40 sibling margin) [ ERROR ]
 
     let dom = Dom::div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())

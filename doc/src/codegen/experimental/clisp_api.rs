@@ -41,9 +41,7 @@ const LIB_NAME: &str = "azul";
     *   `with-foreign-object` is the standard Lisp way to allocate C structs on the stack (dynamic extent).
     *   For heap objects returned by `_new`, you must call `_delete`. You can use the `trivial-garbage` library to attach finalizers to Lisp objects if you wrap these pointers in Lisp structs/CLOS classes.
 
-
 */
-
 
 /*
     (load "azul.lisp")

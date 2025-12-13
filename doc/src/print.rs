@@ -154,7 +154,7 @@ pub fn print_class(
                 println!("{}", separator);
 
                 // 1. Print api.json definition
-                println!("\n📄 API Definition:");
+                println!("\n[ INFO ] API Definition:");
                 print_class_detail(class_data);
 
                 // 2. Print import path
@@ -211,7 +211,7 @@ pub fn print_function(
     function_name: &str,
 ) -> Result<()> {
     println!(
-        "⚙️  Function: {}.{}.{}\n",
+        "[ INFO ]  Function: {}.{}.{}\n",
         module_name, class_name, function_name
     );
 
@@ -382,7 +382,7 @@ pub fn print_function_detail(func_data: &FunctionData, is_constructor: bool) {
     println!("{}", separator);
 
     if let Some(doc) = &func_data.doc {
-        println!("\n📄 Documentation: {}", doc.join(" "));
+        println!("\n[ INFO ] Documentation: {}", doc.join(" "));
     }
 
     println!("\n[FIX] Signature:");

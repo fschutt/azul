@@ -393,12 +393,12 @@ fn test_sibling_margin_collapsing() {
 
             if gap > 25.0 {
                 println!(
-                    "⚠ WARNING: Gap is {}px, suggests margins are NOT collapsing!",
+                    "[ WARN ] WARNING: Gap is {}px, suggests margins are NOT collapsing!",
                     gap
                 );
                 println!("   Margins appear to be added together instead of collapsed.");
             } else if gap < 15.0 {
-                println!("⚠ WARNING: Gap is {}px, too small!", gap);
+                println!("[ WARN ] WARNING: Gap is {}px, too small!", gap);
             } else {
                 println!("✓ Gap looks correct for margin collapsing");
             }
@@ -448,14 +448,14 @@ fn test_parent_child_margin_collapsing() {
 
             if h1_offset > 40.0 {
                 println!(
-                    "⚠ WARNING: Offset is {}px, margins are NOT collapsing!",
+                    "[ WARN ] WARNING: Offset is {}px, margins are NOT collapsing!",
                     h1_offset
                 );
                 println!("   Parent and child top margins should collapse.");
             } else if h1_offset < 5.0 {
                 println!("✓ Margins appear to be collapsing correctly");
             } else {
-                println!("⚠ Offset is {}px, unexpected value", h1_offset);
+                println!("[ WARN ] Offset is {}px, unexpected value", h1_offset);
             }
         }
     }
@@ -510,7 +510,7 @@ fn test_ua_css_margin_collapsing() {
             println!("Without collapsing: ~37px (21px + 16px)");
 
             if gap > 30.0 {
-                println!("⚠ WARNING: Gap suggests margins are NOT collapsing!");
+                println!("[ WARN ] WARNING: Gap suggests margins are NOT collapsing!");
             } else if gap > 15.0 && gap < 25.0 {
                 println!("✓ Gap looks reasonable for collapsed margins");
             } else {
@@ -569,7 +569,7 @@ fn test_three_consecutive_blocks() {
         println!("\nAnalysis:");
         if gap1 > 20.0 {
             println!(
-                "  ⚠ P1 ↔ P2: NOT collapsing (expected ~15px, got {}px)",
+                "  [ WARN ] P1 ↔ P2: NOT collapsing (expected ~15px, got {}px)",
                 gap1
             );
         } else {
@@ -578,7 +578,7 @@ fn test_three_consecutive_blocks() {
 
         if gap2 > 35.0 {
             println!(
-                "  ⚠ P2 ↔ P3: NOT collapsing (expected ~25px, got {}px)",
+                "  [ WARN ] P2 ↔ P3: NOT collapsing (expected ~25px, got {}px)",
                 gap2
             );
         } else {
@@ -617,7 +617,7 @@ fn test_margin_collapsing_with_border() {
             if h1_offset > 25.0 {
                 println!("✓ Margins are NOT collapsing (correct, due to border)");
             } else {
-                println!("⚠ WARNING: Margins collapsed despite border!");
+                println!("[ WARN ] WARNING: Margins collapsed despite border!");
             }
         }
     }

@@ -18,7 +18,6 @@ use crate::{
     1.  **Generate**: Output to `src/azul.zig`.
     2.  **Build System (`build.zig`)**:
 
-
     ### Key Zig Details
 
     1.  **`extern struct`**: This is equivalent to `#[repr(C)]`. It ensures the struct 

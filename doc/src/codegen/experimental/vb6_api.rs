@@ -8,7 +8,6 @@ use crate::{
 const PREFIX: &str = "Az";
 const DLL_NAME: &str = "azul.dll";
 
-
 /*
 
 This generates `Azul.bas`, which you simply drag-and-drop into the VB6 

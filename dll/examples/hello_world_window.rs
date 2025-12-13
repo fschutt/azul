@@ -10,7 +10,7 @@
 //! Run dynamically linked (same as C):
 //!   cargo run --bin hello_world_window --package azul-dll --features "c-api desktop"
 
-// ===== Static linking (internal types) =====
+// static linking (internal types)
 #[cfg(not(feature = "c-api"))]
 mod static_impl {
     use azul_core::{
@@ -72,7 +72,7 @@ mod static_impl {
     }
 }
 
-// ===== Dynamic linking (FFI types, same as C) =====
+// dynamic linking (ffi types, same as c)
 #[cfg(feature = "c-api")]
 mod dynamic_impl {
     use core::ffi::c_void;

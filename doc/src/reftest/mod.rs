@@ -359,7 +359,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
         "Comparison: {} pixels different ({:.3}%), test {}",
         diff_count,
         percentage,
-        if passed { "PASSED ✅" } else { "FAILED ❌" }
+        if passed { "PASSED [ OK ]" } else { "FAILED [ ERROR ]" }
     );
 
     // Read XHTML source

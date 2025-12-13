@@ -7,7 +7,6 @@ use crate::{
 
 const PREFIX: &str = "Az";
 
-
 /*
 // Generating a native Node.js addon involves a specific setup using npm and cargo.
 

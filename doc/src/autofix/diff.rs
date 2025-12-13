@@ -17,10 +17,7 @@ use super::{
 };
 use crate::api::ApiData;
 
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
-
+// data structures
 /// Diff between expected and current API
 #[derive(Debug, Default)]
 pub struct ApiDiff {
@@ -221,10 +218,7 @@ pub enum ModificationKind {
     },
 }
 
-// ============================================================================
-// API TYPE RESOLUTION
-// ============================================================================
-
+// api type resolution
 /// Resolve types from the current api.json
 pub fn resolve_api_types(index: &TypeIndex, api_data: &ApiData) -> ApiTypeResolution {
     let mut resolution = ApiTypeResolution::default();
@@ -402,10 +396,7 @@ fn paths_are_equivalent(path1: &str, path2: &str) -> bool {
     path1 == path2
 }
 
-// ============================================================================
-// AZ-PREFIX HANDLING
-// ============================================================================
-
+// az-prefix handling
 /// Strip "Az" prefix from a type name if present.
 /// Types in the workspace may have "Az" prefix (e.g., AzStringPair)
 /// but in api.json they are stored without it (e.g., StringPair)
@@ -469,10 +460,7 @@ fn extract_simple_type_name(type_str: &str) -> String {
     s.to_string()
 }
 
-// ============================================================================
-// DIFF GENERATION
-// ============================================================================
-
+// diff generation
 /// Generate diff between expected and current API types
 pub fn generate_diff(
     expected: &ResolvedTypeSet,
@@ -609,10 +597,7 @@ pub fn generate_diff(
     diff
 }
 
-// ============================================================================
-// MAIN ENTRY POINT
-// ============================================================================
-
+// main entry point
 /// Run the full diff analysis
 ///
 /// The logic:
@@ -1745,10 +1730,7 @@ fn get_type_kind_with_fields(
     }
 }
 
-// ============================================================================
-// UNIT TESTS
-// ============================================================================
-
+// unit tests
 #[cfg(test)]
 mod tests {
     use super::*;

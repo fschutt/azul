@@ -77,7 +77,6 @@ class Calculator:
         self.current_value /= 100.0
         self.display = str(self.current_value)
 
-
 # Styles
 CALC_STYLE = """
     height: 100%;
@@ -136,7 +135,6 @@ ZERO_STYLE = """
     grid-column: span 2;
 """
 
-
 def create_button(calc_ref, label, event_type, event_data, style):
     def on_click(data, info):
         calc = data.downcast_ref()
@@ -163,7 +161,6 @@ def create_button(calc_ref, label, event_type, event_data, style):
     button.add_child(Dom.text(label))
     button.set_callback(On.MouseUp, calc_ref.clone(), on_click)
     return button
-
 
 def layout(data, info):
     calc = data.downcast_ref()
@@ -218,7 +215,6 @@ def layout(data, info):
     
     return StyledDom.new(body, Css.empty())
 
-
 def main():
     calc = Calculator()
     data = RefAny.new(calc)
@@ -231,7 +227,6 @@ def main():
     window.state.size.dimensions.height = 480.0
     
     app.run(window)
-
 
 if __name__ == "__main__":
     main()

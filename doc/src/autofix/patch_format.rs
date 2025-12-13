@@ -587,10 +587,8 @@ fn explain_change(change: &ModifyChange) -> String {
     }
 }
 
-// ============================================================================
-// Conversion to legacy ApiPatch format for application
-// ============================================================================
-
+// // conversion to legacy apipatch format for application
+//
 use indexmap::IndexMap;
 
 use crate::{

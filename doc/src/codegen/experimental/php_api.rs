@@ -18,7 +18,6 @@ This generator produces a single Azul.php file.
 2.  **Files**: Place `Azul.php` and `libazul.so`/`azul.dll` in your 
     project definition.
 
-
 ### Key PHP FFI Details
 
 1.  **Preloading**: For production performance, you should use PHP's **OPcache Preloading** 
@@ -33,7 +32,6 @@ This generator produces a single Azul.php file.
     *   `$cdata->field`: You can read/write struct fields just like PHP object properties.
     *   `$cdata->method()`: Not supported on raw FFI objects. The generator provides static 
         wrappers `Native::Method($cdata)`.
-
 
 ### Shipping (Composer)
 

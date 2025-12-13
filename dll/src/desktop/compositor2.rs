@@ -754,7 +754,7 @@ pub fn translate_displaylist_to_wr(
                 eprintln!("[compositor2] TextLayout item (handled via cached text runs)");
             }
 
-            // ============ GRADIENT RENDERING ============
+            // gradient rendering
             DisplayListItem::LinearGradient {
                 bounds,
                 gradient,
@@ -1066,7 +1066,7 @@ pub fn translate_displaylist_to_wr(
                 builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
 
-            // ============ BOX SHADOW ============
+            // box shadow
             DisplayListItem::BoxShadow {
                 bounds,
                 shadow,
@@ -1095,7 +1095,7 @@ pub fn translate_displaylist_to_wr(
                 builder.push_rect(&info, rect, color_f);
             }
 
-            // ============ FILTER EFFECTS ============
+            // filter effects
             DisplayListItem::PushFilter { bounds, filters } => {
                 eprintln!(
                     "[compositor2] PushFilter: bounds={:?}, {} filters",

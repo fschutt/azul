@@ -133,26 +133,8 @@
 //! - Client-side decorations (CSD) always enabled
 //! - Seat-based input (single seat assumption for now)
 //!
-//! ## Migration Checklist
-//!
-//! When migrating a platform to use `PlatformWindowV2`:
-//!
-//! 1. ✅ Implement `PlatformWindowV2` trait (26 getter methods)
-//! 2. ✅ Implement `invoke_callbacks_v2()` with direct field access
-//! 3. ✅ Replace `process_window_events_v2()` calls with trait method
-//! 4. ✅ Remove old `invoke_callbacks_v2()` implementation
-//! 5. ✅ Remove old `process_callback_result_v2()` implementation
-//! 6. ✅ Remove scrollbar hit-test/click/drag functions (now in trait)
-//! 7. ✅ Verify all event handlers call `process_window_events()` at correct points
-//! 8. ✅ Test that callbacks fire correctly (mouse, keyboard, window events)
-//! 9. ✅ Test that scrollbar interaction works (hit-test, click, drag)
-//! 10. ✅ Test that window state changes propagate (resize, focus, etc.)
-//!
-//! Previously, this logic was duplicated ~4 times (~3000 lines) across:
-//! - `macos/events.rs` (~2000 lines)
-//! - `windows/process.rs` (~1800 lines)
-//! - `linux/x11/events.rs` (~1900 lines)
-//! - `linux/wayland/mod.rs` (~1500 lines)
+//! When migrating a platform to use `PlatformWindowV2`.
+
 
 use alloc::sync::Arc;
 use core::cell::RefCell;
@@ -1069,9 +1051,9 @@ pub trait PlatformWindowV2 {
         // Platform code should call update_hit_test() before calling this function.
         //
         // IMPLEMENTATION STATUS:
-        // ✅ Scroll: Platform calls scroll_manager.record_sample() in handle_scroll_wheel()
-        // ✅ Text: Platform calls process_text_input() in handle_key_down()
-        // ⏳ A11y: Not yet implemented (needs a11y_manager.record_state_changes())
+        // [ OK ] Scroll: Platform calls scroll_manager.record_sample() in handle_scroll_wheel()
+        // [ OK ] Text: Platform calls process_text_input() in handle_key_down()
+        // [ WAIT ] A11y: Not yet implemented (needs a11y_manager.record_state_changes())
 
         // Process text input BEFORE event dispatch
         // If there's a focused contenteditable node and text input occurred,

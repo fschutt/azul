@@ -14,7 +14,6 @@ import json
 import sys
 from pathlib import Path
 
-
 def fix_callback_type_aliases(api_path: Path) -> int:
     """Remove corrupt type_alias entries from classes with callback_typedef."""
     
@@ -57,7 +56,6 @@ def fix_callback_type_aliases(api_path: Path) -> int:
     
     return fixes_made
 
-
 def main():
     # Find api.json relative to script location
     script_dir = Path(__file__).parent
@@ -70,7 +68,6 @@ def main():
     print(f"[FIX] Scanning {api_path} for corrupt type_alias entries...")
     fixes = fix_callback_type_aliases(api_path)
     sys.exit(0 if fixes >= 0 else 1)
-
 
 if __name__ == '__main__':
     main()
