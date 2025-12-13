@@ -13,7 +13,7 @@ struct AppData {
     content: &'static str,
 }
 
-extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
 
     eprintln!("  CPU RENDER TEST");
@@ -119,13 +119,13 @@ fn main() {
         system_style: std::sync::Arc::new(SystemStyle::default()),
     };
 
-    let mut callback_info = LayoutCallbackInfo::new(
+    let callback_info = LayoutCallbackInfo::new(
         &layout_ref_data,
         size,
         azul_core::window::WindowTheme::LightMode,
     );
 
-    let styled_dom = layout_callback(&mut app_data, &mut callback_info);
+    let styled_dom = layout_callback(app_data.clone(), callback_info);
 
     eprintln!(
         "[main] StyledDom has {} nodes",

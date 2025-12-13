@@ -47,10 +47,11 @@ impl WindowCreateOptions {
     /// Create a new WindowCreateOptions with a layout callback
     pub fn new(layout_callback: azul_core::callbacks::LayoutCallbackType) -> Self {
         let mut options = Self::default();
-        options.state.layout_callback =
-            azul_core::callbacks::LayoutCallback::Raw(azul_core::callbacks::LayoutCallbackInner {
+        options.state.layout_callback = azul_core::callbacks::LayoutCallback {
+            cb: azul_core::callbacks::LayoutCallbackInner {
                 cb: layout_callback,
-            });
+            },
+        };
         options
     }
 }

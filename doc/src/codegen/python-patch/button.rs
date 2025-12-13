@@ -13,7 +13,7 @@
             return Err(PyException::new_err(format!("ERROR in Button.set_on_click: - argument \"callback\" is of type \"{}\", expected function", type_name)));
         }
 
-        let callback_refany = azul_impl::callbacks::RefAny::new(CallbackTy {
+        let callback_refany = azul_core::refany::RefAny::new(CallbackTy {
             _py_callback: Some(callback),
             _py_data: Some(data),
         });

@@ -909,10 +909,10 @@ impl LayoutWindow {
         );
 
         // Clone the user data for the callback
-        let mut callback_data = iframe_node.data.clone();
+        let callback_data = iframe_node.data.clone();
 
         // Invoke the user's IFrame callback
-        let callback_return = (iframe_node.callback.cb)(&mut callback_data, &mut callback_info);
+        let callback_return = (iframe_node.callback.cb)(callback_data, callback_info);
 
         // Mark the IFrame as invoked to prevent duplicate InitialRender calls
         self.iframe_manager
@@ -2833,7 +2833,7 @@ impl LayoutWindow {
                     OptionThreadReceiveMsg::Some(s) => s,
                 };
 
-                let writeback_data_ptr = &mut thread_inner.writeback_data as *mut _;
+                let writeback_data_ptr: *mut RefAny = &mut thread_inner.writeback_data as *mut _;
                 let is_finished = thread_inner.is_finished();
 
                 (msg, writeback_data_ptr, is_finished)
@@ -2864,7 +2864,7 @@ impl LayoutWindow {
                 system_style: system_style.clone(),
             };
 
-            let mut callback_info = CallbackInfo::new(
+            let callback_info = CallbackInfo::new(
                 &ref_data,
                 &mut callback_changes,
                 hit_dom_node,
@@ -2872,9 +2872,9 @@ impl LayoutWindow {
                 cursor_in_viewport,
             );
             let callback_update = (callback.cb)(
-                unsafe { &mut *writeback_data_ptr },
-                &mut data,
-                &mut callback_info,
+                unsafe { (*writeback_data_ptr).clone() },
+                data.clone(),
+                callback_info,
             );
             ret.callbacks_update_screen.max_self(callback_update);
 
@@ -3073,7 +3073,7 @@ impl LayoutWindow {
             system_style,
         };
 
-        let mut callback_info = CallbackInfo::new(
+        let callback_info = CallbackInfo::new(
             &ref_data,
             &mut callback_changes,
             hit_dom_node,
@@ -3081,7 +3081,7 @@ impl LayoutWindow {
             cursor_in_viewport,
         );
 
-        ret.callbacks_update_screen = (callback.cb)(data, &mut callback_info);
+        ret.callbacks_update_screen = (callback.cb)(data.clone(), callback_info);
 
         // Apply callback changes collected during callback execution
         let change_result = self.apply_callback_changes(
@@ -3237,7 +3237,7 @@ impl LayoutWindow {
             system_style,
         };
 
-        let mut callback_info = CallbackInfo::new(
+        let callback_info = CallbackInfo::new(
             &ref_data,
             &mut callback_changes,
             hit_dom_node,
@@ -3246,7 +3246,7 @@ impl LayoutWindow {
         );
 
         ret.callbacks_update_screen =
-            (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
+            (menu_callback.callback.cb)(menu_callback.data.clone(), callback_info);
 
         // Apply callback changes collected during menu callback execution
         let change_result = self.apply_callback_changes(
@@ -5525,8 +5525,8 @@ impl LayoutWindow {
                                         let callback =
                                             RenderImageCallback::from_core(&core_callback.callback);
                                         (callback.cb)(
-                                            &mut core_callback.data,
-                                            &mut gl_callback_info,
+                                            core_callback.data.clone(),
+                                            gl_callback_info,
                                         )
                                     })
                                 }

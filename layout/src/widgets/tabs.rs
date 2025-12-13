@@ -1189,7 +1189,7 @@ pub struct TabHeaderState {
 }
 
 pub type TabOnClickCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TabHeaderState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, TabHeaderState) -> Update;
 impl_callback!(
     TabOnClick,
     OptionTabOnClick,
@@ -1429,8 +1429,8 @@ struct TabLocalDataset {
     on_click: OptionTabOnClick,
 }
 
-extern "C" fn on_tab_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    fn select_new_tab_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
+extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    fn select_new_tab_inner(mut data: RefAny, info: &mut CallbackInfo) -> Option<()> {
         let mut tab_local_dataset = data.downcast_mut::<TabLocalDataset>()?;
         let tab_idx = tab_local_dataset.tab_idx;
         let tab_header_state = TabHeaderState {
@@ -1443,7 +1443,7 @@ extern "C" fn on_tab_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update
             let onclick = &mut tab_local_dataset.on_click;
 
             match onclick.as_mut() {
-                Some(TabOnClick { callback, data }) => (callback.cb)(data, info, &tab_header_state),
+                Some(TabOnClick { callback, data }) => (callback.cb)(data.clone(), info.clone(), tab_header_state),
                 None => Update::DoNothing,
             }
         };
@@ -1451,7 +1451,7 @@ extern "C" fn on_tab_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update
         Some(())
     }
 
-    let _ = select_new_tab_inner(data, info);
+    let _ = select_new_tab_inner(data, &mut info);
 
     Update::RefreshDom
 }

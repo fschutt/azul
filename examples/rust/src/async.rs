@@ -60,7 +60,7 @@ enum ConnectionStage {
 }
 
 // Main function that renders the UI
-extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
     let mut body = Dom::body().with_inline_style(
@@ -155,8 +155,8 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
 
 // Callback that runs when the "connect to database" button is clicked
 extern "C" fn edit_database_input(
-    data: &mut RefAny,
-    event: &mut CallbackInfo,
+    mut data: RefAny,
+    event: CallbackInfo,
     textinputstate: &TextInputState,
 ) -> OnTextInputReturn {
     let ret = OnTextInputReturn {
@@ -179,7 +179,7 @@ extern "C" fn edit_database_input(
     ret
 }
 
-extern "C" fn start_background_thread(data: &mut RefAny, event: &mut CallbackInfo) -> Update {
+extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     // Copy the string of what database to connect to and
     // use it to initialize a new background thread
     let data_clone = data.clone();
@@ -218,7 +218,7 @@ extern "C" fn start_background_thread(data: &mut RefAny, event: &mut CallbackInf
 }
 
 // Callback that runs when the "cancel" button is clicked while the background thread is running
-extern "C" fn stop_background_thread(data: &mut RefAny, event: &mut CallbackInfo) -> Update {
+extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -240,7 +240,7 @@ extern "C" fn stop_background_thread(data: &mut RefAny, event: &mut CallbackInfo
 }
 
 // Callback that runs when the "reset" button is clicked (resets the data)
-extern "C" fn reset(data: &mut RefAny, event: &mut CallbackInfo) -> Update {
+extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -274,9 +274,9 @@ enum BackgroundThreadReturn {
 // This function runs on the main thread, so that there can't be any data races
 // Returns whether the UI should update
 extern "C" fn writeback_callback(
-    app_data: &mut RefAny,
-    incoming_data: &mut RefAny,
-    _: &mut CallbackInfo,
+    mut app_data: RefAny,
+    mut incoming_data: RefAny,
+    _: CallbackInfo,
 ) -> Update {
     use crate::BackgroundThreadReturn::*;
 

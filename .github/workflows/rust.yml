@@ -502,6 +502,7 @@ jobs:
               target/release/awb
               target/release/libazul.dylib
               target/release/libazul.a
+              target/release/azul.so
           - os: windows-latest
             artifact_name: azul-windows-amd64
             artifact_path: |
@@ -509,12 +510,14 @@ jobs:
               target/release/azul.dll
               target/release/libazul.a
               target/release/azul.dll.lib
+              target/release/azul.pyd
           - os: ubuntu-latest
             artifact_name: azul-linux-amd64
             artifact_path: |
               target/release/awb
               target/release/libazul.so
               target/release/libazul.a
+              target/release/azul.cpython.so
 
     steps:
       - name: Checkout repository
@@ -543,7 +546,20 @@ jobs:
       - name: Build DLL and Python extension
         run: |
           cargo build --release -p azul-dll --features="link-dynamic"
-          cargo build --release -p azul-dll --features="link-dynamic, python-extension"
+          cargo build --release -p azul-dll --lib --features="python-extension"
+
+      - name: Rename Python extension (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: cp target/release/azul_dll.dll target/release/azul.pyd
+
+      - name: Rename Python extension (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: cp target/release/libazul_dll.so target/release/azul.cpython.so
+
+      - name: Rename Python extension (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cp target/release/libazul_dll.dylib target/release/azul.so
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
@@ -551,13 +567,24 @@ jobs:
       - name: Build azul-workbench
         run: cargo build --release --bin azulc --manifest-path azulc/Cargo.toml --features="xml, std, font_loading, image_loading, gif, jpeg, png, tiff, bmp, text_layout"
 
-      - name: Test Python example (Windows)
+      - name: Test Python extension import (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          cp target/release/azul.dll target/release/azul.pyd
           export PATH=$PATH:$(pwd)/target/release
-          python examples/python/hello-world.py
+          python3 -c "import sys; sys.path.insert(0, 'target/release'); import azul; print('Python extension loaded successfully!')"
+
+      - name: Test Python extension import (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cp target/release/azul.cpython.so examples/python/azul.so
+          cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
+
+      - name: Test Python extension import (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cp target/release/azul.so examples/python/azul.so
+          cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

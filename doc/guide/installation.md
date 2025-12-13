@@ -127,12 +127,16 @@ which will teach you how to create a window.
 
 ### Python
 
-In order to use Azul from Python, download the `windows.pyd` / 
-`linux.pyd` or `mac.pyd` and put it in to the same directory as 
-your `main.py` file. 
+In order to use Azul from Python, download the appropriate Python extension for your platform:
+
+- Windows: `azul.pyd`
+- Linux: `azul.cpython.so` (rename to `azul.so`)
+- macOS: `azul.so`
+
+Put the file in the same directory as your `main.py` file. 
 
 Note that because of Python extension conventions the name of the file 
-must match the name of the library (i.e. `azul.so` instead of `libazul.so`).
+must be `azul.so` (or `azul.pyd` on Windows) for Python to import it correctly.
 
 Create a main.py file with the following contents:
 
@@ -144,7 +148,7 @@ Your project directory should now look like this:
 
 ```
 /my-project:
-   azul.pyd (or: azul.so)
+   azul.pyd (Windows) or azul.so (Linux/macOS)
    main.py
 ```
 

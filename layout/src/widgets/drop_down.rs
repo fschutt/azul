@@ -873,7 +873,7 @@ const CSS_MATCH_7938442083662451131: NodeDataInlineCssPropertyVec =
     NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_7938442083662451131_PROPERTIES);
 
 pub type DropDownOnChoiceChangeCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, usize) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_callback!(
     DropDownOnChoiceChange,
     OptionDropDownOnChoiceChange,
@@ -1000,7 +1000,7 @@ struct ChoiceCallbackData {
     on_choice_change: OptionDropDownOnChoiceChange,
 }
 
-extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_dropdown_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let data = match data.downcast_ref::<DropDown>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -1037,7 +1037,7 @@ extern "C" fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> U
     Update::DoNothing
 }
 
-extern "C" fn on_choice_selected(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_choice_selected(mut data: RefAny, info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<ChoiceCallbackData>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -1046,7 +1046,7 @@ extern "C" fn on_choice_selected(data: &mut RefAny, info: &mut CallbackInfo) -> 
     let choice_id = data.choice_id;
 
     match data.on_choice_change.as_mut() {
-        Some(DropDownOnChoiceChange { data, callback }) => (callback.cb)(data, info, choice_id),
+        Some(DropDownOnChoiceChange { data, callback }) => (callback.cb)(data.clone(), info.clone(), choice_id),
         None => Update::DoNothing,
     }
 }

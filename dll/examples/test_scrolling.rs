@@ -22,7 +22,7 @@ struct XhtmlData {
     xhtml_content: &'static str,
 }
 
-extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
     eprintln!("[layout_xhtml] CALLED!");
     let _ = std::io::stderr().flush();
@@ -72,13 +72,11 @@ extern "C" fn layout_xhtml(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -
     styled
 }
 
-extern "C" fn on_window_close(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_window_close(_data: RefAny, mut info: CallbackInfo) -> Update {
     // Show a native dialog asking if the user really wants to close
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-
-        use azul_core::window::WindowFlags;
 
         // Use osascript to show a native dialog
         let output = Command::new("osascript")

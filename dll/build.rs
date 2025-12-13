@@ -1,6 +1,17 @@
 use std::{env, fs, path::Path, process::Command};
 
 fn main() {
+    // Configure Python extension linking on macOS
+    // With extension-module, PyO3 expects Python symbols to be provided by the interpreter
+    // On macOS, we need to tell the linker that undefined symbols are OK
+    #[cfg(target_os = "macos")]
+    {
+        if env::var("CARGO_FEATURE_PYO3").is_ok() {
+            println!("cargo:rustc-cdylib-link-arg=-undefined");
+            println!("cargo:rustc-cdylib-link-arg=dynamic_lookup");
+        }
+    }
+
     // This build script only runs its logic when targeting iOS.
     let target = env::var("TARGET").unwrap_or_default();
     if !target.contains("ios") {

@@ -12,7 +12,7 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
     callbacks::{
-        LayoutCallback, LayoutCallbackInfo, MarshaledLayoutCallback, MarshaledLayoutCallbackInner,
+        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
         Update,
     },
     dom::Dom,
@@ -392,12 +392,11 @@ pub fn create_menu_window(
     window_state.position = WindowPosition::Initialized(PhysicalPosition::new(0, 0));
 
     // Set layout callback that renders the menu
-    window_state.layout_callback = LayoutCallback::Marshaled(MarshaledLayoutCallback {
-        marshal_data: RefAny::new(menu_data),
-        cb: MarshaledLayoutCallbackInner {
+    window_state.layout_callback = LayoutCallback {
+        cb: LayoutCallbackInner {
             cb: menu_layout_callback,
         },
-    });
+    };
 
     WindowCreateOptions {
         state: window_state,
@@ -413,9 +412,8 @@ pub fn create_menu_window(
 ///
 /// Renders the menu as a StyledDom and updates window position based on measured size
 extern "C" fn menu_layout_callback(
-    data: &mut RefAny,
-    _app_data: &mut RefAny,
-    info: &mut LayoutCallbackInfo,
+    mut data: RefAny,
+    info: LayoutCallbackInfo,
 ) -> StyledDom {
     // Clone data BEFORE downcasting to avoid borrow conflicts
     let data_clone = data.clone();

@@ -24,7 +24,7 @@ pub struct StressTestData {
     pub frame_count: u32,
 }
 
-pub extern "C" fn stress_test_layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     eprintln!("[stress_test_layout] Called!");
     
     if let Some(model) = data.downcast_ref::<StressTestData>() {

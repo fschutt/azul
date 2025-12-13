@@ -1367,7 +1367,7 @@ const COLUMN_NAME_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422);
 
 pub type ListViewOnLazyLoadScrollCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, ListViewState) -> Update;
 impl_callback!(
     ListViewOnLazyLoadScroll,
     OptionListViewOnLazyLoadScroll,
@@ -1376,7 +1376,7 @@ impl_callback!(
 );
 
 pub type ListViewOnColumnClickCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState, column_clicked: usize) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, ListViewState, column_clicked: usize) -> Update;
 impl_callback!(
     ListViewOnColumnClick,
     OptionListViewOnColumnClick,
@@ -1385,7 +1385,7 @@ impl_callback!(
 );
 
 pub type ListViewOnRowClickCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState, row_clicked: usize) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, ListViewState, row_clicked: usize) -> Update;
 impl_callback!(
     ListViewOnRowClick,
     OptionListViewOnRowClick,

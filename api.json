@@ -9,12 +9,30 @@
           "displayName": "C++",
           "default": "cpp23",
           "variants": {
-            "cpp23": { "displayName": "C++23", "altText": "Example for C++ 2023 standard" },
-            "cpp20": { "displayName": "C++20", "altText": "Example for C++ 2020 standard" },
-            "cpp17": { "displayName": "C++17", "altText": "Example for C++ 2017 standard" },
-            "cpp14": { "displayName": "C++14", "altText": "Example for C++ 2014 standard" },
-            "cpp11": { "displayName": "C++11", "altText": "Example for C++ 2011 standard" },
-            "cpp03": { "displayName": "C++03", "altText": "Example for C++ 2003 standard" }
+            "cpp23": {
+              "displayName": "C++23",
+              "altText": "Example for C++ 2023 standard"
+            },
+            "cpp20": {
+              "displayName": "C++20",
+              "altText": "Example for C++ 2020 standard"
+            },
+            "cpp17": {
+              "displayName": "C++17",
+              "altText": "Example for C++ 2017 standard"
+            },
+            "cpp14": {
+              "displayName": "C++14",
+              "altText": "Example for C++ 2014 standard"
+            },
+            "cpp11": {
+              "displayName": "C++11",
+              "altText": "Example for C++ 2011 standard"
+            },
+            "cpp03": {
+              "displayName": "C++03",
+              "altText": "Example for C++ 2003 standard"
+            }
           }
         }
       },
@@ -126,25 +144,52 @@
             "windows": {
               "description": "Download and compile (C++03)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
-                { "type": "command", "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++03)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
-                { "type": "command", "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++03)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp" },
-                { "type": "command", "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -156,25 +201,52 @@
             "windows": {
               "description": "Download and compile (C++11)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
-                { "type": "command", "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++11)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
-                { "type": "command", "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++11)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp" },
-                { "type": "command", "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -186,25 +258,52 @@
             "windows": {
               "description": "Download and compile (C++14)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
-                { "type": "command", "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++14)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
-                { "type": "command", "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++14)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp" },
-                { "type": "command", "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -216,25 +315,52 @@
             "windows": {
               "description": "Download and compile (C++17)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
-                { "type": "command", "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++17)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
-                { "type": "command", "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++17)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp" },
-                { "type": "command", "content": "clang++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -246,25 +372,52 @@
             "windows": {
               "description": "Download and compile (C++20)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
-                { "type": "command", "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++20)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
-                { "type": "command", "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++20)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp" },
-                { "type": "command", "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -276,25 +429,52 @@
             "windows": {
               "description": "Download and compile (C++23)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
-                { "type": "command", "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
               ]
             },
             "linux": {
               "description": "Download and compile (C++23)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
-                { "type": "command", "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
               ]
             },
             "macos": {
               "description": "Download and compile (C++23)",
               "steps": [
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib" },
-                { "type": "command", "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp" },
-                { "type": "command", "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world" }
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
               ]
             }
           }
@@ -1648,11 +1828,11 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1683,11 +1863,11 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "IFrameCallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1761,11 +1941,11 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "RenderImageCallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1788,15 +1968,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "NumberInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1810,15 +1990,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "TextInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1832,11 +2012,11 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1850,15 +2030,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CheckBoxState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1872,15 +2052,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "NumberInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1894,15 +2074,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "ListViewState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "usize"
@@ -1919,15 +2099,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "ListViewState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "usize"
@@ -1944,15 +2124,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "ColorInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1966,15 +2146,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "TextInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -1999,15 +2179,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "TextInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -2021,15 +2201,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "TabHeaderState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -2043,15 +2223,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "ListViewState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -2065,15 +2245,15 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "CallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "FileInputState",
-                  "ref_kind": "ref"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -2252,45 +2432,11 @@
               "fn_args": [
                 {
                   "type": "RefAny",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 },
                 {
                   "type": "LayoutCallbackInfo",
-                  "ref_kind": "refmut"
-                }
-              ],
-              "returns": {
-                "type": "StyledDom"
-              }
-            },
-            "repr": "C"
-          },
-          "MarshaledLayoutCallbackInner": {
-            "external": "azul_core::callbacks::MarshaledLayoutCallbackInner",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "MarshaledLayoutCallbackType"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "MarshaledLayoutCallbackType": {
-            "external": "azul_core::callbacks::MarshaledLayoutCallbackType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "RefAny",
-                  "ref_kind": "refmut"
-                },
-                {
-                  "type": "RefAny",
-                  "ref_kind": "refmut"
-                },
-                {
-                  "type": "LayoutCallbackInfo",
-                  "ref_kind": "refmut"
+                  "ref_kind": "value"
                 }
               ],
               "returns": {
@@ -2312,6 +2458,10 @@
           },
           "LayoutCallback": {
             "external": "azul_core::callbacks::LayoutCallback",
+            "doc": [
+              "Wrapper around the layout callback function pointer.",
+              "For FFI languages (Python, Java, etc.), the RefAny passed to the callback contains both the user data and the callback function object."
+            ],
             "custom_impls": [
               "Default"
             ],
@@ -2320,13 +2470,10 @@
               "Clone",
               "PartialEq"
             ],
-            "enum_fields": [
+            "struct_fields": [
               {
-                "Raw": {
+                "cb": {
                   "type": "LayoutCallbackInner"
-                },
-                "Marshaled": {
-                  "type": "MarshaledLayoutCallback"
                 }
               }
             ],
@@ -2340,7 +2487,7 @@
                 "fn_body": "azul_core::callbacks::LayoutCallback::new(cb)"
               }
             },
-            "repr": "C, u8"
+            "repr": "C"
           },
           "LayoutCallbackInfo": {
             "external": "azul_core::callbacks::LayoutCallbackInfo",
@@ -2366,25 +2513,6 @@
                 "_abi_mut": {
                   "type": "c_void",
                   "ref_kind": "mutptr"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "MarshaledLayoutCallback": {
-            "external": "azul_core::callbacks::MarshaledLayoutCallback",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "struct_fields": [
-              {
-                "marshal_data": {
-                  "type": "RefAny"
-                },
-                "cb": {
-                  "type": "MarshaledLayoutCallbackInner"
                 }
               }
             ],

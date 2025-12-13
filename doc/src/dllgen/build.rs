@@ -34,7 +34,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
                 "windows",
                 vec!["--no-default-features", "--features", "python-extension"],
                 "libazul_dll.dll",
-                "windows.pyd",
+                "azul.pyd",
             ));
         }
     }
@@ -60,7 +60,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
                 "linux",
                 vec!["--no-default-features", "--features", "python-extension"],
                 "libazul_dll.so",
-                "linux.pyd",
+                "azul.cpython.so",
             ));
         }
     }
@@ -86,7 +86,7 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
                 "macos",
                 vec!["--no-default-features", "--features", "python-extension"],
                 "libazul_dll.dylib",
-                "macos.pyd",
+                "azul.so",
             ));
         }
     }

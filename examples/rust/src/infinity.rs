@@ -12,7 +12,7 @@ struct InfinityState {
     visible_count: usize,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
         None => return StyledDom::default(),
@@ -32,7 +32,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .style(Css::empty())
 }
 
-extern "C" fn render_iframe(data: &mut RefAny, info: &mut IFrameCallbackInfo) -> IFrameCallbackReturn {
+extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
         None => return IFrameCallbackReturn::default(),
@@ -62,7 +62,7 @@ extern "C" fn render_iframe(data: &mut RefAny, info: &mut IFrameCallbackInfo) ->
     }
 }
 
-extern "C" fn on_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
     let scroll_pos = match info.get_scroll_position() {
         Some(pos) => pos,
         None => return Update::DoNothing,

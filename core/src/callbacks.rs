@@ -90,7 +90,7 @@ impl Update {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallbackInner {
@@ -98,62 +98,44 @@ pub struct LayoutCallbackInner {
 }
 impl_callback!(LayoutCallbackInner);
 
-extern "C" fn default_layout_callback(_: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     StyledDom::default()
 }
 
-/// In order to interact with external VMs (Java, Python, etc.)
-/// the callback is often stored as a "function object"
-///
-/// In order to callback into external languages, the layout
-/// callback has to be able to carry some extra data
-/// (the first argument), which usually contains the function object
-/// i.e. in the Python VM a PyCallable / PyAny
-pub type MarshaledLayoutCallbackType = extern "C" fn(
-    /* marshal_data */ &mut RefAny,
-    /* app_data */ &mut RefAny,
-    &mut LayoutCallbackInfo,
-) -> StyledDom;
-
+/// Wrapper around the layout callback
+/// 
+/// For FFI languages (Python, Java, etc.), the RefAny contains both:
+/// - The user's application data
+/// - The callback function object from the foreign language
+/// 
+/// The trampoline function (stored in `cb`) knows how to extract both
+/// from the RefAny and invoke the foreign callback with the user data.
 #[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum LayoutCallback {
-    Raw(LayoutCallbackInner),
-    Marshaled(MarshaledLayoutCallback),
+#[repr(C)]
+pub struct LayoutCallback {
+    pub cb: LayoutCallbackInner,
 }
 
 impl LayoutCallback {
     pub fn new(cb: LayoutCallbackType) -> Self {
-        Self::Raw(LayoutCallbackInner { cb })
+        Self { cb: LayoutCallbackInner { cb } }
     }
 }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
-        Self::Raw(LayoutCallbackInner {
-            cb: default_layout_callback,
-        })
+        Self {
+            cb: LayoutCallbackInner {
+                cb: default_layout_callback,
+            },
+        }
     }
 }
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct MarshaledLayoutCallback {
-    pub marshal_data: RefAny,
-    pub cb: MarshaledLayoutCallbackInner,
-}
-
-#[repr(C)]
-pub struct MarshaledLayoutCallbackInner {
-    pub cb: MarshaledLayoutCallbackType,
-}
-
-impl_callback!(MarshaledLayoutCallbackInner);
 
 // -- iframe callback
 
 pub type IFrameCallbackType =
-    extern "C" fn(&mut RefAny, &mut IFrameCallbackInfo) -> IFrameCallbackReturn;
+    extern "C" fn(RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
@@ -893,7 +875,7 @@ pub struct FocusTargetPath {
 /// **IMPORTANT**: This is NOT actually a usize at runtime - it's a function pointer that is
 /// cast to usize for storage in the data model. When invoking the callback, this usize is
 /// unsafely cast back to the actual function pointer type:
-/// `extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update`
+/// `extern "C" fn(RefAny, CallbackInfo) -> Update`
 ///
 /// This design allows azul-core to store callbacks without depending on azul-layout's CallbackInfo
 /// type. The actual function pointer type is defined in azul-layout as `CallbackType`.

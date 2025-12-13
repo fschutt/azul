@@ -8,6 +8,6 @@
             return Err(PyException::new_err(format!("ERROR in App.new: - argument \"data\" is a function callback, expected class")));
         }
 
-        let app_refany = azul_impl::callbacks::RefAny::new(AppDataTy { _py_app_data: Some(data) });
+        let app_refany = azul_core::refany::RefAny::new(AppDataTy { _py_app_data: Some(data) });
         Ok(unsafe { mem::transmute(crate::AzApp_new(app_refany, mem::transmute(config))) })
     }

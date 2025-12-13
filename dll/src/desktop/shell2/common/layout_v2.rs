@@ -75,22 +75,18 @@ pub fn regenerate_layout(
         system_style: system_style.clone(),
     };
 
-    let mut callback_info = LayoutCallbackInfo::new(
+    let callback_info = LayoutCallbackInfo::new(
         &layout_ref_data,
         current_window_state.size.clone(),
         current_window_state.theme,
     );
 
-    let mut app_data_borrowed = app_data.borrow_mut();
+    let app_data_borrowed = app_data.borrow_mut();
 
-    let user_styled_dom = match &current_window_state.layout_callback {
-        LayoutCallback::Raw(inner) => (inner.cb)(&mut *app_data_borrowed, &mut callback_info),
-        LayoutCallback::Marshaled(marshaled) => (marshaled.cb.cb)(
-            &mut marshaled.marshal_data.clone(),
-            &mut *app_data_borrowed,
-            &mut callback_info,
-        ),
-    };
+    let user_styled_dom = (current_window_state.layout_callback.cb.cb)(
+        (*app_data_borrowed).clone(), 
+        callback_info
+    );
 
     drop(app_data_borrowed); // Release borrow
 

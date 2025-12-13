@@ -49,7 +49,7 @@ struct SubmenuCallbackData {
 /// This:
 /// 1. Invokes the menu item's original callback (if present)
 /// 2. Closes the menu window
-extern "C" fn menu_item_click_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let callback_data = match data.downcast_ref::<MenuItemCallbackData>() {
         Some(d) => d,
         None => {
@@ -64,8 +64,8 @@ extern "C" fn menu_item_click_callback(data: &mut RefAny, info: &mut CallbackInf
         let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback);
 
         // Invoke with the menu item's data
-        let mut callback_data_refany = menu_callback.data.clone();
-        let result = callback.invoke(&mut callback_data_refany, info);
+        let callback_data_refany = menu_callback.data.clone();
+        let result = callback.invoke(callback_data_refany, info.clone());
 
         eprintln!(
             "[menu_item_click_callback] Invoked callback for menu item '{}' (index {})",
@@ -92,7 +92,7 @@ extern "C" fn menu_item_click_callback(data: &mut RefAny, info: &mut CallbackInf
 /// Callback invoked when hovering over a menu item with children
 ///
 /// This spawns a submenu window positioned to the right of the menu item
-extern "C" fn submenu_hover_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use alloc::sync::Arc;
 
     use azul_core::{geom::LogicalPosition, menu::MenuPopupPosition, window::WindowPosition};

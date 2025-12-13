@@ -30,7 +30,7 @@ struct OpenGlAppState {
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     Dom::body()
         .with_inline_style("background: linear-gradient(blue, black); padding: 10px;")
         .with_child(
@@ -57,7 +57,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .style(Css::empty())
 }
 
-extern "C" fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
+extern "C" fn render_my_texture(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
     // size = the calculated size that the div has AFTER LAYOUTING
     // this way you can render the OpenGL texture with the correct size
     // even if you don't know upfront what the size of the texture in the UI is going to be
@@ -122,8 +122,8 @@ fn render_my_texture_inner(
 }
 
 // uploads the vertex buffer to the GPU on creation
-extern "C" fn startup_window(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let _ = startup_window_inner(data, info);
+extern "C" fn startup_window(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let _ = startup_window_inner(&mut data, &mut info);
     Update::DoNothing
 }
 
@@ -205,8 +205,8 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
 }
 
 extern "C" fn animate(
-    timer_data: &mut RefAny,
-    info: &mut TimerCallbackInfo,
+    mut timer_data: RefAny,
+    info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,

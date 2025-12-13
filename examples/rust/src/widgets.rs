@@ -8,7 +8,7 @@ struct WidgetShowcase {
     active_tab: usize,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let (enable_padding, active_tab) = match data.downcast_ref::<WidgetShowcase>() {
         Some(s) => (s.enable_padding, s.active_tab),
         None => return StyledDom::default(),
@@ -142,7 +142,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .style(Css::empty())
 }
 
-extern "C" fn text_mouse_down(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn text_mouse_down(mut data: RefAny, info: CallbackInfo) -> Update {
     use azul::option::OptionInlineText;
 
     let cursor_relative_to_node = match info.get_cursor_relative_to_node().into_option() {
@@ -165,8 +165,8 @@ extern "C" fn text_mouse_down(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
 }
 
 extern "C" fn switch_active_tab(
-    data: &mut RefAny,
-    _: &mut CallbackInfo,
+    mut data: RefAny,
+    _: CallbackInfo,
     h: &TabHeaderState,
 ) -> Update {
     match data.downcast_mut::<WidgetShowcase>() {
@@ -179,8 +179,8 @@ extern "C" fn switch_active_tab(
 }
 
 extern "C" fn enable_disable_padding_check(
-    data: &mut RefAny,
-    _: &mut CallbackInfo,
+    mut data: RefAny,
+    _: CallbackInfo,
     c: &CheckBoxState,
 ) -> Update {
     match data.downcast_mut::<WidgetShowcase>() {
@@ -192,7 +192,7 @@ extern "C" fn enable_disable_padding_check(
     }
 }
 
-extern "C" fn enable_disable_padding(data: &mut RefAny, _: &mut CallbackInfo) -> Update {
+extern "C" fn enable_disable_padding(mut data: RefAny, _: CallbackInfo) -> Update {
     match data.downcast_mut::<WidgetShowcase>() {
         Some(mut s) => {
             s.enable_padding = !s.enable_padding;

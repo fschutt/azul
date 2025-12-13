@@ -88,7 +88,7 @@ impl Default for FileInputState {
 }
 
 pub type FileInputOnPathChangeCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &FileInputState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, FileInputState) -> Update;
 impl_callback!(
     FileInputOnPathChange,
     OptionFileInputOnPathChange,
@@ -182,7 +182,7 @@ impl FileInput {
     }
 }
 
-extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn fileinput_on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -192,9 +192,10 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
     // File dialog is not available in azul_layout
     // The user must provide their own file dialog callback via on_path_change
     // Just trigger the callback with the current state
+    let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
         Some(FileInputOnPathChange { data, callback }) => {
-            (callback.cb)(data, info, &fileinputstatewrapper.inner)
+            (callback.cb)(data.clone(), info.clone(), inner)
         }
         None => return Update::DoNothing,
     };

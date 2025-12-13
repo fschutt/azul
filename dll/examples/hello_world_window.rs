@@ -29,7 +29,7 @@ mod static_impl {
         pub counter: u32,
     }
 
-    pub extern "C" fn my_layout_func(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+    pub extern "C" fn my_layout_func(data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
         eprintln!("[my_layout_func] Called!");
         if let Some(model) = data.downcast_ref::<MyDataModel>() {
             eprintln!("[my_layout_func] counter = {}", model.counter);
@@ -90,7 +90,7 @@ mod dynamic_impl {
         eprintln!("[my_destructor] Called!");
     }
 
-    pub extern "C" fn my_layout_func(_data: &mut AzRefAny, _info: &mut AzLayoutCallbackInfo) -> AzStyledDom {
+    pub extern "C" fn my_layout_func(_data: AzRefAny, _info: AzLayoutCallbackInfo) -> AzStyledDom {
         eprintln!("[my_layout_func] Called!");
         unsafe { AzStyledDom_default() }
     }
@@ -105,7 +105,7 @@ mod dynamic_impl {
         let type_name_bytes = b"MyDataModel";
         let type_name = AzString {
             vec: AzU8Vec {
-                ptr: type_name_bytes.as_ptr() as *const c_void,
+                ptr: type_name_bytes.as_ptr() as *const u8,
                 len: type_name_bytes.len(),
                 cap: type_name_bytes.len(),
                 destructor: AzU8VecDestructor::DefaultRust,

@@ -16,7 +16,7 @@
             return Err(PyException::new_err(format!("ERROR in Dom.iframe: - argument \"callback\" is of type \"{}\", expected function", type_name)));
         }
 
-        let iframe_refany = azul_impl::callbacks::RefAny::new(IFrameCallbackTy {
+        let iframe_refany = azul_core::refany::RefAny::new(IFrameCallbackTy {
             _py_iframe_data: Some(data),
             _py_iframe_callback: Some(callback),
         });
@@ -31,7 +31,7 @@
             return Err(PyException::new_err(format!("ERROR in Dom.set_dataset: - argument \"dataset\" is a function callback, expected class")));
         }
 
-        let dataset_refany = azul_impl::callbacks::RefAny::new(DatasetTy {
+        let dataset_refany = azul_core::refany::RefAny::new(DatasetTy {
             _py_data: Some(dataset),
         });
 
@@ -42,7 +42,7 @@
 
     fn with_dataset(&mut self, py: Python, dataset: PyObject) -> Result<Self, PyErr> { // RefAny<DatasetTy>
         self.set_dataset(py, dataset)?;
-        let d: &mut azul_impl::dom::Dom = unsafe { mem::transmute(self) };
+        let d: &mut azul_core::dom::Dom = unsafe { mem::transmute(self) };
         Ok(unsafe { mem::transmute(d.swap_with_default()) })
     }
 
@@ -59,7 +59,7 @@
             return Err(PyException::new_err(format!("ERROR in Dom.add_callback: - argument \"callback\" is of type \"{}\", expected function", type_name)));
         }
 
-        let callback_refany = azul_impl::callbacks::RefAny::new(CallbackTy {
+        let callback_refany = azul_core::refany::RefAny::new(CallbackTy {
             _py_callback: Some(callback),
             _py_data: Some(data),
         });
@@ -78,6 +78,6 @@
 
     fn with_callback(&mut self, py: Python, event: AzEventFilterEnumWrapper, data: PyObject, callback: PyObject) -> Result<Self, PyErr> { // RefAny<CallbackTy>
         self.add_callback(py, event, data, callback)?;
-        let d: &mut azul_impl::dom::Dom = unsafe { mem::transmute(self) };
+        let d: &mut azul_core::dom::Dom = unsafe { mem::transmute(self) };
         Ok(unsafe { mem::transmute(d.swap_with_default()) })
     }

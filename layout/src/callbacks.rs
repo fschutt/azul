@@ -274,7 +274,7 @@ pub enum CallbackChange {
 }
 
 /// Main callback type for UI event handling
-pub type CallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
+pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
@@ -311,7 +311,7 @@ impl Callback {
     /// Safely invoke the callback with the given data and info
     ///
     /// This is a safe wrapper around calling the function pointer directly.
-    pub fn invoke(&self, data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    pub fn invoke(&self, data: RefAny, info: CallbackInfo) -> Update {
         (self.cb)(data, info)
     }
 }
@@ -417,7 +417,12 @@ pub struct CallbackInfoRefData<'a> {
     pub system_style: Arc<SystemStyle>,
 }
 
-#[derive(Debug)]
+/// CallbackInfo is a lightweight wrapper around pointers to stack-local data.
+/// It can be safely copied because it only contains pointers - the underlying
+/// data lives on the stack and outlives the callback invocation.
+/// This allows callbacks to "consume" CallbackInfo by value while the caller
+/// retains access to the same underlying data.
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CallbackInfo {
     // Read-only Data (Query Access)
@@ -2810,7 +2815,7 @@ impl From<OptionMenuCallback> for Option<MenuCallback> {
 /// to avoid circular dependencies. The actual function pointer is cast to usize for
 /// storage in the data model, then unsafely cast back to this type when invoked.
 pub type RenderImageCallbackType =
-    extern "C" fn(&mut RefAny, &mut RenderImageCallbackInfo) -> ImageRef;
+    extern "C" fn(RefAny, RenderImageCallbackInfo) -> ImageRef;
 
 /// Callback that returns a rendered OpenGL texture
 ///

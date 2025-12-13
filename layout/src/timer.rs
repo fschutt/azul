@@ -19,8 +19,8 @@ use crate::callbacks::CallbackInfo;
 
 /// Callback type for timers
 pub type TimerCallbackType = extern "C" fn(
-    /* timer internal data */ &mut RefAny,
-    &mut TimerCallbackInfo,
+    /* timer internal data */ RefAny,
+    TimerCallbackInfo,
 ) -> TimerCallbackReturn;
 
 /// Callback that runs on every frame on the main thread
@@ -179,7 +179,7 @@ impl Timer {
             _abi_mut: core::ptr::null_mut(),
         };
 
-        let result = (self.callback.cb)(&mut self.data, &mut timer_callback_info);
+        let result = (self.callback.cb)(self.data.clone(), timer_callback_info);
 
         self.run_count += 1;
         self.last_run = OptionInstant::Some(now);
@@ -191,8 +191,8 @@ impl Timer {
 impl Default for Timer {
     fn default() -> Self {
         extern "C" fn default_callback(
-            _: &mut RefAny,
-            _: &mut TimerCallbackInfo,
+            _: RefAny,
+            _: TimerCallbackInfo,
         ) -> TimerCallbackReturn {
             TimerCallbackReturn::terminate_unchanged()
         }
@@ -379,7 +379,7 @@ pub fn invoke_timer(
         _abi_ref: core::ptr::null(),
         _abi_mut: core::ptr::null_mut(),
     };
-    let mut res = (timer.callback.cb)(&mut timer.data, &mut timer_callback_info);
+    let mut res = (timer.callback.cb)(timer.data.clone(), timer_callback_info);
 
     if is_about_to_finish {
         res.should_terminate = TerminateTimer::Terminate;

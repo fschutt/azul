@@ -13,7 +13,7 @@
 
 use azul_core::{
     callbacks::{
-        LayoutCallback, LayoutCallbackInfo, MarshaledLayoutCallback, MarshaledLayoutCallbackInner,
+        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
     },
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::Menu,
@@ -41,7 +41,6 @@ struct MenuLayoutData {
 /// standard WebRender pipeline.
 extern "C" fn menu_layout_callback(
     data: &mut RefAny,
-    _system_style: &mut RefAny,
     _info: &mut LayoutCallbackInfo,
 ) -> StyledDom {
     // Clone data early to avoid borrow issues
@@ -122,14 +121,15 @@ pub fn create_menu_popup_options(
     options.state.size.dimensions = menu_size;
     options.state.title = "Menu".to_string().into();
 
-    // Set layout callback with marshaled data
-    options.state.layout_callback =
-        azul_core::callbacks::LayoutCallback::Marshaled(MarshaledLayoutCallback {
-            marshal_data: menu_data_refany,
-            cb: MarshaledLayoutCallbackInner {
-                cb: menu_layout_callback,
-            },
-        });
+    // Set layout callback - RefAny contains menu data, callback knows how to use it
+    options.state.layout_callback = LayoutCallback {
+        cb: LayoutCallbackInner {
+            cb: menu_layout_callback,
+        },
+    };
+    
+    // Store menu data in app_data (will be passed to callback)
+    // Note: The app needs to ensure this RefAny is passed when creating the window
 
     // Set window flags for popup behavior
     options.state.flags.decorations = azul_core::window::WindowDecorations::None;

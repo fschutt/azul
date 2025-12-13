@@ -131,7 +131,7 @@ struct ButtonData {
     event: CalcEvent,
 }
 
-extern "C" fn on_button_click(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+extern "C" fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
     let button_data = match data.downcast_ref::<ButtonData>() {
         Some(d) => d,
         None => return Update::DoNothing,
@@ -168,7 +168,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, class: &str) -> Dom
         .with_callback(azul::callbacks::On::MouseUp, on_button_click)
 }
 
-extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     let display_text = match data.downcast_ref::<Calculator>() {
         Some(calc) => calc.display.clone(),
         None => "0".to_string(),

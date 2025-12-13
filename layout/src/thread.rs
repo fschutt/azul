@@ -251,9 +251,9 @@ impl Clone for ThreadSenderDestructorCallback {
 /// - Data sent back from the background thread
 /// - Full CallbackInfo for DOM queries and UI updates
 pub type WriteBackCallbackType = extern "C" fn(
-    /* original thread data */ &mut RefAny,
-    /* data to write back */ &mut RefAny,
-    /* callback info */ &mut CallbackInfo,
+    /* original thread data */ RefAny,
+    /* data to write back */ RefAny,
+    /* callback info */ CallbackInfo,
 ) -> Update;
 
 /// Callback that can run when a thread receives a `WriteBack` message
@@ -271,9 +271,9 @@ impl WriteBackCallback {
     /// Invoke the callback
     pub fn invoke(
         &self,
-        thread_data: &mut RefAny,
-        writeback_data: &mut RefAny,
-        callback_info: &mut CallbackInfo,
+        thread_data: RefAny,
+        writeback_data: RefAny,
+        callback_info: CallbackInfo,
     ) -> Update {
         (self.cb)(thread_data, writeback_data, callback_info)
     }

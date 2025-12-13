@@ -2318,7 +2318,7 @@ pub struct Ribbon {
 }
 
 pub type RibbonOnTabClickedCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, i32) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, i32) -> Update;
 impl_callback!(
     RibbonOnTabClicked,
     OptionRibbonOnTabClicked,
@@ -2764,7 +2764,7 @@ fn render_tab_element(
         )
 }
 
-extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn my_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<MyCustomStruct>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2772,8 +2772,8 @@ extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update 
 
     let which_tab_to_activate_on_click = data.which_tab_to_activate_on_click;
 
-    (&mut data.on_tab_change_callback.cb)(
-        &mut data.on_tab_change_data,
+    (data.on_tab_change_callback.cb)(
+        data.on_tab_change_data.clone(),
         info,
         which_tab_to_activate_on_click,
     )

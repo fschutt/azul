@@ -264,11 +264,14 @@ fn set_system_clipboard(text: String) -> bool {
 /// - Mouse button is released (no longer dragging)
 /// - Mouse returns to within container bounds (no scroll needed)
 extern "C" fn auto_scroll_timer_callback(
-    _data: &mut azul_core::refany::RefAny,
-    timer_info: &mut azul_layout::timer::TimerCallbackInfo,
+    _data: azul_core::refany::RefAny,
+    timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_layout::timer::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
-    use azul_layout::window::{ScrollMode, SelectionScrollType};
+    use azul_layout::window::SelectionScrollType;
+
+    // Access window state through callback_info
+    let callback_info = &timer_info.callback_info;
 
     // Access window state through callback_info
     let callback_info = &timer_info.callback_info;

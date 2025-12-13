@@ -27,7 +27,7 @@ pub struct ColorInput {
 }
 
 pub type ColorInputOnValueChangeCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &ColorInputState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, ColorInputState) -> Update;
 impl_callback!(
     ColorInputOnValueChange,
     OptionColorInputOnValueChange,
@@ -153,7 +153,7 @@ impl ColorInput {
     }
 }
 
-extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -165,10 +165,10 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo)
     let result = {
         let color_input = &mut *color_input;
         let onvaluechange = &mut color_input.on_value_change;
-        let inner = &color_input.inner;
+        let inner = color_input.inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(ColorInputOnValueChange { callback, data }) => (callback.cb)(data, info, &inner),
+            Some(ColorInputOnValueChange { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
             None => Update::DoNothing,
         }
     };

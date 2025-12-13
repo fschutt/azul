@@ -44,7 +44,7 @@ pub struct Button {
     pub on_click: OptionButtonOnClick,
 }
 
-pub type ButtonOnClickCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
+pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 impl_callback!(
     ButtonOnClick,
     OptionButtonOnClick,

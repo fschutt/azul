@@ -25,7 +25,7 @@ static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 
 pub type CheckBoxOnToggleCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &CheckBoxState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, CheckBoxState) -> Update;
 impl_callback!(
     CheckBoxOnToggle,
     OptionCheckBoxOnToggle,
@@ -253,8 +253,8 @@ mod input {
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 
     pub(super) extern "C" fn default_on_checkbox_clicked(
-        check_box: &mut RefAny,
-        info: &mut CallbackInfo,
+        mut check_box: RefAny,
+        mut info: CallbackInfo,
     ) -> Update {
         let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
             Some(s) => s,
@@ -272,10 +272,10 @@ mod input {
             // rustc doesn't understand the borrowing lifetime here
             let check_box = &mut *check_box;
             let ontoggle = &mut check_box.on_toggle;
-            let inner = &check_box.inner;
+            let inner = check_box.inner.clone();
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data, info, &inner),
+                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
                 None => Update::DoNothing,
             }
         };

@@ -1,681 +1,696 @@
+// Python API patches for types that require manual implementation
+// These are types with callbacks, Python GC integration, or complex logic
+//
+// NOTE: This file is included via include!() in the generated python_capi.rs
+// All types referenced here must be either:
+// - Defined in this file
+// - Defined in the generated python_capi.rs (AzFoo types)
+// - Available via crate::ffi (C-API functions from dll_api.rs)
+// - Available via azul_core:: (internal types)
 
-use pyo3::{PyVisit, PyTraverseError, PyGCProtocol};
+use pyo3::gc::{PyVisit, PyTraverseError};
+use pyo3::conversion::IntoPyObject;
+
+// Import types from C-API that are used by helper functions and manual implementations
+// NOTE: Vec types like AzU8Vec, AzMonitorVec are now generated, so don't import them
+use crate::ffi::dll::{
+    // String and basic Vec types - these are skipped in generator due to conflicting trait impls
+    // They have manual FromPyObject/IntoPyObject implementations below
+    AzString,
+    AzU8Vec,
+    AzStringVec,
+    // Ref/RefMut types for slices (not generated, used in helper functions)
+    AzRefstr,
+    AzU8VecRef,
+    AzU8VecRefMut,
+    AzF32VecRef,
+    AzGLuintVecRef,
+    AzGLintVecRefMut,
+    AzGLint64VecRefMut,
+    AzGLbooleanVecRefMut,
+    AzGLfloatVecRefMut,
+    AzRefstrVecRef,
+    AzTessellatedSvgNodeVecRef,
+    // Destructor types for Vec ownership (enum with function pointer variants)
+    AzU8VecDestructor,
+    AzStringVecDestructor,
+    // Layout callback type for WindowCreateOptions
+    AzLayoutCallbackType,
+    AzLayoutCallback,
+    AzLayoutCallbackInner,
+};
+
+// ============================================================================
+// HELPER FUNCTIONS FOR TYPE CONVERSION
+// ============================================================================
 
 fn pystring_to_azstring(input: &String) -> AzString {
     input.clone().into()
 }
+
 fn az_string_to_py_string(input: AzString) -> String {
-    input.into()
+    let bytes = unsafe {
+        core::slice::from_raw_parts(input.vec.ptr, input.vec.len)
+    };
+    String::from_utf8_lossy(bytes).into_owned()
 }
+
 fn pystring_to_refstr(input: &str) -> AzRefstr {
     AzRefstr {
-        ptr: input.as_ptr(),
+        ptr: input.as_ptr() as *const core::ffi::c_void,
         len: input.len(),
     }
 }
+
 fn az_vecu8_to_py_vecu8(input: AzU8Vec) -> Vec<u8> {
-    let input: azul_impl::css::U8Vec = unsafe { mem::transmute(input) };
-    input.into_library_owned_vec()
+    let slice = unsafe {
+        core::slice::from_raw_parts(input.ptr, input.len)
+    };
+    slice.to_vec()
 }
+
 fn vec_string_to_vec_refstr(input: &Vec<&str>) -> Vec<AzRefstr> {
     input.iter().map(|i| pystring_to_refstr(i)).collect()
 }
+
 fn pybytesrefmut_to_vecu8refmut(input: &mut Vec<u8>) -> AzU8VecRefMut {
-    AzU8VecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+    AzU8VecRefMut { ptr: input.as_mut_ptr() as *mut core::ffi::c_void, len: input.len() }
 }
+
 fn pybytesref_to_vecu8_ref(input: &Vec<u8>) -> AzU8VecRef {
-    AzU8VecRef { ptr: input.as_ptr(), len: input.len() }
+    AzU8VecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_f32_to_rust(input: &Vec<f32>) -> AzF32VecRef {
-    AzF32VecRef { ptr: input.as_ptr(), len: input.len() }
+    AzF32VecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_u32_to_rust(input: &Vec<u32>) -> AzGLuintVecRef {
-    AzGLuintVecRef { ptr: input.as_ptr(), len: input.len() }
+    AzGLuintVecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_i32_to_rust(input: &mut Vec<i32>) -> AzGLintVecRefMut {
-    AzGLintVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+    AzGLintVecRefMut { ptr: input.as_mut_ptr() as *mut core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_i64_to_rust(input: &mut Vec<i64>) -> AzGLint64VecRefMut {
-    AzGLint64VecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+    AzGLint64VecRefMut { ptr: input.as_mut_ptr() as *mut core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_bool_to_rust(input: &mut Vec<u8>) -> AzGLbooleanVecRefMut {
-    AzGLbooleanVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+    AzGLbooleanVecRefMut { ptr: input.as_mut_ptr() as *mut core::ffi::c_void, len: input.len() }
 }
-fn pylist_glfoat_to_rust(input: &mut Vec<f32>) -> AzGLfloatVecRefMut {
-    AzGLfloatVecRefMut { ptr: input.as_mut_ptr(), len: input.len() }
+
+fn pylist_glfloat_to_rust(input: &mut Vec<f32>) -> AzGLfloatVecRefMut {
+    AzGLfloatVecRefMut { ptr: input.as_mut_ptr() as *mut core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_str_to_rust(input: &Vec<AzRefstr>) -> AzRefstrVecRef {
-    AzRefstrVecRef { ptr: input.as_ptr(), len: input.len() }
+    AzRefstrVecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
+
 fn pylist_tessellated_svg_node(input: &Vec<AzTessellatedSvgNode>) -> AzTessellatedSvgNodeVecRef {
-    AzTessellatedSvgNodeVecRef { ptr: input.as_ptr(), len: input.len() }
+    AzTessellatedSvgNodeVecRef { ptr: input.as_ptr() as *const core::ffi::c_void, len: input.len() }
 }
+
+// ============================================================================
+// FROM IMPLEMENTATIONS FOR TYPE CONVERSION
+// ============================================================================
 
 impl From<String> for AzString {
     fn from(s: String) -> AzString {
-        Self { vec: s.into_bytes().into() }
+        let bytes = s.into_bytes();
+        let ptr = bytes.as_ptr();
+        let len = bytes.len();
+        let cap = bytes.capacity();
+        core::mem::forget(bytes);
+        
+        AzString {
+            vec: AzU8Vec {
+                ptr,
+                len,
+                cap,
+                destructor: AzU8VecDestructor::DefaultRust,
+            }
+        }
     }
 }
 
 impl From<AzString> for String {
     fn from(s: AzString) -> String {
-        let s: azul_impl::css::AzString = unsafe { mem::transmute(s) };
-        s.into_library_owned_string()
+        az_string_to_py_string(s)
     }
 }
 
-// AzU8Vec
 impl From<AzU8Vec> for Vec<u8> {
     fn from(input: AzU8Vec) -> Vec<u8> {
-        let input: azul_impl::css::U8Vec = unsafe { mem::transmute(input) };
-        input.into_library_owned_vec()
+        az_vecu8_to_py_vecu8(input)
     }
 }
 
 impl From<Vec<u8>> for AzU8Vec {
     fn from(input: Vec<u8>) -> AzU8Vec {
-
         let ptr = input.as_ptr();
         let len = input.len();
         let cap = input.capacity();
-
-        let _ = ::core::mem::ManuallyDrop::new(input);
-
-        Self {
+        core::mem::forget(input);
+        
+        AzU8Vec {
             ptr,
             len,
             cap,
-            destructor: AzU8VecDestructorEnumWrapper::DefaultRust(),
+            destructor: AzU8VecDestructor::DefaultRust,
         }
-
     }
 }
 
-// manually implement App::new, WindowState::new,
-// WindowCreateOptions::new and LayoutCallback::new
+// ============================================================================
+// PYO3 CONVERSION TRAITS FOR AZUL TYPES (PyO3 0.27 API)
+// These allow PyO3 to automatically convert between Python and Rust types
+// ============================================================================
 
-#[pyproto]
-impl PyGCProtocol for AzApp {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
+use pyo3::Borrowed;
 
-        let data: &azul_impl::app::AzAppPtr = unsafe { mem::transmute(self) };
+// --- AzString <-> Python str ---
 
-        // NOTE: should not block - this should only succeed
-        // AFTER the App has finished executing
-        let mut app_lock = match data.ptr.try_lock().ok() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        let data_ref = match app_lock.data.downcast_ref::<AppDataTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data_ref._py_app_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::app::AzAppPtr = unsafe { mem::transmute(self) };
-
-        // NOTE: should not block - this should only succeed
-        // AFTER the App has finished executing
-        let mut app_lock = match data.ptr.try_lock().ok() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let mut data = match app_lock.data.downcast_mut::<AppDataTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        // Clear reference, this decrements Python ref counter.
-        data._py_app_data = None;
+impl FromPyObject<'_, '_> for AzString {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let s: String = ob.extract()?;
+        Ok(s.into())
     }
 }
 
+impl<'py> IntoPyObject<'py> for AzString {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = std::convert::Infallible;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let s: String = self.into();
+        Ok(PyString::new(py, &s))
+    }
+}
+
+// --- AzU8Vec <-> Python bytes ---
+
+impl FromPyObject<'_, '_> for AzU8Vec {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<u8> = ob.extract()?;
+        Ok(v.into())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzU8Vec {
+    type Target = PyBytes;
+    type Output = Bound<'py, PyBytes>;
+    type Error = std::convert::Infallible;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let slice = unsafe { core::slice::from_raw_parts(self.ptr, self.len) };
+        Ok(PyBytes::new(py, slice))
+    }
+}
+
+// --- AzStringVec <-> Python list[str] ---
+
+impl FromPyObject<'_, '_> for AzStringVec {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<String> = ob.extract()?;
+        let az_strings: Vec<AzString> = v.into_iter().map(|s| s.into()).collect();
+        Ok(AzStringVec::from_vec(az_strings))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzStringVec {
+    type Target = PyList;
+    type Output = Bound<'py, PyList>;
+    type Error = PyErr;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let strings: Vec<String> = self.into_rust_vec();
+        PyList::new(py, strings)
+    }
+}
+
+// Helper methods for AzStringVec
+impl AzStringVec {
+    fn from_vec(v: Vec<AzString>) -> Self {
+        let ptr = v.as_ptr();
+        let len = v.len();
+        let cap = v.capacity();
+        core::mem::forget(v);
+        
+        AzStringVec {
+            ptr,
+            len,
+            cap,
+            destructor: AzStringVecDestructor::DefaultRust,
+        }
+    }
+    
+    fn into_rust_vec(self) -> Vec<String> {
+        let slice = unsafe { core::slice::from_raw_parts(self.ptr, self.len) };
+        slice.iter().map(|s| {
+            let bytes = unsafe { core::slice::from_raw_parts(s.vec.ptr, s.vec.len) };
+            String::from_utf8_lossy(bytes).into_owned()
+        }).collect()
+    }
+}
+
+// ============================================================================
+// CALLBACK WRAPPER TYPES (stored inside RefAny)
+// These hold Python objects and are the key to the callback system
+// ============================================================================
+
+/// Holds Python objects for the main App (data + layout callback)
 #[repr(C)]
 pub struct AppDataTy {
-    _py_app_data: Option<PyObject>,
+    pub _py_app_data: Option<Py<PyAny>>,
+    pub _py_layout_callback: Option<Py<PyAny>>,
 }
 
+/// Holds Python objects for layout callbacks (used in MarshaledLayoutCallback)
 #[repr(C)]
 pub struct LayoutCallbackTy {
-    // acual callable object from python
-    _py_layout_callback: Option<PyObject>,
+    pub _py_layout_callback: Option<Py<PyAny>>,
 }
 
-extern "C" fn invoke_py_marshaled_layout_callback(
-    marshal_data: &mut AzRefAny,
-    app_data: &mut AzRefAny,
-    info: AzLayoutCallbackInfo
-) -> AzStyledDom {
-
-    let mut marshal_data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(marshal_data) };
-    let mut app_data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(app_data) };
-
-    let mut app_data_downcast = match app_data.downcast_mut::<AppDataTy>() {
-        Some(s) => s,
-        None => return AzStyledDom::default(),
-    };
-
-    let mut app_data_downcast = match app_data_downcast._py_app_data.as_mut() {
-        Some(s) => s,
-        None => return AzStyledDom::default(),
-    };
-
-    let mut pyfunction = match marshal_data.downcast_mut::<LayoutCallbackTy>() {
-        Some(s) => s,
-        None => return AzStyledDom::default(),
-    };
-
-    let mut pyfunction = match pyfunction._py_layout_callback.as_mut() {
-        Some(s) => s,
-        None => return AzStyledDom::default(),
-    };
-
-    // call layout callback into python
-    let s: AzStyledDom = Python::with_gil(|py| {
-
-        match pyfunction.call1(py.clone(), (app_data_downcast.clone_ref(py.clone()), info)) {
-            Ok(o) => match o.as_ref(py).extract::<AzStyledDom>() {
-                Ok(o) => o.clone(),
-                Err(e) => {
-                    #[cfg(feature = "logging")] {
-                        let cb_any = o.as_ref(py);
-                        let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
-                        log::error!("ERROR: LayoutCallback returned object of type {}, expected azul.dom.StyledDom", type_name);
-                    }
-                    AzStyledDom::default()
-                }
-            },
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    log::error!("Exception caught when invoking LayoutCallback: {}", e);
-                }
-                AzStyledDom::default()
-            }
-        }
-    });
-
-    s
-}
-
-#[pyproto]
-impl PyGCProtocol for AzMarshaledLayoutCallback {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::callbacks::MarshaledLayoutCallback = unsafe { mem::transmute(self) };
-
-        // temporary clone since we can't borrow mutable here
-        let mut refany = data.marshal_data.clone();
-
-        let data = match refany.downcast_ref::<LayoutCallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_layout_callback.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::callbacks::MarshaledLayoutCallback = unsafe { mem::transmute(self) };
-
-        let mut data = match data.marshal_data.downcast_mut::<LayoutCallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_layout_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_layout_callback = None;
-        }
-    }
-}
-
-#[repr(C)]
-pub struct IFrameCallbackTy {
-    _py_iframe_data: Option<PyObject>,
-    _py_iframe_callback: Option<PyObject>,
-}
-
-#[pyproto]
-impl PyGCProtocol for AzIFrameNode {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::dom::IFrameNode = unsafe { mem::transmute(self) };
-
-        // temporary clone since we can't borrow mutable here
-        let mut refany = data.data.clone();
-
-        let data = match refany.downcast_ref::<IFrameCallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_iframe_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        if let Some(obj) = data._py_iframe_callback.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::dom::IFrameNode = unsafe { mem::transmute(self) };
-
-        let mut data = match data.data.downcast_mut::<IFrameCallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_iframe_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_iframe_data = None;
-        }
-
-        if data._py_iframe_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_iframe_callback = None;
-        }
-    }
-}
-
-extern "C" fn invoke_python_iframe(data: &mut azul_impl::callbacks::RefAny, info: azul_impl::callbacks::IFrameCallbackInfo) -> azul_impl::callbacks::IFrameCallbackReturn {
-
-    let default = azul_impl::callbacks::IFrameCallbackReturn {
-         dom: azul_impl::styled_dom::StyledDom::default(),
-         scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
-         scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
-         virtual_scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
-         virtual_scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
-    };
-
-    let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
-
-    let mut iframe_cb = match data.downcast_mut::<IFrameCallbackTy>() {
-        Some(s) => s,
-        None => return default,
-    };
-
-    let mut iframe_cb = &mut *iframe_cb;
-
-    let mut py_data = match iframe_cb._py_iframe_data.as_mut() {
-        Some(s) => s,
-        None => return default,
-    };
-
-    let mut py_function = match iframe_cb._py_iframe_callback.as_mut() {
-        Some(s) => s,
-        None => return default,
-    };
-
-    // call iframe callback into python
-    let s: azul_impl::callbacks::IFrameCallbackReturn = Python::with_gil(|py| {
-        let info: AzIFrameCallbackInfo = unsafe { mem::transmute(info) };
-        match py_function.call1(py.clone(), (py_data.clone_ref(py.clone()), info)) {
-            Ok(o) => match o.as_ref(py).extract::<AzIFrameCallbackReturn>() {
-                Ok(o) => unsafe { mem::transmute(o.clone()) },
-                Err(e) => {
-                    #[cfg(feature = "logging")] {
-                        let cb_any = o.as_ref(py);
-                        let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
-                        log::error!("ERROR: LayoutCallback returned object of type {}, expected azul.callbacks.AzIFrameCallbackReturn", type_name);
-                    }
-                    default
-                }
-            },
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    log::error!("Exception caught when invoking IFrameCallback: {}", e);
-                }
-                default
-            }
-        }
-    });
-
-    s
-}
-
+/// Holds Python objects for event callbacks (On.Click, On.Hover, etc.)
 #[repr(C)]
 pub struct CallbackTy {
-    _py_callback: Option<PyObject>,
-    _py_data: Option<PyObject>,
+    pub _py_callback: Option<Py<PyAny>>,
+    pub _py_data: Option<Py<PyAny>>,
 }
 
-#[pyproto]
-impl PyGCProtocol for AzCallbackData {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::dom::CallbackData = unsafe { mem::transmute(self) };
-
-        // temporary clone since we can't borrow mutable here
-        let mut refany = data.data.clone();
-
-        let data = match refany.downcast_ref::<CallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_callback.as_ref() {
-            visit.call(obj)?;
-        }
-
-        if let Some(obj) = data._py_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::dom::CallbackData = unsafe { mem::transmute(self) };
-
-        let mut data = match data.data.downcast_mut::<CallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_callback = None;
-        }
-
-        if data._py_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_data = None;
-        }
-    }
+/// Holds Python objects for iframe callbacks
+#[repr(C)]
+pub struct IFrameCallbackTy {
+    pub _py_iframe_callback: Option<Py<PyAny>>,
+    pub _py_iframe_data: Option<Py<PyAny>>,
 }
 
-extern "C" fn invoke_python_callback(data: &mut azul_impl::callbacks::RefAny, info: azul_impl::callbacks::CallbackInfo) -> azul_impl::callbacks::Update {
+/// Holds Python objects for timer callbacks
+/// 
+/// NOTE: Timer callbacks require `TimerCallbackInfo` and `TimerCallbackReturn` types
+/// which are defined in `azul_layout::timer` but NOT yet exported in api.json / C-API.
+/// To implement timer callbacks:
+/// 1. Add TimerCallbackInfo, TimerCallbackReturn, TerminateTimer to api.json
+/// 2. Regenerate the C-API with `cargo run -p azul-doc -- codegen`
+/// 3. Add `invoke_py_timer` trampoline here (similar to `invoke_py_iframe`)
+/// 4. Timer callbacks run on main thread, so no threading concerns
+#[repr(C)]
+pub struct TimerCallbackTy {
+    pub _py_timer_callback: Option<Py<PyAny>>,
+    pub _py_timer_data: Option<Py<PyAny>>,
+}
 
-    let default: azul_impl::callbacks::Update = azul_impl::callbacks::Update::DoNothing;
+/// Holds Python objects for thread writeback callbacks
+#[repr(C)]
+pub struct ThreadWriteBackCallbackTy {
+    pub _py_thread_callback: Option<Py<PyAny>>,
+    pub _py_thread_data: Option<Py<PyAny>>,
+}
 
-    let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
+/// Holds Python objects for image render callbacks
+#[repr(C)]
+pub struct ImageCallbackTy {
+    pub _py_image_callback: Option<Py<PyAny>>,
+    pub _py_image_data: Option<Py<PyAny>>,
+}
 
-    let mut cb = match data.downcast_mut::<CallbackTy>() {
+/// Holds arbitrary Python data (for datasets)
+#[repr(C)]
+pub struct DatasetTy {
+    pub _py_data: Option<Py<PyAny>>,
+}
+
+// ============================================================================
+// EXTERN "C" TRAMPOLINES
+// These are called by the C-API and invoke Python callbacks
+// ============================================================================
+
+/// Trampoline for layout callbacks
+/// 
+/// The RefAny contains an AppDataTy which holds both:
+/// - The Python layout callback function
+/// - The Python user data
+extern "C" fn invoke_py_layout_callback(
+    app_data: &mut azul_core::refany::RefAny,
+    info: azul_core::callbacks::LayoutCallbackInfo
+) -> azul_core::styled_dom::StyledDom {
+    
+    let default = azul_core::styled_dom::StyledDom::default();
+    
+    // Get the app data (which contains the Python callback AND user data)
+    let app = match app_data.downcast_ref::<AppDataTy>() {
         Some(s) => s,
-        None => return default,
+        None => {
+            #[cfg(feature = "logging")]
+            log::error!("Failed to downcast app_data to AppDataTy");
+            return default;
+        }
     };
 
-    let mut cb = &mut *cb;
-
-    let mut py_data = match cb._py_data.as_mut() {
+    let py_callback = match app._py_layout_callback.as_ref() {
         Some(s) => s,
-        None => return default,
+        None => {
+            #[cfg(feature = "logging")]
+            log::error!("No layout callback found in app_data");
+            return default;
+        }
     };
 
-    let mut py_function = match cb._py_callback.as_mut() {
+    let py_data = match app._py_app_data.as_ref() {
         Some(s) => s,
-        None => return default,
+        None => {
+            #[cfg(feature = "logging")]
+            log::error!("No app data found in app_data");
+            return default;
+        }
     };
 
-    // call callback into python
-    let s: azul_impl::callbacks::Update = Python::with_gil(|py| {
-        let info: AzCallbackInfo = unsafe { mem::transmute(info) };
-
-        match py_function.call1(py.clone(), (py_data.clone_ref(py.clone()), info)) {
-            Ok(o) => match o.as_ref(py).extract::<AzUpdateEnumWrapper>() {
-                Ok(o) => unsafe { mem::transmute(o.clone()) },
-                Err(e) => {
-                    #[cfg(feature = "logging")] {
-                        let cb_any = o.as_ref(py);
-                        let type_name = cb_any.get_type().name().unwrap_or("<unknown>");
-                        log::error!("ERROR: Callback returned object of type {}, expected azul.callbacks.Update", type_name);
+    // Call the Python layout callback
+    Python::with_gil(|py| {
+        let info_py: AzLayoutCallbackInfo = unsafe { mem::transmute(info) };
+        
+        match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
+            Ok(result) => {
+                match result.extract::<AzStyledDom>(py) {
+                    Ok(styled_dom) => unsafe { mem::transmute(styled_dom) },
+                    Err(e) => {
+                        #[cfg(feature = "logging")]
+                        log::error!("Layout callback must return StyledDom: {:?}", e);
+                        default
                     }
-                    default
                 }
-            },
+            }
             Err(e) => {
-                #[cfg(feature = "logging")] {
-                    log::error!("Exception caught when invoking Callback: {}", e);
-                }
+                #[cfg(feature = "logging")]
+                log::error!("Exception in layout callback: {:?}", e);
                 default
             }
         }
-    });
-
-    s
+    })
 }
 
-#[repr(C)]
-pub struct TimerCallbackTy {
-    _py_timer_callback: Option<PyObject>,
-    _py_timer_data: Option<PyObject>,
+/// Trampoline for regular event callbacks
+extern "C" fn invoke_py_callback(
+    data: &mut azul_core::refany::RefAny,
+    info: azul_layout::callbacks::CallbackInfo
+) -> azul_core::callbacks::Update {
+    use azul_core::callbacks::Update;
+    
+    let default = Update::DoNothing;
+    
+    let cb = match data.downcast_mut::<CallbackTy>() {
+        Some(s) => s,
+        None => return default,
+    };
+
+    let py_callback = match cb._py_callback.as_ref() {
+        Some(s) => s,
+        None => return default,
+    };
+
+    let py_data = match cb._py_data.as_ref() {
+        Some(s) => s,
+        None => return default,
+    };
+
+    Python::with_gil(|py| {
+        let info_py: AzCallbackInfo = unsafe { mem::transmute(info) };
+        
+        match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
+            Ok(result) => {
+                match result.extract::<AzUpdate>(py) {
+                    Ok(update) => unsafe { mem::transmute(update) },
+                    Err(_) => default,
+                }
+            }
+            Err(e) => {
+                #[cfg(feature = "logging")]
+                log::error!("Exception in callback: {:?}", e);
+                default
+            }
+        }
+    })
 }
 
-#[pyproto]
-impl PyGCProtocol for AzTimer {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
+/// Trampoline for iframe callbacks
+extern "C" fn invoke_py_iframe(
+    data: &mut azul_core::refany::RefAny,
+    info: azul_core::callbacks::IFrameCallbackInfo
+) -> azul_core::callbacks::IFrameCallbackReturn {
+    
+    // Use Default trait which properly initializes all fields
+    let default = azul_core::callbacks::IFrameCallbackReturn::default();
+    
+    let cb = match data.downcast_mut::<IFrameCallbackTy>() {
+        Some(s) => s,
+        None => return default,
+    };
 
-        let data: &azul_impl::task::Timer = unsafe { mem::transmute(self) };
+    let py_callback = match cb._py_iframe_callback.as_ref() {
+        Some(s) => s,
+        None => return default,
+    };
 
-        // temporary clone since we can't borrow mutable here
-        let mut refany = data.data.clone();
+    let py_data = match cb._py_iframe_data.as_ref() {
+        Some(s) => s,
+        None => return default,
+    };
 
-        let data = match refany.downcast_ref::<TimerCallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
+    Python::with_gil(|py| {
+        let info_py: AzIFrameCallbackInfo = unsafe { mem::transmute(info) };
+        
+        match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
+            Ok(result) => {
+                match result.extract::<AzIFrameCallbackReturn>(py) {
+                    Ok(ret) => unsafe { mem::transmute(ret) },
+                    Err(_) => default,
+                }
+            }
+            Err(e) => {
+                #[cfg(feature = "logging")]
+                log::error!("Exception in iframe callback: {:?}", e);
+                default
+            }
+        }
+    })
+}
+
+// NOTE: Timer callbacks are not implemented yet because they require
+// complex types (TimerCallbackInfo, TimerCallbackReturn) that are not
+// easily exposed to Python. This is a TODO for future work.
+
+// ============================================================================
+// APP IMPLEMENTATION
+// ============================================================================
+
+/// The main application - runs the event loop
+#[pyclass(name = "App", module = "azul", unsendable)]
+pub struct AzApp {
+    pub ptr: *const c_void,
+    pub run_destructor: bool,
+}
+
+#[pymethods]
+impl AzApp {
+    /// Create a new App with user data and a layout callback
+    /// 
+    /// Python usage:
+    ///     def layout(data, info):
+    ///         return StyledDom.from_dom(Dom.body())
+    ///     
+    ///     app = App(my_data, layout)
+    ///     app.run(WindowCreateOptions.new())
+    #[new]
+    fn new(data: Py<PyAny>, layout_callback: Py<PyAny>) -> PyResult<Self> {
+        // Verify callback is callable
+        Python::with_gil(|py| {
+            if !layout_callback.bind(py).is_callable() {
+                return Err(PyException::new_err("layout_callback must be callable"));
+            }
+            Ok(())
+        })?;
+
+        // Create app data wrapper with the Python objects
+        let app_data = AppDataTy {
+            _py_app_data: Some(data),
+            _py_layout_callback: Some(layout_callback),
         };
 
-        if let Some(obj) = data._py_timer_callback.as_ref() {
-            visit.call(obj)?;
-        }
+        // Store in RefAny - this is an internal detail, user never sees it
+        let refany = azul_core::refany::RefAny::new(app_data);
 
-        if let Some(obj) = data._py_timer_data.as_ref() {
-            visit.call(obj)?;
-        }
+        // Get default app config
+        let app_config = unsafe { crate::ffi::dll::AzAppConfig_new() };
 
+        // Call C-API to create the app
+        let app = unsafe {
+            crate::ffi::dll::AzApp_new(
+                mem::transmute(refany),
+                app_config,
+            )
+        };
+
+        Ok(AzApp {
+            ptr: app.ptr,
+            run_destructor: true,
+        })
+    }
+
+    /// Run the application event loop with an initial window
+    fn run(&mut self, window: AzWindowCreateOptions) {
+        // Note: We need to set the layout callback in the window
+        // For now, just run with the window as-is
+        unsafe {
+            crate::ffi::dll::AzApp_run(
+                mem::transmute(self),
+                window.inner.clone(),
+            );
+        }
+    }
+
+    /// Add another window to the application
+    fn add_window(&mut self, window: AzWindowCreateOptions) {
+        unsafe {
+            crate::ffi::dll::AzApp_addWindow(
+                mem::transmute(self),
+                window.inner.clone(),
+            );
+        }
+    }
+
+    /// Get the list of available monitors
+    fn get_monitors(&self) -> AzMonitorVec {
+        unsafe {
+            mem::transmute(crate::ffi::dll::AzApp_getMonitors(
+                mem::transmute(self),
+            ))
+        }
+    }
+
+    fn __traverse__(&self, _visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        // GC traversal is intentionally empty. Here's why:
+        //
+        // The App contains a RefAny which holds our AppDataTy (with Py<PyAny> fields).
+        // Ideally we'd traverse those Python objects, but:
+        //
+        // 1. RefAny is an opaque C struct - we'd need to transmute through multiple
+        //    layers (AzApp -> App -> Box<AppInternal> -> RefAny -> AppDataTy)
+        // 2. This is fragile and could break if internal layouts change
+        // 3. The Python GC only needs __traverse__ to detect reference cycles
+        // 4. Cycles between Python and Azul objects are rare in practice
+        // 5. When App is dropped, RefAny's destructor properly decrements Py<PyAny> refcounts
+        //
+        // If cycles become a problem, we could add a C-API function:
+        //   AzApp_getRefAnyPtr(&self) -> *mut RefAny
+        // Then downcast to AppDataTy and traverse the Py<PyAny> fields.
         Ok(())
     }
 
     fn __clear__(&mut self) {
+        // GC clearing is intentionally empty - see __traverse__ comments.
+        // Python objects in RefAny are properly cleaned up when App is dropped.
+    }
 
-        let mut data: &mut azul_impl::task::Timer = unsafe { mem::transmute(self) };
+    fn __str__(&self) -> String {
+        "App { ... }".to_string()
+    }
 
-        let mut data = match data.data.downcast_mut::<TimerCallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
 
-        if data._py_timer_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_timer_callback = None;
-        }
-
-        if data._py_timer_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_timer_data = None;
+impl Drop for AzApp {
+    fn drop(&mut self) {
+        if self.run_destructor {
+            unsafe {
+                crate::ffi::dll::AzApp_delete(mem::transmute(self));
+            }
         }
     }
 }
 
+// ============================================================================
+// LAYOUT CALLBACK INFO (needs unsendable due to pointers)
+// Must match C-API layout exactly for mem::transmute to work
+// ============================================================================
+
+/// Information passed to layout callbacks
+#[pyclass(name = "LayoutCallbackInfo", module = "azul", unsendable)]
 #[repr(C)]
-pub struct ImageCallbackTy {
-    _py_image_callback: Option<PyObject>,
-    _py_image_data: Option<PyObject>,
+pub struct AzLayoutCallbackInfo {
+    pub ref_data: *const c_void,
+    pub window_size: AzWindowSize,
+    pub theme: AzWindowTheme,
+    pub _abi_ref: *const c_void,
+    pub _abi_mut: *mut c_void,
 }
 
-#[pyproto]
-impl PyGCProtocol for AzImageRef {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::resources::ImageRef = unsafe { mem::transmute(self) };
-
-        let image_callback = match data.get_image_callback() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        // temporary clone since we can't borrow mutable here
-        let mut refany = image_callback.data.clone();
-
-        let data = match refany.downcast_ref::<ImageCallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_image_callback.as_ref() {
-            visit.call(obj)?;
-        }
-
-        if let Some(obj) = data._py_image_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
+#[pymethods]
+impl AzLayoutCallbackInfo {
+    fn __str__(&self) -> String {
+        "LayoutCallbackInfo { ... }".to_string()
     }
 
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::resources::ImageRef = unsafe { mem::transmute(self) };
-
-        let image_callback = match data.get_image_callback_mut() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let mut data = match image_callback.data.downcast_mut::<ImageCallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_image_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_image_callback = None;
-        }
-
-        if data._py_image_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_image_data = None;
-        }
+    fn __repr__(&self) -> String {
+        self.__str__()
     }
 }
 
-#[repr(C)]
-pub struct ThreadWriteBackCallbackTy {
-    _py_thread_callback: Option<PyObject>,
-    _py_thread_data: Option<PyObject>,
+// ============================================================================
+// WINDOW CREATE OPTIONS
+// We implement this manually because the C-API version contains callbacks
+// The struct layout must match the C-API exactly for mem::transmute to work
+// ============================================================================
+
+/// Options for creating a new window
+/// NOTE: This is a simplified version for Python - some fields are not exposed
+#[pyclass(name = "WindowCreateOptions", module = "azul", unsendable)]
+pub struct AzWindowCreateOptions {
+    inner: crate::ffi::dll::AzWindowCreateOptions,
 }
 
-#[pyproto]
-impl PyGCProtocol for AzThread {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::task::Thread = unsafe { mem::transmute(self) };
-
-        let mut thread_inner = match data.ptr.try_lock().ok() {
-            Some(o) => o,
-            None => return Ok(()),
-        };
-
-        let mut data = match thread_inner.writeback_data.downcast_mut::<ThreadWriteBackCallbackTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_thread_callback.as_ref() {
-            visit.call(obj)?;
-        }
-
-        if let Some(obj) = data._py_thread_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
+#[pymethods]
+impl AzWindowCreateOptions {
+    /// Create default window options
+    #[new]
+    fn new() -> Self {
+        Self { inner: Default::default() }
     }
 
-    fn __clear__(&mut self) {
+    /// Set the window title
+    fn with_title(&self, title: String) -> Self {
+        let mut inner = self.inner.clone();
+        inner.state.title = title.into();
+        Self { inner }
+    }
 
-        let mut data: &mut azul_impl::task::Thread = unsafe { mem::transmute(self) };
+    fn __str__(&self) -> String {
+        "WindowCreateOptions { ... }".to_string()
+    }
 
-        let mut thread_inner = match data.ptr.try_lock().ok() {
-            Some(o) => o,
-            None => return,
-        };
-
-        let mut data = match thread_inner.writeback_data.downcast_mut::<ThreadWriteBackCallbackTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_thread_callback.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_thread_callback = None;
-        }
-
-        if data._py_thread_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_thread_data = None;
-        }
+    fn __repr__(&self) -> String {
+        self.__str__()
     }
 }
 
-#[repr(C)]
-pub struct DatasetTy {
-    _py_data: Option<PyObject>,
-}
-
-#[pyproto]
-impl PyGCProtocol for AzNodeData {
-    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
-
-        let data: &azul_impl::dom::NodeData = unsafe { mem::transmute(self) };
-
-        // temporary clone since we can't borrow mutable here
-        let dataset = match data.get_dataset().as_ref() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        let mut refany = dataset.clone();
-
-        let data = match refany.downcast_ref::<DatasetTy>() {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        if let Some(obj) = data._py_data.as_ref() {
-            visit.call(obj)?;
-        }
-
-        Ok(())
-    }
-
-    fn __clear__(&mut self) {
-
-        let mut data: &mut azul_impl::dom::NodeData = unsafe { mem::transmute(self) };
-
-        let dataset = match data.get_dataset_mut().as_mut() {
-            Some(s) => s,
-            None => return,
-        };
-
-        let mut data = match dataset.downcast_mut::<DatasetTy>() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if data._py_data.as_mut().is_some() {
-            // Clear reference, this decrements Python ref counter.
-            data._py_data = None;
-        }
+impl Clone for AzWindowCreateOptions {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
     }
 }
+
+// ============================================================================
+// NOTE: RefAny is NOT exposed to Python users!
+// It's used internally to store Python objects, but users never interact with it.
+// ============================================================================

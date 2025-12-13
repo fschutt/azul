@@ -156,8 +156,8 @@ pub struct NodeGraphCallbacks {
 }
 
 pub type OnNodeAddedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     new_node_type: NodeTypeId,
     new_node_id: NodeGraphNodeId,
     new_node_position: NodePosition,
@@ -170,8 +170,8 @@ impl_callback!(
 );
 
 pub type OnNodeRemovedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     node_id_to_remove: NodeGraphNodeId,
 ) -> Update;
 impl_callback!(
@@ -182,8 +182,8 @@ impl_callback!(
 );
 
 pub type OnNodeGraphDraggedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     drag_amount: GraphDragAmount,
 ) -> Update;
 impl_callback!(
@@ -194,8 +194,8 @@ impl_callback!(
 );
 
 pub type OnNodeDraggedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     node_dragged: NodeGraphNodeId,
     drag_amount: NodeDragAmount,
 ) -> Update;
@@ -207,8 +207,8 @@ impl_callback!(
 );
 
 pub type OnNodeConnectedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     input: NodeGraphNodeId,
     input_index: usize,
     output: NodeGraphNodeId,
@@ -222,8 +222,8 @@ impl_callback!(
 );
 
 pub type OnNodeInputDisconnectedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     input: NodeGraphNodeId,
     input_index: usize,
 ) -> Update;
@@ -235,8 +235,8 @@ impl_callback!(
 );
 
 pub type OnNodeOutputDisconnectedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     output: NodeGraphNodeId,
     output_index: usize,
 ) -> Update;
@@ -248,8 +248,8 @@ impl_callback!(
 );
 
 pub type OnNodeFieldEditedCallbackType = extern "C" fn(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    data: RefAny,
+    info: CallbackInfo,
     node_id: NodeGraphNodeId,
     field_id: usize,
     node_type: NodeTypeId,
@@ -2732,7 +2732,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         })
 }
 
-extern "C" fn draw_connection(data: &mut RefAny, _info: &mut ()) -> ImageRef {
+extern "C" fn draw_connection(mut data: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
     let size = azul_core::geom::LogicalSize {
@@ -2751,7 +2751,7 @@ extern "C" fn draw_connection(data: &mut RefAny, _info: &mut ()) -> ImageRef {
 }
 
 fn draw_connection_inner(
-    data: &mut RefAny,
+    mut data: RefAny,
     _info: &mut (),
     _texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
@@ -2936,7 +2936,7 @@ fn get_rect(
     ))
 }
 
-extern "C" fn nodegraph_set_active_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_set_active_node(mut data: RefAny, _info: CallbackInfo) -> Update {
     let data_clone = data.clone();
     if let Some(mut data) = data.downcast_mut::<NodeLocalDataset>() {
         let node_id = data.node_id.clone();
@@ -2947,7 +2947,7 @@ extern "C" fn nodegraph_set_active_node(data: &mut RefAny, _info: &mut CallbackI
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_unset_active_node(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut data) = data.downcast_mut::<NodeGraphLocalDataset>() {
         data.active_node_being_dragged = None;
     }
@@ -2955,7 +2955,7 @@ extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, _info: &mut Callbac
 }
 
 // drag either the graph or the currently active nodes
-extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2988,9 +2988,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
             let node_connection_marker = &mut data.node_connection_marker;
 
             let _nodegraph_node = info.get_hit_node();
-            let result = match data.callbacks.on_node_dragged.as_mut() {
+            let result = match data.callbacks.on_node_dragged.as_ref() {
                 Some(OnNodeDragged { callback, data }) => (callback.cb)(
-                    data,
+                    data.clone(),
                     info,
                     node_graph_node_id,
                     NodeDragAmount { x: dx, y: dy },
@@ -3127,9 +3127,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
         }
         // drag graph
         None => {
-            let result = match data.callbacks.on_node_graph_dragged.as_mut() {
+            let result = match data.callbacks.on_node_graph_dragged.as_ref() {
                 Some(OnNodeGraphDragged { callback, data }) => {
-                    (callback.cb)(data, info, GraphDragAmount { x: dx, y: dy })
+                    (callback.cb)(data.clone(), info, GraphDragAmount { x: dx, y: dy })
                 }
                 None => Update::DoNothing,
             };
@@ -3276,7 +3276,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
     should_update
 }
 
-extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_duplicate_node(mut data: RefAny, _info: CallbackInfo) -> Update {
     let _data = match data.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3285,7 +3285,7 @@ extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, _info: &mut CallbackIn
     Update::DoNothing // TODO
 }
 
-extern "C" fn nodegraph_delete_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_delete_node(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -3298,15 +3298,15 @@ extern "C" fn nodegraph_delete_node(data: &mut RefAny, info: &mut CallbackInfo) 
         None => return Update::DoNothing,
     };
 
-    let result = match backref.callbacks.on_node_removed.as_mut() {
-        Some(OnNodeRemoved { callback, data }) => (callback.cb)(data, info, node_id),
+    let result = match backref.callbacks.on_node_removed.as_ref() {
+        Some(OnNodeRemoved { callback, data }) => (callback.cb)(data.clone(), info, node_id),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_context_menu_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 
     let mut data = match data.downcast_mut::<ContextMenuEntryLocalDataset>() {
@@ -3347,9 +3347,9 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
 
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
-    let result = match backref.callbacks.on_node_added.as_mut() {
+    let result = match backref.callbacks.on_node_added.as_ref() {
         Some(OnNodeAdded { callback, data }) => {
-            (callback.cb)(data, info, new_node_type, new_node_id, new_node_pos)
+            (callback.cb)(data.clone(), info, new_node_type, new_node_id, new_node_pos)
         }
         None => Update::DoNothing,
     };
@@ -3357,7 +3357,7 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
     result
 }
 
-extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn nodegraph_input_output_connect(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use self::InputOrOutput::*;
 
     let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
@@ -3413,10 +3413,10 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
         }
     }
 
-    let result = match backref.callbacks.on_node_connected.as_mut() {
+    let result = match backref.callbacks.on_node_connected.as_ref() {
         Some(OnNodeConnected { callback, data }) => {
             let r = (callback.cb)(
-                data,
+                data.clone(),
                 info,
                 input_node,
                 input_index,
@@ -3433,8 +3433,8 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
 }
 
 extern "C" fn nodegraph_input_output_disconnect(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
+    mut data: RefAny,
+    info: CallbackInfo,
 ) -> Update {
     use self::InputOrOutput::*;
 
@@ -3461,9 +3461,9 @@ extern "C" fn nodegraph_input_output_disconnect(
     match io_id {
         Input(i) => {
             result.max_self(
-                match backref.callbacks.on_node_input_disconnected.as_mut() {
+                match backref.callbacks.on_node_input_disconnected.as_ref() {
                     Some(OnNodeInputDisconnected { callback, data }) => {
-                        (callback.cb)(data, info, node_id, i)
+                        (callback.cb)(data.clone(), info, node_id, i)
                     }
                     None => Update::DoNothing,
                 },
@@ -3471,9 +3471,9 @@ extern "C" fn nodegraph_input_output_disconnect(
         }
         Output(o) => {
             result.max_self(
-                match backref.callbacks.on_node_output_disconnected.as_mut() {
+                match backref.callbacks.on_node_output_disconnected.as_ref() {
                     Some(OnNodeOutputDisconnected { callback, data }) => {
-                        (callback.cb)(data, info, node_id, o)
+                        (callback.cb)(data.clone(), info, node_id, o)
                     }
                     None => Update::DoNothing,
                 },
@@ -3485,9 +3485,9 @@ extern "C" fn nodegraph_input_output_disconnect(
 }
 
 extern "C" fn nodegraph_on_textinput_focus_lost(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    textinputstate: &TextInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    textinputstate: TextInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3521,9 +3521,9 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
         None => return Update::DoNothing,
     };
 
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data,
+            data.clone(),
             info,
             node_id,
             field_idx,
@@ -3537,9 +3537,9 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
 }
 
 extern "C" fn nodegraph_on_numberinput_focus_lost(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    numberinputstate: &NumberInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    numberinputstate: NumberInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3573,9 +3573,9 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
         None => return Update::DoNothing,
     };
 
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data,
+            data.clone(),
             info,
             node_id,
             field_idx,
@@ -3589,9 +3589,9 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
 }
 
 extern "C" fn nodegraph_on_checkbox_value_changed(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    checkboxinputstate: &CheckBoxState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    checkboxinputstate: CheckBoxState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3625,9 +3625,9 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
         None => return Update::DoNothing,
     };
 
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data,
+            data.clone(),
             info,
             node_id,
             field_idx,
@@ -3641,9 +3641,9 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
 }
 
 extern "C" fn nodegraph_on_colorinput_value_changed(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    colorinputstate: &ColorInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    colorinputstate: ColorInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3676,9 +3676,9 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
         None => return Update::DoNothing,
     };
 
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data,
+            data.clone(),
             info,
             node_id,
             field_idx,
@@ -3692,9 +3692,9 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
 }
 
 extern "C" fn nodegraph_on_fileinput_button_clicked(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    file: &FileInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    file: FileInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3728,9 +3728,9 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
     };
 
     // If a new file was selected, invoke callback
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data,
+            data.clone(),
             info,
             node_id,
             field_idx,

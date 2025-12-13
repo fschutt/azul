@@ -4,7 +4,7 @@
 //! Each menu popup is a real window with its own layout callback that uses menu_renderer.
 //!
 //! Architecture:
-//! - Menu popups are created using WindowCreateOptions with MarshaledLayoutCallback
+//! - Menu popups are created using WindowCreateOptions with LayoutCallback
 //! - The layout callback uses menu_renderer::create_menu_styled_dom() for rendering
 //! - Menu data (Menu struct) is passed as RefAny to the layout callback
 //! - Events are handled through normal Azul callback system
@@ -12,7 +12,7 @@
 
 use azul_core::{
     callbacks::{
-        LayoutCallback, LayoutCallbackInfo, MarshaledLayoutCallback, MarshaledLayoutCallbackInner,
+        LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner,
     },
     geom::LogicalSize,
     menu::Menu,
@@ -39,7 +39,6 @@ struct MenuLayoutData {
 /// standard WebRender pipeline.
 extern "C" fn menu_layout_callback(
     data: &mut RefAny,
-    _system_style: &mut RefAny,
     _info: &mut LayoutCallbackInfo,
 ) -> StyledDom {
     // Clone data early to avoid borrow issues
@@ -130,13 +129,12 @@ pub fn create_menu_window_options(
     options.state.flags.is_always_on_top = true;
     options.state.flags.is_resizable = false;
 
-    // Set layout callback with marshaled data
-    options.state.layout_callback = LayoutCallback::Marshaled(MarshaledLayoutCallback {
-        marshal_data: RefAny::new(menu_data),
-        cb: MarshaledLayoutCallbackInner {
+    // Set layout callback - RefAny contains menu data
+    options.state.layout_callback = LayoutCallback {
+        cb: LayoutCallbackInner {
             cb: menu_layout_callback,
         },
-    });
+    };
 
     options
 }

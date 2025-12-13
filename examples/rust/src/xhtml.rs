@@ -15,7 +15,7 @@ static XHTML: &str = include_str!("../assets/spreadsheet.xhtml");
 
 struct Data;
 
-extern "C" fn layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     StyledDom::from_xml(XHTML.to_string())
 }
 

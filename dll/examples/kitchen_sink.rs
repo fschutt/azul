@@ -459,7 +459,7 @@ extern "C" fn on_text_area(_data: &mut RefAny, info: &mut CallbackInfo) -> Updat
     Update::RefreshDom
 }
 
-extern "C" fn main_layout(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     eprintln!("[KITCHEN_SINK] main_layout called");
 
     let data_clone = _data.clone();
@@ -1758,8 +1758,8 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
 /// This callback is invoked by the layout engine to populate the preview pane
 /// with the parsed XHTML content from the code editor.
 extern "C" fn preview_iframe_callback(
-    data: &mut RefAny,
-    info: &mut IFrameCallbackInfo,
+    mut data: RefAny,
+    info: IFrameCallbackInfo,
 ) -> IFrameCallbackReturn {
     let app_data = match data.downcast_ref::<KitchenSinkApp>() {
         Some(d) => d,

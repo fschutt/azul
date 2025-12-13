@@ -560,7 +560,7 @@ pub enum TextInputValid {
 // The text input field has a special return which specifies
 // whether the text input should handle the character
 pub type TextInputOnTextInputCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+    extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn;
 impl_callback!(
     TextInputOnTextInput,
     OptionTextInputOnTextInput,
@@ -569,7 +569,7 @@ impl_callback!(
 );
 
 pub type TextInputOnVirtualKeyDownCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+    extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn;
 impl_callback!(
     TextInputOnVirtualKeyDown,
     OptionTextInputOnVirtualKeyDown,
@@ -578,7 +578,7 @@ impl_callback!(
 );
 
 pub type TextInputOnFocusLostCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update;
 impl_callback!(
     TextInputOnFocusLost,
     OptionTextInputOnFocusLost,
@@ -875,8 +875,8 @@ impl TextInput {
 }
 
 extern "C" fn default_on_focus_received(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo,
+    mut text_input: RefAny,
+    mut info: CallbackInfo,
 ) -> Update {
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
@@ -903,7 +903,7 @@ extern "C" fn default_on_focus_received(
     Update::DoNothing
 }
 
-extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -928,10 +928,10 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
         // rustc doesn't understand the borrowing lifetime here
         let text_input = &mut *text_input;
         let onfocuslost = &mut text_input.on_focus_lost;
-        let inner = &text_input.inner;
+        let inner = text_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),
+            Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
             None => Update::DoNothing,
         }
     };
@@ -939,11 +939,11 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
     result
 }
 
-extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
-fn default_on_text_input_inner(text_input: &mut RefAny, info: &mut CallbackInfo) -> Option<Update> {
+fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
 
     // Get the text changeset (replaces old keyboard_state.current_char API)
@@ -975,7 +975,7 @@ fn default_on_text_input_inner(text_input: &mut RefAny, info: &mut CallbackInfo)
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, data }) => {
-                (callback.cb)(data, info, &inner_clone)
+                (callback.cb)(data.clone(), info.clone(), inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,
@@ -1006,15 +1006,15 @@ fn default_on_text_input_inner(text_input: &mut RefAny, info: &mut CallbackInfo)
 }
 
 extern "C" fn default_on_virtual_key_down(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo,
+    text_input: RefAny,
+    info: CallbackInfo,
 ) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
 
 fn default_on_virtual_key_down_inner(
-    text_input: &mut RefAny,
-    info: &mut CallbackInfo,
+    mut text_input: RefAny,
+    mut info: CallbackInfo,
 ) -> Option<Update> {
     let mut text_input = text_input.downcast_mut::<TextInputStateWrapper>()?;
     let keyboard_state = info.get_current_keyboard_state();
@@ -1040,7 +1040,7 @@ fn default_on_virtual_key_down_inner(
     None
 }
 
-extern "C" fn default_on_mouse_hover(text_input: &mut RefAny, _info: &mut CallbackInfo) -> Update {
+extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
     let _text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,

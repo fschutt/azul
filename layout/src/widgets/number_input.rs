@@ -24,7 +24,7 @@ use crate::widgets::text_input::{
 };
 
 pub type NumberInputOnValueChangeCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &NumberInputState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
 impl_callback!(
     NumberInputOnValueChange,
     OptionNumberInputOnValueChange,
@@ -33,7 +33,7 @@ impl_callback!(
 );
 
 pub type NumberInputOnFocusLostCallbackType =
-    extern "C" fn(&mut RefAny, &mut CallbackInfo, &NumberInputState) -> Update;
+    extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
 impl_callback!(
     NumberInputOnFocusLost,
     OptionNumberInputOnFocusLost,
@@ -214,9 +214,9 @@ impl NumberInput {
 }
 
 extern "C" fn on_focus_lost(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    _state: &TextInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    _state: TextInputState,
 ) -> Update {
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
@@ -226,10 +226,10 @@ extern "C" fn on_focus_lost(
     let result = {
         let number_input = &mut *data;
         let onfocuslost = &mut number_input.on_focus_lost;
-        let inner = &number_input.inner;
+        let inner = number_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(NumberInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),
+            Some(NumberInputOnFocusLost { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner),
             None => Update::DoNothing,
         }
     };
@@ -238,9 +238,9 @@ extern "C" fn on_focus_lost(
 }
 
 extern "C" fn validate_text_input(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    state: &TextInputState,
+    mut data: RefAny,
+    info: CallbackInfo,
+    state: TextInputState,
 ) -> OnTextInputReturn {
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
@@ -278,9 +278,10 @@ extern "C" fn validate_text_input(
 
         inner.previous = inner.number;
         inner.number = validated_f32;
+        let inner_clone = inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data, info, &inner),
+            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data.clone(), info.clone(), inner_clone),
             None => Update::DoNothing,
         }
     };

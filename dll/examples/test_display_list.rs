@@ -10,7 +10,7 @@ struct AppData {
     content: &'static str,
 }
 
-extern "C" fn layout_callback(_data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     use std::io::Write;
 
     eprintln!("DISPLAY LIST DEBUG TEST");

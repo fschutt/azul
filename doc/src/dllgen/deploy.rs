@@ -141,21 +141,21 @@ impl BinaryAsset {
     pub const WINDOWS_ASSETS: &'static [BinaryAsset] = &[
         BinaryAsset { filename: "azul.dll", description: "Windows 64-bit dynamic library", platform: Platform::Windows },
         BinaryAsset { filename: "azul.lib", description: "Windows 64-bit static library", platform: Platform::Windows },
-        BinaryAsset { filename: "windows.pyd", description: "Python Extension", platform: Platform::Windows },
+        BinaryAsset { filename: "azul.pyd", description: "Python Extension (Windows)", platform: Platform::Windows },
         BinaryAsset { filename: "LICENSE-WINDOWS.txt", description: "Windows License", platform: Platform::Windows },
     ];
     
     pub const LINUX_ASSETS: &'static [BinaryAsset] = &[
         BinaryAsset { filename: "libazul.so", description: "Linux 64-bit .so", platform: Platform::Linux },
         BinaryAsset { filename: "libazul.linux.a", description: "Linux 64-bit .a", platform: Platform::Linux },
-        BinaryAsset { filename: "linux.pyd", description: "Python Extension", platform: Platform::Linux },
+        BinaryAsset { filename: "azul.cpython.so", description: "Python Extension (Linux)", platform: Platform::Linux },
         BinaryAsset { filename: "LICENSE-LINUX.txt", description: "Linux License", platform: Platform::Linux },
     ];
     
     pub const MACOS_ASSETS: &'static [BinaryAsset] = &[
         BinaryAsset { filename: "libazul.dylib", description: "MacOS 64-bit SO", platform: Platform::MacOS },
         BinaryAsset { filename: "libazul.macos.a", description: "MacOS 64-bit .a", platform: Platform::MacOS },
-        BinaryAsset { filename: "macos.pyd", description: "Python Extension", platform: Platform::MacOS },
+        BinaryAsset { filename: "azul.so", description: "Python Extension (macOS)", platform: Platform::MacOS },
         BinaryAsset { filename: "LICENSE-MACOS.txt", description: "MacOS License", platform: Platform::MacOS },
     ];
     
