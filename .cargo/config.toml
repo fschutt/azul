@@ -1,60 +1,11 @@
-# Cross-compilation configuration for Azul
-# This allows building Linux and Windows targets from macOS
-
-# =============================================================================
-# Linux Cross-Compilation Setup (x86_64-unknown-linux-gnu)
-# =============================================================================
+# Cross-compilation config for Azul
 #
-# On macOS, use cargo-zigbuild for Linux cross-compilation:
-#
-#   cargo install cargo-zigbuild
-#   cargo zigbuild --release --bin kitchen_sink --target x86_64-unknown-linux-gnu
-#
-# The resulting binary will be at:
-#   target/x86_64-unknown-linux-gnu/release/kitchen_sink
-#
-# =============================================================================
-
-# =============================================================================
-# Windows Cross-Compilation Setup (x86_64-pc-windows-gnu)
-# =============================================================================
-#
-# REQUIRED: Install MinGW-w64 for Windows cross-compilation:
-#
-#   brew install mingw-w64
-#
-# This installs:
-#   - x86_64-w64-mingw32-gcc (C compiler)
-#   - x86_64-w64-mingw32-g++ (C++ compiler)
-#   - x86_64-w64-mingw32-ar (archiver)
-#   - Complete Windows headers and libraries
-#
-# After installation, you can build for Windows:
-#   cd dll
-#   cargo build --release --bin kitchen_sink --target x86_64-pc-windows-gnu
-#
-# The resulting binary will be at:
-#   target/x86_64-pc-windows-gnu/release/kitchen_sink.exe
-#
-# =============================================================================
+# Linux: cargo zigbuild --release --target x86_64-unknown-linux-gnu
+# Windows: brew install mingw-w64 && cargo build --release --target x86_64-pc-windows-gnu
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
 ar = "x86_64-w64-mingw32-ar"
-
-# =============================================================================
-# Release Profile Optimizations
-# =============================================================================
-#
-# These settings optimize release builds for size and performance:
-# - lto = "thin": Enables thin link-time optimization (faster than "fat", good size reduction)
-# - codegen-units = 16: Balances compile time vs optimization (lower = more optimization, slower build)
-#
-# For maximum optimization (slower build):
-#   lto = "fat"
-#   codegen-units = 1
-#
-# =============================================================================
 
 [profile.release]
 lto = "thin"
