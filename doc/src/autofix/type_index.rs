@@ -2102,6 +2102,46 @@ fn extract_custom_impls_from_items(items: &[Item]) -> HashMap<String, Vec<String
                 }
             }
         }
+        
+        // Handle impl_vec_*! macros that generate trait implementations
+        // These macros expand to `impl Trait for Type` but aren't visible to syn
+        if let Item::Macro(m) = item {
+            let macro_name = m
+                .mac
+                .path
+                .segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            
+            // Map from macro name to the trait it implements
+            let macro_to_trait: &[(&str, &str)] = &[
+                ("impl_vec_clone", "Clone"),
+                ("impl_vec_debug", "Debug"),
+                ("impl_vec_partialeq", "PartialEq"),
+                ("impl_vec_partialord", "PartialOrd"),
+                ("impl_vec_eq", "Eq"),
+                ("impl_vec_ord", "Ord"),
+                ("impl_vec_hash", "Hash"),
+            ];
+            
+            for (trait_macro, trait_name) in macro_to_trait {
+                if macro_name == *trait_macro {
+                    // Parse macro arguments: impl_vec_clone!(ElementType, VecType, Destructor)
+                    let tokens = m.mac.tokens.to_string();
+                    let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
+                    
+                    // The second argument is the Vec type name
+                    if args.len() >= 2 {
+                        let type_name = args[1].to_string();
+                        if !type_name.is_empty() {
+                            custom_impls.entry(type_name).or_default().push(trait_name.to_string());
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     custom_impls

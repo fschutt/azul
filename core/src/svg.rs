@@ -802,7 +802,7 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
@@ -882,7 +882,7 @@ impl TessellatedGPUSvgNode {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedColoredGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,

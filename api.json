@@ -36792,6 +36792,7 @@
             ],
             "external": "azul_css::corety::U8Vec",
             "custom_destructor": true,
+            "custom_impls": ["Clone", "Debug", "PartialEq", "PartialOrd", "Eq", "Ord", "Hash"],
             "derive": [],
             "struct_fields": [
               {
@@ -36902,6 +36903,7 @@
             ],
             "external": "azul_css::corety::StringVec",
             "custom_destructor": true,
+            "custom_impls": ["Clone", "Debug", "PartialEq", "PartialOrd", "Eq", "Ord", "Hash"],
             "derive": [],
             "struct_fields": [
               {

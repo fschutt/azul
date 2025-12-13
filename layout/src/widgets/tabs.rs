@@ -1184,6 +1184,7 @@ impl Default for TabHeader {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TabHeaderState {
     pub active_tab: usize,

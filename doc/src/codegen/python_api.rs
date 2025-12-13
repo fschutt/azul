@@ -239,14 +239,28 @@ fn has_sync_trait(class_data: &ClassData) -> bool {
     false
 }
 
+/// Check if a class has any mutable methods (&mut self)
+/// In PyO3 0.27+, unsendable implies frozen which forbids &mut self methods
+fn class_has_mutable_methods(class_data: &ClassData) -> bool {
+    if let Some(functions) = &class_data.functions {
+        for func in functions.values() {
+            if func.fn_args.iter().any(|arg| {
+                arg.get("self").map(|s| s.contains("mut")).unwrap_or(false)
+            }) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Check if a type needs #[pyclass(unsendable)]
-/// Almost all Azul types need this because they contain nested types with raw pointers
+/// All Azul types need this because they contain nested types with raw pointers
 /// (AzString contains AzU8Vec which has *const u8, etc.)
-/// The simplest and safest approach is to mark ALL types as unsendable
-/// because determining transitively if a type contains pointers is complex
+/// In PyO3 0.27+, unsendable implies frozen - we must skip &mut self methods
 fn needs_unsendable(_class_data: &ClassData) -> bool {
-    // All types should be unsendable because they may contain
-    // nested types with pointers (transitively through AzString, AzU8Vec, etc.)
+    // All types must be unsendable because they transitively contain pointers
+    // The &mut self methods will be skipped in method generation
     true
 }
 
@@ -557,8 +571,24 @@ fn struct_has_forbidden_field(class_data: &ClassData, version_data: &VersionData
     false
 }
 
+/// Check if a function takes &mut self
+/// In PyO3 0.27+, unsendable classes are frozen and cannot have &mut self methods
+fn function_takes_mut_self(fn_data: &FunctionData) -> bool {
+    for arg_map in &fn_data.fn_args {
+        if let Some(self_type) = arg_map.get("self") {
+            return self_type == "refmut" || self_type == "mut value";
+        }
+    }
+    false
+}
+
 /// Check if a function has arguments with types that can't be used in Python
 fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionData) -> bool {
+    // Skip &mut self methods - PyO3 0.27+ makes unsendable classes frozen
+    if function_takes_mut_self(fn_data) {
+        return true;
+    }
+
     for arg_map in &fn_data.fn_args {
         for (name, arg_type) in arg_map {
             if name == "self" {
@@ -612,8 +642,26 @@ fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionD
     false
 }
 
+/// Types that should be wrapped as opaque types (no field getters/setters)
+/// These contain callbacks or raw pointers that can't be exposed to Python
+/// but need to exist as pyclass types so they can be used in enums
+const OPAQUE_WRAPPER_TYPES: &[&str] = &[
+    "StringMenuItem",   // Contains OptionCoreMenuCallback
+    "InstantPtr",       // Contains callback function pointers and *const c_void
+];
+
+/// Check if a type should be generated as an opaque wrapper
+fn is_opaque_wrapper_type(class_name: &str) -> bool {
+    OPAQUE_WRAPPER_TYPES.contains(&class_name)
+}
+
 /// Should this type be completely skipped for Python binding generation?
 fn should_skip_type(class_name: &str, class_data: &ClassData, version_data: &VersionData) -> bool {
+    // Opaque wrapper types are NOT skipped - they get special generation
+    if is_opaque_wrapper_type(class_name) {
+        return false;
+    }
+    
     // Skip types that are manually implemented in python-patch/api.rs
     // These have complex Python integration (callbacks, GC, etc.)
     const MANUAL_TYPES: &[&str] = &[
@@ -829,14 +877,14 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     // NOTE: AzU8VecDestructor and AzStringVecDestructor are imported in python-patch/api.rs
     // NOTE: Callback+data pair types (IFrameNode, ButtonOnClick, etc.) are NOT imported
     //       because we generate Python wrapper types for them
+    // NOTE: AzStringMenuItem and AzInstantPtr are generated as opaque wrapper types
     code.push_str("// Import internal types from C-API (destructors, NodeData, etc.)\r\n");
     code.push_str("use crate::ffi::dll::{\r\n");
     code.push_str("    // Types used in struct fields that are not generated\r\n");
     code.push_str("    AzNodeData,\r\n");
     code.push_str("    AzCoreCallbackData,\r\n");
-    code.push_str("    AzStringMenuItem,\r\n");
-    code.push_str("    AzFontRef,\r\n");
-    code.push_str("    AzInstantPtr,\r\n");
+    // Removed: AzStringMenuItem - generated as opaque wrapper
+    // Removed: AzInstantPtr - generated as opaque wrapper
     code.push_str("    // GL VecRef types used in Gl methods\r\n");
     code.push_str("    AzGLenumVecRef,\r\n");
     code.push_str("    AzI32VecRef,\r\n");
@@ -1145,6 +1193,26 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code
 }
 
+/// Generate an opaque wrapper struct for types with callbacks or raw pointers
+/// These types wrap the C-API type directly without exposing fields
+fn generate_opaque_wrapper_struct(class_name: &str, prefix: &str) -> String {
+    let struct_name = format!("{}{}", prefix, class_name);
+    let c_api_type = format!("crate::ffi::dll::Az{}", class_name);
+    
+    let mut code = String::new();
+    code.push_str(&format!("// Opaque wrapper for {} (contains callbacks/pointers)\r\n", class_name));
+    code.push_str(&format!(
+        "#[pyclass(name = \"{}\", module = \"azul\", unsendable)]\r\n",
+        class_name
+    ));
+    code.push_str("#[repr(transparent)]\r\n");
+    code.push_str(&format!("pub struct {} {{\r\n", struct_name));
+    code.push_str(&format!("    pub inner: {},\r\n", c_api_type));
+    code.push_str("}\r\n\r\n");
+    
+    code
+}
+
 // struct generation
 fn generate_struct_definition(
     class_name: &str,
@@ -1154,6 +1222,11 @@ fn generate_struct_definition(
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
+
+    // Check if this is an opaque wrapper type
+    if is_opaque_wrapper_type(class_name) {
+        return generate_opaque_wrapper_struct(class_name, prefix);
+    }
 
     // Determine pyclass attributes
     let unsendable = if needs_unsendable(class_data) {
@@ -1226,6 +1299,32 @@ fn generate_struct_definition(
     code
 }
 
+/// Check if an enum variant type should be skipped (callbacks, VecRef types, recursive types)
+fn should_skip_enum_variant_type(variant_type: &str, version_data: &VersionData) -> bool {
+    // Look up the variant type in api.json
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, variant_type) {
+        if let Some(variant_class_data) = get_class(version_data, module, variant_type) {
+            // Skip callback typedefs - can't be used in Python
+            if is_callback_typedef(variant_class_data) {
+                return true;
+            }
+            // Skip VecRef types - raw pointer wrappers
+            if is_vec_ref_type(variant_class_data) {
+                return true;
+            }
+        }
+    }
+    // Skip recursive types
+    if RECURSIVE_TYPES.contains(&variant_type) {
+        return true;
+    }
+    // Skip VecRef types by name pattern
+    if is_vec_ref_type_by_name(variant_type) {
+        return true;
+    }
+    false
+}
+
 fn generate_enum_definition(
     class_name: &str,
     class_data: &ClassData,
@@ -1257,28 +1356,10 @@ fn generate_enum_definition(
                 for (_, variant_data) in variant_map {
                     if let Some(ref variant_type) = variant_data.r#type {
                         // Check if this variant type should be skipped
-                        // BUT: Manual types like String should NOT be skipped as variant types
-                        // because they exist as crate::ffi::dll::AzString
-                        let should_skip = if let Some((module, _)) =
-                            search_for_class_by_class_name(version_data, variant_type)
-                        {
-                            if let Some(variant_class_data) =
-                                get_class(version_data, module, variant_type)
-                            {
-                                // Skip callback typedefs, VecRef, recursive types, but NOT manual
-                                // types
-                                is_callback_typedef(variant_class_data)
-                                    || is_vec_ref_type(variant_class_data)
-                                    || RECURSIVE_TYPES.contains(&variant_type.as_str())
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-                        if !should_skip {
-                            variant_count += 1;
+                        if should_skip_enum_variant_type(variant_type, version_data) {
+                            continue;
                         }
+                        variant_count += 1;
                     } else {
                         // Unit variant always counts
                         variant_count += 1;
@@ -1304,23 +1385,7 @@ fn generate_enum_definition(
             for variant_map in enum_fields {
                 for (variant_name, variant_data) in variant_map {
                     if let Some(ref variant_type) = variant_data.r#type {
-                        // Same skip logic as above
-                        let should_skip = if let Some((module, _)) =
-                            search_for_class_by_class_name(version_data, variant_type)
-                        {
-                            if let Some(variant_class_data) =
-                                get_class(version_data, module, variant_type)
-                            {
-                                is_callback_typedef(variant_class_data)
-                                    || is_vec_ref_type(variant_class_data)
-                                    || RECURSIVE_TYPES.contains(&variant_type.as_str())
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-                        if should_skip {
+                        if should_skip_enum_variant_type(variant_type, version_data) {
                             continue;
                         }
                         let py_type = rust_type_to_python_type(variant_type, prefix, version_data);
@@ -1360,6 +1425,17 @@ fn generate_enum_definition(
 fn generate_clone_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
+
+    // Handle opaque wrapper types specially
+    if is_opaque_wrapper_type(class_name) {
+        // For opaque wrappers, clone the inner C-API type
+        code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
+        code.push_str("    fn clone(&self) -> Self {\r\n");
+        code.push_str("        Self { inner: self.inner.clone() }\r\n");
+        code.push_str("    }\r\n");
+        code.push_str("}\r\n\r\n");
+        return code;
+    }
 
     // Check if type has custom Clone (needs C-API deepCopy function)
     let has_custom_clone = class_data.has_custom_clone();
@@ -1433,6 +1509,16 @@ fn generate_debug_impl(class_name: &str, class_data: &ClassData, prefix: &str) -
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
 
+    // Handle opaque wrapper types specially
+    if is_opaque_wrapper_type(class_name) {
+        code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
+        code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
+        code.push_str(&format!("        write!(f, \"{}(opaque)\")\r\n", class_name));
+        code.push_str("    }\r\n");
+        code.push_str("}\r\n\r\n");
+        return code;
+    }
+
     // Check if Debug is derived in api.json
     let has_derive_debug = class_data
         .derive
@@ -1474,6 +1560,12 @@ fn generate_drop_impl(class_name: &str, class_data: &ClassData, prefix: &str) ->
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
 
+    // Handle opaque wrapper types specially - delegate to inner's Drop
+    if is_opaque_wrapper_type(class_name) {
+        // No explicit drop needed - inner type handles its own drop
+        return code;
+    }
+
     // Check if type has custom destructor
     let has_custom_destructor = class_data.has_custom_drop();
 
@@ -1509,6 +1601,19 @@ fn generate_struct_pymethods(
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
+
+    // Handle opaque wrapper types - only generate __str__ and __repr__
+    if is_opaque_wrapper_type(class_name) {
+        code.push_str(&format!("#[pymethods]\r\nimpl {} {{\r\n", struct_name));
+        code.push_str("    fn __str__(&self) -> String {\r\n");
+        code.push_str(&format!("        format!(\"{}(opaque)\")\r\n", class_name));
+        code.push_str("    }\r\n\r\n");
+        code.push_str("    fn __repr__(&self) -> String {\r\n");
+        code.push_str("        self.__str__()\r\n");
+        code.push_str("    }\r\n");
+        code.push_str("}\r\n\r\n");
+        return code;
+    }
 
     code.push_str(&format!("#[pymethods]\r\nimpl {} {{\r\n", struct_name));
 
@@ -2227,12 +2332,12 @@ fn generate_python_module(
 }
 
 // helper functions
-/// Types that are skipped and should use the C-API type directly
-/// This must match the MANUAL_TYPES list in should_skip_type
-const CAPI_TYPES: &[&str] = &[
-    "String",    // Use crate::ffi::dll::AzString
-    "U8Vec",     // Use crate::ffi::dll::AzU8Vec
-    "StringVec", // Use crate::ffi::dll::AzStringVec
+/// Types that are imported from C-API but have manual IntoPyObject/FromPyObject impls
+/// They should use just Az{type} without path since they're already imported
+const IMPORTED_CAPI_TYPES: &[&str] = &[
+    "String",    // AzString - imported, has IntoPyObject impl
+    "U8Vec",     // AzU8Vec - imported, has IntoPyObject impl
+    "StringVec", // AzStringVec - imported, has IntoPyObject impl
 ];
 
 /// Convert a Rust type to Python-compatible type name with explicit ref_kind
@@ -2257,16 +2362,29 @@ fn rust_type_to_python_type_with_ref(
 /// Convert a Rust type to Python-compatible type name
 /// Resolves type aliases to their underlying types
 fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &VersionData) -> String {
+    // Convert *const c_void and *mut c_void to usize for Python compatibility
+    let trimmed = rust_type.trim();
+    if trimmed == "*const c_void" || trimmed == "* const c_void" 
+        || trimmed == "*mut c_void" || trimmed == "* mut c_void" {
+        return "usize".to_string();
+    }
+
     let (ptr_prefix, base_type, array_suffix) = analyze_type(rust_type);
+
+    // If the base type is c_void with a pointer prefix, convert to usize
+    if base_type == "c_void" && (ptr_prefix.contains("const") || ptr_prefix.contains("mut")) {
+        return "usize".to_string();
+    }
 
     if is_primitive_arg(&base_type) {
         return format!("{}{}{}", ptr_prefix, base_type, array_suffix);
     }
 
-    // For types that are skipped and use C-API directly, use full path
-    if CAPI_TYPES.contains(&base_type.as_str()) {
+    // For types that are imported from C-API with IntoPyObject impls, use just Az{type}
+    // without the crate::ffi::dll:: path since they're already imported
+    if IMPORTED_CAPI_TYPES.contains(&base_type.as_str()) {
         return format!(
-            "{}crate::ffi::dll::Az{}{}",
+            "{}Az{}{}",
             ptr_prefix, base_type, array_suffix
         );
     }
@@ -2277,6 +2395,12 @@ fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &Versio
             if let Some(ref type_alias) = class_data.type_alias {
                 // Only resolve non-generic aliases
                 if type_alias.generic_args.is_empty() {
+                    // Check if this is an alias to c_void with pointer - convert to usize
+                    if type_alias.target == "c_void" && 
+                        (type_alias.ref_kind == RefKind::ConstPtr || type_alias.ref_kind == RefKind::MutPtr) {
+                        return "usize".to_string();
+                    }
+                    
                     // Apply ref_kind from type_alias
                     let alias_ptr_prefix = match type_alias.ref_kind {
                         RefKind::ConstPtr => "*const ",
