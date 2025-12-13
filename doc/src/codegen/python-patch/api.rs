@@ -340,7 +340,7 @@ extern "C" fn invoke_py_layout_callback(
     };
 
     // Call the Python layout callback
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let info_py: AzLayoutCallbackInfo = unsafe { mem::transmute(info) };
         
         match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
@@ -387,7 +387,7 @@ extern "C" fn invoke_py_callback(
         None => return default,
     };
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let info_py: AzCallbackInfo = unsafe { mem::transmute(info) };
         
         match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
@@ -430,7 +430,7 @@ extern "C" fn invoke_py_iframe(
         None => return default,
     };
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let info_py: AzIFrameCallbackInfo = unsafe { mem::transmute(info) };
         
         match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {
@@ -474,7 +474,7 @@ impl AzApp {
     #[new]
     fn new(data: Py<PyAny>, layout_callback: Py<PyAny>) -> PyResult<Self> {
         // Verify callback is callable
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             if !layout_callback.bind(py).is_callable() {
                 return Err(PyException::new_err("layout_callback must be callable"));
             }

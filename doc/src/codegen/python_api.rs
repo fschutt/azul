@@ -1480,15 +1480,19 @@ fn generate_debug_impl(class_name: &str, class_data: &ClassData, prefix: &str) -
         .map(|c| c.iter().any(|t| t == "Debug"))
         .unwrap_or(false);
 
-    // If type has Debug via derive or custom_impl, use transmute to C-API type
-    if has_derive_debug || has_custom_debug {
+    // Get external path if available
+    let external_path = class_data.external.as_deref();
+
+    // If type has Debug via derive or custom_impl AND has external path, transmute to external type
+    if (has_derive_debug || has_custom_debug) && external_path.is_some() {
+        let ext_path = external_path.unwrap();
         code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
         code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
         code.push_str(&format!(
-            "        let capi: &{} = unsafe {{ mem::transmute(self) }};\r\n",
-            type_name
+            "        let external: &{} = unsafe {{ mem::transmute(self) }};\r\n",
+            ext_path
         ));
-        code.push_str("        core::fmt::Debug::fmt(capi, f)\r\n");
+        code.push_str("        core::fmt::Debug::fmt(external, f)\r\n");
         code.push_str("    }\r\n");
         code.push_str("}\r\n\r\n");
     } else {

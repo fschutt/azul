@@ -1032,16 +1032,30 @@ fn generate_struct_definition(
         }
 
         // Generate impl Default for memtest
-        if all_manual_traits.contains("Default") {
+        // For types with an external path AND custom Default impl, delegate to the real Default
+        // This avoids UB from mem::zeroed() on types containing function pointers
+        let has_external = struct_meta.external.is_some();
+        let has_custom_default = struct_meta.custom_impls.contains(&"Default".to_string());
+        if all_manual_traits.contains("Default") && !is_generic_type {
             code.push_str(&format!(
                 "{}impl{} Default for {} {{\n",
                 indent_str, impl_generics, type_with_generics
             ));
             code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
-            code.push_str(&format!(
-                "{}        unsafe {{ core::mem::zeroed() }}\n",
-                indent_str
-            ));
+            if has_external && has_custom_default {
+                // Delegate to the real Default implementation via transmute
+                // This is safe because both types have identical layout (repr(C))
+                code.push_str(&format!(
+                    "{}        unsafe {{ core::mem::transmute::<{}, {}>({}::default()) }}\n",
+                    indent_str, external_path, struct_name, external_path
+                ));
+            } else {
+                // For non-external types, use zeroed() (these shouldn't contain function pointers)
+                code.push_str(&format!(
+                    "{}        unsafe {{ core::mem::zeroed() }}\n",
+                    indent_str
+                ));
+            }
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
