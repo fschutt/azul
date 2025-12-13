@@ -243,43 +243,7 @@ fn extract_type_name_fast(line: &str) -> Option<String> {
 /// Check if a name is a Rust keyword (fast inline check)
 #[inline]
 fn is_reserved(name: &str) -> bool {
-    matches!(
-        name,
-        "Self"
-            | "self"
-            | "super"
-            | "crate"
-            | "where"
-            | "impl"
-            | "trait"
-            | "for"
-            | "as"
-            | "use"
-            | "mod"
-            | "pub"
-            | "const"
-            | "static"
-            | "extern"
-            | "fn"
-            | "let"
-            | "mut"
-            | "ref"
-            | "if"
-            | "else"
-            | "match"
-            | "loop"
-            | "while"
-            | "break"
-            | "continue"
-            | "return"
-            | "async"
-            | "await"
-            | "move"
-            | "dyn"
-            | "unsafe"
-            | "true"
-            | "false"
-    )
+    super::workspace::is_reserved_keyword(name)
 }
 
 #[cfg(test)]

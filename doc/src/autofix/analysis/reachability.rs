@@ -21,6 +21,7 @@ pub struct ReachabilityAnalysis {
 /// Find all unused types in the API
 ///
 /// A type is "used" if:
+/// 
 /// 1. It appears in a public function signature (parameter or return type)
 /// 2. It's a field type of a used struct
 /// 3. It's a variant type of a used enum
@@ -49,7 +50,10 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
     let reachable = bfs_reachability(&entry_points, &type_deps);
 
     // Step 4: Unreachable = All - Reachable
-    let unreachable: HashSet<String> = all_types.difference(&reachable).cloned().collect();
+    let unreachable: HashSet<String> = all_types
+        .difference(&reachable)
+        .cloned()
+        .collect();
 
     ReachabilityAnalysis {
         reachable,
@@ -154,66 +158,6 @@ fn extract_types_from_string(parser: &TypeParser, type_str: &str, out: &mut Hash
 /// - Types that appear in functions without "internal_only" flag
 fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<String> {
     let mut entry_points = HashSet::new();
-
-    // Critical types that are always entry points (used externally)
-    let critical_types = [
-        // Core UI types
-        "Dom",
-        "StyledDom",
-        "NodeData",
-        "DomNodeId",
-        // Callbacks
-        "Callback",
-        "IFrameCallback",
-        "RenderImageCallback",
-        "TimerCallback",
-        "ThreadCallback",
-        "WriteBackCallback",
-        // Rendering
-        "Gl",
-        "Texture",
-        "RawImage",
-        "ImageRef",
-        // System interaction
-        "Clipboard",
-        "SystemClipboard",
-        "File",
-        // Resources
-        "ImageCache",
-        "FontCache",
-        // Window
-        "WindowState",
-        "Monitor",
-        // CSS
-        "Css",
-        "CssProperty",
-        "CssPropertyValue",
-        // Events
-        "CallbackInfo",
-        "HitTest",
-        // Animations
-        "Animation",
-        "AnimationRepeat",
-        // Menus
-        "Menu",
-        "MenuItem",
-        // Widgets
-        "Button",
-        "CheckBox",
-        "TextInput",
-        "NumberInput",
-        "Slider",
-        "Dropdown",
-        "ColorInput",
-        "ProgressBar",
-        "Frame",
-        "TabContainer",
-        "TabHeader",
-    ];
-
-    for ty in &critical_types {
-        entry_points.insert(ty.to_string());
-    }
 
     // Add types from public functions
     if let Some(classes) = api.get("classes").and_then(|v| v.as_object()) {

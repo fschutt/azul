@@ -20,7 +20,12 @@ pub struct ApplyResult {
 }
 
 /// Apply patches to api.json
-pub fn apply_patches(api_json_path: &Path, patches: &PatchSet, dry_run: bool) -> ApplyResult {
+pub fn apply_patches(
+    api_json_path: &Path, 
+    patches: &PatchSet, 
+    dry_run: bool
+) -> ApplyResult {
+    
     let mut result = ApplyResult {
         path_corrections_applied: 0,
         types_removed: 0,

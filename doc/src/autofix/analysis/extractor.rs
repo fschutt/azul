@@ -47,10 +47,12 @@ impl ApiTypeExtractor {
     /// Extract types from fn_args using strongly typed parsing
     ///
     /// fn_args MUST be an array of objects, where each object has exactly one key-value pair:
+    /// 
     /// - For self: { "self": "ref" | "refmut" | "value" }
     /// - For args: { "arg_name": "TypeName" }
     ///
     /// INVALID formats that will be rejected:
+    /// 
     /// - Flat object: { "self": "ref", "arg": "Type" } (wrong: unordered!)
     /// - Mixed keys: { "arg": "Type", "doc": "description" } (wrong: doc is not a type)
     pub fn extract_from_fn_args_array(&mut self, args: &[serde_json::Value]) {

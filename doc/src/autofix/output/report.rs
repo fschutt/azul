@@ -37,42 +37,45 @@ pub struct PathCorrectionEntry {
     pub reason: String,
 }
 
-/// Generate a report from analysis results
-pub fn generate_report(patches: &PatchSet, reachability: Option<&ReachabilityAnalysis>) -> Report {
-    let path_corrections: Vec<PathCorrectionEntry> = patches
-        .path_corrections
-        .values()
-        .map(|c| PathCorrectionEntry {
-            type_name: c.type_name.clone(),
-            from: c.current_path.clone(),
-            to: c.correct_path.clone(),
-            reason: c.reason.clone(),
-        })
-        .collect();
-
-    let types_to_remove: Vec<String> = patches.types_to_remove.iter().cloned().collect();
-
-    let total_types = reachability
-        .map(|r| r.reachable.len() + r.unreachable.len())
-        .unwrap_or(0);
-
-    Report {
-        summary: ReportSummary {
-            total_types_analyzed: total_types,
-            path_corrections_count: path_corrections.len(),
-            types_to_remove_count: types_to_remove.len(),
-            duplicates_skipped: patches.duplicates_skipped,
-            warnings_count: 0,
-            errors_count: 0,
-        },
-        path_corrections,
-        types_to_remove,
-        warnings: Vec::new(),
-        errors: Vec::new(),
-    }
-}
-
 impl Report {
+
+    /// Generate a report from analysis results
+    pub fn new(
+        patches: &PatchSet, 
+        reachability: Option<&ReachabilityAnalysis>
+    ) -> Self {
+        let path_corrections: Vec<PathCorrectionEntry> = patches
+            .path_corrections
+            .values()
+            .map(|c| PathCorrectionEntry {
+                type_name: c.type_name.clone(),
+                from: c.current_path.clone(),
+                to: c.correct_path.clone(),
+                reason: c.reason.clone(),
+            })
+            .collect();
+
+        let types_to_remove: Vec<String> = patches.types_to_remove.iter().cloned().collect();
+
+        let total_types = reachability
+            .map(|r| r.reachable.len() + r.unreachable.len())
+            .unwrap_or(0);
+
+        Report {
+            summary: ReportSummary {
+                total_types_analyzed: total_types,
+                path_corrections_count: path_corrections.len(),
+                types_to_remove_count: types_to_remove.len(),
+                duplicates_skipped: patches.duplicates_skipped,
+                warnings_count: 0,
+                errors_count: 0,
+            },
+            path_corrections,
+            types_to_remove,
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
     /// Generate a text report
     pub fn to_text(&self) -> String {
         let mut out = String::new();
@@ -150,7 +153,7 @@ mod tests {
             reason: "blacklisted crate".to_string(),
         });
 
-        let report = generate_report(&patches, None);
+        let report = Report::new(&patches, None);
 
         assert_eq!(report.summary.path_corrections_count, 1);
         assert!(!report.path_corrections.is_empty());
@@ -166,7 +169,7 @@ mod tests {
             reason: "test".to_string(),
         });
 
-        let report = generate_report(&patches, None);
+        let report = Report::new(&patches, None);
         let text = report.to_text();
 
         assert!(text.contains("Path Corrections"));

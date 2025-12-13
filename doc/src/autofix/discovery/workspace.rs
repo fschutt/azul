@@ -251,7 +251,8 @@ fn extract_identifier(s: &str) -> Option<String> {
 }
 
 /// Check if a name is a Rust keyword
-fn is_reserved_keyword(name: &str) -> bool {
+#[inline]
+pub fn is_reserved_keyword(name: &str) -> bool {
     matches!(
         name,
         "Self"

@@ -6,4 +6,4 @@ pub mod apply;
 pub mod report;
 
 pub use apply::{apply_patches, ApplyResult};
-pub use report::{generate_report, Report};
+pub use report::Report;
