@@ -643,35 +643,51 @@ pub fn get_dom_path(
 ///
 /// The event can be stopped at any point via `stopPropagation()` or
 /// `stopImmediatePropagation()`.
-///
-/// # Arguments
-/// * `event` - The synthetic event to propagate
-/// * `node_hierarchy` - The DOM tree structure
-/// * `callbacks` - Map of node IDs to their registered event callbacks
-///
-/// # Returns
-/// `PropagationResult` containing callbacks to invoke and default action state
 pub fn propagate_event(
     event: &mut SyntheticEvent,
     node_hierarchy: &crate::id::NodeHierarchy,
     callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
 ) -> PropagationResult {
-    let mut result = PropagationResult {
-        callbacks_to_invoke: Vec::new(),
-        default_prevented: false,
-    };
-
-    // Get path from root to target
     let path = get_dom_path(node_hierarchy, event.target.node);
     if path.is_empty() {
-        return result;
+        return PropagationResult::default();
     }
 
+    let ancestors = &path[..path.len().saturating_sub(1)];
+    let target_node_id = *path.last().unwrap();
+
+    let mut result = PropagationResult::default();
+
     // Phase 1: Capture (root → target)
-    event.phase = EventPhase::Capture;
-    for &node_id in &path[..path.len().saturating_sub(1)] {
-        if event.stopped_immediate {
-            break;
+    propagate_phase(event, ancestors.iter().copied(), EventPhase::Capture, callbacks, &mut result);
+
+    // Phase 2: Target
+    if !event.stopped {
+        propagate_target_phase(event, target_node_id, callbacks, &mut result);
+    }
+
+    // Phase 3: Bubble (target → root)
+    if !event.stopped {
+        propagate_phase(event, ancestors.iter().rev().copied(), EventPhase::Bubble, callbacks, &mut result);
+    }
+
+    result.default_prevented = event.prevented_default;
+    result
+}
+
+/// Process a single propagation phase (Capture or Bubble)
+fn propagate_phase(
+    event: &mut SyntheticEvent,
+    nodes: impl Iterator<Item = NodeId>,
+    phase: EventPhase,
+    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
+    result: &mut PropagationResult,
+) {
+    event.phase = phase;
+
+    for node_id in nodes {
+        if event.stopped_immediate || event.stopped {
+            return;
         }
 
         event.current_target = DomNodeId {
@@ -679,79 +695,51 @@ pub fn propagate_event(
             node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
         };
 
-        if let Some(node_callbacks) = callbacks.get(&node_id) {
-            for filter in node_callbacks {
-                // Check if this filter matches the current phase
-                if matches_filter_phase(filter, event, EventPhase::Capture) {
-                    result.callbacks_to_invoke.push((node_id, *filter));
+        collect_matching_callbacks(event, node_id, phase, callbacks, result);
+    }
+}
 
-                    if event.stopped_immediate {
-                        break;
-                    }
-                }
-            }
-        }
+/// Process the target phase
+fn propagate_target_phase(
+    event: &mut SyntheticEvent,
+    target_node_id: NodeId,
+    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
+    result: &mut PropagationResult,
+) {
+    event.phase = EventPhase::Target;
+    event.current_target = event.target;
 
-        if event.stopped {
-            break;
+    collect_matching_callbacks(event, target_node_id, EventPhase::Target, callbacks, result);
+}
+
+/// Collect callbacks that match the current phase for a node
+fn collect_matching_callbacks(
+    event: &SyntheticEvent,
+    node_id: NodeId,
+    phase: EventPhase,
+    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
+    result: &mut PropagationResult,
+) {
+    let Some(node_callbacks) = callbacks.get(&node_id) else {
+        return;
+    };
+
+    let matching = node_callbacks
+        .iter()
+        .take_while(|_| !event.stopped_immediate)
+        .filter(|filter| matches_filter_phase(filter, event, phase))
+        .map(|filter| (node_id, *filter));
+
+    result.callbacks_to_invoke.extend(matching);
+}
+
+impl Default for PropagationResult {
+    fn default() -> Self {
+        Self {
+            callbacks_to_invoke: Vec::new(),
+            default_prevented: false,
         }
     }
-
-    // Phase 2: Target
-    if !event.stopped && !path.is_empty() {
-        event.phase = EventPhase::Target;
-        let target_node_id = *path.last().unwrap();
-        event.current_target = event.target;
-
-        if let Some(node_callbacks) = callbacks.get(&target_node_id) {
-            for filter in node_callbacks {
-                if event.stopped_immediate {
-                    break;
-                }
-
-                // At target phase, fire both capture and bubble listeners
-                if matches_filter_phase(filter, event, EventPhase::Target) {
-                    result.callbacks_to_invoke.push((target_node_id, *filter));
-                }
-            }
-        }
-    }
-
-    // Phase 3: Bubble (target → root)
-    if !event.stopped {
-        event.phase = EventPhase::Bubble;
-
-        // Iterate in reverse (excluding target, which was already handled)
-        for &node_id in path[..path.len().saturating_sub(1)].iter().rev() {
-            if event.stopped_immediate {
-                break;
-            }
-
-            event.current_target = DomNodeId {
-                dom: event.target.dom,
-                node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-            };
-
-            if let Some(node_callbacks) = callbacks.get(&node_id) {
-                for filter in node_callbacks {
-                    if matches_filter_phase(filter, event, EventPhase::Bubble) {
-                        result.callbacks_to_invoke.push((node_id, *filter));
-
-                        if event.stopped_immediate {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if event.stopped {
-                break;
-            }
-        }
-    }
-
-    result.default_prevented = event.prevented_default;
-    result
 }
 
 /// Check if an event filter matches the given event in the current phase.
@@ -1014,20 +1002,7 @@ fn matches_window_filter(
 
 /// Detect lifecycle events by comparing old and new DOM state.
 ///
-/// This function analyzes the differences between two DOM trees and their
-/// layouts to generate lifecycle events (Mount, Unmount, Resize).
-///
-/// # Arguments
-/// * `old_dom_id` - DomId of the old DOM (for unmount events)
-/// * `new_dom_id` - DomId of the new DOM (for mount events)
-/// * `old_hierarchy` - Old DOM node hierarchy
-/// * `new_hierarchy` - New DOM node hierarchy
-/// * `old_layout` - Old layout rectangles (optional)
-/// * `new_layout` - New layout rectangles (optional)
-/// * `timestamp` - Current time from system_callbacks.get_system_time_fn.cb()
-///
-/// # Returns
-/// Vector of SyntheticEvents for lifecycle changes
+/// Generates Mount, Unmount, and Resize events by comparing DOM hierarchies.
 pub fn detect_lifecycle_events(
     old_dom_id: DomId,
     new_dom_id: DomId,
@@ -1037,119 +1012,133 @@ pub fn detect_lifecycle_events(
     new_layout: Option<&BTreeMap<NodeId, LogicalRect>>,
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
+    let old_nodes = collect_node_ids(old_hierarchy);
+    let new_nodes = collect_node_ids(new_hierarchy);
+
     let mut events = Vec::new();
 
-    // Collect node IDs from both hierarchies
-    let old_nodes: BTreeSet<NodeId> = old_hierarchy
-        .map(|h| h.as_ref().linear_iter().map(|id| id).collect())
-        .unwrap_or_default();
-
-    let new_nodes: BTreeSet<NodeId> = new_hierarchy
-        .map(|h| h.as_ref().linear_iter().map(|id| id).collect())
-        .unwrap_or_default();
-
-    // 1. Detect newly mounted nodes (in new but not in old)
-    if let Some(new_layout) = new_layout {
-        for node_id in new_nodes.difference(&old_nodes) {
-            let current_bounds = new_layout
-                .get(node_id)
-                .copied()
-                .unwrap_or(LogicalRect::zero());
-
-            events.push(SyntheticEvent {
-                event_type: EventType::Mount,
-                source: EventSource::Lifecycle,
-                phase: EventPhase::Target,
-                target: DomNodeId {
-                    dom: new_dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
-                current_target: DomNodeId {
-                    dom: new_dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
-                timestamp: timestamp.clone(),
-                data: EventData::Lifecycle(LifecycleEventData {
-                    reason: LifecycleReason::InitialMount,
-                    previous_bounds: None,
-                    current_bounds,
-                }),
-                stopped: false,
-                stopped_immediate: false,
-                prevented_default: false,
-            });
+    // Mount events: nodes in new but not in old
+    if let Some(layout) = new_layout {
+        for &node_id in new_nodes.difference(&old_nodes) {
+            events.push(create_mount_event(node_id, new_dom_id, layout, &timestamp));
         }
     }
 
-    // 2. Detect unmounted nodes (in old but not in new)
-    if let Some(old_layout) = old_layout {
-        for node_id in old_nodes.difference(&new_nodes) {
-            let previous_bounds = old_layout
-                .get(node_id)
-                .copied()
-                .unwrap_or(LogicalRect::zero());
-
-            events.push(SyntheticEvent {
-                event_type: EventType::Unmount,
-                source: EventSource::Lifecycle,
-                phase: EventPhase::Target,
-                target: DomNodeId {
-                    dom: old_dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
-                current_target: DomNodeId {
-                    dom: old_dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
-                timestamp: timestamp.clone(),
-                data: EventData::Lifecycle(LifecycleEventData {
-                    reason: LifecycleReason::InitialMount, // Will be cleaned up
-                    previous_bounds: Some(previous_bounds),
-                    current_bounds: LogicalRect::zero(),
-                }),
-                stopped: false,
-                stopped_immediate: false,
-                prevented_default: false,
-            });
+    // Unmount events: nodes in old but not in new
+    if let Some(layout) = old_layout {
+        for &node_id in old_nodes.difference(&new_nodes) {
+            events.push(create_unmount_event(node_id, old_dom_id, layout, &timestamp));
         }
     }
 
-    // 3. Detect resized nodes (in both, but bounds changed)
-    if let (Some(old_layout), Some(new_layout)) = (old_layout, new_layout) {
-        for node_id in old_nodes.intersection(&new_nodes) {
-            if let (Some(&old_bounds), Some(&new_bounds)) =
-                (old_layout.get(node_id), new_layout.get(node_id))
-            {
-                // Check if size changed (position changes don't trigger resize)
-                if old_bounds.size != new_bounds.size {
-                    events.push(SyntheticEvent {
-                        event_type: EventType::Resize,
-                        source: EventSource::Lifecycle,
-                        phase: EventPhase::Target,
-                        target: DomNodeId {
-                            dom: new_dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                        },
-                        current_target: DomNodeId {
-                            dom: new_dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                        },
-                        timestamp: timestamp.clone(),
-                        data: EventData::Lifecycle(LifecycleEventData {
-                            reason: LifecycleReason::Resize,
-                            previous_bounds: Some(old_bounds),
-                            current_bounds: new_bounds,
-                        }),
-                        stopped: false,
-                        stopped_immediate: false,
-                        prevented_default: false,
-                    });
-                }
+    // Resize events: nodes in both with changed bounds
+    if let (Some(old_l), Some(new_l)) = (old_layout, new_layout) {
+        for &node_id in old_nodes.intersection(&new_nodes) {
+            if let Some(ev) = create_resize_event(node_id, new_dom_id, old_l, new_l, &timestamp) {
+                events.push(ev);
             }
         }
     }
 
     events
+}
+
+fn collect_node_ids(hierarchy: Option<&crate::id::NodeHierarchy>) -> BTreeSet<NodeId> {
+    hierarchy
+        .map(|h| h.as_ref().linear_iter().collect())
+        .unwrap_or_default()
+}
+
+fn create_lifecycle_event(
+    event_type: EventType,
+    node_id: NodeId,
+    dom_id: DomId,
+    timestamp: &Instant,
+    data: LifecycleEventData,
+) -> SyntheticEvent {
+    let dom_node_id = DomNodeId {
+        dom: dom_id,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+    };
+    SyntheticEvent {
+        event_type,
+        source: EventSource::Lifecycle,
+        phase: EventPhase::Target,
+        target: dom_node_id,
+        current_target: dom_node_id,
+        timestamp: timestamp.clone(),
+        data: EventData::Lifecycle(data),
+        stopped: false,
+        stopped_immediate: false,
+        prevented_default: false,
+    }
+}
+
+fn create_mount_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    layout: &BTreeMap<NodeId, LogicalRect>,
+    timestamp: &Instant,
+) -> SyntheticEvent {
+    let current_bounds = layout.get(&node_id).copied().unwrap_or(LogicalRect::zero());
+    create_lifecycle_event(
+        EventType::Mount,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::InitialMount,
+            previous_bounds: None,
+            current_bounds,
+        },
+    )
+}
+
+fn create_unmount_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    layout: &BTreeMap<NodeId, LogicalRect>,
+    timestamp: &Instant,
+) -> SyntheticEvent {
+    let previous_bounds = layout.get(&node_id).copied().unwrap_or(LogicalRect::zero());
+    create_lifecycle_event(
+        EventType::Unmount,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::InitialMount,
+            previous_bounds: Some(previous_bounds),
+            current_bounds: LogicalRect::zero(),
+        },
+    )
+}
+
+fn create_resize_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    old_layout: &BTreeMap<NodeId, LogicalRect>,
+    new_layout: &BTreeMap<NodeId, LogicalRect>,
+    timestamp: &Instant,
+) -> Option<SyntheticEvent> {
+    let old_bounds = *old_layout.get(&node_id)?;
+    let new_bounds = *new_layout.get(&node_id)?;
+
+    if old_bounds.size == new_bounds.size {
+        return None;
+    }
+
+    Some(create_lifecycle_event(
+        EventType::Resize,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::Resize,
+            previous_bounds: Some(old_bounds),
+            current_bounds: new_bounds,
+        },
+    ))
 }
 
 // Phase 3.5: Event Filter System
@@ -1158,76 +1147,100 @@ pub fn detect_lifecycle_events(
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum HoverEventFilter {
+    /// Mouse moved over the hovered element
     MouseOver,
+    /// Any mouse button pressed on the hovered element
     MouseDown,
+    /// Left mouse button pressed on the hovered element
     LeftMouseDown,
+    /// Right mouse button pressed on the hovered element
     RightMouseDown,
+    /// Middle mouse button pressed on the hovered element
     MiddleMouseDown,
+    /// Any mouse button released on the hovered element
     MouseUp,
+    /// Left mouse button released on the hovered element
     LeftMouseUp,
+    /// Right mouse button released on the hovered element
     RightMouseUp,
+    /// Middle mouse button released on the hovered element
     MiddleMouseUp,
+    /// Mouse entered the hovered element bounds
     MouseEnter,
+    /// Mouse left the hovered element bounds
     MouseLeave,
+    /// Scroll event on the hovered element
     Scroll,
+    /// Scroll started on the hovered element
     ScrollStart,
+    /// Scroll ended on the hovered element
     ScrollEnd,
+    /// Text input received while element is hovered
     TextInput,
+    /// Virtual key pressed while element is hovered
     VirtualKeyDown,
+    /// Virtual key released while element is hovered
     VirtualKeyUp,
+    /// File is being hovered over the element
     HoveredFile,
+    /// File was dropped onto the element
     DroppedFile,
+    /// File hover was cancelled
     HoveredFileCancelled,
+    /// Touch started on the hovered element
     TouchStart,
+    /// Touch moved on the hovered element
     TouchMove,
+    /// Touch ended on the hovered element
     TouchEnd,
+    /// Touch was cancelled on the hovered element
     TouchCancel,
-    /// Pen/stylus made contact with surface
+    /// Pen/stylus made contact on the hovered element
     PenDown,
-    /// Pen/stylus moved while in contact
+    /// Pen/stylus moved while in contact on the hovered element
     PenMove,
-    /// Pen/stylus lifted from surface
+    /// Pen/stylus lifted from the hovered element
     PenUp,
-    /// Pen/stylus entered proximity (hovering without contact)
+    /// Pen/stylus entered proximity of the hovered element
     PenEnter,
-    /// Pen/stylus left proximity
+    /// Pen/stylus left proximity of the hovered element
     PenLeave,
-    /// Drag started (mouse moved beyond threshold while button down)
+    /// Drag started on the hovered element
     DragStart,
-    /// Drag in progress (mouse moved during drag)
+    /// Drag in progress on the hovered element
     Drag,
-    /// Drag ended (mouse button released after drag)
+    /// Drag ended on the hovered element
     DragEnd,
-    /// Double-click detected (two clicks within time/distance threshold)
+    /// Double-click detected on the hovered element
     DoubleClick,
-    /// Long press detected (button held down for extended time)
+    /// Long press detected on the hovered element
     LongPress,
-    /// Swipe gesture detected (fast directional movement)
+    /// Swipe left gesture on the hovered element
     SwipeLeft,
+    /// Swipe right gesture on the hovered element
     SwipeRight,
+    /// Swipe up gesture on the hovered element
     SwipeUp,
+    /// Swipe down gesture on the hovered element
     SwipeDown,
-    /// Pinch gesture (two-finger zoom)
+    /// Pinch-in (zoom out) gesture on the hovered element
     PinchIn,
+    /// Pinch-out (zoom in) gesture on the hovered element
     PinchOut,
-    /// Rotation gesture (two-finger rotate)
+    /// Clockwise rotation gesture on the hovered element
     RotateClockwise,
+    /// Counter-clockwise rotation gesture on the hovered element
     RotateCounterClockwise,
 
-    // Internal System Events
-    //
-    // These events are used internally by the framework for text selection
-    // and other system-level features. They are NOT exposed to user callbacks
-    // via the On enum and should be filtered out before callback dispatch.
-    /// Internal: Single click detected (for text cursor placement)
-    /// This is distinct from MouseDown - it fires after MouseUp on the same element
+    // Internal System Events (not exposed to user callbacks)
     #[doc(hidden)]
+    /// Internal: Single click for text cursor placement
     SystemTextSingleClick,
-    /// Internal: Double click detected (for word selection)
     #[doc(hidden)]
+    /// Internal: Double click for word selection
     SystemTextDoubleClick,
-    /// Internal: Triple click detected (for paragraph/line selection)
     #[doc(hidden)]
+    /// Internal: Triple click for paragraph/line selection
     SystemTextTripleClick,
 }
 
@@ -1303,49 +1316,75 @@ impl HoverEventFilter {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum FocusEventFilter {
+    /// Mouse moved over the focused element
     MouseOver,
+    /// Any mouse button pressed on the focused element
     MouseDown,
+    /// Left mouse button pressed on the focused element
     LeftMouseDown,
+    /// Right mouse button pressed on the focused element
     RightMouseDown,
+    /// Middle mouse button pressed on the focused element
     MiddleMouseDown,
+    /// Any mouse button released on the focused element
     MouseUp,
+    /// Left mouse button released on the focused element
     LeftMouseUp,
+    /// Right mouse button released on the focused element
     RightMouseUp,
+    /// Middle mouse button released on the focused element
     MiddleMouseUp,
+    /// Mouse entered the focused element bounds
     MouseEnter,
+    /// Mouse left the focused element bounds
     MouseLeave,
+    /// Scroll event on the focused element
     Scroll,
+    /// Scroll started on the focused element
     ScrollStart,
+    /// Scroll ended on the focused element
     ScrollEnd,
+    /// Text input received while element is focused
     TextInput,
+    /// Virtual key pressed while element is focused
     VirtualKeyDown,
+    /// Virtual key released while element is focused
     VirtualKeyUp,
+    /// Element received keyboard focus
     FocusReceived,
+    /// Element lost keyboard focus
     FocusLost,
-    /// Pen events on focused element
+    /// Pen/stylus made contact on the focused element
     PenDown,
+    /// Pen/stylus moved while in contact on the focused element
     PenMove,
+    /// Pen/stylus lifted from the focused element
     PenUp,
-    /// Drag started on focused element
+    /// Drag started on the focused element
     DragStart,
-    /// Drag in progress on focused element
+    /// Drag in progress on the focused element
     Drag,
-    /// Drag ended on focused element
+    /// Drag ended on the focused element
     DragEnd,
-    /// Double-click on focused element
+    /// Double-click detected on the focused element
     DoubleClick,
-    /// Long press on focused element
+    /// Long press detected on the focused element
     LongPress,
-    /// Swipe gestures on focused element
+    /// Swipe left gesture on the focused element
     SwipeLeft,
+    /// Swipe right gesture on the focused element
     SwipeRight,
+    /// Swipe up gesture on the focused element
     SwipeUp,
+    /// Swipe down gesture on the focused element
     SwipeDown,
-    /// Pinch gesture on focused element
+    /// Pinch-in (zoom out) gesture on the focused element
     PinchIn,
+    /// Pinch-out (zoom in) gesture on the focused element
     PinchOut,
-    /// Rotation gesture on focused element
+    /// Clockwise rotation gesture on the focused element
     RotateClockwise,
+    /// Counter-clockwise rotation gesture on the focused element
     RotateCounterClockwise,
 }
 
@@ -1354,43 +1393,79 @@ pub enum FocusEventFilter {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub enum WindowEventFilter {
+    /// Mouse moved anywhere in window
     MouseOver,
+    /// Any mouse button pressed anywhere in window
     MouseDown,
+    /// Left mouse button pressed anywhere in window
     LeftMouseDown,
+    /// Right mouse button pressed anywhere in window
     RightMouseDown,
+    /// Middle mouse button pressed anywhere in window
     MiddleMouseDown,
+    /// Any mouse button released anywhere in window
     MouseUp,
+    /// Left mouse button released anywhere in window
     LeftMouseUp,
+    /// Right mouse button released anywhere in window
     RightMouseUp,
+    /// Middle mouse button released anywhere in window
     MiddleMouseUp,
+    /// Mouse entered the window
     MouseEnter,
+    /// Mouse left the window
     MouseLeave,
+    /// Scroll event anywhere in window
     Scroll,
+    /// Scroll started anywhere in window
     ScrollStart,
+    /// Scroll ended anywhere in window
     ScrollEnd,
+    /// Text input received in window
     TextInput,
+    /// Virtual key pressed in window
     VirtualKeyDown,
+    /// Virtual key released in window
     VirtualKeyUp,
+    /// File is being hovered over the window
     HoveredFile,
+    /// File was dropped onto the window
     DroppedFile,
+    /// File hover was cancelled
     HoveredFileCancelled,
+    /// Window was resized
     Resized,
+    /// Window was moved
     Moved,
+    /// Touch started anywhere in window
     TouchStart,
+    /// Touch moved anywhere in window
     TouchMove,
+    /// Touch ended anywhere in window
     TouchEnd,
+    /// Touch was cancelled
     TouchCancel,
+    /// Window received focus
     FocusReceived,
+    /// Window lost focus
     FocusLost,
+    /// Window close was requested
     CloseRequested,
+    /// System theme changed (light/dark mode)
     ThemeChanged,
+    /// Window received OS-level focus
     WindowFocusReceived,
+    /// Window lost OS-level focus
     WindowFocusLost,
-    /// Pen events anywhere in window
+    /// Pen/stylus made contact anywhere in window
     PenDown,
+    /// Pen/stylus moved while in contact anywhere in window
     PenMove,
+    /// Pen/stylus lifted anywhere in window
     PenUp,
+    /// Pen/stylus entered window proximity
     PenEnter,
+    /// Pen/stylus left window proximity
     PenLeave,
     /// Drag started anywhere in window
     DragStart,
@@ -1398,20 +1473,25 @@ pub enum WindowEventFilter {
     Drag,
     /// Drag ended anywhere in window
     DragEnd,
-    /// Double-click anywhere in window
+    /// Double-click detected anywhere in window
     DoubleClick,
-    /// Long press anywhere in window
+    /// Long press detected anywhere in window
     LongPress,
-    /// Swipe gestures anywhere in window
+    /// Swipe left gesture anywhere in window
     SwipeLeft,
+    /// Swipe right gesture anywhere in window
     SwipeRight,
+    /// Swipe up gesture anywhere in window
     SwipeUp,
+    /// Swipe down gesture anywhere in window
     SwipeDown,
-    /// Pinch gesture anywhere in window
+    /// Pinch-in (zoom out) gesture anywhere in window
     PinchIn,
+    /// Pinch-out (zoom in) gesture anywhere in window
     PinchOut,
-    /// Rotation gesture anywhere in window
+    /// Clockwise rotation gesture anywhere in window
     RotateClockwise,
+    /// Counter-clockwise rotation gesture anywhere in window
     RotateCounterClockwise,
 }
 
@@ -1745,6 +1825,7 @@ pub trait EventProvider {
     /// Get all pending events from this manager.
     ///
     /// Events should include:
+    /// 
     /// - `target`: The DomNodeId that was affected
     /// - `event_type`: What happened (Input, Scroll, Focus, etc.)
     /// - `source`: EventSource::User for input, EventSource::Programmatic for API calls
@@ -1757,195 +1838,568 @@ pub trait EventProvider {
 
 /// Deduplicate synthetic events by (target node, event type).
 ///
-/// When multiple sources generate the same event (e.g., scroll from both
-/// ScrollManager and GestureManager), we keep only one.
-///
-/// Strategy:
-/// - Group by (target.dom, target.node, event_type)
-/// - Keep the event with the latest timestamp
-/// - Merge event data if needed (e.g., accumulate scroll deltas)
+/// Groups by (target.dom, target.node, event_type), keeping the latest timestamp.
 pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
     if events.len() <= 1 {
         return events;
     }
 
-    // Sort by (dom, node, event_type) for grouping
-    events.sort_by(|a, b| {
-        (a.target.dom, a.target.node, a.event_type).cmp(&(
-            b.target.dom,
-            b.target.node,
-            b.event_type,
-        ))
-    });
+    events.sort_by_key(|e| (e.target.dom, e.target.node, e.event_type));
 
-    let mut deduplicated = Vec::new();
-    let mut current_group: Option<SyntheticEvent> = None;
-
-    for event in events {
-        match &mut current_group {
-            None => {
-                // Start new group
-                current_group = Some(event);
-            }
-            Some(group) => {
-                // Check if same (dom, node, event_type)
-                if group.target == event.target && group.event_type == event.event_type {
-                    // Duplicate! Keep the one with later timestamp
-                    if event.timestamp > group.timestamp {
-                        // TODO: Merge event data (e.g., accumulate scroll deltas)
-                        *group = event;
-                    }
-                } else {
-                    // Different event, save previous group and start new one
-                    deduplicated.push(current_group.take().unwrap());
-                    current_group = Some(event);
-                }
+    // Coalesce consecutive events with same target and event_type
+    let mut result = Vec::with_capacity(events.len());
+    let mut iter = events.into_iter();
+    
+    if let Some(mut prev) = iter.next() {
+        for curr in iter {
+            if prev.target == curr.target && prev.event_type == curr.event_type {
+                // Keep the one with later timestamp
+                prev = if curr.timestamp > prev.timestamp { curr } else { prev };
+            } else {
+                result.push(prev);
+                prev = curr;
             }
         }
+        result.push(prev);
     }
-
-    // Don't forget the last group
-    if let Some(group) = current_group {
-        deduplicated.push(group);
-    }
-
-    deduplicated
+    
+    result
 }
 
 /// Dispatch synthetic events to determine which callbacks should be invoked.
 ///
-/// This is the new dispatch function that works with SyntheticEvent instead of the old Events
-/// struct. It converts SyntheticEvents to EventFilters and routes them to the correct nodes based
-/// on the event target.
-///
-/// ## Arguments
-/// * `events` - Vec of SyntheticEvents to dispatch (already deduplicated)
-/// * `hit_test` - Optional hit test for routing hover/mouse events
-///
-/// ## Returns
-/// * `EventDispatchResult` - List of callbacks to invoke with their targets
+/// Converts SyntheticEvents to EventFilters and routes them to the correct nodes.
 pub fn dispatch_synthetic_events(
     events: &[SyntheticEvent],
     hit_test: Option<&FullHitTest>,
 ) -> EventDispatchResult {
-    let mut result = EventDispatchResult::empty();
+    let callbacks = events
+        .iter()
+        .filter_map(|event| dispatch_single_event(event, hit_test))
+        .collect();
 
-    if events.is_empty() {
-        return result;
+    EventDispatchResult {
+        callbacks,
+        propagation_stopped: false,
+    }
+}
+
+/// Convert EventType to EventFilter
+fn event_type_to_filter(event_type: EventType) -> Option<EventFilter> {
+    use EventType as E;
+    use EventFilter as EF;
+    use HoverEventFilter as H;
+    use FocusEventFilter as F;
+    use WindowEventFilter as W;
+
+    match event_type {
+        // Mouse events
+        E::MouseOver => Some(EF::Hover(H::MouseOver)),
+        E::MouseEnter => Some(EF::Hover(H::MouseEnter)),
+        E::MouseLeave => Some(EF::Hover(H::MouseLeave)),
+        E::MouseDown => Some(EF::Hover(H::LeftMouseDown)),
+        E::MouseUp => Some(EF::Hover(H::LeftMouseUp)),
+        E::Click => Some(EF::Hover(H::LeftMouseDown)),
+        E::DoubleClick => Some(EF::Window(W::DoubleClick)),
+        E::ContextMenu => Some(EF::Hover(H::RightMouseDown)),
+
+        // Keyboard events
+        E::KeyDown => Some(EF::Focus(F::VirtualKeyDown)),
+        E::KeyUp => Some(EF::Focus(F::VirtualKeyUp)),
+        E::KeyPress => Some(EF::Focus(F::TextInput)),
+
+        // Focus events
+        E::Focus | E::FocusIn => Some(EF::Focus(F::FocusReceived)),
+        E::Blur | E::FocusOut => Some(EF::Focus(F::FocusLost)),
+
+        // Input events
+        E::Input | E::Change => Some(EF::Focus(F::TextInput)),
+
+        // Scroll events
+        E::Scroll | E::ScrollStart | E::ScrollEnd => Some(EF::Hover(H::Scroll)),
+
+        // Drag events
+        E::DragStart => Some(EF::Hover(H::DragStart)),
+        E::Drag => Some(EF::Hover(H::Drag)),
+        E::DragEnd => Some(EF::Hover(H::DragEnd)),
+        E::DragEnter => Some(EF::Hover(H::MouseEnter)),
+        E::DragOver => Some(EF::Hover(H::MouseOver)),
+        E::DragLeave => Some(EF::Hover(H::MouseLeave)),
+        E::Drop => Some(EF::Hover(H::DroppedFile)),
+
+        // Touch events
+        E::TouchStart => Some(EF::Hover(H::TouchStart)),
+        E::TouchMove => Some(EF::Hover(H::TouchMove)),
+        E::TouchEnd => Some(EF::Hover(H::TouchEnd)),
+        E::TouchCancel => Some(EF::Hover(H::TouchCancel)),
+
+        // Window events
+        E::WindowResize => Some(EF::Window(W::Resized)),
+        E::WindowMove => Some(EF::Window(W::Moved)),
+        E::WindowClose => Some(EF::Window(W::CloseRequested)),
+        E::WindowFocusIn => Some(EF::Window(W::WindowFocusReceived)),
+        E::WindowFocusOut => Some(EF::Window(W::WindowFocusLost)),
+        E::ThemeChange => Some(EF::Window(W::ThemeChanged)),
+
+        // File events
+        E::FileHover => Some(EF::Hover(H::HoveredFile)),
+        E::FileDrop => Some(EF::Hover(H::DroppedFile)),
+        E::FileHoverCancel => Some(EF::Hover(H::HoveredFileCancelled)),
+
+        // Unsupported events
+        _ => None,
+    }
+}
+
+/// Determine callback target from event target node
+fn get_callback_target(event: &SyntheticEvent) -> Option<CallbackTarget> {
+    let root_node = NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO));
+
+    if event.target.node == root_node {
+        return Some(CallbackTarget::RootNodes);
     }
 
-    for event in events {
-        // Convert EventType to EventFilter
-        let event_filter = match event.event_type {
-            // Mouse events
-            EventType::MouseOver => Some(EventFilter::Hover(HoverEventFilter::MouseOver)),
-            EventType::MouseEnter => Some(EventFilter::Hover(HoverEventFilter::MouseEnter)),
-            EventType::MouseLeave => Some(EventFilter::Hover(HoverEventFilter::MouseLeave)),
-            EventType::MouseDown => Some(EventFilter::Hover(HoverEventFilter::LeftMouseDown)),
-            EventType::MouseUp => Some(EventFilter::Hover(HoverEventFilter::LeftMouseUp)),
-            EventType::Click => Some(EventFilter::Hover(HoverEventFilter::LeftMouseDown)), /* Click = MouseDown for now */
-            EventType::DoubleClick => Some(EventFilter::Window(WindowEventFilter::DoubleClick)),
-            EventType::ContextMenu => Some(EventFilter::Hover(HoverEventFilter::RightMouseDown)),
+    event.target.node.into_crate_internal().map(|node_id| {
+        CallbackTarget::Node {
+            dom_id: event.target.dom,
+            node_id,
+        }
+    })
+}
 
-            // Keyboard events
-            EventType::KeyDown => Some(EventFilter::Focus(FocusEventFilter::VirtualKeyDown)),
-            EventType::KeyUp => Some(EventFilter::Focus(FocusEventFilter::VirtualKeyUp)),
-            EventType::KeyPress => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
+/// Get hit test item for a node target
+fn get_hit_test_item(
+    target: &CallbackTarget,
+    hit_test: Option<&FullHitTest>,
+) -> Option<HitTestItem> {
+    let CallbackTarget::Node { dom_id, node_id } = target else {
+        return None;
+    };
 
-            // Focus events
-            EventType::Focus => Some(EventFilter::Focus(FocusEventFilter::FocusReceived)),
-            EventType::Blur => Some(EventFilter::Focus(FocusEventFilter::FocusLost)),
-            EventType::FocusIn => Some(EventFilter::Focus(FocusEventFilter::FocusReceived)),
-            EventType::FocusOut => Some(EventFilter::Focus(FocusEventFilter::FocusLost)),
+    hit_test?
+        .hovered_nodes
+        .get(dom_id)?
+        .regular_hit_test_nodes
+        .get(node_id)
+        .cloned()
+}
 
-            // Input events
-            EventType::Input => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
-            EventType::Change => Some(EventFilter::Focus(FocusEventFilter::TextInput)),
+/// Dispatch a single event to a callback
+fn dispatch_single_event(
+    event: &SyntheticEvent,
+    hit_test: Option<&FullHitTest>,
+) -> Option<CallbackToInvoke> {
+    let event_filter = event_type_to_filter(event.event_type)?;
+    let target = get_callback_target(event)?;
+    let hit_test_item = get_hit_test_item(&target, hit_test);
 
-            // Scroll events
-            EventType::Scroll => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
-            EventType::ScrollStart => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
-            EventType::ScrollEnd => Some(EventFilter::Hover(HoverEventFilter::Scroll)),
+    Some(CallbackToInvoke {
+        target,
+        event_filter,
+        hit_test_item,
+    })
+}
 
-            // Drag events
-            EventType::DragStart => Some(EventFilter::Hover(HoverEventFilter::DragStart)),
-            EventType::Drag => Some(EventFilter::Hover(HoverEventFilter::Drag)),
-            EventType::DragEnd => Some(EventFilter::Hover(HoverEventFilter::DragEnd)),
-            EventType::DragEnter => Some(EventFilter::Hover(HoverEventFilter::MouseEnter)),
-            EventType::DragOver => Some(EventFilter::Hover(HoverEventFilter::MouseOver)),
-            EventType::DragLeave => Some(EventFilter::Hover(HoverEventFilter::MouseLeave)),
-            EventType::Drop => Some(EventFilter::Hover(HoverEventFilter::DroppedFile)),
+// Internal System Event Processing
 
-            // Touch events
-            EventType::TouchStart => Some(EventFilter::Hover(HoverEventFilter::TouchStart)),
-            EventType::TouchMove => Some(EventFilter::Hover(HoverEventFilter::TouchMove)),
-            EventType::TouchEnd => Some(EventFilter::Hover(HoverEventFilter::TouchEnd)),
-            EventType::TouchCancel => Some(EventFilter::Hover(HoverEventFilter::TouchCancel)),
+/// Result of pre-callback internal event filtering
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreCallbackFilterResult {
+    /// Internal system events to process BEFORE user callbacks
+    pub internal_events: Vec<PreCallbackSystemEvent>,
+    /// Regular events that will be passed to user callbacks
+    pub user_events: Vec<SyntheticEvent>,
+}
 
-            // Window events
-            EventType::WindowResize => Some(EventFilter::Window(WindowEventFilter::Resized)),
-            EventType::WindowMove => Some(EventFilter::Window(WindowEventFilter::Moved)),
-            EventType::WindowClose => Some(EventFilter::Window(WindowEventFilter::CloseRequested)),
-            EventType::WindowFocusIn => {
-                Some(EventFilter::Window(WindowEventFilter::WindowFocusReceived))
+/// Mouse button state for drag tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseButtonState {
+    pub left_down: bool,
+    pub right_down: bool,
+    pub middle_down: bool,
+}
+
+/// System event to process AFTER user callbacks
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostCallbackSystemEvent {
+    /// Apply text input to focused contenteditable element
+    ApplyTextInput,
+    /// Focus changed during callbacks
+    FocusChanged,
+    /// Apply text changeset (separate creation from application)
+    ApplyTextChangeset,
+    /// Scroll cursor/selection into view
+    ScrollIntoView,
+    /// Start auto-scroll timer for drag-to-scroll
+    StartAutoScrollTimer,
+    /// Cancel auto-scroll timer
+    CancelAutoScrollTimer,
+}
+
+/// Internal system event for pre-callback processing
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreCallbackSystemEvent {
+    /// Single/double/triple click for text selection
+    TextClick {
+        target: DomNodeId,
+        position: LogicalPosition,
+        click_count: u8,
+        timestamp: Instant,
+    },
+    /// Mouse drag for selection extension
+    TextDragSelection {
+        target: DomNodeId,
+        start_position: LogicalPosition,
+        current_position: LogicalPosition,
+        is_dragging: bool,
+    },
+    /// Arrow key navigation with optional selection extension
+    ArrowKeyNavigation {
+        target: DomNodeId,
+        direction: ArrowDirection,
+        extend_selection: bool, // Shift key held
+        word_jump: bool,        // Ctrl key held
+    },
+    /// Keyboard shortcut (Ctrl+C/X/A)
+    KeyboardShortcut {
+        target: DomNodeId,
+        shortcut: KeyboardShortcut,
+    },
+    /// Delete currently selected text (Backspace/Delete key)
+    DeleteSelection {
+        target: DomNodeId,
+        forward: bool, // true = Delete key (forward), false = Backspace (backward)
+    },
+}
+
+/// Arrow key directions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArrowDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Keyboard shortcuts for text editing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyboardShortcut {
+    Copy,      // Ctrl+C
+    Cut,       // Ctrl+X
+    Paste,     // Ctrl+V
+    SelectAll, // Ctrl+A
+    Undo,      // Ctrl+Z
+    Redo,      // Ctrl+Y or Ctrl+Shift+Z
+}
+
+/// Result of post-callback internal event filtering  
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostCallbackFilterResult {
+    /// System events to process AFTER user callbacks
+    pub system_events: Vec<PostCallbackSystemEvent>,
+}
+
+/// Pre-callback filter: Extract internal system events from synthetic events.
+///
+/// Separates internal system events (text selection, shortcuts) from user-facing events.
+pub fn pre_callback_filter_internal_events<SM, FM>(
+    events: &[SyntheticEvent],
+    hit_test: Option<&FullHitTest>,
+    keyboard_state: &crate::window::KeyboardState,
+    mouse_state: &crate::window::MouseState,
+    selection_manager: &SM,
+    focus_manager: &FM,
+) -> PreCallbackFilterResult
+where
+    SM: SelectionManagerQuery,
+    FM: FocusManagerQuery,
+{
+    let ctx = FilterContext {
+        hit_test,
+        keyboard_state,
+        mouse_state,
+        click_count: selection_manager.get_click_count(),
+        focused_node: focus_manager.get_focused_node_id(),
+        drag_start_position: selection_manager.get_drag_start_position(),
+        selection_manager,
+    };
+
+    let (internal_events, user_events) = events
+        .iter()
+        .fold((Vec::new(), Vec::new()), |(mut internal, mut user), event| {
+            match process_event_for_internal(&ctx, event) {
+                Some(InternalEventAction::AddAndSkip(evt)) => {
+                    internal.push(evt);
+                }
+                Some(InternalEventAction::AddAndPass(evt)) => {
+                    internal.push(evt);
+                    user.push(event.clone());
+                }
+                None => {
+                    user.push(event.clone());
+                }
             }
-            EventType::WindowFocusOut => {
-                Some(EventFilter::Window(WindowEventFilter::WindowFocusLost))
-            }
-            EventType::ThemeChange => Some(EventFilter::Window(WindowEventFilter::ThemeChanged)),
+            (internal, user)
+        });
 
-            // File events
-            EventType::FileHover => Some(EventFilter::Hover(HoverEventFilter::HoveredFile)),
-            EventType::FileDrop => Some(EventFilter::Hover(HoverEventFilter::DroppedFile)),
-            EventType::FileHoverCancel => {
-                Some(EventFilter::Hover(HoverEventFilter::HoveredFileCancelled))
-            }
+    PreCallbackFilterResult { internal_events, user_events }
+}
 
-            // Unsupported events (clipboard, media, lifecycle, etc.) - skip for now
+/// Context for filtering internal events
+struct FilterContext<'a, SM> {
+    hit_test: Option<&'a FullHitTest>,
+    keyboard_state: &'a crate::window::KeyboardState,
+    mouse_state: &'a crate::window::MouseState,
+    click_count: u8,
+    focused_node: Option<DomNodeId>,
+    drag_start_position: Option<LogicalPosition>,
+    selection_manager: &'a SM,
+}
+
+/// Process a single event and determine if it generates an internal event
+fn process_event_for_internal<SM: SelectionManagerQuery>(
+    ctx: &FilterContext<'_, SM>,
+    event: &SyntheticEvent,
+) -> Option<InternalEventAction> {
+    match event.event_type {
+        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count),
+        EventType::MouseOver => {
+            handle_mouse_over(event, ctx.hit_test, ctx.mouse_state, ctx.drag_start_position)
+        }
+        EventType::KeyDown => handle_key_down(
+            event,
+            ctx.keyboard_state,
+            ctx.selection_manager,
+            ctx.focused_node,
+        ),
+        _ => None,
+    }
+}
+
+/// Action to take after processing an event for internal system events
+enum InternalEventAction {
+    /// Add internal event and skip passing to user callbacks
+    AddAndSkip(PreCallbackSystemEvent),
+    /// Add internal event but also pass to user callbacks
+    AddAndPass(PreCallbackSystemEvent),
+}
+
+/// Extract first hovered node from hit test
+fn get_first_hovered_node(hit_test: Option<&FullHitTest>) -> Option<DomNodeId> {
+    let ht = hit_test?;
+    let (dom_id, hit_data) = ht.hovered_nodes.iter().next()?;
+    let node_id = hit_data.regular_hit_test_nodes.keys().next()?;
+    Some(DomNodeId {
+        dom: *dom_id,
+        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+    })
+}
+
+/// Extract mouse position from event data
+fn get_mouse_position(event: &SyntheticEvent) -> LogicalPosition {
+    match &event.data {
+        EventData::Mouse(mouse_data) => mouse_data.position,
+        _ => LogicalPosition::zero(),
+    }
+}
+
+/// Handle MouseDown event - detect text selection clicks
+fn handle_mouse_down(
+    event: &SyntheticEvent,
+    hit_test: Option<&FullHitTest>,
+    click_count: u8,
+) -> Option<InternalEventAction> {
+    if click_count == 0 || click_count > 3 {
+        return None;
+    }
+
+    let target = get_first_hovered_node(hit_test)?;
+    let position = get_mouse_position(event);
+
+    Some(InternalEventAction::AddAndPass(
+        PreCallbackSystemEvent::TextClick {
+            target,
+            position,
+            click_count,
+            timestamp: event.timestamp.clone(),
+        },
+    ))
+}
+
+/// Handle MouseOver event - detect drag selection
+fn handle_mouse_over(
+    event: &SyntheticEvent,
+    hit_test: Option<&FullHitTest>,
+    mouse_state: &crate::window::MouseState,
+    drag_start_position: Option<LogicalPosition>,
+) -> Option<InternalEventAction> {
+    if !mouse_state.left_down {
+        return None;
+    }
+
+    let start_position = drag_start_position?;
+    let target = get_first_hovered_node(hit_test)?;
+    let current_position = get_mouse_position(event);
+
+    Some(InternalEventAction::AddAndPass(
+        PreCallbackSystemEvent::TextDragSelection {
+            target,
+            start_position,
+            current_position,
+            is_dragging: true,
+        },
+    ))
+}
+
+/// Handle KeyDown event - detect shortcuts, arrow keys, and delete keys
+fn handle_key_down<SM: SelectionManagerQuery>(
+    event: &SyntheticEvent,
+    keyboard_state: &crate::window::KeyboardState,
+    selection_manager: &SM,
+    focused_node: Option<DomNodeId>,
+) -> Option<InternalEventAction> {
+    use crate::window::VirtualKeyCode;
+
+    let target = focused_node?;
+    let EventData::Keyboard(_) = &event.data else {
+        return None;
+    };
+
+    let ctrl = keyboard_state.ctrl_down();
+    let shift = keyboard_state.shift_down();
+    let vk = keyboard_state.current_virtual_keycode.as_ref()?;
+
+    // Check keyboard shortcuts (Ctrl+key)
+    if ctrl {
+        let shortcut = match vk {
+            VirtualKeyCode::C => Some(KeyboardShortcut::Copy),
+            VirtualKeyCode::X => Some(KeyboardShortcut::Cut),
+            VirtualKeyCode::V => Some(KeyboardShortcut::Paste),
+            VirtualKeyCode::A => Some(KeyboardShortcut::SelectAll),
+            VirtualKeyCode::Z if !shift => Some(KeyboardShortcut::Undo),
+            VirtualKeyCode::Z if shift => Some(KeyboardShortcut::Redo),
+            VirtualKeyCode::Y => Some(KeyboardShortcut::Redo),
             _ => None,
         };
-
-        if let Some(filter) = event_filter {
-            // Determine callback target based on event target
-            // Root node (NodeId::ZERO) → RootNodes target
-            // Specific node → Node target
-            let callback_target = if event.target.node
-                == NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO))
-            {
-                CallbackTarget::RootNodes
-            } else {
-                if let Some(node_id) = event.target.node.into_crate_internal() {
-                    CallbackTarget::Node {
-                        dom_id: event.target.dom,
-                        node_id,
-                    }
-                } else {
-                    // Invalid node ID, skip
-                    continue;
-                }
-            };
-
-            // Find hit test item for this node (if available)
-            let hit_test_item = if let CallbackTarget::Node { dom_id, node_id } = callback_target {
-                hit_test.and_then(|ht| {
-                    ht.hovered_nodes
-                        .get(&dom_id)
-                        .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
-                        .cloned()
-                })
-            } else {
-                None
-            };
-
-            result.callbacks.push(CallbackToInvoke {
-                target: callback_target,
-                event_filter: filter,
-                hit_test_item,
-            });
+        if let Some(shortcut) = shortcut {
+            return Some(InternalEventAction::AddAndSkip(
+                PreCallbackSystemEvent::KeyboardShortcut { target, shortcut },
+            ));
         }
     }
 
-    result
+    // Check arrow key navigation
+    let direction = match vk {
+        VirtualKeyCode::Left => Some(ArrowDirection::Left),
+        VirtualKeyCode::Up => Some(ArrowDirection::Up),
+        VirtualKeyCode::Right => Some(ArrowDirection::Right),
+        VirtualKeyCode::Down => Some(ArrowDirection::Down),
+        _ => None,
+    };
+    if let Some(direction) = direction {
+        return Some(InternalEventAction::AddAndSkip(
+            PreCallbackSystemEvent::ArrowKeyNavigation {
+                target,
+                direction,
+                extend_selection: shift,
+                word_jump: ctrl,
+            },
+        ));
+    }
+
+    // Check delete keys (only when selection exists)
+    if !selection_manager.has_selection() {
+        return None;
+    }
+
+    let forward = match vk {
+        VirtualKeyCode::Back => Some(false),
+        VirtualKeyCode::Delete => Some(true),
+        _ => None,
+    }?;
+
+    Some(InternalEventAction::AddAndSkip(
+        PreCallbackSystemEvent::DeleteSelection { target, forward },
+    ))
+}
+
+/// Trait for querying selection manager state.
+///
+/// This allows `pre_callback_filter_internal_events` to query manager state
+/// without depending on the concrete `SelectionManager` type from layout crate.
+pub trait SelectionManagerQuery {
+    /// Get the current click count (1 = single, 2 = double, 3 = triple)
+    fn get_click_count(&self) -> u8;
+
+    /// Get the drag start position if a drag is in progress
+    fn get_drag_start_position(&self) -> Option<LogicalPosition>;
+
+    /// Check if any selection exists (click selection or drag selection)
+    fn has_selection(&self) -> bool;
+}
+
+/// Trait for querying focus manager state.
+///
+/// This allows `pre_callback_filter_internal_events` to query manager state
+/// without depending on the concrete `FocusManager` type from layout crate.
+pub trait FocusManagerQuery {
+    /// Get the currently focused node ID
+    fn get_focused_node_id(&self) -> Option<DomNodeId>;
+}
+
+/// Post-callback filter: Analyze applied changes and generate system events
+pub fn post_callback_filter_internal_events(
+    prevent_default: bool,
+    internal_events: &[PreCallbackSystemEvent],
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> PostCallbackFilterResult {
+    if prevent_default {
+        let focus_event = (old_focus != new_focus)
+            .then_some(PostCallbackSystemEvent::FocusChanged);
+        return PostCallbackFilterResult {
+            system_events: focus_event.into_iter().collect(),
+        };
+    }
+
+    let event_actions = internal_events
+        .iter()
+        .filter_map(internal_event_to_system_event);
+
+    let focus_event = (old_focus != new_focus)
+        .then_some(PostCallbackSystemEvent::FocusChanged);
+
+    let system_events = std::iter::once(PostCallbackSystemEvent::ApplyTextInput)
+        .chain(event_actions)
+        .chain(focus_event)
+        .collect();
+
+    PostCallbackFilterResult { system_events }
+}
+
+/// Convert internal event to post-callback system event
+fn internal_event_to_system_event(event: &PreCallbackSystemEvent) -> Option<PostCallbackSystemEvent> {
+    use PreCallbackSystemEvent::*;
+    use PostCallbackSystemEvent::*;
+
+    match event {
+        TextClick { .. } | ArrowKeyNavigation { .. } | DeleteSelection { .. } => {
+            Some(ScrollIntoView)
+        }
+        TextDragSelection { is_dragging, .. } => {
+            Some(if *is_dragging { StartAutoScrollTimer } else { CancelAutoScrollTimer })
+        }
+        KeyboardShortcut { shortcut, .. } => shortcut_to_system_event(*shortcut),
+    }
+}
+
+/// Convert keyboard shortcut to system event (if any)
+fn shortcut_to_system_event(shortcut: KeyboardShortcut) -> Option<PostCallbackSystemEvent> {
+    use KeyboardShortcut::*;
+    match shortcut {
+        Cut | Paste | Undo | Redo => Some(PostCallbackSystemEvent::ScrollIntoView),
+        Copy | SelectAll => None,
+    }
 }
 
 #[cfg(test)]
@@ -2408,510 +2862,4 @@ mod tests {
         // We can't test it directly without making the function public
         // but it's tested indirectly through propagate_event
     }
-}
-
-// Internal System Event Processing
-
-/// Internal system event generated from click detection
-#[derive(Debug, Clone, PartialEq)]
-pub struct InternalSystemEvent {
-    /// The type of system event
-    pub event_type: HoverEventFilter,
-    /// Target node that was clicked
-    pub target: DomNodeId,
-    /// Position of the click
-    pub position: LogicalPosition,
-    /// Timestamp of the event
-    pub timestamp: Instant,
-}
-
-/// Result of pre-callback internal event filtering
-#[derive(Debug, Clone, PartialEq)]
-pub struct PreCallbackFilterResult {
-    /// Internal system events to process BEFORE user callbacks
-    pub internal_events: Vec<PreCallbackSystemEvent>,
-    /// Regular events that will be passed to user callbacks
-    pub user_events: Vec<SyntheticEvent>,
-}
-
-/// Mouse button state for drag tracking
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MouseButtonState {
-    pub left_down: bool,
-    pub right_down: bool,
-    pub middle_down: bool,
-}
-
-/// System event to process AFTER user callbacks
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PostCallbackSystemEvent {
-    /// Apply text input to focused contenteditable element
-    ApplyTextInput,
-    /// Focus changed during callbacks
-    FocusChanged,
-    /// Apply text changeset (separate creation from application)
-    ApplyTextChangeset,
-    /// Scroll cursor/selection into view
-    ScrollIntoView,
-    /// Start auto-scroll timer for drag-to-scroll
-    StartAutoScrollTimer,
-    /// Cancel auto-scroll timer
-    CancelAutoScrollTimer,
-}
-
-/// Internal system event for pre-callback processing
-#[derive(Debug, Clone, PartialEq)]
-pub enum PreCallbackSystemEvent {
-    /// Single/double/triple click for text selection
-    TextClick {
-        target: DomNodeId,
-        position: LogicalPosition,
-        click_count: u8,
-        timestamp: Instant,
-    },
-    /// Mouse drag for selection extension
-    TextDragSelection {
-        target: DomNodeId,
-        start_position: LogicalPosition,
-        current_position: LogicalPosition,
-        is_dragging: bool,
-    },
-    /// Arrow key navigation with optional selection extension
-    ArrowKeyNavigation {
-        target: DomNodeId,
-        direction: ArrowDirection,
-        extend_selection: bool, // Shift key held
-        word_jump: bool,        // Ctrl key held
-    },
-    /// Keyboard shortcut (Ctrl+C/X/A)
-    KeyboardShortcut {
-        target: DomNodeId,
-        shortcut: KeyboardShortcut,
-    },
-    /// Delete currently selected text (Backspace/Delete key)
-    DeleteSelection {
-        target: DomNodeId,
-        forward: bool, // true = Delete key (forward), false = Backspace (backward)
-    },
-}
-
-/// Arrow key directions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ArrowDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-/// Keyboard shortcuts for text editing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyboardShortcut {
-    Copy,      // Ctrl+C
-    Cut,       // Ctrl+X
-    Paste,     // Ctrl+V
-    SelectAll, // Ctrl+A
-    Undo,      // Ctrl+Z
-    Redo,      // Ctrl+Y or Ctrl+Shift+Z
-}
-
-/// Result of post-callback internal event filtering  
-#[derive(Debug, Clone, PartialEq)]
-pub struct PostCallbackFilterResult {
-    /// System events to process AFTER user callbacks
-    pub system_events: Vec<PostCallbackSystemEvent>,
-}
-
-/// Pre-callback filter: Analyze events and extract internal system events.
-///
-/// This runs BEFORE user callbacks are invoked. It:
-/// 1. Analyzes click patterns for text selection (single/double/triple click)
-/// 2. Detects mouse drag for selection extension
-/// 3. Processes arrow keys with Shift (selection) and Ctrl (word jump)
-/// 4. Detects keyboard shortcuts (Ctrl+C/X/V/A/Z)
-/// 5. Generates internal system events for framework processing
-/// 6. Filters events to separate internal from user-facing
-///
-/// ## Arguments
-/// * `events` - Input synthetic events from state diffing
-/// * `hit_test` - Current hit test for finding clicked nodes
-/// * `click_count` - Current click count from SelectionManager
-/// * `mouse_down` - Whether left mouse button is currently pressed (for drag)
-/// * `drag_start_position` - Position where drag started (if dragging)
-/// * `focused_node` - Currently focused node (for keyboard events)
-///
-/// ## Returns
-/// * `PreCallbackFilterResult` - Separated internal and user events
-/// Pre-callback filter: Extract internal system events from synthetic events.
-///
-/// This function runs AFTER managers have been updated with current state (hit test,
-/// keyboard state, mouse state, etc.) but BEFORE user callbacks. It queries the managers
-/// to detect multi-frame event patterns.
-///
-/// ## Manager State Dependencies
-/// - `selection_manager`: Already updated with click state via `update_click_count()`
-/// - `focus_manager`: Contains current `focused_node` from focus tracking
-/// - `hover_manager`: Tracks previous mouse positions for drag detection
-/// - `keyboard_state`: Current keyboard state from window
-/// - `mouse_state`: Current mouse button states from window
-///
-/// ## Arguments
-/// * `events` - Synthetic events to filter
-/// * `hit_test` - Current hit test results
-/// * `keyboard_state` - Window keyboard state (for modifier keys, virtual key codes)
-/// * `mouse_state` - Window mouse state (for button down tracking)
-/// * `selection_manager` - Selection manager (for click count, drag state)
-/// * `focus_manager` - Focus manager (for focused node)
-///
-/// ## Returns
-/// * `PreCallbackFilterResult` - Separated internal and user events
-pub fn pre_callback_filter_internal_events<SM, FM>(
-    events: &[SyntheticEvent],
-    hit_test: Option<&FullHitTest>,
-    keyboard_state: &crate::window::KeyboardState,
-    mouse_state: &crate::window::MouseState,
-    selection_manager: &SM,
-    focus_manager: &FM,
-) -> PreCallbackFilterResult
-where
-    SM: SelectionManagerQuery,
-    FM: FocusManagerQuery,
-{
-    let mut internal_events = Vec::new();
-    let mut user_events = Vec::new();
-
-    // Query managers for current state
-    let click_count = selection_manager.get_click_count();
-    let focused_node = focus_manager.get_focused_node_id();
-    let drag_start_position = selection_manager.get_drag_start_position();
-
-    for event in events {
-        match event.event_type {
-            // Mouse Events
-            EventType::MouseDown => {
-                // Handle click for text selection
-                if click_count > 0 && click_count <= 3 {
-                    if let Some(ht) = hit_test {
-                        if let Some((dom_id, hit_data)) = ht.hovered_nodes.iter().next() {
-                            if let Some(node_id) = hit_data.regular_hit_test_nodes.keys().next() {
-                                let position = match &event.data {
-                                    EventData::Mouse(mouse_data) => mouse_data.position,
-                                    _ => LogicalPosition::zero(),
-                                };
-
-                                internal_events.push(PreCallbackSystemEvent::TextClick {
-                                    target: DomNodeId {
-                                        dom: *dom_id,
-                                        node: NodeHierarchyItemId::from_crate_internal(Some(
-                                            *node_id,
-                                        )),
-                                    },
-                                    position,
-                                    click_count,
-                                    timestamp: event.timestamp.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-                user_events.push(event.clone());
-            }
-
-            EventType::MouseOver => {
-                // Handle drag selection - analyze state instead of tracking events
-                // Drag = left mouse button down + mouse moving
-                if mouse_state.left_down {
-                    if let Some(start_pos) = drag_start_position {
-                        if let Some(ht) = hit_test {
-                            if let Some((dom_id, hit_data)) = ht.hovered_nodes.iter().next() {
-                                if let Some(node_id) = hit_data.regular_hit_test_nodes.keys().next()
-                                {
-                                    let current_position = match &event.data {
-                                        EventData::Mouse(mouse_data) => mouse_data.position,
-                                        _ => LogicalPosition::zero(),
-                                    };
-
-                                    internal_events.push(
-                                        PreCallbackSystemEvent::TextDragSelection {
-                                            target: DomNodeId {
-                                                dom: *dom_id,
-                                                node: NodeHierarchyItemId::from_crate_internal(
-                                                    Some(*node_id),
-                                                ),
-                                            },
-                                            start_position: start_pos,
-                                            current_position,
-                                            is_dragging: true,
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                user_events.push(event.clone());
-            }
-
-            // Keyboard Events
-            EventType::KeyDown => {
-                if let Some(target) = focused_node {
-                    if let EventData::Keyboard(kbd_data) = &event.data {
-                        // Use KeyboardState instead of event modifiers for consistency
-                        let ctrl_pressed = keyboard_state.ctrl_down();
-                        let shift_pressed = keyboard_state.shift_down();
-
-                        // Check for keyboard shortcuts using VirtualKeyCode (more robust than
-                        // char_code) This works across all keyboard layouts
-                        // and input methods
-                        use crate::window::VirtualKeyCode;
-                        if ctrl_pressed {
-                            let shortcut = match keyboard_state.current_virtual_keycode.as_ref() {
-                                Some(VirtualKeyCode::C) => Some(KeyboardShortcut::Copy),
-                                Some(VirtualKeyCode::X) => Some(KeyboardShortcut::Cut),
-                                Some(VirtualKeyCode::V) => Some(KeyboardShortcut::Paste),
-                                Some(VirtualKeyCode::A) => Some(KeyboardShortcut::SelectAll),
-                                Some(VirtualKeyCode::Z) if !shift_pressed => {
-                                    Some(KeyboardShortcut::Undo)
-                                }
-                                Some(VirtualKeyCode::Z) if shift_pressed => {
-                                    Some(KeyboardShortcut::Redo)
-                                }
-                                Some(VirtualKeyCode::Y) => Some(KeyboardShortcut::Redo),
-                                _ => None,
-                            };
-
-                            if let Some(shortcut) = shortcut {
-                                internal_events.push(PreCallbackSystemEvent::KeyboardShortcut {
-                                    target,
-                                    shortcut,
-                                });
-                                // Don't pass shortcuts to user callbacks
-                                continue;
-                            }
-                        }
-
-                        // Check for arrow key navigation using VirtualKeyCode
-                        // Use keyboard_state.current_virtual_keycode for state-based detection
-                        let direction =
-                            if let Some(vk) = keyboard_state.current_virtual_keycode.as_ref() {
-                                match vk {
-                                    VirtualKeyCode::Left => Some(ArrowDirection::Left),
-                                    VirtualKeyCode::Up => Some(ArrowDirection::Up),
-                                    VirtualKeyCode::Right => Some(ArrowDirection::Right),
-                                    VirtualKeyCode::Down => Some(ArrowDirection::Down),
-                                    _ => None,
-                                }
-                            } else {
-                                None
-                            };
-
-                        if let Some(direction) = direction {
-                            internal_events.push(PreCallbackSystemEvent::ArrowKeyNavigation {
-                                target,
-                                direction,
-                                extend_selection: shift_pressed,
-                                word_jump: ctrl_pressed,
-                            });
-                            // Don't pass arrow keys to user callbacks when in contenteditable
-                            continue;
-                        }
-
-                        // Check for Backspace/Delete keys when selection exists
-                        if let Some(vk) = keyboard_state.current_virtual_keycode.as_ref() {
-                            let should_delete = match vk {
-                                VirtualKeyCode::Back => {
-                                    // Backspace - delete backward (selection or single char)
-                                    if selection_manager.has_selection() {
-                                        Some(false) // backward deletion
-                                    } else {
-                                        None // No selection, pass to user callbacks
-                                    }
-                                }
-                                VirtualKeyCode::Delete => {
-                                    // Delete - delete forward (selection or single char)
-                                    if selection_manager.has_selection() {
-                                        Some(true) // forward deletion
-                                    } else {
-                                        None // No selection, pass to user callbacks
-                                    }
-                                }
-                                _ => None,
-                            };
-
-                            if let Some(forward) = should_delete {
-                                internal_events.push(PreCallbackSystemEvent::DeleteSelection {
-                                    target,
-                                    forward,
-                                });
-                                // Don't pass to user callbacks - we handle it
-                                continue;
-                            }
-                        }
-                    }
-                }
-                user_events.push(event.clone());
-            }
-
-            // All other events pass through
-            _ => {
-                user_events.push(event.clone());
-            }
-        }
-    }
-
-    PreCallbackFilterResult {
-        internal_events,
-        user_events,
-    }
-}
-
-/// Trait for querying selection manager state.
-///
-/// This allows `pre_callback_filter_internal_events` to query manager state
-/// without depending on the concrete `SelectionManager` type from layout crate.
-pub trait SelectionManagerQuery {
-    /// Get the current click count (1 = single, 2 = double, 3 = triple)
-    fn get_click_count(&self) -> u8;
-
-    /// Get the drag start position if a drag is in progress
-    fn get_drag_start_position(&self) -> Option<LogicalPosition>;
-
-    /// Check if any selection exists (click selection or drag selection)
-    fn has_selection(&self) -> bool;
-}
-
-/// Trait for querying focus manager state.
-///
-/// This allows `pre_callback_filter_internal_events` to query manager state
-/// without depending on the concrete `FocusManager` type from layout crate.
-pub trait FocusManagerQuery {
-    /// Get the currently focused node ID
-    fn get_focused_node_id(&self) -> Option<DomNodeId>;
-}
-
-/// Post-callback filter: Analyze applied changes and generate system events.
-///
-/// This runs AFTER user callbacks have been invoked. It analyzes what internal
-/// events were processed and determines what system actions are needed (scrolling,
-/// timers, etc.).
-///
-/// ## Architecture
-///
-/// Pre-callback phase creates internal events (TextClick, ArrowKeyNavigation, etc.).
-/// Those events are processed, potentially creating text changes. After user callbacks
-/// run, this function analyzes the results to determine scrolling and timer needs.
-///
-/// ## Arguments
-/// * `prevent_default` - Whether any callback prevented default action
-/// * `internal_events` - Internal events that were processed (from pre-filter)
-/// * `old_focus` - Focus state before callbacks
-/// * `new_focus` - Focus state after callbacks
-///
-/// ## Returns
-/// * `PostCallbackFilterResult` - System events to process after callbacks
-pub fn post_callback_filter_internal_events(
-    prevent_default: bool,
-    internal_events: &[PreCallbackSystemEvent],
-    old_focus: Option<DomNodeId>,
-    new_focus: Option<DomNodeId>,
-) -> PostCallbackFilterResult {
-    let mut system_events = Vec::new();
-
-    // If callbacks didn't prevent default, apply text input
-    if !prevent_default {
-        system_events.push(PostCallbackSystemEvent::ApplyTextInput);
-
-        // Analyze internal events to determine scroll needs
-        for event in internal_events {
-            match event {
-                PreCallbackSystemEvent::TextClick { .. } => {
-                    // Single/double/triple click changes selection/cursor
-                    // Always scroll into view after click
-                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
-                }
-                PreCallbackSystemEvent::TextDragSelection { is_dragging, .. } => {
-                    // Drag selection in progress
-                    if *is_dragging {
-                        // Start auto-scroll timer if not already running
-                        // Timer will check mouse position and scroll continuously
-                        system_events.push(PostCallbackSystemEvent::StartAutoScrollTimer);
-                    } else {
-                        // Drag ended, cancel timer
-                        system_events.push(PostCallbackSystemEvent::CancelAutoScrollTimer);
-                    }
-                }
-                PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
-                    // Arrow keys move cursor/selection
-                    // Scroll to keep cursor visible
-                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
-                }
-                PreCallbackSystemEvent::KeyboardShortcut { shortcut, .. } => {
-                    use KeyboardShortcut::*;
-                    match shortcut {
-                        Copy => {
-                            // Copy doesn't change selection, no scroll needed
-                        }
-                        Cut | Paste => {
-                            // Cut/paste modifies text and may change cursor position
-                            system_events.push(PostCallbackSystemEvent::ScrollIntoView);
-                        }
-                        SelectAll => {
-                            // Select all changes selection but typically no scroll
-                            // (user wants to see the whole document selected)
-                        }
-                        Undo | Redo => {
-                            // Undo/redo may restore cursor to different position
-                            system_events.push(PostCallbackSystemEvent::ScrollIntoView);
-                        }
-                    }
-                }
-                PreCallbackSystemEvent::DeleteSelection { .. } => {
-                    // Delete/Backspace removes selection and places cursor
-                    // Scroll to keep cursor visible after deletion
-                    system_events.push(PostCallbackSystemEvent::ScrollIntoView);
-                }
-            }
-        }
-    }
-
-    // If focus changed, mark for processing
-    if old_focus != new_focus {
-        system_events.push(PostCallbackSystemEvent::FocusChanged);
-    }
-
-    PostCallbackFilterResult { system_events }
-}
-
-/// Deprecated: Use pre_callback_filter_internal_events instead
-#[deprecated(
-    since = "0.1.0",
-    note = "Use pre_callback_filter_internal_events instead"
-)]
-pub fn filter_internal_events(events: &[SyntheticEvent]) -> FilteredInternalEvents {
-    FilteredInternalEvents {
-        internal_events: Vec::new(),
-        user_events: events.to_vec(),
-    }
-}
-
-/// Deprecated: Use pre_callback_filter_internal_events instead
-#[deprecated(
-    since = "0.1.0",
-    note = "Use pre_callback_filter_internal_events instead"
-)]
-pub fn dispatch_internal_events(
-    _events: &FilteredInternalEvents,
-    _click_count: u8,
-    _current_hit_test: Option<&FullHitTest>,
-    _current_position: LogicalPosition,
-    _timestamp: Instant,
-) -> Vec<InternalSystemEvent> {
-    Vec::new()
-}
-
-// Deprecated type for compatibility
-#[derive(Debug, Clone, PartialEq)]
-pub struct FilteredInternalEvents {
-    pub internal_events: Vec<InternalSystemEvent>,
-    pub user_events: Vec<SyntheticEvent>,
 }

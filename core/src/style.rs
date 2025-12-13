@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use azul_css::css::{
-    CssContentGroup, CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
+    CssContentGroup, CssNthChildSelector, CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
 use crate::{
@@ -268,7 +268,8 @@ pub fn construct_html_cascade_tree(
 
         let parent_html_matcher = CascadeInfo {
             index_in_parent: (index_in_parent - 1) as u32,
-            is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), /* Necessary for :last selectors */
+            // Necessary for :last selectors 
+            is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(),
         };
 
         nodes[parent_id.index()] = parent_html_matcher;
@@ -320,10 +321,10 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
     }
 }
 
-/// Matches a single group of items, panics on Children or DirectChildren selectors
+/// Matches a single group of CSS selectors against a DOM node.
 ///
-/// The intent is to "split" the CSS path into groups by selectors, then store and cache
-/// whether the direct or any parent has matched the path correctly
+/// Returns true if all selectors in the group match the given node.
+/// Combinator selectors (>, +, ~, space) should not appear in the group.
 pub fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &CascadeInfo,
@@ -331,121 +332,103 @@ pub fn selector_group_matches(
     expected_path_ending: Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
+    selectors.iter().all(|selector| {
+        match_single_selector(selector, html_node, node_data, expected_path_ending, is_last_content_group)
+    })
+}
+
+/// Matches a single CSS selector against a DOM node.
+fn match_single_selector(
+    selector: &CssPathSelector,
+    html_node: &CascadeInfo,
+    node_data: &NodeData,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    is_last_content_group: bool,
+) -> bool {
     use self::CssPathSelector::*;
 
-    for selector in selectors {
-        match selector {
-            Global => {}
-            Type(t) => {
-                if node_data.get_node_type().get_path() != *t {
-                    return false;
-                }
-            }
-            Class(c) => {
-                if !node_data
-                    .get_ids_and_classes()
-                    .iter()
-                    .filter_map(|i| i.as_class())
-                    .any(|class| class == c.as_str())
-                {
-                    return false;
-                }
-            }
-            Id(id) => {
-                if !node_data
-                    .get_ids_and_classes()
-                    .iter()
-                    .filter_map(|i| i.as_id())
-                    .any(|html_id| html_id == id.as_str())
-                {
-                    return false;
-                }
-            }
-            PseudoSelector(p) => {
-                match p {
-                    CssPathPseudoSelector::First => {
-                        // Notice: index_in_parent is 1-indexed
-                        if html_node.index_in_parent != 0 {
-                            return false;
-                        }
-                    }
-                    CssPathPseudoSelector::Last => {
-                        // Notice: index_in_parent is 1-indexed
-                        if !html_node.is_last_child {
-                            return false;
-                        }
-                    }
-                    CssPathPseudoSelector::NthChild(x) => {
-                        use azul_css::css::CssNthChildPattern;
-                        let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
+    match selector {
+        Global => true,
+        Type(t) => node_data.get_node_type().get_path() == *t,
+        Class(c) => match_class(node_data, c.as_str()),
+        Id(id) => match_id(node_data, id.as_str()),
+        PseudoSelector(p) => match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group),
+        DirectChildren | Children | AdjacentSibling | GeneralSibling => false,
+    }
+}
 
-                        match *x {
-                            Number(value) => {
-                                if index_in_parent != value {
-                                    return false;
-                                }
-                            }
-                            Even => {
-                                // nth-child(even) matches 2, 4, 6, ... (index % 2 == 0)
-                                if index_in_parent % 2 != 0 {
-                                    return false;
-                                }
-                            }
-                            Odd => {
-                                // nth-child(odd) matches 1, 3, 5, ... (index % 2 == 1)
-                                if index_in_parent % 2 != 1 {
-                                    return false;
-                                }
-                            }
-                            Pattern(CssNthChildPattern { repeat, offset }) => {
-                                let matches = if repeat == 0 {
-                                    index_in_parent == offset
-                                } else {
-                                    index_in_parent >= offset
-                                        && ((index_in_parent - offset) % repeat == 0)
-                                };
-                                if !matches {
-                                    return false;
-                                }
-                            }
-                        }
-                    }
+/// Returns true if the node has the given CSS class.
+fn match_class(node_data: &NodeData, class_name: &str) -> bool {
+    node_data
+        .get_ids_and_classes()
+        .iter()
+        .filter_map(|i| i.as_class())
+        .any(|class| class == class_name)
+}
 
-                    // NOTE: for all other selectors such as :hover, :focus and :active,
-                    // we can only apply them if they appear in the last content group,
-                    // i.e. this will match "body > #main:hover", but not "body:hover > #main"
-                    CssPathPseudoSelector::Hover => {
-                        if !is_last_content_group {
-                            return false;
-                        }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Hover) {
-                            return false;
-                        }
-                    }
-                    CssPathPseudoSelector::Active => {
-                        if !is_last_content_group {
-                            return false;
-                        }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Active) {
-                            return false;
-                        }
-                    }
-                    CssPathPseudoSelector::Focus => {
-                        if !is_last_content_group {
-                            return false;
-                        }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Focus) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            DirectChildren | Children | AdjacentSibling | GeneralSibling => {
-                // panic!("Unreachable: combinator selectors in CSS path!");
-                return false;
+/// Returns true if the node has the given HTML id.
+fn match_id(node_data: &NodeData, id_name: &str) -> bool {
+    node_data
+        .get_ids_and_classes()
+        .iter()
+        .filter_map(|i| i.as_id())
+        .any(|html_id| html_id == id_name)
+}
+
+/// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.
+fn match_pseudo_selector(
+    pseudo: &CssPathPseudoSelector,
+    html_node: &CascadeInfo,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    is_last_content_group: bool,
+) -> bool {
+    match pseudo {
+        CssPathPseudoSelector::First => match_first_child(html_node),
+        CssPathPseudoSelector::Last => match_last_child(html_node),
+        CssPathPseudoSelector::NthChild(pattern) => match_nth_child(html_node, pattern),
+        CssPathPseudoSelector::Hover => match_interactive_pseudo(CssPathPseudoSelector::Hover, expected_path_ending, is_last_content_group),
+        CssPathPseudoSelector::Active => match_interactive_pseudo(CssPathPseudoSelector::Active, expected_path_ending, is_last_content_group),
+        CssPathPseudoSelector::Focus => match_interactive_pseudo(CssPathPseudoSelector::Focus, expected_path_ending, is_last_content_group),
+    }
+}
+
+/// Returns true if the node is the first child of its parent.
+fn match_first_child(html_node: &CascadeInfo) -> bool {
+    html_node.index_in_parent == 0
+}
+
+/// Returns true if the node is the last child of its parent.
+fn match_last_child(html_node: &CascadeInfo) -> bool {
+    html_node.is_last_child
+}
+
+/// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B) patterns.
+fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bool {
+    use azul_css::css::CssNthChildPattern;
+    
+    // nth-child is 1-indexed, index_in_parent is 0-indexed
+    let index = html_node.index_in_parent + 1;
+
+    match pattern {
+        Number(n) => index == *n,
+        Even => index % 2 == 0,
+        Odd => index % 2 == 1,
+        Pattern(CssNthChildPattern { repeat, offset }) => {
+            if *repeat == 0 {
+                index == *offset
+            } else {
+                index >= *offset && ((index - offset) % repeat == 0)
             }
         }
     }
+}
 
-    true
+/// Matches interactive pseudo-selectors (:hover, :active, :focus).
+/// These only apply if they appear in the last content group of the CSS path.
+fn match_interactive_pseudo(
+    pseudo: CssPathPseudoSelector,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    is_last_content_group: bool,
+) -> bool {
+    is_last_content_group && expected_path_ending == Some(pseudo)
 }

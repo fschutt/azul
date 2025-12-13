@@ -34,7 +34,7 @@ pub mod animation;
 pub mod events;
 /// Geometry module for physical and logical sizes
 pub mod geom;
-/// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
+/// Contains OpenGL helper functions (to compile / link shaders)
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader implementation
 pub mod gl_fxaa;

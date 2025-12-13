@@ -117,7 +117,8 @@ impl LogicalRect {
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();
         let dy_bottom_edge = self.max_y() - other.y;
-        if dx_left_edge > 0.0 && dx_right_edge > 0.0 && dy_top_edge > 0.0 && dy_bottom_edge > 0.0 {
+        if dx_left_edge > 0.0 && dx_right_edge > 0.0 && 
+           dy_top_edge > 0.0 && dy_bottom_edge > 0.0 {
             Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
         } else {
             None
@@ -273,7 +274,8 @@ impl LogicalPosition {
     pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
-            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => Self::new(main, cross),
+            LayoutWritingMode::VerticalRl | 
+            LayoutWritingMode::VerticalLr => Self::new(main, cross),
         }
     }
 }
@@ -296,7 +298,8 @@ impl LogicalSize {
     pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
-            LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => Self::new(main, cross),
+            LayoutWritingMode::VerticalRl | 
+            LayoutWritingMode::VerticalLr => Self::new(main, cross),
         }
     }
 }

@@ -8,18 +8,8 @@
 //! - **Transform support**: Applies CSS transforms to SVG elements
 //! - **Style parsing**: Handles SVG fill, stroke, opacity, and other attributes
 //!
-//! # Architecture
-//!
 //! The module uses Lyon for geometric tessellation and generates vertex/index buffers
 //! that can be uploaded to WebRender for hardware-accelerated rendering.
-//!
-//! # Performance
-//!
-//! Path tessellation is cached and only recomputed when geometry or style changes.
-//! The tessellation tolerance controls the trade-off between visual quality and
-//! vertex count (default: 0.1 pixels).
-//!
-//! # Examples
 //!
 //! ```rust,no_run,ignore
 //! use azul_core::svg::{SvgPath, SvgStrokeOptions};

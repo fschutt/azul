@@ -16,17 +16,6 @@
 //! - Node lookups are O(1) via direct array indexing
 //! - Parent/child traversal is O(1) via pre-computed indices
 //! - No heap allocations after initial tree construction
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use azul_core::id::{NodeHierarchy, NodeId};
-//!
-//! let node_id = NodeId::new(0); // First node
-//! let parent = NodeId::new(1); // Second node
-//!
-//! // Build hierarchy...
-//! ```
 
 use alloc::vec::Vec;
 use core::{
@@ -923,38 +912,31 @@ impl<'a> Iterator for Traverse<'a> {
     type Item = NodeEdge<NodeId>;
 
     fn next(&mut self) -> Option<NodeEdge<NodeId>> {
-        match self.next.take() {
-            Some(item) => {
-                self.next = match item {
-                    NodeEdge::Start(node) => {
-                        match self.node_hierarchy[node].get_first_child(node) {
-                            Some(first_child) => Some(NodeEdge::Start(first_child)),
-                            None => Some(NodeEdge::End(node.clone())),
-                        }
-                    }
-                    NodeEdge::End(node) => {
-                        if node == self.root {
-                            None
-                        } else {
-                            match self.node_hierarchy[node].next_sibling {
-                                Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
-                                None => match self.node_hierarchy[node].parent {
-                                    Some(parent) => Some(NodeEdge::End(parent)),
+        let item = self.next.take()?;
+        self.next = self.compute_next(&item);
+        Some(item)
+    }
+}
 
-                                    // `node.parent()` here can only be `None`
-                                    // if the tree has been modified during iteration,
-                                    // but silently stopping iteration
-                                    // seems a more sensible behavior than panicking.
-                                    None => None,
-                                },
-                            }
-                        }
-                    }
-                };
-                Some(item)
-            }
-            None => None,
+impl<'a> Traverse<'a> {
+    /// Compute the next edge in tree order
+    fn compute_next(&self, item: &NodeEdge<NodeId>) -> Option<NodeEdge<NodeId>> {
+        match *item {
+            NodeEdge::Start(node) => Some(match self.node_hierarchy[node].get_first_child(node) {
+                Some(first_child) => NodeEdge::Start(first_child),
+                None => NodeEdge::End(node),
+            }),
+            NodeEdge::End(node) if node == self.root => None,
+            NodeEdge::End(node) => self.next_from_end(node),
         }
+    }
+
+    /// From an End edge, find the next edge (next sibling's Start, or parent's End)
+    fn next_from_end(&self, node: NodeId) -> Option<NodeEdge<NodeId>> {
+        let h = &self.node_hierarchy[node];
+        h.next_sibling
+            .map(NodeEdge::Start)
+            .or_else(|| h.parent.map(NodeEdge::End))
     }
 }
 
@@ -969,35 +951,30 @@ impl<'a> Iterator for ReverseTraverse<'a> {
     type Item = NodeEdge<NodeId>;
 
     fn next(&mut self) -> Option<NodeEdge<NodeId>> {
-        match self.next.take() {
-            Some(item) => {
-                self.next = match item {
-                    NodeEdge::End(node) => match self.node_hierarchy[node].last_child {
-                        Some(last_child) => Some(NodeEdge::End(last_child)),
-                        None => Some(NodeEdge::Start(node.clone())),
-                    },
-                    NodeEdge::Start(node) => {
-                        if node == self.root {
-                            None
-                        } else {
-                            match self.node_hierarchy[node].previous_sibling {
-                                Some(previous_sibling) => Some(NodeEdge::End(previous_sibling)),
-                                None => match self.node_hierarchy[node].parent {
-                                    Some(parent) => Some(NodeEdge::Start(parent)),
+        let item = self.next.take()?;
+        self.next = self.compute_next(&item);
+        Some(item)
+    }
+}
 
-                                    // `node.parent()` here can only be `None`
-                                    // if the tree has been modified during iteration,
-                                    // but silently stopping iteration
-                                    // seems a more sensible behavior than panicking.
-                                    None => None,
-                                },
-                            }
-                        }
-                    }
-                };
-                Some(item)
-            }
-            None => None,
+impl<'a> ReverseTraverse<'a> {
+    /// Compute the next edge in reverse tree order
+    fn compute_next(&self, item: &NodeEdge<NodeId>) -> Option<NodeEdge<NodeId>> {
+        match *item {
+            NodeEdge::End(node) => Some(match self.node_hierarchy[node].last_child {
+                Some(last_child) => NodeEdge::End(last_child),
+                None => NodeEdge::Start(node),
+            }),
+            NodeEdge::Start(node) if node == self.root => None,
+            NodeEdge::Start(node) => self.next_from_start(node),
         }
+    }
+
+    /// From a Start edge, find the next edge (previous sibling's End, or parent's Start)
+    fn next_from_start(&self, node: NodeId) -> Option<NodeEdge<NodeId>> {
+        let h = &self.node_hierarchy[node];
+        h.previous_sibling
+            .map(NodeEdge::End)
+            .or_else(|| h.parent.map(NodeEdge::Start))
     }
 }

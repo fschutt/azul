@@ -3,33 +3,12 @@
 //! This module provides a cross-platform menu abstraction modeled after the Windows API,
 //! supporting hierarchical menus with separators, icons, keyboard accelerators, and callbacks.
 //!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use azul_core::{
-//!     menu::{Menu, MenuItem, MenuItemVec, StringMenuItem},
-//!     refany::RefAny,
-//! };
-//! use azul_css::AzString;
-//!
-//! // Create a simple context menu
-//! const ITEM_1: AzString = AzString::from_const_str("Copy");
-//! const ITEM_2: AzString = AzString::from_const_str("Paste");
-//! const ITEM_1_STR: StringMenuItem = StringMenuItem::new(ITEM_1);
-//! const ITEM_2_STR: StringMenuItem = StringMenuItem::new(ITEM_2);
-//! const MENU_ITEMS: &[MenuItem] = &[
-//!     MenuItem::String(ITEM_1_STR),
-//!     MenuItem::Separator,
-//!     MenuItem::String(ITEM_2_STR),
-//! ];
-//! let menu = Menu::new(MenuItemVec::from_const_slice(MENU_ITEMS));
-//! ```
-//!
 //! # Core vs Layout Types
 //!
 //! This module uses `CoreMenuCallback` with `usize` placeholders instead of function pointers
 //! to avoid circular dependencies between `azul-core` and `azul-layout`. The actual function
-//! pointers are stored in `azul-layout` and converted via unsafe code with identical memory layout.
+//! pointers are stored in `azul-layout` and converted via unsafe code with identical memory 
+//! layout.
 
 extern crate alloc;
 
@@ -116,7 +95,6 @@ pub enum MenuPopupPosition {
     TopLeftOfCursor,
     /// Position menu above and to the right of the cursor
     TopRightOfCursor,
-
     /// Position menu below the rectangle that was clicked
     BottomOfHitRect,
     /// Position menu to the left of the rectangle that was clicked
@@ -125,7 +103,6 @@ pub enum MenuPopupPosition {
     TopOfHitRect,
     /// Position menu to the right of the rectangle that was clicked
     RightOfHitRect,
-
     /// Automatically calculate position based on available screen space near cursor
     AutoCursor,
     /// Automatically calculate position based on available screen space near clicked rect
@@ -153,6 +130,7 @@ impl Menu {
 /// Describes the interactive state of a menu item.
 ///
 /// Menu items can be in different states that affect their appearance and behavior:
+/// 
 /// - Normal items are clickable and render normally
 /// - Greyed items are visually disabled (greyed out) and non-clickable
 /// - Disabled items are non-clickable but retain normal appearance
@@ -169,8 +147,8 @@ pub enum MenuItemState {
 
 /// Represents a single item in a menu.
 ///
-/// Menu items can be regular text items with labels and callbacks, visual separators,
-/// or line breaks for horizontal menu layouts.
+/// Menu items can be regular text items with labels and callbacks,
+/// visual separators, or line breaks for horizontal menu layouts.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
 pub enum MenuItem {
@@ -194,21 +172,14 @@ impl_vec_ord!(MenuItem, MenuItemVec);
 /// A menu item with a text label and optional features.
 ///
 /// `StringMenuItem` represents a clickable menu entry that can have:
+/// 
 /// - A text label
 /// - An optional keyboard accelerator (e.g., Ctrl+C)
 /// - An optional callback function
 /// - An optional icon (checkbox or image)
 /// - A state (normal, greyed, or disabled)
 /// - Child menu items (for sub-menus)
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use azul_core::menu::StringMenuItem;
-/// use azul_css::AzString;
-///
-/// let item = StringMenuItem::new(AzString::from_const_str("Copy"));
-/// ```
+/// 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct StringMenuItem {
@@ -228,9 +199,11 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
+
     /// Creates a new menu item with the given label and default values.
     ///
     /// Default values:
+    /// 
     /// - No accelerator
     /// - No callback
     /// - Normal state
@@ -333,16 +306,6 @@ impl_option!(
 /// This type is used in `azul-core` to represent menu item callbacks without
 /// creating circular dependencies with `azul-layout`. The actual function pointer
 /// is stored as a `usize` and converted via unsafe code in `azul-layout`.
-///
-/// # Safety
-///
-/// The memory layout of this struct must exactly match the real callback type in
-/// `azul-layout`. This is verified by tests in `azul-layout/src/callbacks.rs`.
-///
-/// # Fields
-///
-/// * `data` - Type-erased user data passed to the callback
-/// * `callback` - Function pointer stored as `usize` (converted in azul-layout)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct CoreMenuCallback {

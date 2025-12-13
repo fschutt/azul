@@ -3,34 +3,13 @@
 //! This module implements 4x4 transformation matrices for CSS `transform` properties,
 //! including translation, rotation, scaling, skewing, and perspective. It handles conversion
 //! from CSS transform functions to hardware-accelerated matrices for WebRender.
-//!
-//! # Performance
-//!
+//! 
 //! On x86_64 platforms, the module automatically detects and uses SSE/AVX instructions
 //! for optimized matrix multiplication and inversion.
 //!
-//! # Coordinate Systems
-//!
-//! Matrices are stored in **row-major** format (unlike some graphics APIs that use column-major).
-//! The module handles coordinate system differences between WebRender and hit-testing via
-//! the `RotationMode` enum.
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use azul_core::transform::{ComputedTransform3D, RotationMode};
-//! use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
-//!
-//! let origin = StyleTransformOrigin::default();
-//! let transforms = vec![]; // Vec<StyleTransform>
-//! let transform = ComputedTransform3D::from_style_transform_vec(
-//!     &transforms,
-//!     &origin,
-//!     800.0, // parent width
-//!     600.0, // parent height
-//!     RotationMode::ForWebRender,
-//! );
-//! ```
+//! **NOTE**: Matrices are stored in **row-major** format (unlike some graphics APIs that 
+//! use column-major). The module handles coordinate system differences between WebRender
+//! and hit-testing via the `RotationMode` enum.
 
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
@@ -73,10 +52,6 @@ pub enum RotationMode {
 /// m[2] = [m31, m32, m33, m34]
 /// m[3] = [m41, m42, m43, m44]
 /// ```
-///
-/// # Optimization
-///
-/// Matrix operations use SSE/AVX when available on x86_64.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComputedTransform3D {
@@ -131,8 +106,6 @@ impl ComputedTransform3D {
     /// This is equivalent to the CSS `matrix()` function. The transformation
     /// only affects the X and Y axes.
     ///
-    /// # Parameters
-    ///
     /// Corresponds to `matrix(m11, m12, m21, m22, m41, m42)` in CSS.
     pub const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
         Self::new(
@@ -142,12 +115,10 @@ impl ComputedTransform3D {
 
     /// Computes the inverse of this transformation matrix.
     ///
-    /// This function uses a standard matrix inversion algorithm. Returns the identity
-    /// matrix if the determinant is zero (singular matrix).
+    /// This function uses a standard matrix inversion algorithm. Returns the
+    /// identity matrix if the determinant is zero (singular matrix).
     ///
-    /// # Performance
-    ///
-    /// This is a relatively expensive operation. Use sparingly or cache results.
+    /// NOTE: This is a relatively expensive operation.
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
@@ -900,8 +871,10 @@ impl ComputedTransform3D {
         rotation_mode: RotationMode,
     ) -> Self {
         degrees = match rotation_mode {
-            RotationMode::ForWebRender => -degrees, // CSS rotations are clockwise
-            RotationMode::ForHitTesting => degrees, // hit-testing turns counter-clockwise
+            // CSS rotations are clockwise
+            RotationMode::ForWebRender => -degrees,
+            // hit-testing turns counter-clockwise
+            RotationMode::ForHitTesting => degrees,
         };
 
         let (origin_x, origin_y) = rotation_origin;

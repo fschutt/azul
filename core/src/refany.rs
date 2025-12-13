@@ -46,6 +46,7 @@ pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 /// Internal reference counting metadata for `RefAny`.
 ///
 /// This struct tracks:
+/// 
 /// - How many `RefAny` clones exist (`num_copies`)
 /// - How many shared borrows are active (`num_refs`)
 /// - How many mutable borrows are active (`num_mutable_refs`)
@@ -375,8 +376,8 @@ impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
 /// # Memory Safety
 ///
 /// Fixed critical UB bugs in alignment, copy count, and pointer provenance (see
-/// REFANY_UB_FIXES.md). All operations are verified with Miri to ensure absence of undefined
-/// behavior.
+/// REFANY_UB_FIXES.md). All operations are verified with Miri to ensure absence of
+/// undefined behavior.
 ///
 /// # Usage
 ///
@@ -434,12 +435,12 @@ impl_option!(
 unsafe impl Send for RefAny {}
 
 // SAFETY: RefAny is Sync because:
-// - Methods that access the inner data (`downcast_ref/mut`) require `&mut self`, which is checked
-//   by the compiler and prevents concurrent access
-// - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or read immutable
-//   data, which is inherently thread-safe
-// - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics, ensuring
-//   proper synchronization across threads
+// - Methods that access the inner data (`downcast_ref/mut`) require `&mut self`, which
+//  is checked by the compiler and prevents concurrent access
+// - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or
+//  read immutable data, which is inherently thread-safe
+// - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics,
+//   ensures proper synchronization across threads
 unsafe impl Sync for RefAny {}
 
 impl RefAny {
@@ -548,14 +549,6 @@ impl RefAny {
     /// - `type_id`: Unique identifier for the type (for downcast safety)
     /// - `type_name`: Human-readable type name (for debugging)
     /// - `custom_destructor`: Function to call when the last reference is dropped
-    ///
-    /// # Critical Fix: Alignment
-    ///
-    /// Previous implementation used `Layout::for_value(&[u8])` which created
-    /// a layout with alignment=1, causing unaligned memory access UB.
-    ///
-    /// Now uses `Layout::from_size_align(len, align)` to ensure the heap
-    /// allocation has the correct alignment for the stored type.
     ///
     /// # Safety
     ///
@@ -753,6 +746,7 @@ impl RefAny {
     /// # Safety
     ///
     /// The `unsafe` cast is safe because:
+    /// 
     /// - Type ID check ensures `U` matches the stored type
     /// - Memory was allocated with correct alignment for `U`
     /// - Borrow check ensures no other references exist
@@ -875,6 +869,7 @@ impl Clone for RefAny {
     /// # Safety
     ///
     /// Safe because:
+    /// 
     /// - Atomic operations prevent data races
     /// - The heap allocation remains valid (only freed when count reaches 0)
     /// - `run_destructor` is set to `true` for all clones
@@ -922,6 +917,7 @@ impl Drop for RefAny {
     /// # Memory Ordering: SeqCst Prevents Races
     ///
     /// Example race without proper ordering:
+    /// 
     /// ```no_run,ignore
     /// Thread A: fetch_sub(1) -> sees 2, returns
     /// Thread B: fetch_sub(1) -> sees 1, starts cleanup
@@ -929,6 +925,7 @@ impl Drop for RefAny {
     /// ```
     ///
     /// With `SeqCst`, this cannot happen:
+    /// 
     /// - Both threads see a globally consistent order
     /// - If Thread B sees `1`, Thread A's decrement has already happened
     /// - Exactly one thread will see `1` and run cleanup

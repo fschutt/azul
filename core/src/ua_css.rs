@@ -2,10 +2,8 @@
 //!
 //! This module provides the default CSS styling that browsers apply to HTML elements
 //! before any author stylesheets are processed. It ensures consistent baseline behavior
-//! across all Azul applications.
-//!
-//! # Purpose
-//!
+//! across all applications.
+//! 
 //! The user-agent stylesheet serves several critical functions:
 //!
 //! 1. **Prevents Layout Collapse**: Ensures root elements (`<html>`, `<body>`) have default
@@ -19,32 +17,6 @@
 //!
 //! 4. **Normalizes Browser Behavior**: Incorporates principles from normalize.css to provide
 //!    consistent rendering across different platforms.
-//!
-//! # Implementation Details
-//!
-//! Unlike traditional user-agent stylesheets that are parsed at runtime, this module
-//! uses compile-time constants. Each CSS property is represented as a strongly-typed
-//! Rust constant, eliminating parsing overhead and providing type safety.
-//!
-//! The API uses a lookup function that takes:
-//! - `NodeType`: The type of DOM element (e.g., `Body`, `H1`, `Div`)
-//! - `CssPropertyType`: The specific CSS property being queried (e.g., `Width`, `Display`)
-//!
-//! And returns an `Option<CssProperty>` with the default value, or `None` if no
-//! default is defined for that combination.
-//!
-//! # Example
-//!
-//! ```ignore
-//! use azul_core::ua_css::get_ua_property;
-//! use azul_core::dom::NodeType;
-//! use azul_css::props::property::CssPropertyType;
-//!
-//! // Get the default width for <body>
-//! if let Some(width) = get_ua_property(NodeType::Body, CssPropertyType::Width) {
-//!     // width is CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Percent(...)))
-//! }
-//! ```
 //!
 //! # Licensing
 //!
@@ -466,10 +438,13 @@ static BREAK_BEFORE_AVOID: CssProperty = CssProperty::break_before(PageBreak::Av
 static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoid);
 
 /// padding-inline-start: 40px (default for <li>)
+/// 
 /// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
 /// padding-inline-start: 40px for list items per CSS Lists Module Level 3
 /// Applied to <li> items to create gutter space for ::marker pseudo-elements
+/// 
 /// NOTE: This should be on the list items, not the container, because:
+/// 
 /// 1. ::marker pseudo-elements are children of <li>, not <ul>/<ol>
 /// 2. The marker needs to be positioned relative to the list item's content box
 /// 3. Padding on <li> creates space between the marker and the text content

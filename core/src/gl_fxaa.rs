@@ -1,35 +1,12 @@
-/// FXAA (Fast Approximate Anti-Aliasing) shader implementation
-///
-/// This provides an optional post-processing anti-aliasing effect that works
-/// without requiring MSAA support (which isn't universally available) and
-/// without the performance cost of supersampling.
-///
-/// FXAA works by:
-/// 1. Detecting edges in the rendered image using luminance
-/// 2. Selectively blurring along detected edges to smooth them
-/// 3. Preserving sharp details in non-edge regions
-///
-/// The shader can be toggled on/off for performance-sensitive applications.
-///
-/// ## Implementation Status
-///
-/// The FXAA shader infrastructure is ready and integrated into
-/// `GlContextPtrInner.fxaa_shader`. The shader source code is defined below but the actual
-/// compilation and integration is TODO (currently set to 0 in gl.rs:1030).
-///
-/// ## Usage
-///
-/// Once implemented, FXAA can be enabled with:
-///
-/// ```ignore
-/// let config = FxaaConfig::enabled(); // or ::high_quality(), ::balanced(), ::performance()
-/// // Apply FXAA as post-processing step after rendering
-/// ```
-///
-/// ## Performance
-///
-/// FXAA is significantly faster than supersampling and works without hardware MSAA support.
-/// Typical overhead is 1-2ms at 1080p on modern GPUs.
+//! FXAA (Fast Approximate Anti-Aliasing) shader implementation.
+//!
+//! Post-processing AA that detects edges via luminance and selectively blurs them.
+//! Faster than supersampling and works without hardware MSAA support.
+//!
+//! Currently TODO: shader compilation (see `GlContextPtrInner.fxaa_shader`).
+//!
+//! Presets: `FxaaConfig::enabled()`, `::high_quality()`, `::balanced()`, `::performance()`
+
 use gl_context_loader::{GLint, GLuint};
 
 /// FXAA shader configuration

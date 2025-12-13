@@ -125,6 +125,7 @@ pub enum Vsync {
     Disabled,
     DontCare,
 }
+
 impl Vsync {
     pub const fn is_enabled(&self) -> bool {
         match self {
@@ -1281,10 +1282,10 @@ pub enum FullScreenMode {
     FastWindowed,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
 // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
 // of a struct, which makes things more complicated
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct WaylandTheme {
     pub title_bar_active_background_color: ColorU,
     pub title_bar_active_separator_color: ColorU,

@@ -142,6 +142,7 @@ impl Default for StyledNodeState {
 }
 
 impl StyledNodeState {
+    /// Creates a new state with normal=true and all others false.
     pub const fn new() -> Self {
         StyledNodeState {
             normal: true,
@@ -172,11 +173,13 @@ impl_vec_clone!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
 impl_vec_partialeq!(StyledNode, StyledNodeVec);
 
 impl StyledNodeVec {
+    /// Returns an immutable container reference for indexed access.
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, StyledNode> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
     }
+    /// Returns a mutable container reference for indexed access.
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, StyledNode> {
         NodeDataContainerRefMut {
             internal: self.as_mut(),
@@ -230,6 +233,7 @@ impl ::core::fmt::Debug for StyleFontFamilyHash {
 }
 
 impl StyleFontFamilyHash {
+    /// Computes a 64-bit hash of a font family for cache lookups.
     pub fn new(family: &StyleFontFamily) -> Self {
         use highway::{HighwayHash, HighwayHasher, Key};
         let mut hasher = HighwayHasher::new(Key([0; 4]));
@@ -249,6 +253,7 @@ impl ::core::fmt::Debug for StyleFontFamiliesHash {
 }
 
 impl StyleFontFamiliesHash {
+    /// Computes a 64-bit hash of multiple font families for cache lookups.
     pub fn new(families: &[StyleFontFamily]) -> Self {
         use highway::{HighwayHash, HighwayHasher, Key};
         let mut hasher = HighwayHasher::new(Key([0; 4]));
@@ -301,11 +306,13 @@ impl_vec_clone!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_partialeq!(NodeHierarchyItemId, NodeIdVec);
 
 impl NodeHierarchyItemId {
+    /// Converts to internal NodeId representation (0 = None).
     #[inline]
     pub const fn into_crate_internal(&self) -> Option<NodeId> {
         NodeId::from_usize(self.inner)
     }
 
+    /// Creates from internal NodeId representation (None becomes 0).
     #[inline]
     pub const fn from_crate_internal(t: Option<NodeId>) -> Self {
         Self {
@@ -324,6 +331,7 @@ pub struct NodeHierarchyItem {
 }
 
 impl NodeHierarchyItem {
+    /// Creates a zeroed hierarchy item (no parent, siblings, or children).
     pub const fn zeroed() -> Self {
         Self {
             parent: 0,
@@ -346,18 +354,23 @@ impl From<Node> for NodeHierarchyItem {
 }
 
 impl NodeHierarchyItem {
+    /// Returns the parent node ID, if any.
     pub fn parent_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.parent)
     }
+    /// Returns the previous sibling node ID, if any.
     pub fn previous_sibling_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.previous_sibling)
     }
+    /// Returns the next sibling node ID, if any.
     pub fn next_sibling_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.next_sibling)
     }
+    /// Returns the first child node ID (current_node_id + 1 if has children).
     pub fn first_child_id(&self, current_node_id: NodeId) -> Option<NodeId> {
         self.last_child_id().map(|_| current_node_id + 1)
     }
+    /// Returns the last child node ID, if any.
     pub fn last_child_id(&self) -> Option<NodeId> {
         NodeId::from_usize(self.last_child)
     }
@@ -379,11 +392,13 @@ impl_vec_clone!(
 impl_vec_partialeq!(AzNode, NodeHierarchyItemVec);
 
 impl NodeHierarchyItemVec {
+    /// Returns an immutable container reference for indexed access.
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeHierarchyItem> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
     }
+    /// Returns a mutable container reference for indexed access.
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeHierarchyItem> {
         NodeDataContainerRefMut {
             internal: self.as_mut(),
@@ -392,6 +407,7 @@ impl NodeHierarchyItemVec {
 }
 
 impl<'a> NodeDataContainerRef<'a, NodeHierarchyItem> {
+    /// Returns the number of descendant nodes under the given parent.
     #[inline]
     pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
@@ -536,7 +552,9 @@ impl Default for StyledDom {
 }
 
 impl StyledDom {
-    // NOTE: After calling this function, the DOM will be reset to an empty DOM.
+    /// Creates a new StyledDom by applying CSS styles to a DOM tree.
+    ///
+    /// NOTE: After calling this function, the DOM will be reset to an empty DOM.
     // This is for memory optimization, so that the DOM does not need to be cloned.
     //
     // The CSS will be left in-place, but will be re-ordered
@@ -843,6 +861,7 @@ impl StyledDom {
         self
     }
 
+    /// Re-applies CSS styles to the existing DOM structure.
     pub fn restyle(&mut self, mut css: CssApiWrapper) {
         let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css.css,
@@ -890,21 +909,25 @@ impl StyledDom {
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
+    /// Returns the total number of nodes in this StyledDom.
     #[inline]
     pub fn node_count(&self) -> usize {
         self.node_data.len()
     }
 
+    /// Returns an immutable reference to the CSS property cache.
     #[inline]
     pub fn get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache {
         &*self.css_property_cache.ptr
     }
 
+    /// Returns a mutable reference to the CSS property cache.
     #[inline]
     pub fn get_css_property_cache_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
         &mut *self.css_property_cache.ptr
     }
 
+    /// Returns the current state (hover, active, focus) of a styled node.
     #[inline]
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
         self.styled_nodes.as_container()[*node_id].state.clone()
@@ -990,6 +1013,7 @@ impl StyledDom {
         set
     }
 
+    /// Updates hover state for nodes and returns changed CSS properties.
     #[must_use]
     pub fn restyle_nodes_hover(
         &mut self,
@@ -1097,6 +1121,7 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
+    /// Updates active state for nodes and returns changed CSS properties.
     #[must_use]
     pub fn restyle_nodes_active(
         &mut self,
@@ -1206,6 +1231,7 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
+    /// Updates focus state for nodes and returns changed CSS properties.
     #[must_use]
     pub fn restyle_nodes_focus(
         &mut self,
@@ -1315,6 +1341,7 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
+    /// Overrides CSS properties for a node and returns changed properties.
     // Inserts a property into the self.user_overridden_properties
     #[must_use]
     pub fn restyle_user_property(
@@ -1569,6 +1596,7 @@ impl StyledDom {
         }
     }
 
+    /// Returns node IDs of all parent nodes in the subtree (nodes with children).
     // Same as get_subtree, but only returns parents
     pub fn get_subtree_parents(&self, parent: NodeId) -> Vec<NodeId> {
         let mut total_last_child = None;
@@ -1588,6 +1616,7 @@ impl StyledDom {
         }
     }
 
+    /// Returns nodes grouped by their rendering order (respects z-index and position).
     pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
             &self.non_leaf_nodes.as_ref(),
@@ -1636,6 +1665,7 @@ impl StyledDom {
         root_content_group
     }
 
+    /// Replaces this StyledDom with default and returns the old value.
     pub fn swap_with_default(&mut self) -> Self {
         let mut new = Self::default();
         core::mem::swap(self, &mut new);
@@ -1671,6 +1701,7 @@ impl From<Dom> for CompactDom {
     }
 }
 
+/// Converts a tree-based Dom into an arena-based CompactDom for efficient traversal.
 pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // note: somehow convert this into a non-recursive form later on!
     fn convert_dom_into_compact_dom_internal(

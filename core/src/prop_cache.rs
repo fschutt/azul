@@ -12,6 +12,7 @@
 //!
 //! The cache is organized per-node and per-property-type. Each property has a dedicated
 //! getter method that:
+//! 
 //! 1. Checks if the property is cached
 //! 2. If not, resolves it from CSS rules + inline styles
 //! 3. Caches the result for subsequent frames

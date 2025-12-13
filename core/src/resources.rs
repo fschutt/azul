@@ -15,8 +15,6 @@ use azul_css::{
     },
     AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec,
 };
-// pub use azul_css::props::basic::FontMetrics; // TODO: FontMetrics needs to be moved to new
-// structure
 use rust_fontconfig::FcFontCache;
 
 // Re-export Core* callback types for public use
@@ -33,7 +31,8 @@ use crate::{
     prop_cache::CssPropertyCache,
     refany::RefAny,
     styled_dom::{
-        NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState,
+        NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, 
+        StyledDom, StyledNodeState,
     },
     ui_solver::GlyphInstance,
     window::OptionChar,
@@ -128,13 +127,6 @@ pub enum AppLogLevel {
     Trace,
 }
 
-pub type WordIndex = usize;
-pub type GlyphIndex = usize;
-pub type LineLength = f32;
-pub type IndexOfLineBreak = usize;
-pub type RemainingSpaceToRight = f32;
-pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PrimitiveFlags {
     /// The CSS backface-visibility property (yes, it can be really granular)
@@ -224,7 +216,8 @@ pub enum RawImageFormat {
     RGBAF32,
 }
 
-static IMAGE_KEY: AtomicU32 = AtomicU32::new(1); // NOTE: starts at 1 (0 = DUMMY)
+// NOTE: starts at 1 (0 = DUMMY)
+static IMAGE_KEY: AtomicU32 = AtomicU32::new(1);
 static FONT_KEY: AtomicU32 = AtomicU32::new(0);
 static FONT_INSTANCE_KEY: AtomicU32 = AtomicU32::new(0);
 
@@ -384,8 +377,8 @@ impl ImageRef {
                 format: *format,
                 tag: tag.clone(),
             },
-            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing
-            // from the trait), so calling clone() on a GL texture will result in an
+            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that
+            // are missing from the trait), so calling clone() on a GL texture will result in an
             // empty image
             DecodedImage::Gl(tex) => DecodedImage::NullImage {
                 width: tex.size.width as usize,

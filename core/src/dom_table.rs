@@ -103,15 +103,3 @@ fn get_node_display(styled_dom: &StyledDom, node_id: NodeId) -> Option<LayoutDis
         .and_then(|value| value.get_property().cloned())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // TODO: Add tests for StyledDom-based anonymous table element generation
-    // These tests will need to:
-    // 1. Create a StyledDom with incomplete table structure
-    // 2. Call generate_anonymous_table_elements()
-    // 3. Verify anonymous nodes are inserted correctly
-    // 4. Verify is_anonymous flag is set on generated nodes
-    // 5. Verify original structure is preserved
-}

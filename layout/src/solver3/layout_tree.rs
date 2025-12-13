@@ -11,7 +11,6 @@ use azul_core::{
     dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::StyledDom,
-    ui_solver::ResolvedOffsets,
 };
 use azul_css::{
     corety::LayoutDebugMessage,

@@ -1,3 +1,11 @@
+//! Timer and thread management for asynchronous operations.
+//!
+//! This module provides:
+//! - `TimerId` / `ThreadId`: Unique identifiers for timers and background threads
+//! - `Instant` / `Duration`: Cross-platform time types (works on no_std with tick counters)
+//! - `ThreadReceiver`: Channel for receiving messages from the main thread
+//! - Callback types for thread communication and system time queries
+
 #[cfg(not(feature = "std"))]
 use alloc::string::{String, ToString};
 use alloc::{
@@ -75,7 +83,7 @@ impl_option!(
 
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(5);
 
-/// ID for uniquely identifying a timer
+/// ID for uniquely identifying a background thread
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ThreadId {
@@ -97,10 +105,15 @@ impl ThreadId {
     }
 }
 
+/// A point in time, either from the system clock or a tick counter.
+///
+/// Use `Instant::System` on platforms with std, `Instant::Tick` on embedded/no_std.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Instant {
+    /// System time from std::time::Instant (requires "std" feature)
     System(InstantPtr),
+    /// Tick-based time for embedded systems without a real-time clock
     Tick(SystemTick),
 }
 
@@ -166,6 +179,7 @@ impl Instant {
         }
     }
 
+    /// Converts to std::time::Instant (panics if Tick variant).
     #[cfg(feature = "std")]
     pub fn into_std_instant(self) -> StdInstant {
         match self {
@@ -214,6 +228,9 @@ impl Instant {
     }
 }
 
+/// Tick-based timestamp for systems without a real-time clock.
+///
+/// Used on embedded systems where time is measured in frame ticks or cycles.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTick {
@@ -221,11 +238,15 @@ pub struct SystemTick {
 }
 
 impl SystemTick {
+    /// Creates a new tick timestamp from a counter value.
     pub const fn new(tick_counter: u64) -> Self {
         Self { tick_counter }
     }
 }
 
+/// FFI-safe wrapper around std::time::Instant with custom clone/drop callbacks.
+///
+/// Allows crossing FFI boundaries while maintaining proper memory management.
 #[repr(C)]
 pub struct InstantPtr {
     #[cfg(feature = "std")]
@@ -383,10 +404,16 @@ extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
 
 // ----  LIBSTD implementation for InstantPtr END
 
+/// A span of time, either from the system clock or as tick difference.
+///
+/// Mirrors `Instant` variants - System durations work with System instants,
+/// Tick durations work with Tick instants.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Duration {
+    /// System duration from std::time::Duration (requires "std" feature)
     System(SystemTimeDiff),
+    /// Tick-based duration for embedded systems
     Tick(SystemTickDiff),
 }
 
@@ -413,6 +440,7 @@ impl From<StdDuration> for Duration {
 }
 
 impl Duration {
+    /// Returns the maximum possible duration.
     pub fn max() -> Self {
         #[cfg(feature = "std")]
         {
@@ -426,6 +454,7 @@ impl Duration {
         }
     }
 
+    /// Divides this duration by another, returning the ratio as f32.
     pub fn div(&self, other: &Self) -> f32 {
         use self::Duration::*;
         match (self, other) {
@@ -435,6 +464,7 @@ impl Duration {
         }
     }
 
+    /// Returns the smaller of two durations.
     pub fn min(self, other: Self) -> Self {
         if self.smaller_than(&other) {
             self
@@ -443,6 +473,7 @@ impl Duration {
         }
     }
 
+    /// Returns true if self > other (panics if variants differ).
     #[allow(unused_variables)]
     pub fn greater_than(&self, other: &Self) -> bool {
         match (self, other) {
@@ -466,6 +497,7 @@ impl Duration {
         }
     }
 
+    /// Returns true if self < other (panics if variants differ).
     #[allow(unused_variables)]
     pub fn smaller_than(&self, other: &Self) -> bool {
         // self < other
@@ -506,6 +538,7 @@ impl SystemTickDiff {
     }
 }
 
+/// Duration represented as seconds + nanoseconds (mirrors std::time::Duration).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTimeDiff {
@@ -545,21 +578,25 @@ const NANOS_PER_MILLI: u32 = 1_000_000;
 const NANOS_PER_SEC: u32 = 1_000_000_000;
 
 impl SystemTimeDiff {
+    /// Creates a duration from whole seconds.
     pub const fn from_secs(secs: u64) -> Self {
         SystemTimeDiff { secs, nanos: 0 }
     }
+    /// Creates a duration from milliseconds.
     pub const fn from_millis(millis: u64) -> Self {
         SystemTimeDiff {
             secs: millis / MILLIS_PER_SEC,
             nanos: ((millis % MILLIS_PER_SEC) as u32) * NANOS_PER_MILLI,
         }
     }
+    /// Creates a duration from nanoseconds.
     pub const fn from_nanos(nanos: u64) -> Self {
         SystemTimeDiff {
             secs: nanos / (NANOS_PER_SEC as u64),
             nanos: (nanos % (NANOS_PER_SEC as u64)) as u32,
         }
     }
+    /// Adds two durations, returning None on overflow.
     pub const fn checked_add(self, rhs: Self) -> Option<Self> {
         if let Some(mut secs) = self.secs.checked_add(rhs.secs) {
             let mut nanos = self.nanos + rhs.nanos;
@@ -577,10 +614,12 @@ impl SystemTimeDiff {
         }
     }
 
+    /// Returns the total duration in milliseconds.
     pub fn millis(&self) -> u64 {
         (self.secs * MILLIS_PER_SEC) + (self.nanos / NANOS_PER_MILLI) as u64
     }
 
+    /// Converts to std::time::Duration.
     #[cfg(feature = "std")]
     pub fn get(&self) -> StdDuration {
         (*self).into()
@@ -620,6 +659,9 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
 );
 
+/// Channel endpoint for receiving messages from the main thread in a background thread.
+///
+/// Thread-safe wrapper around the receiver end of a message channel.
 #[derive(Debug)]
 #[repr(C)]
 pub struct ThreadReceiver {
@@ -646,6 +688,7 @@ impl Drop for ThreadReceiver {
 }
 
 impl ThreadReceiver {
+    /// Creates a new receiver (no-op on no_std).
     #[cfg(not(feature = "std"))]
     pub fn new(t: ThreadReceiverInner) -> Self {
         Self {
@@ -654,6 +697,7 @@ impl ThreadReceiver {
         }
     }
 
+    /// Creates a new receiver wrapping the inner channel.
     #[cfg(feature = "std")]
     pub fn new(t: ThreadReceiverInner) -> Self {
         Self {
@@ -662,12 +706,13 @@ impl ThreadReceiver {
         }
     }
 
+    /// Receives a message (returns None on no_std).
     #[cfg(not(feature = "std"))]
     pub fn recv(&mut self) -> OptionThreadSendMsg {
         None.into()
     }
 
-    // receive data from the main thread
+    /// Receives a message from the main thread, if available.
     #[cfg(feature = "std")]
     pub fn recv(&mut self) -> OptionThreadSendMsg {
         let ts = match self.ptr.lock().ok() {
@@ -678,6 +723,7 @@ impl ThreadReceiver {
     }
 }
 
+/// Inner receiver state containing the actual channel and callbacks.
 #[derive(Debug)]
 #[cfg_attr(not(feature = "std"), derive(PartialEq, PartialOrd, Eq, Ord))]
 #[repr(C)]
@@ -754,35 +800,39 @@ pub extern "C" fn get_system_time_libstd() -> Instant {
     Instant::Tick(SystemTick::new(0))
 }
 
-// function called to check if the thread has finished
+/// Callback to check if a thread has finished execution.
 pub type CheckThreadFinishedCallbackType =
     extern "C" fn(/* dropcheck */ *const c_void) -> bool;
+/// Wrapper for thread completion check callback.
 #[repr(C)]
 pub struct CheckThreadFinishedCallback {
     pub cb: CheckThreadFinishedCallbackType,
 }
 impl_callback!(CheckThreadFinishedCallback);
 
-// function to send a message to the thread
+/// Callback to send a message to a background thread.
 pub type LibrarySendThreadMsgCallbackType =
-    extern "C" fn(/* Sender<ThreadSendMsg> */ *const c_void, ThreadSendMsg) -> bool; // return true / false on success / failure
+    extern "C" fn(/* Sender<ThreadSendMsg> */ *const c_void, ThreadSendMsg) -> bool;
+/// Wrapper for thread message send callback.
 #[repr(C)]
 pub struct LibrarySendThreadMsgCallback {
     pub cb: LibrarySendThreadMsgCallbackType,
 }
 impl_callback!(LibrarySendThreadMsgCallback);
 
-// function that the RUNNING THREAD can call to receive messages from the main thread
+/// Callback for a running thread to receive messages from the main thread.
 pub type ThreadRecvCallbackType =
     extern "C" fn(/* receiver.ptr */ *const c_void) -> OptionThreadSendMsg;
+/// Wrapper for thread message receive callback.
 #[repr(C)]
 pub struct ThreadRecvCallback {
     pub cb: ThreadRecvCallbackType,
 }
 impl_callback!(ThreadRecvCallback);
 
-// destructor of the ThreadReceiver
+/// Callback to destroy a ThreadReceiver.
 pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiverInner);
+/// Wrapper for thread receiver destructor callback.
 #[repr(C)]
 pub struct ThreadReceiverDestructorCallback {
     pub cb: ThreadReceiverDestructorCallbackType,
