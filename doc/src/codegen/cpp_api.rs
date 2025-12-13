@@ -497,9 +497,17 @@ pub fn generate_cpp_api_versioned(
     code.push_str("\r\n");
 
     // Standard includes
-    code.push_str("#include <cstdint>\r\n");
-    code.push_str("#include <cstddef>\r\n");
-    code.push_str("#include <cstring>\r\n");
+    // Note: <cstdint> is C++11, use <stdint.h> for C++03
+    if cpp_version.has_move_semantics() {
+        code.push_str("#include <cstdint>\r\n");
+        code.push_str("#include <cstddef>\r\n");
+        code.push_str("#include <cstring>\r\n");
+    } else {
+        // C++03: Use C99 headers instead of C++11 <cstdint>
+        code.push_str("#include <stdint.h>\r\n");
+        code.push_str("#include <stddef.h>\r\n");
+        code.push_str("#include <string.h>\r\n");
+    }
     if cpp_version.has_move_semantics() {
         code.push_str("#include <utility>\r\n");
         code.push_str("#include <stdexcept>\r\n");
