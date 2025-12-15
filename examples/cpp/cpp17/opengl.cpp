@@ -1,4 +1,3 @@
-// OpenGL Integration - C++17
 // g++ -std=c++17 -o opengl opengl.cpp -lazul
 
 #include <azul.hpp>

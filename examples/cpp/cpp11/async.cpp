@@ -1,4 +1,3 @@
-// Async Operations - C++11
 // g++ -std=c++11 -o async async.cpp -lazul
 
 #include <azul.hpp>
@@ -43,7 +42,12 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     switch (d->stage) {
         case Stage_NotConnected: {
             content = Dom::div()
-                .with_inline_style("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;")
+                .with_inline_style("
+                    padding: 10px 20px; 
+                    background: #4CAF50; 
+                    color: white; 
+                    cursor: pointer;
+                ")
                 .with_child(Dom::text("Connect"))
                 .with_callback(On::MouseUp, data.clone(), start_connection);
             break;
@@ -63,7 +67,12 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
             content = Dom::div()
                 .with_child(Dom::text(ss.str()))
                 .with_child(Dom::div()
-                    .with_inline_style("padding: 10px; background: #2196F3; color: white; cursor: pointer;")
+                    .with_inline_style("
+                        padding: 10px; 
+                        background: #2196F3; 
+                        color: white; 
+                        cursor: pointer;
+                    ")
                     .with_child(Dom::text("Reset"))
                     .with_callback(On::MouseUp, data.clone(), reset_connection));
             break;
@@ -86,7 +95,12 @@ Update start_connection(RefAny& data, CallbackInfo& info) {
     if (!d) return Update::DoNothing;
     d->stage = Stage_Connecting;
     d->progress = 0.0f;
-    info.start_timer(Timer::new_timer(data.clone(), on_timer_tick, info.get_system_time_fn())
+    info.start_timer(
+        Timer::new_timer(
+            data.clone(), 
+            on_timer_tick, 
+            info.get_system_time_fn()
+        )
         .with_interval(Duration::milliseconds(100)));
     return Update::RefreshDom;
 }

@@ -1,4 +1,3 @@
-// OpenGL Integration - C++23
 // g++ -std=c++23 -o opengl opengl.cpp -lazul
 
 #include <azul.hpp>

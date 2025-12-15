@@ -1,4 +1,3 @@
-// Widgets Showcase - C++14
 // g++ -std=c++14 -o widgets widgets.cpp -lazul
 
 #include <azul.hpp>

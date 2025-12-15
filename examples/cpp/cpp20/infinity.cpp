@@ -1,4 +1,3 @@
-// Infinite Scrolling - C++20
 // g++ -std=c++20 -o infinity infinity.cpp -lazul
 
 #include <azul.hpp>

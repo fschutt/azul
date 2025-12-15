@@ -1,7 +1,6 @@
 using namespace azul;
 using namespace std::string_view_literals;
 
-// No AZ_REFLECT needed in C++17+ 
 struct MyDataModel { uint32_t counter; };
 
 Update on_click(RefAny& data, CallbackInfo& info);

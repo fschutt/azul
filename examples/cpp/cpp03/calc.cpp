@@ -1,5 +1,3 @@
-// Calculator with CSS Grid - C++03
-// Demonstrates CSS Grid layout and component composition
 // g++ -std=c++03 -o calc calc.cpp -lazul
 
 #include <azul.hpp>
@@ -58,19 +56,78 @@ void Calculator_calculate(Calculator* c) {
     c->clear_next = 1;
 }
 
-static const char* CALC_STYLE = "height:100%;display:flex;flex-direction:column;font-family:sans-serif;";
-static const char* DISPLAY_STYLE = "background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;display:flex;align-items:center;justify-content:flex-end;";
-static const char* BUTTONS_STYLE = "flex-grow:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr 1fr 1fr;gap:1px;background:#666;";
-static const char* BTN_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24px;display:flex;align-items:center;justify-content:center;";
-static const char* OP_STYLE = "background:#ff9f0a;color:white;font-size:24px;display:flex;align-items:center;justify-content:center;";
-static const char* ZERO_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24px;display:flex;align-items:center;justify-content:flex-start;padding-left:28px;grid-column:span 2;";
+static const char* CALC_STYLE = "
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    font-family:sans-serif;
+";
 
-Dom make_button(RefAny& calc, const char* label, EventType evt, char digit, Operation op, const char* style) {
+static const char* DISPLAY_STYLE = "
+    background:#2d2d2d;
+    color:white;
+    font-size:48px;
+    text-align:right;
+    padding:20px;
+    min-height:80px;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+";
+
+static const char* BUTTONS_STYLE = "
+    flex-grow:1;
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr 1fr;
+    grid-template-rows:1fr 1fr 1fr 1fr 1fr;
+    gap:1px;
+    background:#666;
+";
+
+static const char* BTN_STYLE = "
+    background:#d1d1d6;
+    color:#1d1d1f;
+    font-size:24px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+";
+
+static const char* OP_STYLE = "
+    background:#ff9f0a;
+    color:white;
+    font-size:24px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+";
+
+static const char* ZERO_STYLE = "
+    background:#d1d1d6;
+    color:#1d1d1f;
+    font-size:24px;
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    padding-left:28px;
+    grid-column:span 2;
+";
+
+Dom make_button(
+    RefAny& calc, 
+    const char* label, 
+    EventType evt, 
+    char digit, 
+    Operation op, 
+    const char* style
+) {
+
     ButtonData bd;
     bd.calc = calc.clone();
     bd.evt = evt;
     bd.digit = digit;
     bd.op = op;
+
     return Dom::div()
         .with_inline_style(style)
         .with_child(Dom::text(label))
@@ -149,7 +206,10 @@ Update on_click(RefAny& data, CallbackInfo& info) {
         case EVT_EQUALS: Calculator_calculate(c.ptr); break;
         case EVT_CLEAR:
             std::strcpy(c->display, "0");
-            c->current_value = 0; c->pending_op = OP_NONE; c->pending_value = 0; c->clear_next = 0;
+            c->current_value = 0; 
+            c->pending_op = OP_NONE; 
+            c->pending_value = 0; 
+            c->clear_next = 0;
             break;
         case EVT_INVERT:
             c->current_value = -c->current_value;

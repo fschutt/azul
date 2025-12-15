@@ -1,4 +1,3 @@
-// Async Operations - C++20
 // g++ -std=c++20 -o async async.cpp -lazul
 
 #include <azul.hpp>

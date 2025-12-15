@@ -1,4 +1,3 @@
-// XHTML file loading and rendering example - C++14
 // g++ -std=c++14 -o xhtml xhtml.cpp -lazul
 
 #include <azul.hpp>

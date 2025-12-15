@@ -1,4 +1,3 @@
-// Async Operations - C++14
 // g++ -std=c++14 -o async async.cpp -lazul
 
 #include <azul.hpp>

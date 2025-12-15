@@ -1,5 +1,3 @@
-// Calculator with CSS Grid - C++17
-// Demonstrates CSS Grid layout and component composition
 // g++ -std=c++17 -o calc calc.cpp -lazul
 
 #include <azul.hpp>
@@ -11,7 +9,6 @@ using namespace std::string_view_literals;
 
 enum class Operation { None, Add, Subtract, Multiply, Divide };
 
-// No AZ_REFLECT needed in C++17+
 struct Calculator {
     std::string display{"0"};
     double current_value{0.0};

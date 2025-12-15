@@ -1,5 +1,3 @@
-// Calculator with CSS Grid - C++23
-// Demonstrates CSS Grid layout and component composition
 // g++ -std=c++23 -o calc calc.cpp -lazul
 
 #include <azul.hpp>
@@ -61,11 +59,20 @@ inline constexpr auto BTN_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24
 inline constexpr auto OP_STYLE = "background:#ff9f0a;color:white;font-size:24px;display:flex;align-items:center;justify-content:center;"sv;
 inline constexpr auto ZERO_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24px;display:flex;align-items:center;justify-content:flex-start;padding-left:28px;grid-column:span 2;"sv;
 
-auto make_button(RefAny& calc, std::string_view label, EventType evt, char digit, Operation op, std::string_view style) {
+auto make_button(
+    RefAny& calc, 
+    std::string_view label, 
+    EventType evt, 
+    char digit, 
+    Operation op, 
+    std::string_view style
+) {
+    auto bd = ButtonData{calc.clone(), evt, digit, op};
+
     return Dom::div()
         .with_inline_style(style)
         .with_child(Dom::text(label))
-        .with_callback(On::MouseUp, RefAny::new(ButtonData{calc.clone(), evt, digit, op}), on_click);
+        .with_callback(On::MouseUp, RefAny::new(bd), on_click);
 }
 
 StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
@@ -94,7 +101,11 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         .with_child(make_button(data, "."sv, EventType::Digit, '.', Operation::None, BTN_STYLE))
         .with_child(make_button(data, "="sv, EventType::Equals, 0, Operation::None, OP_STYLE));
     
-    return Dom::div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons).style(Css::empty());
+    return Dom::div()
+        .with_inline_style(CALC_STYLE)
+        .with_child(display)
+        .with_child(buttons)
+        .style(Css::empty());
 }
 
 Update on_click(RefAny& data, CallbackInfo& info) {

@@ -29,7 +29,11 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     
     // Create button
     Dom button = Dom_div();
-    Dom_setInlineStyle(button, "margin-bottom: 10px; padding: 10px; background: #4CAF50;");
+    Dom_setInlineStyle(button, "
+        margin-bottom: 10px; 
+        padding: 10px; 
+        background: #4CAF50;
+    ");
     Dom_addChild(button, Dom_text("Click me!"));
     Dom_setCallback(button, On_MouseUp, RefAny_clone(data), on_button_click);
 

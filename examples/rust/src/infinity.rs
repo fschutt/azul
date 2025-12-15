@@ -1,8 +1,3 @@
-#![windows_subsystem = "windows"]
-
-//! Infinite Scrolling - Rust
-//! cargo run --example infinity
-
 use azul::{prelude::*, widgets::*};
 
 #[derive(Default)]
@@ -12,13 +7,14 @@ struct InfinityState {
     visible_count: usize,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" 
+fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
         None => return StyledDom::default(),
     };
     
-    let title = Dom::text(format!("Infinite Gallery - {} images", d.file_paths.len()))
+    let title = Dom::text(format!("Pictures - {} images", d.file_paths.len()))
         .with_inline_style("font-size: 20px; margin-bottom: 10px;");
     
     let iframe = Dom::iframe(data.clone(), render_iframe)
@@ -26,13 +22,16 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_callback(On::Scroll.into_event_filter(), data.clone(), on_scroll);
     
     Dom::body()
-        .with_inline_style("padding: 20px; font-family: sans-serif;")
+        .with_inline_style(
+            "padding: 20px; font-family: sans-serif;"
+        )
         .with_child(title)
         .with_child(iframe)
         .style(Css::empty())
 }
 
-extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+extern "C" 
+fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
     let d = match data.downcast_ref::<InfinityState>() {
         Some(s) => s,
         None => return IFrameCallbackReturn::default(),
@@ -43,9 +42,22 @@ extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFram
     
     let end = (d.visible_start + d.visible_count).min(d.file_paths.len());
     for i in d.visible_start..end {
+
         let item = Dom::div()
-            .with_inline_style("width: 150px; height: 150px; background: white; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center;")
-            .with_child(Dom::text(&d.file_paths[i]).with_inline_style("font-size: 10px; text-align: center;"));
+            .with_inline_style("
+                width: 150px; 
+                height: 150px; 
+                background: white; 
+                border: 1px solid #ddd; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center;
+            ")
+            .with_child(
+                Dom::text(&d.file_paths[i])
+                .with_inline_style("font-size: 10px; text-align: center;")
+            );
+
         container.add_child(item);
     }
     
@@ -62,7 +74,9 @@ extern "C" fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFram
     }
 }
 
-extern "C" fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
+/// Handle scroll events to update visible items
+extern "C" 
+fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
     let scroll_pos = match info.get_scroll_position() {
         Some(pos) => pos,
         None => return Update::DoNothing,

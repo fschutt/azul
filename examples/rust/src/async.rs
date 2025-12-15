@@ -9,7 +9,6 @@ use azul::{prelude::*, widgets::*};
 
 use self::{BackgroundThreadReturn::*, ConnectionStatus::*};
 
-// data model for the main thread
 #[derive(Default)]
 struct MyDataModel {
     connection_status: ConnectionStatus,
@@ -18,7 +17,8 @@ struct MyDataModel {
 #[derive(Debug)]
 enum ConnectionStatus {
     NotConnected {
-        // which database to connect to, ex. "user@localhost:5432"
+        // which database to connect to
+        // ex. "user@localhost:5432"
         database: String,
     },
     InProgress {
@@ -30,7 +30,7 @@ enum ConnectionStatus {
         estimated_wait: Duration,
         // data that has been loaded so far
         data_in_progress: Vec<usize>,
-        // stage of the connection (initial connection done)
+        // stage of the connection
         stage: ConnectionStage,
     },
     DataLoaded {
@@ -51,25 +51,17 @@ impl Default for ConnectionStatus {
     }
 }
 
-#[derive(Debug, Clone)]
-enum ConnectionStage {
-    EstablishingConnection,
-    ConnectionEstablished,
-    LoadingData { percent_done: f32 },
-    LoadingFinished,
-}
-
 // Main function that renders the UI
-extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" 
+fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::body().with_inline_style(
-        "
-        font-family: sans-serif;
+    let mut body = Dom::body()
+    .with_inline_style(
+        "font-family: sans-serif;
         align-items: center;
         justify-content: center;
-        flex-direction: row;
-    ",
+        flex-direction: row;"
     );
 
     let data_clone = data.clone();
@@ -81,80 +73,101 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     body.add_child(
         Dom::div()
             .with_inline_style(
-                "flex-direction: column; align-items: center; justify-content: center;",
+                "flex-direction: column; 
+                align-items: center; 
+                justify-content: center;",
             )
-            .with_children(vec![match &downcasted.connection_status {
-                NotConnected { database } => Dom::div().with_children(vec![
-                    Dom::text("Enter database to connect to:"),
-                    TextInput::new()
-                        .with_text(database.clone())
-                        .with_on_text_input(data_clone.clone(), edit_database_input)
-                        .dom(),
-                    Button::new("Connect")
-                        .with_on_click(data_clone.clone(), start_background_thread)
-                        .dom(),
-                ]),
-                InProgress {
-                    stage,
-
-                    data_in_progress,
-                    ..
-                } => {
-                    use self::ConnectionStage::*;
-
-                    let progress_div = match stage {
-                        EstablishingConnection => Dom::text("Establishing connection..."),
-                        ConnectionEstablished => {
-                            Dom::text("Connection established! Waiting for data...")
-                        }
-                        LoadingData { percent_done } => Dom::div().with_children(vec![
-                            Dom::text("Loading data..."),
-                            ProgressBar::new(*percent_done).dom(),
-                        ]),
-                        LoadingFinished => Dom::text("Loading finished!"),
-                    };
-
-                    let data_rendered_div = data_in_progress
-                        .chunks(10)
-                        .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                        .collect::<Dom>();
-
-                    let stop_btn = Button::new("Stop thread")
-                        .with_on_click(data_clone.clone(), stop_background_thread)
-                        .dom();
-
-                    Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
-                }
-                DataLoaded { data: data_loaded } => {
-                    let data_rendered_div = data_loaded
-                        .chunks(10)
-                        .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                        .collect::<Dom>();
-
-                    let reset_btn = Button::new("Reset")
-                        .with_on_click(data_clone.clone(), reset)
-                        .dom();
-
-                    Dom::div().with_children(vec![data_rendered_div, reset_btn])
-                }
-                Error { error } => {
-                    let error_div = Dom::text(format!("{}", error));
-
-                    let reset_btn = Button::new("Reset")
-                        .with_on_click(data_clone.clone(), reset)
-                        .dom();
-
-                    Dom::div().with_children(vec![error_div, reset_btn])
-                }
-            }
-            .with_inline_style("max-width: 350px; display:block;")]),
+            .with_children(vec![
+                downcasted.connection_status.dom()
+                .with_inline_style(
+                    "max-width: 350px; display:block;"
+                )
+            ]),
     );
 
     body.style(Css::empty())
 }
 
-// Callback that runs when the "connect to database" button is clicked
-extern "C" fn edit_database_input(
+impl ConnectionStatus {
+    pub fn dom(&self) -> Dom {
+        match self {
+            NotConnected { database } => Dom::div().with_children(vec![
+                Dom::text("Enter database to connect to:"),
+                TextInput::new()
+                    .with_text(database.clone())
+                    .with_on_text_input(data_clone.clone(), edit_database_input)
+                    .dom(),
+                Button::new("Connect")
+                    .with_on_click(data_clone.clone(), start_background_thread)
+                    .dom(),
+            ]),
+            InProgress {
+                stage,
+
+                data_in_progress,
+                ..
+            } => {
+                use self::ConnectionStage::*;
+
+                let progress_div = match stage {
+                    EstablishingConnection => Dom::text("Establishing connection..."),
+                    ConnectionEstablished => {
+                        Dom::text("Connection established! Waiting for data...")
+                    }
+                    LoadingData { percent_done } => Dom::div().with_children(vec![
+                        Dom::text("Loading data..."),
+                        ProgressBar::new(*percent_done).dom(),
+                    ]),
+                    LoadingFinished => Dom::text("Loading finished!"),
+                };
+
+                let data_rendered_div = data_in_progress
+                    .chunks(10)
+                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                    .collect::<Dom>();
+
+                let stop_btn = Button::new("Stop thread")
+                    .with_on_click(data_clone.clone(), stop_background_thread)
+                    .dom();
+
+                Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
+            }
+            DataLoaded { data: data_loaded } => {
+                let data_rendered_div = data_loaded
+                    .chunks(10)
+                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                    .collect::<Dom>();
+
+                let reset_btn = Button::new("Reset")
+                    .with_on_click(data_clone.clone(), reset)
+                    .dom();
+
+                Dom::div().with_children(vec![data_rendered_div, reset_btn])
+            }
+            Error { error } => {
+                let error_div = Dom::text(format!("{}", error));
+
+                let reset_btn = Button::new("Reset")
+                    .with_on_click(data_clone.clone(), reset)
+                    .dom();
+
+                Dom::div().with_children(vec![error_div, reset_btn])
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ConnectionStage {
+    EstablishingConnection,
+    ConnectionEstablished,
+    LoadingData { percent_done: f32 },
+    LoadingFinished,
+}
+
+// Runs when "connect to database" button is clicked
+extern "C" 
+fn edit_database_input(
     mut data: RefAny,
     event: CallbackInfo,
     textinputstate: &TextInputState,
@@ -179,7 +192,8 @@ extern "C" fn edit_database_input(
     ret
 }
 
-extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
+extern "C" 
+fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     // Copy the string of what database to connect to and
     // use it to initialize a new background thread
     let data_clone = data.clone();
@@ -217,8 +231,9 @@ extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo)
     Update::RefreshDom
 }
 
-// Callback that runs when the "cancel" button is clicked while the background thread is running
-extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
+// Runs when "cancel" button is clicked while background thread is running
+extern "C" 
+fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -239,8 +254,9 @@ extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) 
     Update::RefreshDom
 }
 
-// Callback that runs when the "reset" button is clicked (resets the data)
-extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
+// Runs when "reset" is clicked (resets the data)
+extern "C"
+fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -256,13 +272,13 @@ extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Data model of data that is sent from the main to the background thread
+// Data sent from the main to the background thread
 #[derive(Debug)]
 struct BackgroundThreadInit {
     database: String,
 }
 
-// Data model of data that is returned from the background thread
+// Data returned from the background thread
 #[derive(Debug)]
 enum BackgroundThreadReturn {
     StatusUpdated { new: ConnectionStage },
@@ -271,9 +287,10 @@ enum BackgroundThreadReturn {
 }
 
 // Callback that "writes data back" from the background thread to the main thread
+// 
 // This function runs on the main thread, so that there can't be any data races
-// Returns whether the UI should update
-extern "C" fn writeback_callback(
+extern "C" 
+fn writeback_callback(
     mut app_data: RefAny,
     mut incoming_data: RefAny,
     _: CallbackInfo,
@@ -316,8 +333,9 @@ extern "C" fn writeback_callback(
     }
 }
 
-// Function that executes in a non-main thread
-extern "C" fn background_thread(
+// Function that executes in a non-main thread (main "background thread" logic)
+extern "C" 
+fn background_thread(
     mut initial_data: RefAny,
     mut sender: ThreadSender,
     mut recv: ThreadReceiver,
@@ -346,7 +364,7 @@ extern "C" fn background_thread(
         return;
     }
 
-    // update the UI again to notify the user that the connection has been established
+    // update the UI again to notify that the connection has been established
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         data: RefAny::new(StatusUpdated {
             new: ConnectionStage::ConnectionEstablished,
@@ -356,10 +374,11 @@ extern "C" fn background_thread(
         },
     }));
 
-    let total_items = postgres::estimate_item_count(&connection, "SELECT * FROM large_table;");
+    let query = "SELECT * FROM large_table;";
+    let total_items = postgres::estimate_item_count(&connection, query);
     let mut items_loaded = 0;
 
-    for row in postgres::query_rows(&connection, "SELECT * FROM large_table;") {
+    for row in postgres::query_rows(&connection, query) {
         // If in the meantime we got a "cancel" message, quit the thread
         if recv.receive() == Some(ThreadSendMsg::TerminateThread).into() {
             return;
@@ -374,11 +393,12 @@ extern "C" fn background_thread(
                 },
             }));
 
+            let percent_done = (items_loaded as f32 / total_items as f32) * 100.0;
             // Calculate and update the percentage count
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
                 data: RefAny::new(StatusUpdated {
                     new: ConnectionStage::LoadingData {
-                        percent_done: items_loaded as f32 / total_items as f32 * 100.0,
+                        percent_done,
                     },
                 }),
                 callback: WriteBackCallback {
@@ -445,7 +465,7 @@ mod postgres {
 fn main() {
     let app = App::new(
         RefAny::new(MyDataModel::default()),
-        AppConfig::new(LayoutSolver::Default),
+        AppConfig::new(),
     );
     app.run(WindowCreateOptions::new(render_ui));
 }

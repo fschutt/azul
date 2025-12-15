@@ -1,4 +1,3 @@
-// Async Operations - C++03
 // g++ -std=c++03 -o async async.cpp -lazul
 
 #include <azul.hpp>
@@ -45,9 +44,19 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     switch (d->stage) {
         case Stage_NotConnected: {
             content = Dom_div();
-            Dom_setInlineStyle(content, "padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;");
+            Dom_setInlineStyle(content, "
+                padding: 10px 20px; 
+                background: #4CAF50; 
+                color: white; 
+                cursor: pointer;
+            ");
             Dom_addChild(content, Dom_text("Connect"));
-            Dom_setCallback(content, On_MouseUp, RefAny_clone(data), start_connection);
+            Dom_setCallback(
+                content, 
+                On_MouseUp, 
+                RefAny_clone(data), 
+                start_connection
+            );
             break;
         }
         case Stage_Connecting:
@@ -64,9 +73,19 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
             ss << "Loaded " << d->loaded_data.size() << " records";
             
             Dom reset_btn = Dom_div();
-            Dom_setInlineStyle(reset_btn, "padding: 10px; background: #2196F3; color: white; cursor: pointer;");
+            Dom_setInlineStyle(reset_btn, "
+                padding: 10px; 
+                background: #2196F3; 
+                color: white; 
+                cursor: pointer;
+            ");
             Dom_addChild(reset_btn, Dom_text("Reset"));
-            Dom_setCallback(reset_btn, On_MouseUp, RefAny_clone(data), reset_connection);
+            Dom_setCallback(
+                reset_btn, 
+                On_MouseUp, 
+                RefAny_clone(data), 
+                reset_connection
+            );
             
             content = Dom_div();
             Dom_addChild(content, Dom_text(ss.str().c_str()));
@@ -91,7 +110,11 @@ Update start_connection(RefAny& data, CallbackInfo& info) {
     if (!d) return Update_DoNothing;
     d->stage = Stage_Connecting;
     d->progress = 0.0f;
-    Timer timer = Timer_new(RefAny_clone(data), on_timer_tick, CallbackInfo_getSystemTimeFn(info));
+    Timer timer = Timer_new(
+        RefAny_clone(data), 
+        on_timer_tick, 
+        CallbackInfo_getSystemTimeFn(info)
+    );
     Timer_setInterval(timer, Duration_milliseconds(100));
     CallbackInfo_startTimer(info, timer);
     return Update_RefreshDom;

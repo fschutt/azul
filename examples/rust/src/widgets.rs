@@ -1,5 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 use azul::{prelude::*, str::String as AzString, widgets::*};
 
 #[derive(Default)]
@@ -8,11 +6,16 @@ struct WidgetShowcase {
     active_tab: usize,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    let (enable_padding, active_tab) = match data.downcast_ref::<WidgetShowcase>() {
-        Some(s) => (s.enable_padding, s.active_tab),
+extern "C" 
+fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+
+    let showcase = match data.downcast_ref::<WidgetShowcase>() {
+        Some(s) => s,
         None => return StyledDom::default(),
     };
+
+    let enable_padding = showcase.enable_padding;
+    let active_tab = showcase.active_tab;
 
     let text = if enable_padding {
         "Disable padding"
@@ -22,13 +25,20 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 
     println!("layout!");
 
+    let menu = Menu::new(vec![MenuItem::String(
+        StringMenuItem::new("Menu Item 1").with_children(vec![MenuItem::String(
+            StringMenuItem::new("Submenu Item 1..."),
+        )]),
+    )]);
+
+    let padding = match enable_padding { 
+        true => "padding: 10px",
+        false => "",
+    };
+
     Dom::body()
-        .with_menu_bar(Menu::new(vec![MenuItem::String(
-            StringMenuItem::new("Menu Item 1").with_children(vec![MenuItem::String(
-                StringMenuItem::new("Submenu Item 1..."),
-            )]),
-        )]))
-        .with_inline_style(if enable_padding { "padding: 10px" } else { "" })
+        .with_menu_bar(menu)
+        .with_inline_style(padding)
         .with_child(
             TabHeader::new(vec![
                 format!("Test"),
@@ -90,47 +100,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                                     .collect::<Vec<_>>(),
                             )
                             .dom()]),
-                        /*
-                        Dom::div()
-                        .with_inline_style("flex-direction: row;padding:10px;")
-                        .with_children(vec![
-                            Dom::div()
-                            .with_children(vec![
-                                Dom::text("This is a text 1 placerat urna, tristique sodales nisi. Fusce \
-                                  at commodo ipsum. Etiam consequat, metus rutrum porttitor tempor,  \
-                                  metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
-                                  cursus, dolor semper ultricies ele")
-                                .with_inline_style("
-                                font-family:Courier New Bold;
-                                font-size:25px;
-                                display:inline;
-                            "),
-                                Dom::text("\
-                                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
-                                  Nulla gravida placerat urna, tristique sodales nisi. Fusce \
-                                  at commodo ipsum. Etiam consequat, metus rutrum porttitor tempor,  \
-                                  metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
-                                  cursus, dolor semper ultricies eleifend, erat magna faucibus nisl, ut \
-                                  interdum velit magna quis neque. Integer mollis eros nec leo faucibus, \
-                                  nec tincidunt dolor posuere.")
-                                .with_inline_style("
-                                font-family:serif;
-                                font-size:26px;
-                                display:inline;
-                                background: red;
-                                color:white;
-                            ")
-                                .with_callback(
-                                    On::LeftMouseDown.into_event_filter(),
-                                    data.clone(),
-                                    text_mouse_down
-                                ),
-                                Dom::text("3")
-                                .with_inline_style("font-size:10px"),
-                                Dom::text("2")
-                                .with_inline_style("font-size:5px"),
-                            ])
-                        ])*/
                     ]),
                 )
                 .dom(),
@@ -142,7 +111,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .style(Css::empty())
 }
 
-extern "C" fn text_mouse_down(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" 
+fn text_mouse_down(mut data: RefAny, info: CallbackInfo) -> Update {
     use azul::option::OptionInlineText;
 
     let cursor_relative_to_node = match info.get_cursor_relative_to_node().into_option() {
@@ -164,7 +134,8 @@ extern "C" fn text_mouse_down(mut data: RefAny, info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-extern "C" fn switch_active_tab(
+extern "C" 
+fn switch_active_tab(
     mut data: RefAny,
     _: CallbackInfo,
     h: &TabHeaderState,
@@ -178,7 +149,8 @@ extern "C" fn switch_active_tab(
     }
 }
 
-extern "C" fn enable_disable_padding_check(
+extern "C" 
+fn enable_disable_padding_check(
     mut data: RefAny,
     _: CallbackInfo,
     c: &CheckBoxState,
@@ -192,7 +164,8 @@ extern "C" fn enable_disable_padding_check(
     }
 }
 
-extern "C" fn enable_disable_padding(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" 
+fn enable_disable_padding(mut data: RefAny, _: CallbackInfo) -> Update {
     match data.downcast_mut::<WidgetShowcase>() {
         Some(mut s) => {
             s.enable_padding = !s.enable_padding;
@@ -207,7 +180,7 @@ fn main() {
         enable_padding: true,
         active_tab: 0,
     });
-    let app = App::new(data, AppConfig::new(LayoutSolver::Default));
+    let app = App::new(data, AppConfig::new());
     let mut options = WindowCreateOptions::new(layout);
     options.state.flags.frame = WindowFrame::Maximized;
     app.run(options);

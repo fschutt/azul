@@ -1,4 +1,3 @@
-// Async Operations - C
 // cc -o async async.c -lazul
 
 #include <azul.h>

@@ -1,4 +1,3 @@
-// Async Operations - C++23
 // g++ -std=c++23 -o async async.cpp -lazul
 
 #include <azul.hpp>

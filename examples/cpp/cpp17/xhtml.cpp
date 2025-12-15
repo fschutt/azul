@@ -1,4 +1,3 @@
-// XHTML file loading and rendering example - C++17
 // g++ -std=c++17 -o xhtml xhtml.cpp -lazul
 
 #include <azul.hpp>
@@ -9,7 +8,6 @@
 using namespace azul;
 using namespace std::string_view_literals;
 
-// No AZ_REFLECT needed in C++17+
 struct AppData { int x; };
 
 auto read_file(std::string_view path) {

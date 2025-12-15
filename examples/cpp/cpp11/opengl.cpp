@@ -1,4 +1,3 @@
-// OpenGL Integration - C++11
 // g++ -std=c++11 -o opengl opengl.cpp -lazul
 
 #include <azul.hpp>

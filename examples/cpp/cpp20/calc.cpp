@@ -1,5 +1,3 @@
-// Calculator with CSS Grid - C++20
-// Demonstrates CSS Grid layout and component composition
 // g++ -std=c++20 -o calc calc.cpp -lazul
 
 #include <azul.hpp>

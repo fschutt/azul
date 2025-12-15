@@ -1,4 +1,3 @@
-// Infinite Scrolling - C++23
 // g++ -std=c++23 -o infinity infinity.cpp -lazul
 
 #include <azul.hpp>

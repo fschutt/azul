@@ -1,4 +1,3 @@
-// Widgets Showcase - C++11
 // g++ -std=c++11 -o widgets widgets.cpp -lazul
 
 #include <azul.hpp>

@@ -1,4 +1,3 @@
-// OpenGL Integration - C++03
 // g++ -std=c++03 -o opengl opengl.cpp -lazul
 
 #include <azul.hpp>
@@ -33,7 +32,10 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         "box-shadow: 0px 0px 20px rgba(0,0,0,0.5);");
     
     Dom body = Dom_body();
-    Dom_setInlineStyle(body, "background: linear-gradient(#1a1a2e, #16213e); padding: 20px;");
+    Dom_setInlineStyle(body, "
+        background: linear-gradient(#1a1a2e, #16213e); 
+        padding: 20px;
+    ");
     Dom_addChild(body, title);
     Dom_addChild(body, image);
     

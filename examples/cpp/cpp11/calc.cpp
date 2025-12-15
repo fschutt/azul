@@ -1,10 +1,9 @@
-// Calculator with CSS Grid - C++11
-// Demonstrates CSS Grid layout and component composition
 // g++ -std=c++11 -o calc calc.cpp -lazul
 
 #include <azul.hpp>
 #include <string>
 #include <cmath>
+
 using namespace azul;
 
 enum class Operation { None, Add, Subtract, Multiply, Divide };

@@ -1,4 +1,3 @@
-// Widgets Showcase - C++20
 // g++ -std=c++20 -o widgets widgets.cpp -lazul
 
 #include <azul.hpp>

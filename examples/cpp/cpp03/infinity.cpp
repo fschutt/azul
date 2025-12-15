@@ -1,4 +1,3 @@
-// Infinite Scrolling - C++03
 // g++ -std=c++03 -o infinity infinity.cpp -lazul
 
 #include <azul.hpp>
@@ -34,7 +33,11 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     Dom_setInlineStyle(title, "font-size: 20px; margin-bottom: 10px;");
     
     Dom iframe = Dom_iframe(RefAny_clone(data), render_iframe);
-    Dom_setInlineStyle(iframe, "flex-grow: 1; overflow: scroll; background: #f5f5f5;");
+    Dom_setInlineStyle(iframe, "
+        flex-grow: 1; 
+        overflow: scroll; 
+        background: #f5f5f5;
+    ");
     Dom_setCallback(iframe, On_Scroll, RefAny_clone(data), on_scroll);
     
     Dom body = Dom_body();
@@ -50,7 +53,12 @@ StyledDom render_iframe(RefAny& data, IFrameCallbackInfo& info) {
     if (!d) return StyledDom_default();
     
     Dom container = Dom_div();
-    Dom_setInlineStyle(container, "display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
+    Dom_setInlineStyle(container, "
+        display: flex; 
+        flex-wrap: wrap; 
+        gap: 10px; 
+        padding: 10px;
+    ");
     
     size_t end = d->visible_start + d->visible_count;
     if (end > d->file_paths.size()) end = d->file_paths.size();
