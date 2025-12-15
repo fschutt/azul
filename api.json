@@ -552,7 +552,7 @@
         "name": "hello-world",
         "title": [
           "Hello, World.",
-          "Goodbye, Electron."
+          "Goodbye, JavaScript."
         ],
         "alt": "A minimal Azul application demonstrating the basic structure",
         "show_on_index": true,
