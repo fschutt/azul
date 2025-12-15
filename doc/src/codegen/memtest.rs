@@ -154,6 +154,15 @@ pub struct MemtestConfig {
     /// When true: azul_dll:: is replaced with crate:: (compiling inside azul-dll)
     /// When false: azul_dll:: stays as is (memtest uses azul_dll as dependency)
     pub is_for_dll: bool,
+    /// Whether to generate #[no_mangle] on C-ABI functions
+    /// When false, functions can be duplicated without symbol conflicts
+    pub generate_no_mangle: bool,
+    /// Whether to skip generating C-ABI functions entirely
+    /// When true, only structs and enums are generated (for Python extension)
+    pub skip_c_abi_functions: bool,
+    /// Whether to generate Clone/Drop by transmuting to external type
+    /// (for Python extension where C-ABI functions don't exist)
+    pub drop_via_external: bool,
 }
 
 impl Default for MemtestConfig {
@@ -163,6 +172,9 @@ impl Default for MemtestConfig {
             remove_optional_features: vec![],
             generate_fn_bodies: false, // Disabled by default - api.json fn_body needs cleanup
             is_for_dll: false,         // Default is memtest mode
+            generate_no_mangle: true,  // Default is to generate #[no_mangle]
+            skip_c_abi_functions: false, // Default is to generate C-ABI functions
+            drop_via_external: false,  // Default is to call C-ABI functions for Drop/Clone
         }
     }
 }
@@ -576,6 +588,34 @@ fn sanitize_name(name: &str) -> String {
         .to_lowercase()
 }
 
+/// Build a map from Az-prefixed type name to external Rust type path
+/// This is used for transmute operations between C-API types and internal Rust types
+pub fn build_type_to_external_map(
+    version_data: &VersionData,
+    prefix: &str,
+    is_for_dll: bool,
+) -> std::collections::HashMap<String, String> {
+    let mut type_to_external: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for module_data in version_data.api.values() {
+        for (class_name, class_data) in &module_data.classes {
+            if let Some(external) = &class_data.external {
+                let prefixed_name = format!("{}{}", prefix, class_name);
+                // For DLL mode: Replace azul_dll:: with crate:: since the generated code runs
+                // inside azul-dll For memtest mode: Keep azul_dll:: as is since
+                // memtest uses azul_dll as a dependency
+                let external_fixed = if is_for_dll {
+                    external.replace("azul_dll::", "crate::")
+                } else {
+                    external.clone()
+                };
+                type_to_external.insert(prefixed_name, external_fixed);
+            }
+        }
+    }
+    type_to_external
+}
+
 pub fn generate_generated_rs(
     api_data: &ApiData,
     config: &MemtestConfig,
@@ -746,8 +786,9 @@ fn generate_dll_module(
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
-        is_memtest: true, // Skip generating custom_impls trait implementations
-        is_for_dll: config.is_for_dll, // Pass through the DLL mode flag
+        is_memtest: !config.drop_via_external, // Skip trait impls if not using drop_via_external
+        is_for_dll: config.is_for_dll,
+        drop_via_external: config.drop_via_external,
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
@@ -1098,84 +1139,96 @@ fn generate_dll_module(
         }
     }
 
-    println!("      [TARGET] Generating function bodies...");
-    // Generate function implementations from api.json fn_body
-    // All functions MUST have fn_body defined - missing fn_body will cause an error
-    let functions_map_ext =
-        build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
-    println!("      [LINK] Found {} functions", functions_map_ext.len());
-    dll_code.push_str("\n    // --- C-ABI Functions ---\n");
+    // Skip C-ABI function generation if configured (for Python extension)
+    if config.skip_c_abi_functions {
+        println!("      [SKIP] Skipping C-ABI functions (skip_c_abi_functions=true)");
+        dll_code.push_str("\n    // C-ABI functions skipped (skip_c_abi_functions=true)\n");
+    } else {
+        println!("      [TARGET] Generating function bodies...");
+        // Generate function implementations from api.json fn_body
+        // All functions MUST have fn_body defined - missing fn_body will cause an error
+        let functions_map_ext =
+            build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
+        println!("      [LINK] Found {} functions", functions_map_ext.len());
+        dll_code.push_str("\n    // --- C-ABI Functions ---\n");
 
-    for (fn_name, fn_info) in &functions_map_ext {
-        let return_str = if fn_info.return_type.is_empty() {
-            "".to_string()
-        } else {
-            format!(" -> {}", fn_info.return_type)
-        };
+        for (fn_name, fn_info) in &functions_map_ext {
+            let return_str = if fn_info.return_type.is_empty() {
+                "".to_string()
+            } else {
+                format!(" -> {}", fn_info.return_type)
+            };
 
-        // Determine the function body
-        let fn_body = if fn_name.ends_with("_deepCopy") {
-            // Extract type name from function name: AzTypeName_deepCopy -> AzTypeName
-            let type_name = fn_name.strip_suffix("_deepCopy").unwrap_or(fn_name);
-            if let Some(external_path) = type_to_external.get(type_name) {
-                // Cast to external type, clone, cast back
-                format!(
-                    "core::mem::transmute::<{ext}, {local}>((*(object as *const {local} as *const \
-                     {ext})).clone())",
-                    ext = external_path,
-                    local = type_name
-                )
+            // Determine the function body
+            let fn_body = if fn_name.ends_with("_deepCopy") {
+                // Extract type name from function name: AzTypeName_deepCopy -> AzTypeName
+                let type_name = fn_name.strip_suffix("_deepCopy").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    // Cast to external type, clone, cast back
+                    format!(
+                        "core::mem::transmute::<{ext}, {local}>((*(object as *const {local} as *const \
+                         {ext})).clone())",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    // Fallback: just call clone directly (may fail if Clone not derived)
+                    "object.clone()".to_string()
+                }
+            } else if fn_name.ends_with("_delete") {
+                // Extract type name from function name: AzTypeName_delete -> AzTypeName
+                let type_name = fn_name.strip_suffix("_delete").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    // Cast to external type and drop
+                    format!(
+                        "core::ptr::drop_in_place(object as *mut {local} as *mut {ext})",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    // Fallback: just drop directly
+                    "core::ptr::drop_in_place(object)".to_string()
+                }
             } else {
-                // Fallback: just call clone directly (may fail if Clone not derived)
-                "object.clone()".to_string()
-            }
-        } else if fn_name.ends_with("_delete") {
-            // Extract type name from function name: AzTypeName_delete -> AzTypeName
-            let type_name = fn_name.strip_suffix("_delete").unwrap_or(fn_name);
-            if let Some(external_path) = type_to_external.get(type_name) {
-                // Cast to external type and drop
-                format!(
-                    "core::ptr::drop_in_place(object as *mut {local} as *mut {ext})",
-                    ext = external_path,
-                    local = type_name
-                )
-            } else {
-                // Fallback: just drop directly
-                "core::ptr::drop_in_place(object)".to_string()
-            }
-        } else {
-            // Use fn_body from api.json - REQUIRED for all functions
-            if let Some(body) = &fn_info.fn_body {
-                // Transform the fn_body to use transmute for type conversion
-                // The fn_body uses types without Az prefix, we need to add transmutes
-                // Now all arguments are transmuted, not just self
-                generate_transmuted_fn_body(
-                    body,
-                    &fn_info.class_name,
-                    fn_info.is_constructor,
-                    &fn_info.return_type,
-                    prefix,
-                    &type_to_external,
-                    &fn_info.fn_args,
-                    config.is_for_dll,
-                )
-            } else {
-                // No fn_body in api.json - ERROR! All functions must have fn_body defined
-                return Err(format!(
-                    "ERROR: Function '{}' has no fn_body defined in api.json. All functions must \
-                     have a fn_body to prevent unimplemented!() stubs in generated code.",
-                    fn_name
-                ));
-            }
-        };
+                // Use fn_body from api.json - REQUIRED for all functions
+                if let Some(body) = &fn_info.fn_body {
+                    // Transform the fn_body to use transmute for type conversion
+                    // The fn_body uses types without Az prefix, we need to add transmutes
+                    // Now all arguments are transmuted, not just self
+                    generate_transmuted_fn_body(
+                        body,
+                        &fn_info.class_name,
+                        fn_info.is_constructor,
+                        &fn_info.return_type,
+                        prefix,
+                        &type_to_external,
+                        &fn_info.fn_args,
+                        config.is_for_dll,
+                        false, // C-API uses class_name for self variable, not "self"
+                    )
+                } else {
+                    // No fn_body in api.json - ERROR! All functions must have fn_body defined
+                    return Err(format!(
+                        "ERROR: Function '{}' has no fn_body defined in api.json. All functions must \
+                         have a fn_body to prevent unimplemented!() stubs in generated code.",
+                        fn_name
+                    ));
+                }
+            };
 
-        dll_code.push_str(&format!(
-            "    #[allow(unused_variables)]\n    #[no_mangle]\n    pub unsafe extern \"C\" fn \
-             {}({}){} {{ {} }}\n",
-            fn_name, fn_info.fn_args, return_str, fn_body
-        ));
+            let no_mangle_attr = if config.generate_no_mangle {
+                "#[no_mangle]\n    "
+            } else {
+                ""
+            };
+            dll_code.push_str(&format!(
+                "    #[allow(unused_variables)]\n    {}pub unsafe extern \"C\" fn \
+                 {}({}){} {{ {} }}\n",
+                no_mangle_attr, fn_name, fn_info.fn_args, return_str, fn_body
+            ));
+        }
+        dll_code.push_str("    // --- End C-ABI Functions ---\n\n");
     }
-    dll_code.push_str("    // --- End C-ABI Functions ---\n\n");
 
     // NOTE: dll.rs patch is excluded for memtest - we only need struct definitions for memory
     // layout tests The patch contains impl blocks that reference missing functions/types
@@ -1254,7 +1307,7 @@ fn generate_public_api_modules(
 ///
 /// Input: "dom: &mut AzDom, children: AzDomVec"
 /// Output: [("dom", "&mut AzDom"), ("children", "AzDomVec")]
-fn parse_fn_args(fn_args: &str) -> Vec<(String, String)> {
+pub fn parse_fn_args(fn_args: &str) -> Vec<(String, String)> {
     if fn_args.trim().is_empty() {
         return Vec::new();
     }
@@ -1315,7 +1368,7 @@ fn parse_single_arg(arg: &str) -> Option<(String, String)> {
 /// 4. Convert the result back to Az-prefixed local type (transmute out)
 ///
 /// Now generates multi-line readable code instead of one giant line.
-fn generate_transmuted_fn_body(
+pub fn generate_transmuted_fn_body(
     fn_body: &str,
     class_name: &str,
     is_constructor: bool,
@@ -1324,26 +1377,32 @@ fn generate_transmuted_fn_body(
     type_to_external: &std::collections::HashMap<String, String>,
     fn_args: &str,
     is_for_dll: bool,
+    keep_self_name: bool, // If true, use "_self" for self parameter (for PyO3 bindings)
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
+    
+    // For PyO3 bindings (keep_self_name=true), we need to use "_self" as the transmuted variable
+    // because Rust doesn't allow shadowing "self"
+    let transmuted_self_var = if keep_self_name { "_self" } else { &self_var };
 
     // Transform the fn_body:
     // 1. For DLL mode: Replace "azul_dll::" with "crate::" (generated code is included in azul-dll
     //    crate) For memtest mode: Keep "azul_dll::" as is (memtest uses azul_dll as dependency)
-    // 2. Replace "self." with "lowercase(class_name)." (self parameter gets renamed)
-    // 3. Replace "object." with "lowercase(class_name)." (legacy naming convention)
+    // 2. Replace "self." and "classname." with the appropriate variable name
+    // 3. Replace "object." with the appropriate variable name (legacy naming convention)
     // 4. Replace unqualified "TypeName::method(" with fully qualified path
+    // 5. Replace standalone variable name (as function argument) with transmuted variable
     let mut fn_body = if is_for_dll {
-        fn_body
-            .replace("azul_dll::", "crate::")
-            .replace("self.", &format!("{}.", self_var))
-            .replace("object.", &format!("{}.", self_var))
+        fn_body.replace("azul_dll::", "crate::")
     } else {
-        fn_body
-            .replace("self.", &format!("{}.", self_var))
-            .replace("object.", &format!("{}.", self_var))
+        fn_body.to_string()
     };
+
+    // Only replace "self." with the transmuted variable name, but keep "classname." as-is
+    // since we generate an alias `let classname = _self;` below
+    fn_body = fn_body.replace("self.", &format!("{}.", transmuted_self_var));
+    fn_body = fn_body.replace("object.", &format!("{}.", transmuted_self_var));
 
     // For constructors: if fn_body starts with "TypeName::" (no "::" before it),
     // replace with the fully qualified external path
@@ -1376,10 +1435,19 @@ fn generate_transmuted_fn_body(
     }
 
     let mut lines = Vec::new();
+    
+    // Track if self is a reference - needed for PyO3 bindings where we need to clone
+    // for consuming methods (builder pattern)
+    let mut self_is_ref = false;
 
     // Generate transmutations for ALL arguments on separate lines
     for (arg_name, arg_type) in &parsed_args {
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
+        
+        // Track if self is a reference
+        if arg_name == "self" {
+            self_is_ref = is_ref || is_mut;
+        }
 
         // Get the external type for this argument
         // For DLL mode: Replace azul_dll with crate since generated code is included in azul-dll
@@ -1396,28 +1464,61 @@ fn generate_transmuted_fn_body(
                 .unwrap_or_else(|| base_type.clone())
         };
 
+        // For PyO3 bindings, use "_self" instead of "self" because Rust doesn't allow shadowing self
+        let var_name = if keep_self_name && arg_name == "self" {
+            "_self"
+        } else {
+            arg_name.as_str()
+        };
+
         // Generate transmute line based on reference type
         let transmute_line = if is_mut {
             format!(
-                "    let {name}: &mut {ext} = core::mem::transmute({name});",
-                name = arg_name,
+                "    let {var_name}: &mut {ext} = core::mem::transmute({arg_name});",
+                var_name = var_name,
+                arg_name = arg_name,
                 ext = external_type
             )
         } else if is_ref {
             format!(
-                "    let {name}: &{ext} = core::mem::transmute({name});",
-                name = arg_name,
+                "    let {var_name}: &{ext} = core::mem::transmute({arg_name});",
+                var_name = var_name,
+                arg_name = arg_name,
                 ext = external_type
             )
         } else {
             format!(
-                "    let {name}: {ext} = core::mem::transmute({name});",
-                name = arg_name,
+                "    let {var_name}: {ext} = core::mem::transmute({arg_name});",
+                var_name = var_name,
+                arg_name = arg_name,
                 ext = external_type
             )
         };
 
         lines.push(transmute_line);
+    }
+
+    // For PyO3 bindings (keep_self_name=true), generate an alias from the lowercase class name
+    // to _self, so that fn_body can use the original variable name (e.g., `instant` for Instant)
+    // This avoids having to replace all occurrences of the variable name in fn_body
+    // IMPORTANT: If self is a reference AND fn_body uses consuming methods (builder pattern),
+    // we need to clone. Builder methods like .with_*() consume self.
+    // But for methods that just use references (like encode_bmp()), we should NOT clone.
+    if keep_self_name && !is_constructor {
+        // Detect if fn_body uses builder pattern (consuming methods)
+        // Builder pattern methods typically are: .with_*, .set_*, etc. that return Self
+        let uses_builder_pattern = fn_body.contains(&format!("{}.with_", self_var))
+            || fn_body.contains(&format!("{}.set_", self_var))
+            || fn_body.contains(&format!("{}.add_", self_var))
+            || fn_body.contains("object.with_");
+        
+        if self_is_ref && uses_builder_pattern {
+            // Clone for consuming methods - the fn_body calls methods like .with_node_type()
+            // that take self by value
+            lines.push(format!("    let {} = _self.clone();", self_var));
+        } else {
+            lines.push(format!("    let {} = _self;", self_var));
+        }
     }
 
     // Check if fn_body contains statements (has `;` before the last expression)
@@ -1477,7 +1578,7 @@ fn generate_transmuted_fn_body(
 /// "&mut AzDom" -> (true, true, "AzDom")
 /// "&AzDom" -> (true, false, "AzDom")
 /// "AzDom" -> (false, false, "AzDom")
-fn parse_arg_type(ty: &str) -> (bool, bool, String) {
+pub fn parse_arg_type(ty: &str) -> (bool, bool, String) {
     let trimmed = ty.trim();
 
     if trimmed.starts_with("&mut ") {

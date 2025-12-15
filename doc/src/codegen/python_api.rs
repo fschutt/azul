@@ -1,17 +1,21 @@
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 use crate::{
     api::{ApiData, ClassData, EnumVariantData, FieldData, FunctionData, RefKind, VersionData},
     utils::{
         analyze::{
-            analyze_type, enum_is_union, get_class, is_primitive_arg, replace_primitive_ctype,
+            analyze_type, enum_is_union, get_class, is_primitive_arg,
             search_for_class_by_class_name,
         },
         string::snake_case_to_lower_camel,
     },
 };
 
-use super::memtest::{generate_generated_rs, MemtestConfig, TypeReplacements};
+use super::memtest::{
+    build_type_to_external_map, generate_generated_rs, generate_transmuted_fn_body,
+    MemtestConfig, TypeReplacements,
+};
 
 const PREFIX: &str = "Az";
 
@@ -325,6 +329,599 @@ pub struct CallbackSignature {
     pub return_type: String,
     /// Full external path for the return type (e.g., "azul_core::callbacks::Update")
     pub return_type_external: String,
+}
+
+/// Generate trampolines for all callback_typedef types in api.json
+/// This generates:
+/// 1. Wrapper types that hold Py<PyAny> objects (stored in RefAny)
+/// 2. extern "C" trampoline functions that bridge Python and Rust
+/// Generate all Python-specific code for bindings integration.
+/// This includes:
+/// - Helper functions for type conversion (AzString <-> String, AzU8Vec <-> bytes)
+/// - From/Into implementations for string/bytes types
+/// - PyO3 conversion traits (FromPyObject, IntoPyObject)
+/// - Callback wrapper types (AppDataTy, etc.)
+/// - Callback trampolines (extern "C" fn invoke_py_*)
+/// - App class implementation
+fn generate_python_patches(version_data: &VersionData, prefix: &str) -> String {
+    let mut code = String::new();
+    
+    code.push_str("// ============================================================================\r\n");
+    code.push_str("// AUTO-GENERATED PYTHON PATCHES\r\n");
+    code.push_str("// Generated from api.json - Python-specific integration code\r\n");
+    code.push_str("// ============================================================================\r\n\r\n");
+
+    // --- PyO3 imports ---
+    code.push_str("use pyo3::gc::{PyVisit, PyTraverseError};\r\n");
+    code.push_str("use pyo3::conversion::IntoPyObject;\r\n");
+    code.push_str("use pyo3::Borrowed;\r\n");
+    code.push_str("\r\n");
+    
+    // --- Type aliases for C-API types used in patches ---
+    // These types are skipped from Python wrapper generation (MANUAL_TYPES),
+    // so we use the C-API types directly via full path aliases.
+    code.push_str("// Type aliases for C-API types that have custom Python integration\r\n");
+    code.push_str("type AzString = __dll_api_inner::dll::AzString;\r\n");
+    code.push_str("type AzU8Vec = __dll_api_inner::dll::AzU8Vec;\r\n");
+    code.push_str("type AzStringVec = __dll_api_inner::dll::AzStringVec;\r\n");
+    code.push_str("type AzU8VecDestructor = __dll_api_inner::dll::AzU8VecDestructor;\r\n");
+    code.push_str("type AzStringVecDestructor = __dll_api_inner::dll::AzStringVecDestructor;\r\n");
+    code.push_str("type AzRefAny = __dll_api_inner::dll::AzRefAny;\r\n");
+    // Types used in enum variants that need full paths (C-API types, not Python wrappers)
+    code.push_str("type AzStringMenuItem = __dll_api_inner::dll::AzStringMenuItem;\r\n");
+    code.push_str("type AzInstantPtr = __dll_api_inner::dll::AzInstantPtr;\r\n");
+    // FFI module alias for trampolines (cleaner than __dll_api_inner::dll)
+    code.push_str("\r\n// FFI module alias for cleaner trampoline code\r\n");
+    code.push_str("mod ffi { pub use super::__dll_api_inner::dll::*; }\r\n");
+    code.push_str("\r\n");
+    
+    // --- Helper functions ---
+    code.push_str("// --- Helper functions for type conversion ---\r\n\r\n");
+    
+    code.push_str(r#"fn az_string_to_py_string(input: AzString) -> String {
+    let bytes = unsafe {
+        core::slice::from_raw_parts(input.vec.ptr, input.vec.len)
+    };
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn az_vecu8_to_py_vecu8(input: AzU8Vec) -> Vec<u8> {
+    let slice = unsafe {
+        core::slice::from_raw_parts(input.ptr, input.len)
+    };
+    slice.to_vec()
+}
+
+"#);
+
+    // --- From/Into implementations ---
+    code.push_str("// --- From/Into implementations for string/bytes types ---\r\n\r\n");
+    
+    code.push_str(r#"impl From<String> for AzString {
+    fn from(s: String) -> AzString {
+        let bytes = s.into_bytes();
+        let ptr = bytes.as_ptr();
+        let len = bytes.len();
+        let cap = bytes.capacity();
+        core::mem::forget(bytes);
+        
+        AzString {
+            vec: AzU8Vec {
+                ptr,
+                len,
+                cap,
+                destructor: AzU8VecDestructor::DefaultRust,
+            }
+        }
+    }
+}
+
+impl From<AzString> for String {
+    fn from(s: AzString) -> String {
+        az_string_to_py_string(s)
+    }
+}
+
+impl From<AzU8Vec> for Vec<u8> {
+    fn from(input: AzU8Vec) -> Vec<u8> {
+        az_vecu8_to_py_vecu8(input)
+    }
+}
+
+impl From<Vec<u8>> for AzU8Vec {
+    fn from(input: Vec<u8>) -> AzU8Vec {
+        let ptr = input.as_ptr();
+        let len = input.len();
+        let cap = input.capacity();
+        core::mem::forget(input);
+        
+        AzU8Vec {
+            ptr,
+            len,
+            cap,
+            destructor: AzU8VecDestructor::DefaultRust,
+        }
+    }
+}
+
+"#);
+
+    // --- PyO3 conversion traits ---
+    code.push_str("// --- PyO3 conversion traits (FromPyObject, IntoPyObject) ---\r\n\r\n");
+    
+    code.push_str(r#"impl FromPyObject<'_, '_> for AzString {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let s: String = ob.extract()?;
+        Ok(s.into())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzString {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = std::convert::Infallible;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let s: String = self.into();
+        Ok(PyString::new(py, &s))
+    }
+}
+
+impl FromPyObject<'_, '_> for AzU8Vec {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<u8> = ob.extract()?;
+        Ok(v.into())
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzU8Vec {
+    type Target = PyBytes;
+    type Output = Bound<'py, PyBytes>;
+    type Error = std::convert::Infallible;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let slice = unsafe { core::slice::from_raw_parts(self.ptr, self.len) };
+        Ok(PyBytes::new(py, slice))
+    }
+}
+
+impl FromPyObject<'_, '_> for AzStringVec {
+    type Error = PyErr;
+    
+    fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
+        let v: Vec<String> = ob.extract()?;
+        let az_strings: Vec<AzString> = v.into_iter().map(|s| s.into()).collect();
+        Ok(AzStringVec::from_vec(az_strings))
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AzStringVec {
+    type Target = PyList;
+    type Output = Bound<'py, PyList>;
+    type Error = PyErr;
+    
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let strings: Vec<String> = self.into_rust_vec();
+        PyList::new(py, strings)
+    }
+}
+
+impl AzStringVec {
+    fn from_vec(v: Vec<AzString>) -> Self {
+        let ptr = v.as_ptr();
+        let len = v.len();
+        let cap = v.capacity();
+        core::mem::forget(v);
+        
+        AzStringVec {
+            ptr,
+            len,
+            cap,
+            destructor: AzStringVecDestructor::DefaultRust,
+        }
+    }
+    
+    fn into_rust_vec(self) -> Vec<String> {
+        let slice = unsafe { core::slice::from_raw_parts(self.ptr, self.len) };
+        slice.iter().map(|s| {
+            let bytes = unsafe { core::slice::from_raw_parts(s.vec.ptr, s.vec.len) };
+            String::from_utf8_lossy(bytes).into_owned()
+        }).collect()
+    }
+}
+
+"#);
+
+    // --- Callback wrapper types and trampolines ---
+    code.push_str(&generate_callback_trampolines(version_data, prefix));
+    
+    // --- App implementation ---
+    code.push_str(&generate_app_class(prefix));
+    
+    code
+}
+
+fn generate_callback_trampolines(version_data: &VersionData, prefix: &str) -> String {
+    let mut code = String::new();
+    
+    code.push_str("// --- Callback Wrapper Types (hold Py<PyAny> in RefAny) ---\r\n\r\n");
+    
+    // Special wrapper for App (holds both data and layout callback)
+    code.push_str(r#"/// Holds Python objects for the main App (data + layout callback)
+#[repr(C)]
+pub struct AppDataTy {
+    pub _py_app_data: Option<Py<PyAny>>,
+    pub _py_layout_callback: Option<Py<PyAny>>,
+}
+
+"#);
+    
+    // Collect all callback_typedef types (excluding destructor types)
+    let mut callback_types: Vec<(String, crate::api::CallbackDefinition)> = Vec::new();
+    
+    for (_module_name, module) in &version_data.api {
+        for (class_name, class_data) in &module.classes {
+            if let Some(ref callback_def) = class_data.callback_typedef {
+                // Skip destructor types - they're not Python callbacks
+                if class_name.ends_with("DestructorType") {
+                    continue;
+                }
+                // Skip clone callback types
+                if class_name.ends_with("CloneCallbackType") {
+                    continue;
+                }
+                // Skip destructor callbacks (don't start with RefAny)
+                if class_name.ends_with("DestructorCallbackType") {
+                    continue;
+                }
+                // Skip callbacks that don't have RefAny as first argument (not user callbacks)
+                if callback_def.fn_args.is_empty() || callback_def.fn_args[0].r#type != "RefAny" {
+                    continue;
+                }
+                // Skip callbacks that have pointer arguments (not supported in Python yet)
+                let has_pointer_args = callback_def.fn_args.iter().any(|arg| {
+                    arg.r#type.starts_with("*mut ") || arg.r#type.starts_with("*const ")
+                });
+                if has_pointer_args {
+                    continue;
+                }
+                callback_types.push((class_name.clone(), callback_def.clone()));
+            }
+        }
+    }
+    
+    // Generate wrapper types for storing Python objects
+    for (callback_name, _) in &callback_types {
+        // Skip LayoutCallbackType - we use AppDataTy for that
+        if callback_name == "LayoutCallbackType" {
+            continue;
+        }
+        let wrapper_name = format!("{}Wrapper", callback_name.replace("Type", ""));
+        code.push_str(&format!("/// Wrapper for {} - holds Python callback and data\r\n", callback_name));
+        code.push_str("#[repr(C)]\r\n");
+        code.push_str(&format!("pub struct {} {{\r\n", wrapper_name));
+        code.push_str("    pub _py_callback: Option<Py<PyAny>>,\r\n");
+        code.push_str("    pub _py_data: Option<Py<PyAny>>,\r\n");
+        code.push_str("}\r\n\r\n");
+    }
+    
+    // Generate trampoline functions
+    code.push_str("// --- Callback Trampolines (extern \"C\" functions) ---\r\n\r\n");
+    
+    // Special trampoline for layout callback (uses AppDataTy)
+    code.push_str(&format!(r#"/// Trampoline for layout callbacks - uses AppDataTy wrapper
+extern "C" fn invoke_py_layout_callback(
+    app_data: ffi::AzRefAny,
+    info: ffi::AzLayoutCallbackInfo
+) -> ffi::AzStyledDom {{
+    let default: ffi::AzStyledDom = unsafe {{ 
+        mem::transmute(azul_core::styled_dom::StyledDom::default()) 
+    }};
+    
+    let mut app_data_core: azul_core::refany::RefAny = unsafe {{ mem::transmute(app_data) }};
+    
+    let app = match app_data_core.downcast_ref::<AppDataTy>() {{
+        Some(s) => s,
+        None => return default,
+    }};
+
+    let py_callback = match app._py_layout_callback.as_ref() {{
+        Some(s) => s,
+        None => return default,
+    }};
+
+    let py_data = match app._py_app_data.as_ref() {{
+        Some(s) => s,
+        None => return default,
+    }};
+
+    Python::attach(|py| {{
+        // Wrap FFI type in Python wrapper struct
+        let info_py = {prefix}LayoutCallbackInfo {{ inner: info }};
+        
+        match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {{
+            Ok(result) => {{
+                match result.extract::<{prefix}StyledDom>(py) {{
+                    Ok(styled_dom) => styled_dom.inner,
+                    Err(e) => {{
+                        #[cfg(feature = "logging")]
+                        log::error!("Layout callback must return StyledDom: {{:?}}", e);
+                        default
+                    }}
+                }}
+            }}
+            Err(e) => {{
+                #[cfg(feature = "logging")]
+                log::error!("Exception in layout callback: {{:?}}", e);
+                default
+            }}
+        }}
+    }})
+}}
+
+"#, prefix = prefix));
+    
+    // Generate trampolines for other callbacks
+    for (callback_name, callback_def) in &callback_types {
+        // Skip LayoutCallbackType - handled above
+        if callback_name == "LayoutCallbackType" {
+            continue;
+        }
+        
+        let wrapper_name = format!("{}Wrapper", callback_name.replace("Type", ""));
+        let trampoline_name = format!("invoke_py_{}", to_snake_case(&callback_name.replace("Type", "")));
+        
+        // Parse function arguments
+        let mut args_sig = String::new();
+        let mut first_arg = true;
+        let mut info_type = String::new();
+        let mut extra_args: Vec<(String, String)> = Vec::new();
+        
+        for (i, arg) in callback_def.fn_args.iter().enumerate() {
+            let arg_name = if i == 0 { 
+                "data".to_string() 
+            } else if i == 1 { 
+                "info".to_string() 
+            } else { 
+                format!("arg{}", i) 
+            };
+            
+            let type_str = &arg.r#type;
+            // Use ffi:: prefix for FFI types (cleaner than __dll_api_inner::dll::)
+            let arg_type = if is_primitive_arg(type_str) {
+                arg.r#type.clone()
+            } else if arg.r#type == "RefAny" {
+                "ffi::AzRefAny".to_string()
+            } else {
+                format!("ffi::{}{}", prefix, arg.r#type)
+            };
+            
+            if i == 1 {
+                info_type = arg.r#type.clone();
+            }
+            if i >= 2 {
+                extra_args.push((arg_name.clone(), arg.r#type.clone()));
+            }
+            
+            if !first_arg {
+                args_sig.push_str(",\r\n    ");
+            }
+            args_sig.push_str(&format!("{}: {}", arg_name, arg_type));
+            first_arg = false;
+        }
+        
+        // Return type - use ffi:: prefix
+        let return_type = callback_def.returns.as_ref()
+            .map(|r| r.r#type.clone())
+            .unwrap_or_else(|| "()".to_string());
+        let capi_return_type = if is_primitive_arg(&return_type) || return_type == "()" {
+            return_type.clone()
+        } else {
+            format!("ffi::{}{}", prefix, return_type)
+        };
+        
+        // Default value for return - use ffi:: prefix
+        let default_expr = match return_type.as_str() {
+            "()" => "()".to_string(),
+            "Update" => format!("{}::DoNothing", capi_return_type),
+            "OnTextInputReturn" => format!(
+                "{} {{ update: ffi::AzUpdate::DoNothing, valid: ffi::AzTextInputValid::Yes }}",
+                capi_return_type
+            ),
+            _ => {
+                let ext_path = get_type_external_path(&return_type, version_data);
+                if !ext_path.is_empty() && !ext_path.contains("::") {
+                    format!("{}::default()", capi_return_type)
+                } else if !ext_path.is_empty() {
+                    format!("unsafe {{ mem::transmute::<{}, {}>({}::default()) }}", ext_path, capi_return_type, ext_path)
+                } else {
+                    format!("{}::default()", capi_return_type)
+                }
+            }
+        };
+        
+        // Generate trampoline
+        code.push_str(&format!("/// Trampoline for {} - bridges Python to Rust\r\n", callback_name));
+        code.push_str(&format!("extern \"C\" fn {}(\r\n    {}\r\n) -> {} {{\r\n", 
+            trampoline_name, args_sig, capi_return_type));
+        
+        code.push_str(&format!("    let default = {};\r\n\r\n", default_expr));
+        
+        // Transmute RefAny and downcast
+        code.push_str("    let mut data_core: azul_core::refany::RefAny = unsafe { mem::transmute(data) };\r\n");
+        code.push_str(&format!("    let cb = match data_core.downcast_mut::<{}>() {{\r\n", wrapper_name));
+        code.push_str("        Some(s) => s,\r\n");
+        code.push_str("        None => return default,\r\n");
+        code.push_str("    };\r\n\r\n");
+        
+        // Extract Python objects
+        code.push_str("    let py_callback = match cb._py_callback.as_ref() {\r\n");
+        code.push_str("        Some(s) => s,\r\n");
+        code.push_str("        None => return default,\r\n");
+        code.push_str("    };\r\n\r\n");
+        
+        code.push_str("    let py_data = match cb._py_data.as_ref() {\r\n");
+        code.push_str("        Some(s) => s,\r\n");
+        code.push_str("        None => return default,\r\n");
+        code.push_str("    };\r\n\r\n");
+        
+        // Call Python
+        code.push_str("    Python::attach(|py| {\r\n");
+        
+        // Wrap FFI type in Python wrapper struct (no transmute needed)
+        if !info_type.is_empty() {
+            let info_py_type = format!("{}{}", prefix, info_type);
+            code.push_str(&format!("        let info_py = {} {{ inner: info }};\r\n", info_py_type));
+        }
+        
+        // Wrap extra args in Python wrappers
+        for (arg_name, arg_type) in &extra_args {
+            if is_primitive_arg(arg_type) {
+                code.push_str(&format!("        let {}_py = {};\r\n", arg_name, arg_name));
+            } else {
+                let py_type = format!("{}{}", prefix, arg_type);
+                code.push_str(&format!("        let {}_py = {} {{ inner: {} }};\r\n", 
+                    arg_name, py_type, arg_name));
+            }
+        }
+        
+        // Build call args
+        let mut call_args = "py_data.clone_ref(py)".to_string();
+        if !info_type.is_empty() {
+            call_args.push_str(", info_py");
+        }
+        for (arg_name, _) in &extra_args {
+            call_args.push_str(&format!(", {}_py", arg_name));
+        }
+        
+        // Make the call
+        code.push_str(&format!("\r\n        match py_callback.call1(py, ({})) {{\r\n", call_args));
+        
+        let return_py_type = format!("{}{}", prefix, return_type);
+        code.push_str("            Ok(result) => {\r\n");
+        if return_type == "()" {
+            code.push_str("                ()\r\n");
+        } else {
+            // Extract Python wrapper and return its inner FFI type
+            code.push_str(&format!("                match result.extract::<{}>(py) {{\r\n", return_py_type));
+            code.push_str("                    Ok(ret) => ret.inner,\r\n");
+            code.push_str("                    Err(_) => default,\r\n");
+            code.push_str("                }\r\n");
+        }
+        code.push_str("            }\r\n");
+        code.push_str("            Err(e) => {\r\n");
+        code.push_str("                #[cfg(feature = \"logging\")]\r\n");
+        code.push_str(&format!("                log::error!(\"Exception in {} callback: {{:?}}\", e);\r\n", callback_name));
+        code.push_str("                default\r\n");
+        code.push_str("            }\r\n");
+        code.push_str("        }\r\n");
+        code.push_str("    })\r\n");
+        code.push_str("}\r\n\r\n");
+    }
+    
+    code
+}
+
+/// Generate the App class implementation
+fn generate_app_class(prefix: &str) -> String {
+    format!(r#"// --- App implementation ---
+
+/// The main application - runs the event loop
+#[pyclass(name = "App", module = "azul", unsendable)]
+pub struct AzApp {{
+    pub ptr: *const c_void,
+    pub run_destructor: bool,
+}}
+
+#[pymethods]
+impl AzApp {{
+    /// Create a new App with user data and a layout callback
+    #[new]
+    fn new(data: Py<PyAny>, layout_callback: Py<PyAny>) -> PyResult<Self> {{
+        Python::attach(|py| {{
+            if !layout_callback.bind(py).is_callable() {{
+                return Err(PyException::new_err("layout_callback must be callable"));
+            }}
+            Ok(())
+        }})?;
+
+        let app_data = AppDataTy {{
+            _py_app_data: Some(data),
+            _py_layout_callback: Some(layout_callback),
+        }};
+
+        let refany = azul_core::refany::RefAny::new(app_data);
+        let app_config: azul_core::resources::AppConfig = Default::default();
+        let app: crate::desktop::app::App = crate::desktop::app::App::new(refany, app_config);
+
+        Ok(unsafe {{ core::mem::transmute(app) }})
+    }}
+
+    /// Run the application event loop with an initial window
+    fn run(&mut self, mut window: {prefix}WindowCreateOptions) {{
+        // Access the inner FFI type and set the layout callback
+        window.inner.state.layout_callback = ffi::AzLayoutCallback {{
+            cb: ffi::AzLayoutCallbackInner {{
+                cb: invoke_py_layout_callback,
+            }},
+        }};
+        
+        let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
+        let root_window: azul_layout::window_state::WindowCreateOptions = unsafe {{ core::mem::transmute(window.inner) }};
+        _self.run(root_window);
+    }}
+
+    /// Add another window to the application
+    fn add_window(&mut self, mut window: {prefix}WindowCreateOptions) {{
+        // Access the inner FFI type and set the layout callback
+        window.inner.state.layout_callback = ffi::AzLayoutCallback {{
+            cb: ffi::AzLayoutCallbackInner {{
+                cb: invoke_py_layout_callback,
+            }},
+        }};
+        
+        let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
+        let create_options: azul_layout::window_state::WindowCreateOptions = unsafe {{ core::mem::transmute(window.inner) }};
+        _self.add_window(create_options);
+    }}
+
+    /// Get the list of available monitors
+    fn get_monitors(&self) -> {prefix}MonitorVec {{
+        let _self: &crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
+        {prefix}MonitorVec {{ inner: unsafe {{ core::mem::transmute(_self.get_monitors()) }} }}
+    }}
+
+    fn __traverse__(&self, _visit: PyVisit<'_>) -> Result<(), PyTraverseError> {{
+        Ok(())
+    }}
+
+    fn __clear__(&mut self) {{
+    }}
+
+    fn __str__(&self) -> String {{
+        "App {{ ... }}".to_string()
+    }}
+
+    fn __repr__(&self) -> String {{
+        self.__str__()
+    }}
+}}
+
+impl Drop for AzApp {{
+    fn drop(&mut self) {{
+        if self.run_destructor {{
+            unsafe {{
+                core::ptr::drop_in_place(self as *mut AzApp as *mut crate::desktop::app::App);
+            }}
+        }}
+    }}
+}}
+
+"#, prefix = prefix)
 }
 
 /// Get the external path for a type from api.json
@@ -644,28 +1241,10 @@ fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionD
     false
 }
 
-/// Types that should be wrapped as opaque types (no field getters/setters)
-/// These contain callbacks or raw pointers that can't be exposed to Python
-/// but need to exist as pyclass types so they can be used in enums
-const OPAQUE_WRAPPER_TYPES: &[&str] = &[
-    "StringMenuItem",   // Contains OptionCoreMenuCallback
-    "InstantPtr",       // Contains callback function pointers and *const c_void
-];
-
-/// Check if a type should be generated as an opaque wrapper
-fn is_opaque_wrapper_type(class_name: &str) -> bool {
-    OPAQUE_WRAPPER_TYPES.contains(&class_name)
-}
-
 /// Should this type be completely skipped for Python binding generation?
 fn should_skip_type(class_name: &str, class_data: &ClassData, version_data: &VersionData) -> bool {
-    // Opaque wrapper types are NOT skipped - they get special generation
-    if is_opaque_wrapper_type(class_name) {
-        return false;
-    }
-    
-    // Skip types that are manually implemented in python-patch/api.rs
-    // These have complex Python integration (callbacks, GC, etc.)
+    // Skip types that have custom Python integration in generate_python_patches()
+    // These have complex behavior (callbacks, GC, String/bytes conversion, etc.)
     const MANUAL_TYPES: &[&str] = &[
         "App",
         "LayoutCallbackInfo",
@@ -867,18 +1446,26 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("// This file is STANDALONE and does NOT depend on the c-api feature.\r\n");
     code.push_str("\r\n");
 
+    // Build the type_to_external map for transmute operations
+    // This maps Az-prefixed types to their internal Rust type paths
+    let type_to_external = build_type_to_external_map(version_data, &prefix, true);
+
     // Generate the complete DLL API (structs, enums, functions) inline
     // This makes python-extension completely independent from c-api feature
     code.push_str("// ============================================================================\r\n");
     code.push_str("// GENERATED C-API TYPES (standalone, not imported from crate::ffi::dll)\r\n");
     code.push_str("// ============================================================================\r\n\r\n");
     
-    // Generate the DLL API inline
+    // Generate the DLL API inline - but SKIP C-ABI functions
+    // Python extension calls Rust functions directly, not via C-ABI
     let config = MemtestConfig {
         remove_serde: false,
         remove_optional_features: vec![],
         generate_fn_bodies: true,
         is_for_dll: true,
+        generate_no_mangle: false,      // Not needed - we skip C-ABI functions
+        skip_c_abi_functions: true,     // Skip C-ABI functions - we call Rust directly
+        drop_via_external: true,        // Use transmute for Drop/Clone (no C-ABI functions)
     };
     let replacements = TypeReplacements::new(version_data).unwrap();
     let dll_api_code = generate_generated_rs(api_data, &config, &replacements)
@@ -886,9 +1473,10 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str(&dll_api_code);
     code.push_str("\r\n\r\n");
 
-    // Now use types from the inline-generated code
-    code.push_str("use __dll_api_inner::dll::*;\r\n");
-    code.push_str("\r\n");
+    // NOTE: We do NOT use `use __dll_api_inner::dll::*;` here!
+    // Python wrappers have the same names (AzDom, AzString, etc.) as the C-API types,
+    // so we use fully qualified paths (__dll_api_inner::dll::AzDom) instead.
+    // This avoids naming conflicts between the wrapper and the wrapped type.
 
     // PyO3 imports
     code.push_str("use core::ffi::c_void;\r\n");
@@ -898,27 +1486,26 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("use pyo3::exceptions::PyException;\r\n");
     code.push_str("\r\n");
 
-    // GL type aliases for Python API (these alias the already-generated types)
+    // GL type aliases - use full path to avoid conflicts
     code.push_str("// GL type aliases for Python API\r\n");
-    code.push_str("type AzGLuint = GLuint;\r\n");
-    code.push_str("type AzGLint = GLint;\r\n");
-    code.push_str("type AzGLint64 = GLint64;\r\n");
-    code.push_str("type AzGLuint64 = GLuint64;\r\n");
-    code.push_str("type AzGLenum = GLenum;\r\n");
-    code.push_str("type AzGLintptr = GLintptr;\r\n");
-    code.push_str("type AzGLboolean = GLboolean;\r\n");
-    code.push_str("type AzGLsizeiptr = GLsizeiptr;\r\n");
-    code.push_str("type AzGLvoid = GLvoid;\r\n");
-    code.push_str("type AzGLbitfield = GLbitfield;\r\n");
-    code.push_str("type AzGLsizei = GLsizei;\r\n");
-    code.push_str("type AzGLclampf = GLclampf;\r\n");
-    code.push_str("type AzGLfloat = GLfloat;\r\n");
+    code.push_str("type AzGLuint = __dll_api_inner::dll::GLuint;\r\n");
+    code.push_str("type AzGLint = __dll_api_inner::dll::GLint;\r\n");
+    code.push_str("type AzGLint64 = __dll_api_inner::dll::GLint64;\r\n");
+    code.push_str("type AzGLuint64 = __dll_api_inner::dll::GLuint64;\r\n");
+    code.push_str("type AzGLenum = __dll_api_inner::dll::GLenum;\r\n");
+    code.push_str("type AzGLintptr = __dll_api_inner::dll::GLintptr;\r\n");
+    code.push_str("type AzGLboolean = __dll_api_inner::dll::GLboolean;\r\n");
+    code.push_str("type AzGLsizeiptr = __dll_api_inner::dll::GLsizeiptr;\r\n");
+    code.push_str("type AzGLvoid = __dll_api_inner::dll::GLvoid;\r\n");
+    code.push_str("type AzGLbitfield = __dll_api_inner::dll::GLbitfield;\r\n");
+    code.push_str("type AzGLsizei = __dll_api_inner::dll::GLsizei;\r\n");
+    code.push_str("type AzGLclampf = __dll_api_inner::dll::GLclampf;\r\n");
+    code.push_str("type AzGLfloat = __dll_api_inner::dll::GLfloat;\r\n");
     code.push_str("\r\n");
 
-    // Manual patches for callbacks and complex types
-    // TODO: Eventually minimize this by generating more automatically
-    code.push_str("// === Manual API patches for callbacks and complex types ===\r\n");
-    code.push_str(include_str!("./python-patch/api.rs"));
+    // Generated Python patches (helper functions, conversions, App class, trampolines)
+    // This includes helper functions, From/Into impls, PyO3 traits, callbacks, and App class
+    code.push_str(&generate_python_patches(version_data, &prefix));
     code.push_str("\r\n\r\n");
 
     // Collect all types
@@ -1021,11 +1608,12 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     }
 
     // NOTE: We don't generate Copy implementations for Python types because:
-    // 1. Simple enums already have #[derive(Copy)]
+    // 1. Simple enums already have Copy in generate_enum_definition
     // 2. Structs may contain fields without Copy, so we can't safely impl Copy
-    // 3. Clone via transmute to C-API types is sufficient for PyO3
+    // 3. Clone via wrapper to C-API types is sufficient for PyO3
 
-    // Generate Clone implementations
+    // Generate Clone implementations for STRUCTS only
+    // (Enums already have Clone in generate_enum_definition)
     code.push_str(
         "// ============================================================================\r\n",
     );
@@ -1037,20 +1625,10 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     for (class_name, class_data) in &structs {
         code.push_str(&generate_clone_impl(class_name, class_data, &prefix));
     }
-    for (class_name, class_data) in &enums {
-        let is_union = class_data
-            .enum_fields
-            .as_ref()
-            .map(|f| enum_is_union(f))
-            .unwrap_or(false);
-        if is_union {
-            code.push_str(&generate_clone_impl(class_name, class_data, &prefix));
-        }
-    }
+    // NOTE: Enums get Clone generated inline in generate_enum_definition
 
-    // Generate Debug implementations for all types that don't have derive(Debug)
-    // - Structs: need Debug for __repr__
-    // - Union enums: need Debug (simple enums already have derive(Debug))
+    // Generate Debug implementations for STRUCTS only
+    // (Enums already have Debug in generate_enum_definition)
     code.push_str(
         "// ============================================================================\r\n",
     );
@@ -1060,22 +1638,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     );
 
     for (class_name, class_data) in &structs {
-        // Callback+data pairs have their own Debug in wrapper
-        let is_callback_pair = callback_pair_info.iter().any(|(n, _, _)| n == class_name);
-        if !is_callback_pair {
-            code.push_str(&generate_debug_impl(class_name, class_data, &prefix));
-        }
-    }
-    for (class_name, class_data) in &enums {
-        let is_union = class_data
-            .enum_fields
-            .as_ref()
-            .map(|f| enum_is_union(f))
-            .unwrap_or(false);
-        // Only generate Debug for union enums - simple enums already have derive(Debug)
-        if is_union {
-            code.push_str(&generate_debug_impl(class_name, class_data, &prefix));
-        }
+        code.push_str(&generate_debug_impl(class_name, class_data, &prefix));
     }
 
     // Generate Drop implementations
@@ -1116,6 +1679,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
                 class_data,
                 &prefix,
                 version_data,
+                &type_to_external,
             ));
         }
     }
@@ -1125,6 +1689,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
             class_data,
             &prefix,
             version_data,
+            &type_to_external,
         ));
     }
 
@@ -1139,41 +1704,25 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code
 }
 
-/// Generate an opaque wrapper struct for types with callbacks or raw pointers
-/// These types wrap the C-API type directly without exposing fields
-fn generate_opaque_wrapper_struct(class_name: &str, prefix: &str) -> String {
-    let struct_name = format!("{}{}", prefix, class_name);
-    // Use full path to C-API type to avoid self-reference
-    let c_api_type = format!("__dll_api_inner::dll::Az{}", class_name);
-    
-    let mut code = String::new();
-    code.push_str(&format!("// Opaque wrapper for {} (contains callbacks/pointers)\r\n", class_name));
-    code.push_str(&format!(
-        "#[pyclass(name = \"{}\", module = \"azul\", unsendable)]\r\n",
-        class_name
-    ));
-    code.push_str("#[repr(transparent)]\r\n");
-    code.push_str(&format!("pub struct {} {{\r\n", struct_name));
-    code.push_str(&format!("    pub inner: {},\r\n", c_api_type));
-    code.push_str("}\r\n\r\n");
-    
-    code
-}
-
 // struct generation
+// 
+// ALL Python structs are now wrappers around C-API types:
+//   struct AzFoo { pub inner: __dll_api_inner::dll::AzFoo }
+// 
+// This avoids duplicating field definitions and ensures type compatibility.
+// Traits (Clone, Debug, Drop) delegate to the inner C-API type.
+// Methods call the C-API functions on `self.inner`.
+//
 fn generate_struct_definition(
     class_name: &str,
     class_data: &ClassData,
     prefix: &str,
-    version_data: &VersionData,
+    _version_data: &VersionData,
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
-
-    // Check if this is an opaque wrapper type
-    if is_opaque_wrapper_type(class_name) {
-        return generate_opaque_wrapper_struct(class_name, prefix);
-    }
+    // Full path to C-API type to avoid self-reference
+    let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, class_name);
 
     // Determine pyclass attributes
     let unsendable = if needs_unsendable(class_data) {
@@ -1186,63 +1735,21 @@ fn generate_struct_definition(
         "#[pyclass(name = \"{}\", module = \"azul\"{})]\r\n",
         class_name, unsendable
     ));
-
-    // Don't derive anything - nested C-API types don't implement Debug/Clone
-    // Debug is implemented via __repr__ method in pymethods
-    // Clone is implemented via C-API deepCopy function if available
-
-    code.push_str("#[repr(C)]\r\n");
+    // Use repr(transparent) so AzFoo and __dll_api_inner::dll::AzFoo have the same layout
+    code.push_str("#[repr(transparent)]\r\n");
     code.push_str(&format!("pub struct {} {{\r\n", struct_name));
-
-    // Fields
-    if let Some(struct_fields) = &class_data.struct_fields {
-        // Collect field names that have setter methods to avoid duplicate pyo3(get, set)
-        let mut fields_with_setters: std::collections::HashSet<&str> =
-            std::collections::HashSet::new();
-        if let Some(functions) = &class_data.functions {
-            for (fn_name, _) in functions {
-                if fn_name.starts_with("set_") {
-                    fields_with_setters.insert(&fn_name[4..]);
-                }
-            }
-        }
-
-        let is_boxed = class_data.is_boxed_object;
-
-        for field_map in struct_fields {
-            for (field_name, field_data) in field_map {
-                let is_raw_ptr = field_data.ref_kind == RefKind::ConstPtr
-                    || field_data.ref_kind == RefKind::MutPtr;
-                let is_destructor = field_name == "destructor"
-                    || field_data.r#type.ends_with("DestructorCallbackType");
-
-                // For boxed objects, use usize for pointer and destructor fields
-                // This maintains repr(C) compatibility while hiding internal pointers from Python
-                let field_type = if is_boxed && (is_raw_ptr || is_destructor) {
-                    "usize".to_string()
-                } else {
-                    // Apply ref_kind to get the actual field type using the helper function
-                    rust_type_to_python_type_with_ref(
-                        &field_data.r#type,
-                        field_data.ref_kind.clone(),
-                        prefix,
-                        version_data,
-                    )
-                };
-
-                // Only add pyo3(get, set) for simple types without explicit setters
-                let has_setter = fields_with_setters.contains(field_name.as_str());
-                let is_simple = is_python_compatible_primitive(&field_data.r#type);
-
-                if !is_raw_ptr && !is_destructor && !has_setter && is_simple {
-                    code.push_str("    #[pyo3(get, set)]\r\n");
-                }
-                code.push_str(&format!("    pub {}: {},\r\n", field_name, field_type));
-            }
-        }
-    }
-
+    code.push_str(&format!("    pub inner: {},\r\n", c_api_type));
     code.push_str("}\r\n\r\n");
+    
+    // From/Into conversions for easy interop
+    code.push_str(&format!("impl From<{}> for {} {{\r\n", c_api_type, struct_name));
+    code.push_str(&format!("    fn from(inner: {}) -> Self {{ Self {{ inner }} }}\r\n", c_api_type));
+    code.push_str("}\r\n\r\n");
+    
+    code.push_str(&format!("impl From<{}> for {} {{\r\n", struct_name, c_api_type));
+    code.push_str("    fn from(wrapper: Self) -> Self { wrapper.inner }\r\n");
+    code.push_str("}\r\n\r\n");
+
     code
 }
 
@@ -1276,10 +1783,11 @@ fn generate_enum_definition(
     class_name: &str,
     class_data: &ClassData,
     prefix: &str,
-    version_data: &VersionData,
+    _version_data: &VersionData,
 ) -> String {
     let mut code = String::new();
     let enum_name = format!("{}{}", prefix, class_name);
+    let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, class_name);
 
     let is_union = class_data
         .enum_fields
@@ -1287,145 +1795,95 @@ fn generate_enum_definition(
         .map(|f| enum_is_union(f))
         .unwrap_or(false);
 
-    // Determine unsendable
+    // Determine unsendable - all types need this due to nested pointers
     let unsendable = if needs_unsendable(class_data) {
         ", unsendable"
     } else {
         ""
     };
 
-    if is_union {
-        // Tagged union - complex enum
-        // First, count how many variants will actually be generated
-        let mut variant_count = 0;
-        if let Some(enum_fields) = &class_data.enum_fields {
-            for variant_map in enum_fields {
-                for (_, variant_data) in variant_map {
-                    if let Some(ref variant_type) = variant_data.r#type {
-                        // Check if this variant type should be skipped
-                        if should_skip_enum_variant_type(variant_type, version_data) {
-                            continue;
-                        }
-                        variant_count += 1;
-                    } else {
-                        // Unit variant always counts
-                        variant_count += 1;
-                    }
-                }
-            }
-        }
+    // ALL enums are now wrappers around the C-API type
+    // This is consistent with the struct approach and avoids trait conflicts
+    code.push_str(&format!(
+        "#[pyclass(name = \"{}\", module = \"azul\"{})]\r\n",
+        class_name, unsendable
+    ));
+    code.push_str("#[repr(transparent)]\r\n");
+    code.push_str(&format!("pub struct {} {{\r\n", enum_name));
+    code.push_str(&format!("    pub inner: {},\r\n", c_api_type));
+    code.push_str("}\r\n\r\n");
 
-        // If no variants will be generated, skip the entire enum
-        if variant_count == 0 {
-            return String::new();
-        }
+    // From/Into conversions
+    code.push_str(&format!("impl From<{}> for {} {{\r\n", c_api_type, enum_name));
+    code.push_str(&format!("    fn from(inner: {}) -> Self {{ Self {{ inner }} }}\r\n", c_api_type));
+    code.push_str("}\r\n\r\n");
 
-        code.push_str(&format!(
-            "#[pyclass(name = \"{}\", module = \"azul\"{})]\r\n",
-            class_name, unsendable
-        ));
-        // Don't derive Debug - nested types might be C-API types without Debug
-        code.push_str("#[repr(C, u8)]\r\n");
-        code.push_str(&format!("pub enum {} {{\r\n", enum_name));
+    code.push_str(&format!("impl From<{}> for {} {{\r\n", enum_name, c_api_type));
+    code.push_str("    fn from(wrapper: Self) -> Self { wrapper.inner }\r\n");
+    code.push_str("}\r\n\r\n");
 
-        if let Some(enum_fields) = &class_data.enum_fields {
-            for variant_map in enum_fields {
-                for (variant_name, variant_data) in variant_map {
-                    if let Some(ref variant_type) = variant_data.r#type {
-                        if should_skip_enum_variant_type(variant_type, version_data) {
-                            continue;
-                        }
-                        let py_type = rust_type_to_python_type(variant_type, prefix, version_data);
-                        code.push_str(&format!("    {}({}),\r\n", variant_name, py_type));
-                    } else {
-                        // Unit variant in tagged union needs empty tuple for PyO3
-                        code.push_str(&format!("    {}(),\r\n", variant_name));
-                    }
-                }
-            }
-        }
-    } else {
-        // Simple C-style enum
-        code.push_str(&format!(
-            "#[pyclass(name = \"{}\", module = \"azul\", eq, eq_int{})]\r\n",
-            class_name, unsendable
-        ));
-        code.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\r\n");
-        code.push_str("#[repr(C)]\r\n");
-        code.push_str(&format!("pub enum {} {{\r\n", enum_name));
+    // Clone implementation - delegate to inner
+    code.push_str(&format!("impl Clone for {} {{\r\n", enum_name));
+    code.push_str("    fn clone(&self) -> Self {\r\n");
+    code.push_str("        Self { inner: self.inner.clone() }\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("}\r\n\r\n");
 
-        if let Some(enum_fields) = &class_data.enum_fields {
-            for variant_map in enum_fields {
-                for (variant_name, _) in variant_map {
-                    code.push_str(&format!("    {},\r\n", variant_name));
-                }
-            }
-        }
+    // Debug implementation - delegate to inner
+    code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", enum_name));
+    code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
+    code.push_str("        core::fmt::Debug::fmt(&self.inner, f)\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("}\r\n\r\n");
+
+    // For simple enums: also implement Copy and PartialEq/Eq/Hash for Python comparison
+    if !is_union {
+        // Copy - simple enums are trivially copyable
+        code.push_str(&format!("impl Copy for {} {{}}\r\n\r\n", enum_name));
+
+        // PartialEq via discriminant comparison
+        code.push_str(&format!("impl PartialEq for {} {{\r\n", enum_name));
+        code.push_str("    fn eq(&self, other: &Self) -> bool {\r\n");
+        code.push_str("        // Compare discriminants via transmute to u8\r\n");
+        code.push_str("        unsafe {\r\n");
+        code.push_str(&format!("            let a: u8 = core::mem::transmute_copy(&self.inner);\r\n"));
+        code.push_str(&format!("            let b: u8 = core::mem::transmute_copy(&other.inner);\r\n"));
+        code.push_str("            a == b\r\n");
+        code.push_str("        }\r\n");
+        code.push_str("    }\r\n");
+        code.push_str("}\r\n\r\n");
+
+        code.push_str(&format!("impl Eq for {} {{}}\r\n\r\n", enum_name));
+
+        // Hash via discriminant
+        code.push_str(&format!("impl core::hash::Hash for {} {{\r\n", enum_name));
+        code.push_str("    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {\r\n");
+        code.push_str("        unsafe {\r\n");
+        code.push_str(&format!("            let disc: u8 = core::mem::transmute_copy(&self.inner);\r\n"));
+        code.push_str("            disc.hash(state);\r\n");
+        code.push_str("        }\r\n");
+        code.push_str("    }\r\n");
+        code.push_str("}\r\n\r\n");
     }
 
-    code.push_str("}\r\n\r\n");
     code
 }
 
 // // clone/drop implementations
+// 
+// Since all Python structs are now wrappers around C-API types,
+// Clone/Debug/Drop simply delegate to the inner C-API type.
 //
-fn generate_clone_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
+fn generate_clone_impl(class_name: &str, _class_data: &ClassData, prefix: &str) -> String {
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
 
-    // Handle opaque wrapper types specially
-    if is_opaque_wrapper_type(class_name) {
-        // For opaque wrappers, clone the inner C-API type
-        code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
-        code.push_str("    fn clone(&self) -> Self {\r\n");
-        code.push_str("        Self { inner: self.inner.clone() }\r\n");
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-        return code;
-    }
-
-    // Check if type has custom Clone (needs C-API deepCopy function)
-    let has_custom_clone = class_data.has_custom_clone();
-
-    // Get external path for transmute to core type
-    // Skip if external path contains generics (< or >)
-    let external_path = class_data.external.as_deref().unwrap_or("");
-    let has_valid_external = !external_path.is_empty() && !external_path.contains('<');
-
-    // For Python bindings, we always need Clone implementation
-    // because PyO3 requires Clone for extract()
-    if has_custom_clone {
-        // Use C-API deepCopy function
-        code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
-        code.push_str("    fn clone(&self) -> Self {\r\n");
-        code.push_str(&format!(
-            "        unsafe {{ \
-             mem::transmute({}{}_deepCopy(mem::transmute(self))) }}\r\n",
-            prefix, class_name
-        ));
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-    } else if has_valid_external {
-        // Use the same pattern as dll_api.rs: transmute to core type, call clone, transmute back
-        // This works because the core type implements Clone
-        code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
-        code.push_str("    fn clone(&self) -> Self {\r\n");
-        code.push_str(&format!(
-            "        unsafe {{ core::mem::transmute::<{}, {}>((*(self as *const {} as *const \
-             {})).clone()) }}\r\n",
-            external_path, type_name, type_name, external_path
-        ));
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-    } else {
-        // No valid external path - use byte-copy via ptr::read
-        // This is safe for repr(C) types without Drop
-        code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
-        code.push_str("    fn clone(&self) -> Self {\r\n");
-        code.push_str("        unsafe { core::ptr::read(self) }\r\n");
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-    }
+    // All Python structs are wrappers: just clone inner
+    code.push_str(&format!("impl Clone for {} {{\r\n", type_name));
+    code.push_str("    fn clone(&self) -> Self {\r\n");
+    code.push_str("        Self { inner: self.inner.clone() }\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("}\r\n\r\n");
 
     code
 }
@@ -1450,97 +1908,29 @@ fn generate_copy_impl(class_name: &str, class_data: &ClassData, prefix: &str) ->
 }
 
 /// Generate Debug impl for types (needed for __repr__ in PyO3)
-/// - If type has Debug in derive or custom_impl in api.json: transmute to C-API and use that
-/// - Otherwise: generate a simple implementation that just prints the type name
-fn generate_debug_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
+/// Delegates to the inner C-API type's Debug impl
+fn generate_debug_impl(class_name: &str, _class_data: &ClassData, prefix: &str) -> String {
     let mut code = String::new();
     let type_name = format!("{}{}", prefix, class_name);
 
-    // Handle opaque wrapper types specially
-    if is_opaque_wrapper_type(class_name) {
-        code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
-        code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
-        code.push_str(&format!("        write!(f, \"{}(opaque)\")\r\n", class_name));
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-        return code;
-    }
-
-    // Check if Debug is derived in api.json
-    let has_derive_debug = class_data
-        .derive
-        .as_ref()
-        .map(|d| d.iter().any(|t| t == "Debug"))
-        .unwrap_or(false);
-
-    // Check if Debug is in custom_impls
-    let has_custom_debug = class_data
-        .custom_impls
-        .as_ref()
-        .map(|c| c.iter().any(|t| t == "Debug"))
-        .unwrap_or(false);
-
-    // Get external path if available
-    let external_path = class_data.external.as_deref();
-
-    // If type has Debug via derive or custom_impl AND has external path, transmute to external type
-    if (has_derive_debug || has_custom_debug) && external_path.is_some() {
-        let ext_path = external_path.unwrap();
-        code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
-        code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
-        code.push_str(&format!(
-            "        let external: &{} = unsafe {{ mem::transmute(self) }};\r\n",
-            ext_path
-        ));
-        code.push_str("        core::fmt::Debug::fmt(external, f)\r\n");
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-    } else {
-        // Generate a simple Debug impl that just prints the type name
-        code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
-        code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
-        code.push_str(&format!("        write!(f, \"{}\")\r\n", class_name));
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-    }
-
-    code
-}
-
-fn generate_drop_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
-    let mut code = String::new();
-    let type_name = format!("{}{}", prefix, class_name);
-
-    // Handle opaque wrapper types specially - delegate to inner's Drop
-    if is_opaque_wrapper_type(class_name) {
-        // No explicit drop needed - inner type handles its own drop
-        return code;
-    }
-
-    // Check if type has custom destructor
-    let has_custom_destructor = class_data.has_custom_drop();
-
-    // Check if type has Copy derive (no Drop needed)
-    let has_copy = class_data
-        .derive
-        .as_ref()
-        .map(|d| d.iter().any(|t| t == "Copy"))
-        .unwrap_or(false);
-
-    if has_copy || !has_custom_destructor {
-        return code;
-    }
-
-    code.push_str(&format!("impl Drop for {} {{\r\n", type_name));
-    code.push_str("    fn drop(&mut self) {\r\n");
-    code.push_str(&format!(
-        "        unsafe {{ {}{}_delete(mem::transmute(self)); }}\r\n",
-        prefix, class_name
-    ));
+    // All Python structs are wrappers: delegate Debug to inner
+    code.push_str(&format!("impl core::fmt::Debug for {} {{\r\n", type_name));
+    code.push_str("    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {\r\n");
+    code.push_str("        core::fmt::Debug::fmt(&self.inner, f)\r\n");
     code.push_str("    }\r\n");
     code.push_str("}\r\n\r\n");
 
     code
+}
+
+// Drop implementation for wrapper types
+// Since all Python structs are wrappers, Drop is automatic (inner drops itself)
+// We only need explicit Drop for types with custom destructors
+fn generate_drop_impl(class_name: &str, class_data: &ClassData, prefix: &str) -> String {
+    // Wrapper types don't need explicit Drop - inner handles it
+    // The C-API type in __dll_api_inner::dll already has proper Drop impl
+    let _ = (class_name, class_data, prefix);
+    String::new()
 }
 
 // pymethods generation
@@ -1549,22 +1939,10 @@ fn generate_struct_pymethods(
     class_data: &ClassData,
     prefix: &str,
     version_data: &VersionData,
+    type_to_external: &HashMap<String, String>,
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
-
-    // Handle opaque wrapper types - only generate __str__ and __repr__
-    if is_opaque_wrapper_type(class_name) {
-        code.push_str(&format!("#[pymethods]\r\nimpl {} {{\r\n", struct_name));
-        code.push_str("    fn __str__(&self) -> String {\r\n");
-        code.push_str(&format!("        format!(\"{}(opaque)\")\r\n", class_name));
-        code.push_str("    }\r\n\r\n");
-        code.push_str("    fn __repr__(&self) -> String {\r\n");
-        code.push_str("        self.__str__()\r\n");
-        code.push_str("    }\r\n");
-        code.push_str("}\r\n\r\n");
-        return code;
-    }
 
     code.push_str(&format!("#[pymethods]\r\nimpl {} {{\r\n", struct_name));
 
@@ -1591,6 +1969,7 @@ fn generate_struct_pymethods(
                 prefix,
                 version_data,
                 true,
+                type_to_external,
             ));
         }
     }
@@ -1608,6 +1987,7 @@ fn generate_struct_pymethods(
                 prefix,
                 version_data,
                 false,
+                type_to_external,
             ));
         }
     }
@@ -1630,9 +2010,11 @@ fn generate_enum_pymethods(
     class_data: &ClassData,
     prefix: &str,
     version_data: &VersionData,
+    type_to_external: &HashMap<String, String>,
 ) -> String {
     let mut code = String::new();
     let enum_name = format!("{}{}", prefix, class_name);
+    let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, class_name);
 
     let is_union = class_data
         .enum_fields
@@ -1642,9 +2024,10 @@ fn generate_enum_pymethods(
 
     code.push_str(&format!("#[pymethods]\r\nimpl {} {{\r\n", enum_name));
 
-    // For tagged unions, generate variant constructors
-    if is_union {
-        if let Some(enum_fields) = &class_data.enum_fields {
+    // For ALL enums (simple or union), generate variant constructors/accessors
+    if let Some(enum_fields) = &class_data.enum_fields {
+        if is_union {
+            // Tagged union: variant constructors take an argument
             for variant_map in enum_fields {
                 for (variant_name, variant_data) in variant_map {
                     if let Some(ref variant_type) = variant_data.r#type {
@@ -1661,8 +2044,7 @@ fn generate_enum_pymethods(
                         if is_vec_ref_type_by_name(&base_type) {
                             continue;
                         }
-                        // Check if the variant type is a callback, VecRef, or type_alias with
-                        // pointer
+                        // Check if the variant type is a callback, VecRef, or type_alias with pointer
                         if let Some((module, _)) =
                             search_for_class_by_class_name(version_data, &base_type)
                         {
@@ -1694,20 +2076,44 @@ fn generate_enum_pymethods(
                             }
                         }
 
+                        // Use wrapper type for parameter, but construct C-API enum
                         let py_type = rust_type_to_python_type(variant_type, prefix, version_data);
                         code.push_str("    #[staticmethod]\r\n");
                         code.push_str(&format!(
                             "    fn {}(v: {}) -> Self {{\r\n",
                             variant_name, py_type
                         ));
-                        code.push_str(&format!("        Self::{}(v)\r\n", variant_name));
+                        code.push_str(&format!(
+                            "        Self {{ inner: {}::{}(v.inner) }}\r\n",
+                            c_api_type, variant_name
+                        ));
                         code.push_str("    }\r\n\r\n");
                     } else {
+                        // Unit variant in tagged union
                         code.push_str("    #[staticmethod]\r\n");
                         code.push_str(&format!("    fn {}() -> Self {{\r\n", variant_name));
-                        code.push_str(&format!("        Self::{}()\r\n", variant_name));
+                        code.push_str(&format!(
+                            "        Self {{ inner: {}::{}() }}\r\n",
+                            c_api_type, variant_name
+                        ));
                         code.push_str("    }\r\n\r\n");
                     }
+                }
+            }
+        } else {
+            // Simple C-style enum: generate #[classattr] for each variant
+            for variant_map in enum_fields {
+                for (variant_name, _) in variant_map {
+                    code.push_str("    #[classattr]\r\n");
+                    code.push_str(&format!(
+                        "    fn {}() -> Self {{\r\n",
+                        variant_name
+                    ));
+                    code.push_str(&format!(
+                        "        Self {{ inner: {}::{} }}\r\n",
+                        c_api_type, variant_name
+                    ));
+                    code.push_str("    }\r\n\r\n");
                 }
             }
         }
@@ -1726,6 +2132,7 @@ fn generate_enum_pymethods(
                 prefix,
                 version_data,
                 true,
+                type_to_external,
             ));
         }
     }
@@ -1743,6 +2150,7 @@ fn generate_enum_pymethods(
                 prefix,
                 version_data,
                 false,
+                type_to_external,
             ));
         }
     }
@@ -1767,6 +2175,7 @@ fn generate_default_constructor(
     version_data: &VersionData,
 ) -> String {
     let mut code = String::new();
+    let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, class_name);
 
     // Check if there's already a `new` or `default` constructor
     let has_new = class_data
@@ -1794,21 +2203,22 @@ fn generate_default_constructor(
     code.push_str("    #[new]\r\n");
     code.push_str("    fn new(\r\n");
 
-    // Parameters - use ref_kind to get proper pointer types
+    // Parameters - use C-API types for inner construction
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
-            let field_type = rust_type_to_python_type_with_ref(
+            // Use C-API type (with __dll_api_inner prefix) for the parameter
+            let field_type = rust_type_to_c_api_inner_type(
                 &field_data.r#type,
                 field_data.ref_kind.clone(),
                 prefix,
-                version_data,
             );
             code.push_str(&format!("        {}: {},\r\n", field_name, field_type));
         }
     }
 
     code.push_str("    ) -> Self {\r\n");
-    code.push_str("        Self {\r\n");
+    // Construct the C-API type, then wrap it
+    code.push_str(&format!("        Self {{ inner: {} {{\r\n", c_api_type));
 
     for field_map in struct_fields {
         for (field_name, _) in field_map {
@@ -1816,10 +2226,31 @@ fn generate_default_constructor(
         }
     }
 
-    code.push_str("        }\r\n");
+    code.push_str("        } }\r\n");
     code.push_str("    }\r\n\r\n");
 
     code
+}
+
+/// Convert a Rust type to C-API inner type (__dll_api_inner::dll::AzFoo)
+fn rust_type_to_c_api_inner_type(rust_type: &str, ref_kind: RefKind, prefix: &str) -> String {
+    let trimmed = rust_type.trim();
+    
+    // Handle primitives
+    if is_primitive_arg(trimmed) {
+        return trimmed.to_string();
+    }
+    
+    // Handle pointers and reference kinds
+    match ref_kind {
+        RefKind::ConstPtr => format!("*const __dll_api_inner::dll::{}{}", prefix, trimmed),
+        RefKind::MutPtr => format!("*mut __dll_api_inner::dll::{}{}", prefix, trimmed),
+        RefKind::Ref => format!("&__dll_api_inner::dll::{}{}", prefix, trimmed),
+        RefKind::RefMut => format!("&mut __dll_api_inner::dll::{}{}", prefix, trimmed),
+        RefKind::Value => format!("__dll_api_inner::dll::{}{}", prefix, trimmed),
+        RefKind::Boxed => format!("Box<__dll_api_inner::dll::{}{}>", prefix, trimmed),
+        RefKind::OptionBoxed => format!("Option<Box<__dll_api_inner::dll::{}{}>>", prefix, trimmed),
+    }
 }
 
 fn generate_function(
@@ -1829,11 +2260,26 @@ fn generate_function(
     prefix: &str,
     version_data: &VersionData,
     is_constructor: bool,
+    type_to_external: &HashMap<String, String>,
 ) -> String {
     let mut code = String::new();
 
+    // Skip functions without fn_body - they can't be called directly
+    let fn_body = match &fn_data.fn_body {
+        Some(body) => body.clone(),
+        None => {
+            // No fn_body means this function can't be implemented
+            // Generate a comment instead
+            code.push_str(&format!(
+                "    // fn {}(...) - skipped: no fn_body in api.json\r\n\r\n",
+                fn_name
+            ));
+            return code;
+        }
+    };
+
     // Get self type
-    let (self_param, self_call) = get_self_type(fn_data);
+    let (self_param, _self_call) = get_self_type(fn_data);
     let is_static = self_param.is_empty();
 
     // For constructors:
@@ -1861,11 +2307,23 @@ fn generate_function(
         code.push_str(&self_param);
     }
 
+    // Build C-ABI style fn_args string for generate_transmuted_fn_body
+    let mut c_api_args = Vec::new();
+    
     // Other parameters
     let mut first_param = is_static;
     for arg_map in &fn_data.fn_args {
         for (arg_name, arg_type) in arg_map {
             if arg_name == "self" {
+                // Add self to c_api_args with proper type
+                // In PyO3, the self parameter is named "self", not the class name
+                let self_c_type = format!("{}{}",  prefix, class_name);
+                let self_c_arg = match self_param.as_str() {
+                    "&self" => format!("self: &{}", self_c_type),
+                    "&mut self" => format!("self: &mut {}", self_c_type),
+                    _ => format!("self: {}", self_c_type),
+                };
+                c_api_args.push(self_c_arg);
                 continue;
             }
             if !first_param {
@@ -1874,68 +2332,94 @@ fn generate_function(
             first_param = false;
             let py_type = rust_type_to_python_type(arg_type, prefix, version_data);
             code.push_str(&format!("{}: {}", arg_name, py_type));
+            
+            // Add to C-API args with Az-prefixed type
+            let c_api_type = rust_type_to_c_api_type(arg_type, prefix, version_data);
+            c_api_args.push(format!("{}: {}", arg_name, c_api_type));
         }
     }
 
     code.push_str(")");
 
     // Return type
-    if let Some(ret) = &fn_data.returns {
+    let return_type_str = if let Some(ret) = &fn_data.returns {
         let ret_type = rust_type_to_python_type(&ret.r#type, prefix, version_data);
         code.push_str(&format!(" -> {}", ret_type));
+        rust_type_to_c_api_type(&ret.r#type, prefix, version_data)
     } else if is_constructor {
         code.push_str(" -> Self");
-    }
+        format!("{}{}", prefix, class_name)
+    } else {
+        String::new()
+    };
 
     code.push_str(" {\r\n");
 
-    // Function body - call C-API
-    // Note: C-API uses camelCase for function names (e.g., setNodeType not set_node_type)
-    let c_fn_name = format!(
-        "{}{}_{}",
-        prefix,
+    // Generate the function body using generate_transmuted_fn_body
+    let c_api_args_str = c_api_args.join(", ");
+    let body = generate_transmuted_fn_body(
+        &fn_body,
         class_name,
-        snake_case_to_lower_camel(fn_name)
+        is_constructor,
+        &return_type_str,
+        prefix,
+        type_to_external,
+        &c_api_args_str,
+        true, // is_for_dll
+        true, // keep_self_name: PyO3 uses "self" as the parameter name
     );
 
+    // The body is already wrapped in { }, so we need to indent it properly
+    // and add unsafe block
     code.push_str("        unsafe {\r\n");
-
-    // Build call expression
-    let mut call = format!("{}(", c_fn_name);
-
-    // Self argument
-    if !is_static {
-        call.push_str(&self_call);
-    }
-
-    // Other arguments
-    let mut first_arg = is_static;
-    for arg_map in &fn_data.fn_args {
-        for (arg_name, _) in arg_map {
-            if arg_name == "self" {
-                continue;
-            }
-            if !first_arg {
-                call.push_str(", ");
-            }
-            first_arg = false;
-            call.push_str(&format!("mem::transmute({})", arg_name));
+    for line in body.lines() {
+        if line.trim().is_empty() {
+            code.push_str("\r\n");
+        } else if line == "{" || line == "}" {
+            // Skip outer braces from generate_transmuted_fn_body
+            continue;
+        } else {
+            code.push_str(&format!("        {}\r\n", line));
         }
     }
-
-    call.push_str(")");
-
-    // Transmute result back
-    if fn_data.returns.is_some() || is_constructor {
-        code.push_str(&format!("            mem::transmute({})\r\n", call));
-    } else {
-        code.push_str(&format!("            {};\r\n", call));
-    }
-
     code.push_str("        }\r\n");
     code.push_str("    }\r\n\r\n");
 
     code
+}
+
+/// Convert a Rust type from api.json to C-API type (Az-prefixed)
+/// For Python extension, we keep Rust primitive types instead of C types
+fn rust_type_to_c_api_type(rust_type: &str, prefix: &str, version_data: &VersionData) -> String {
+    let trimmed = rust_type.trim();
+    
+    // Handle references
+    let (is_ref, is_mut, base) = if trimmed.starts_with("&mut ") {
+        (true, true, trimmed.strip_prefix("&mut ").unwrap().trim())
+    } else if trimmed.starts_with("&") {
+        (true, false, trimmed.strip_prefix("&").unwrap().trim())
+    } else {
+        (false, false, trimmed)
+    };
+    
+    // Convert the base type
+    // For Python extension, keep Rust primitive types (f32, f64, etc.)
+    // instead of converting to C types (float, double, etc.)
+    let c_base = if is_primitive_arg(base) {
+        // Keep Rust primitives as-is for Python extension
+        base.to_string()
+    } else {
+        format!("{}{}", prefix, base)
+    };
+    
+    // Reconstruct with references
+    if is_ref && is_mut {
+        format!("&mut {}", c_base)
+    } else if is_ref {
+        format!("&{}", c_base)
+    } else {
+        c_base
+    }
 }
 
 fn get_self_type(fn_data: &FunctionData) -> (String, String) {
@@ -1944,15 +2428,10 @@ fn get_self_type(fn_data: &FunctionData) -> (String, String) {
             return match self_type.as_str() {
                 "ref" => ("&self".to_string(), "mem::transmute(self)".to_string()),
                 "refmut" => ("&mut self".to_string(), "mem::transmute(self)".to_string()),
-                // For by-value self, we need to clone and transmute the cloned value
-                "value" => (
-                    "&self".to_string(),
-                    "mem::transmute(self.clone())".to_string(),
-                ),
-                "mut value" => (
-                    "&self".to_string(),
-                    "mem::transmute(self.clone())".to_string(),
-                ),
+                // PyO3 does NOT support self by-value - use &self and clone instead
+                // The caller must handle the clone + modify + return pattern
+                "value" => ("&self".to_string(), "mem::transmute(self.clone())".to_string()),
+                "mut value" => ("&self".to_string(), "mem::transmute(self.clone())".to_string()),
                 _ => ("&self".to_string(), "mem::transmute(self)".to_string()),
             };
         }
@@ -2022,6 +2501,8 @@ fn generate_callback_data_pair_wrapper(
     ));
 
     // Default value - construct C-API types
+    // CRITICAL: Use Default::default() of the external type, never mem::zeroed()
+    // mem::zeroed() can cause UB for types with function pointers or non-null invariants
     let default_expr = match cb_sig.return_type.as_str() {
         "Update" => format!("{}::DoNothing", capi_return_type),
         "OnTextInputReturn" => format!(
@@ -2030,7 +2511,20 @@ fn generate_callback_data_pair_wrapper(
             capi_return_type
         ),
         "()" => "()".to_string(),
-        _ => format!("unsafe {{ mem::zeroed() }}",),
+        _ => {
+            // Use the external type's Default implementation and transmute to C-API type
+            // This is safe because the types have identical layout (repr(C))
+            if !cb_sig.return_type_external.is_empty() {
+                format!(
+                    "unsafe {{ mem::transmute::<{}, {}>({}::default()) }}",
+                    cb_sig.return_type_external, capi_return_type, cb_sig.return_type_external
+                )
+            } else {
+                // Fallback for types without external path - use C-API default
+                // This should only happen for primitive types or simple enums
+                format!("{}::default()", capi_return_type)
+            }
+        }
     };
     code.push_str(&format!("    let default = {};\r\n\r\n", default_expr));
 
@@ -2293,22 +2787,30 @@ const IMPORTED_CAPI_TYPES: &[&str] = &[
 ];
 
 /// Convert a Rust type to Python-compatible type name with explicit ref_kind
+/// CRITICAL: All pointer types (*const T, *mut T, Box<T>) become usize in Python
+/// because Python has no concept of raw pointers or Rust smart pointers.
 fn rust_type_to_python_type_with_ref(
     rust_type: &str,
     ref_kind: RefKind,
     prefix: &str,
     version_data: &VersionData,
 ) -> String {
-    let base = rust_type_to_python_type(rust_type, prefix, version_data);
+    // All pointer types become usize in Python
+    // This includes *const T, *mut T, Box<T>, Option<Box<T>>
     match ref_kind {
-        RefKind::ConstPtr => format!("*const {}", base),
-        RefKind::MutPtr => format!("*mut {}", base),
-        RefKind::Ref => format!("&{}", base),
-        RefKind::RefMut => format!("&mut {}", base),
-        RefKind::Boxed => format!("Box<{}>", base),
-        RefKind::OptionBoxed => format!("Option<Box<{}>>", base),
-        RefKind::Value => base,
+        RefKind::ConstPtr | RefKind::MutPtr | RefKind::Boxed | RefKind::OptionBoxed => {
+            return "usize".to_string();
+        }
+        RefKind::Ref | RefKind::RefMut => {
+            // References shouldn't appear in field types for C-API structs
+            // If they do, treat them as usize
+            return "usize".to_string();
+        }
+        RefKind::Value => {
+            // Value types are handled below
+        }
     }
+    rust_type_to_python_type(rust_type, prefix, version_data)
 }
 
 /// Convert a Rust type to Python-compatible type name

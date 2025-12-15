@@ -577,6 +577,18 @@ impl RefAny {
     ) -> Self {
         use core::ptr;
 
+        // CRITICAL: Validate input pointer for non-ZST types
+        // A NULL pointer for a non-zero-sized type would cause UB when copying
+        // and would lead to crashes when cloning (as documented in REPORT2.md)
+        if len > 0 && ptr.is_null() {
+            panic!(
+                "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). \
+                This would cause undefined behavior. Type: {:?}",
+                len,
+                type_name.as_str()
+            );
+        }
+
         // Special case: Zero-sized types
         //
         // Calling `alloc(Layout { size: 0, .. })` is UB, so we use a null pointer.

@@ -33,6 +33,9 @@ pub struct GenerateConfig {
     /// When true: azul_dll:: is replaced with crate:: (compiling inside azul-dll)
     /// When false: azul_dll:: stays as is (memtest uses azul_dll as dependency)
     pub is_for_dll: bool,
+    /// If true, generate Drop impl by transmuting to external type and dropping
+    /// (for Python extension where C-ABI functions don't exist)
+    pub drop_via_external: bool,
 }
 
 impl Default for GenerateConfig {
@@ -45,6 +48,7 @@ impl Default for GenerateConfig {
             wrapper_postfix: String::new(),
             is_memtest: false,
             is_for_dll: false,
+            drop_via_external: false,
         }
     }
 }
@@ -597,6 +601,17 @@ fn generate_struct_definition(
             match d.as_str() {
                 "Serialize" => has_serialize = true,
                 "Deserialize" => has_deserialize = true,
+                // In drop_via_external mode (Python bindings), skip Copy because
+                // field types may not implement Copy (they have custom destructors)
+                // Clone is sufficient for all use cases
+                "Copy" if config.drop_via_external => {
+                    // Skip Copy in Python bindings mode
+                }
+                // In drop_via_external mode, skip PartialEq/PartialOrd/Eq/Ord/Hash
+                // Field types like Vec/Option may not implement these correctly
+                "PartialEq" | "PartialOrd" | "Eq" | "Ord" | "Hash" if config.drop_via_external => {
+                    // Skip comparison traits in Python bindings mode
+                }
                 other => {
                     if config.is_memtest {
                         // For memtest, collect derivable traits for manual impl generation
@@ -807,36 +822,119 @@ fn generate_struct_definition(
     // Skip for memtest - those traits are already implemented in the original source
     if !config.is_memtest {
         let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
+        let external_crate = if config.is_for_dll {
+            external_path.replace("azul_dll", "crate")
+        } else {
+            external_path.to_string()
+        };
+        let has_external = struct_meta.external.is_some();
+        
+        // Check if this is a Vec/Option/Result type that needs Clone/Drop/Default/Debug
+        // These types have external but no custom_impls/derive - they always need trait impls
+        // Note: struct_name has "Az" prefix, so check for "AzOption", "AzResult", etc.
+        let is_container_type = struct_name.ends_with("Vec") 
+            || struct_name.starts_with("AzOption")
+            || struct_name.starts_with("AzResult");
 
-        // Generate impl Clone if custom_impls contains "Clone"
-        if struct_meta.custom_impls.contains(&"Clone".to_string()) {
+        // Helper: check if trait should be generated via external delegation
+        // For drop_via_external: generate if in custom_impls OR (has external type AND is container/has_custom_destructor)
+        // Vec/Option/Result types have custom_destructor but may not list all traits in custom_impls
+        // IMPORTANT: Never generate impl if already in derive (to avoid conflicting implementations)
+        // IMPORTANT: Skip generic types - they are used via type aliases which inherit traits
+        // IMPORTANT: For Vec types, ONLY generate Clone/Drop/Default/Debug
+        //            PartialEq/PartialOrd/Ord/Hash/Eq don't work with external delegation
+        //            because Vec types implement them via as_ref(), not directly
+        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        let is_vec_type = struct_name.ends_with("Vec") && !struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecRef");
+        let should_gen_via_external = |trait_name: &str| -> bool {
+            // Skip generic types - they are tested/used via their concrete instantiations (type aliases)
+            if is_generic_type {
+                return false;
+            }
+            // Vec types: ONLY generate Clone/Drop/Default/Debug
+            // PartialEq/PartialOrd/Ord/Hash/Eq don't work with external delegation
+            if is_vec_type && !matches!(trait_name, "Clone" | "Drop" | "Default" | "Debug") {
+                return false;
+            }
+            // If already in derive, don't generate manual impl
+            if struct_meta.derive.contains(&trait_name.to_string()) {
+                return false;
+            }
+            if !config.drop_via_external {
+                return struct_meta.custom_impls.contains(&trait_name.to_string());
+            }
+            // For drop_via_external mode:
+            // - Always generate if in custom_impls
+            // - Also generate for types with external + custom_destructor (Vec/Option/Result)
+            // - Also generate for container types (Vec/Option/Result) that have external
+            //   (including Clone/Drop/Default/Debug)
+            // - For Debug specifically: generate for ALL types with external path
+            //   (many types have external but don't have Debug in their derive list)
+            struct_meta.custom_impls.contains(&trait_name.to_string()) 
+                || (has_external && struct_meta.has_custom_destructor)
+                || (has_external && is_container_type && matches!(trait_name, "Clone" | "Drop" | "Default" | "Debug"))
+                || (has_external && trait_name == "Debug")
+        };
+
+        // Generate impl Clone
+        if should_gen_via_external("Clone") {
             code.push_str(&format!(
                 "{}impl Clone for {} {{\n",
                 indent_str, struct_name
             ));
             code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
-            code.push_str(&format!(
-                "{}        unsafe {{ {}_deepCopy(self) }}\n",
-                indent_str, struct_name
-            ));
+            if config.drop_via_external {
+                code.push_str(&format!(
+                    "{}        unsafe {{ core::mem::transmute((*(self as *const {} as *const {})).clone()) }}\n",
+                    indent_str, struct_name, external_crate
+                ));
+            } else {
+                code.push_str(&format!(
+                    "{}        unsafe {{ {}_deepCopy(self) }}\n",
+                    indent_str, struct_name
+                ));
+            }
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl Drop if custom_impls contains "Drop"
-        if struct_meta.custom_impls.contains(&"Drop".to_string()) {
+        // Generate impl Drop
+        if should_gen_via_external("Drop") || struct_meta.has_custom_destructor {
             code.push_str(&format!("{}impl Drop for {} {{\n", indent_str, struct_name));
             code.push_str(&format!("{}    fn drop(&mut self) {{\n", indent_str));
+            if config.drop_via_external {
+                code.push_str(&format!(
+                    "{}        unsafe {{ core::ptr::drop_in_place(self as *mut {} as *mut {}); }}\n",
+                    indent_str, struct_name, external_crate
+                ));
+            } else {
+                code.push_str(&format!(
+                    "{}        unsafe {{ {}_delete(self) }}\n",
+                    indent_str, struct_name
+                ));
+            }
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate impl Default for types with external + custom_destructor in drop_via_external mode
+        // Also generate for container types (Vec/Option/Result)
+        if config.drop_via_external && has_external && (struct_meta.has_custom_destructor || is_container_type) {
             code.push_str(&format!(
-                "{}        unsafe {{ {}_delete(self) }}\n",
+                "{}impl Default for {} {{\n",
                 indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute(<{} as Default>::default()) }}\n",
+                indent_str, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl Debug if custom_impls contains "Debug"
-        if struct_meta.custom_impls.contains(&"Debug".to_string()) {
+        // Generate impl Debug
+        if should_gen_via_external("Debug") {
             code.push_str(&format!(
                 "{}impl core::fmt::Debug for {} {{\n",
                 indent_str, struct_name
@@ -847,14 +945,14 @@ fn generate_struct_definition(
             ));
             code.push_str(&format!(
                 "{}        unsafe {{ (*(self as *const {} as *const {})).fmt(f) }}\n",
-                indent_str, struct_name, external_path
+                indent_str, struct_name, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl PartialEq if custom_impls contains "PartialEq"
-        if struct_meta.custom_impls.contains(&"PartialEq".to_string()) {
+        // Generate impl PartialEq
+        if should_gen_via_external("PartialEq") {
             code.push_str(&format!(
                 "{}impl PartialEq for {} {{\n",
                 indent_str, struct_name
@@ -866,14 +964,14 @@ fn generate_struct_definition(
             code.push_str(&format!(
                 "{}        unsafe {{ (*(self as *const {} as *const {})).eq(&*(other as *const {} \
                  as *const {})) }}\n",
-                indent_str, struct_name, external_path, struct_name, external_path
+                indent_str, struct_name, external_crate, struct_name, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl PartialOrd if custom_impls contains "PartialOrd"
-        if struct_meta.custom_impls.contains(&"PartialOrd".to_string()) {
+        // Generate impl PartialOrd
+        if should_gen_via_external("PartialOrd") {
             code.push_str(&format!(
                 "{}impl PartialOrd for {} {{\n",
                 indent_str, struct_name
@@ -885,22 +983,22 @@ fn generate_struct_definition(
             code.push_str(&format!(
                 "{}        unsafe {{ (*(self as *const {} as *const {})).partial_cmp(&*(other as \
                  *const {} as *const {})) }}\n",
-                indent_str, struct_name, external_path, struct_name, external_path
+                indent_str, struct_name, external_crate, struct_name, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl Eq if custom_impls contains "Eq"
-        if struct_meta.custom_impls.contains(&"Eq".to_string()) {
+        // Generate impl Eq
+        if should_gen_via_external("Eq") {
             code.push_str(&format!(
                 "{}impl Eq for {} {{}}\n\n",
                 indent_str, struct_name
             ));
         }
 
-        // Generate impl Ord if custom_impls contains "Ord"
-        if struct_meta.custom_impls.contains(&"Ord".to_string()) {
+        // Generate impl Ord
+        if should_gen_via_external("Ord") {
             code.push_str(&format!("{}impl Ord for {} {{\n", indent_str, struct_name));
             code.push_str(&format!(
                 "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
@@ -909,14 +1007,14 @@ fn generate_struct_definition(
             code.push_str(&format!(
                 "{}        unsafe {{ (*(self as *const {} as *const {})).cmp(&*(other as *const \
                  {} as *const {})) }}\n",
-                indent_str, struct_name, external_path, struct_name, external_path
+                indent_str, struct_name, external_crate, struct_name, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
 
-        // Generate impl Hash if custom_impls contains "Hash"
-        if struct_meta.custom_impls.contains(&"Hash".to_string()) {
+        // Generate impl Hash
+        if should_gen_via_external("Hash") {
             code.push_str(&format!(
                 "{}impl core::hash::Hash for {} {{\n",
                 indent_str, struct_name
@@ -927,11 +1025,14 @@ fn generate_struct_definition(
             ));
             code.push_str(&format!(
                 "{}        unsafe {{ (*(self as *const {} as *const {})).hash(state) }}\n",
-                indent_str, struct_name, external_path
+                indent_str, struct_name, external_crate
             ));
             code.push_str(&format!("{}    }}\n", indent_str));
             code.push_str(&format!("{}}}\n\n", indent_str));
         }
+
+        // NOTE: In drop_via_external mode, we skip PartialEq/PartialOrd derives for structs
+        // so we don't need to generate them for Vec types either
     } else {
         // For memtest: generate manual trait implementations that don't rely on field types
         // This is necessary because Vec types and other custom destructor types don't derive traits
@@ -1032,32 +1133,31 @@ fn generate_struct_definition(
         }
 
         // Generate impl Default for memtest
-        // For types with an external path AND custom Default impl, delegate to the real Default
-        // This avoids UB from mem::zeroed() on types containing function pointers
+        // CRITICAL: Only generate Default for types with an external path that implements Default
+        // We NEVER use mem::zeroed() because it can cause UB for types with function pointers,
+        // non-null pointers, or other invariants that zero doesn't satisfy.
         let has_external = struct_meta.external.is_some();
         let has_custom_default = struct_meta.custom_impls.contains(&"Default".to_string());
         if all_manual_traits.contains("Default") && !is_generic_type {
-            code.push_str(&format!(
-                "{}impl{} Default for {} {{\n",
-                indent_str, impl_generics, type_with_generics
-            ));
-            code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
-            if has_external && has_custom_default {
-                // Delegate to the real Default implementation via transmute
+            // Only generate Default if we have an external type to delegate to
+            if has_external {
+                code.push_str(&format!(
+                    "{}impl{} Default for {} {{\n",
+                    indent_str, impl_generics, type_with_generics
+                ));
+                code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
+                // Always delegate to the external type's Default implementation
                 // This is safe because both types have identical layout (repr(C))
+                // and the external type's Default properly initializes all fields
                 code.push_str(&format!(
                     "{}        unsafe {{ core::mem::transmute::<{}, {}>({}::default()) }}\n",
                     indent_str, external_path, struct_name, external_path
                 ));
-            } else {
-                // For non-external types, use zeroed() (these shouldn't contain function pointers)
-                code.push_str(&format!(
-                    "{}        unsafe {{ core::mem::zeroed() }}\n",
-                    indent_str
-                ));
+                code.push_str(&format!("{}    }}\n", indent_str));
+                code.push_str(&format!("{}}}\n\n", indent_str));
             }
-            code.push_str(&format!("{}    }}\n", indent_str));
-            code.push_str(&format!("{}}}\n\n", indent_str));
+            // If no external path, we simply don't generate Default impl
+            // This is safer than using mem::zeroed() which could cause UB
         }
 
         // Generate impl PartialEq for memtest
@@ -1194,6 +1294,10 @@ fn generate_enum_definition(
     // For memtest: track which traits we need to generate manually
     let mut memtest_manual_impls: Vec<&str> = Vec::new();
 
+    // VecDestructor types contain function pointers which can't derive Debug/PartialEq/etc
+    // These get manual implementations in memtest.rs, so skip those derives
+    let is_vec_destructor = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+
     if !config.no_derive {
         // Add derives from api.json, but filter out Serialize/Deserialize/Default
         for d in &struct_meta.derive {
@@ -1203,9 +1307,19 @@ fn generate_enum_definition(
                 // Default for enums ALWAYS needs manual impl - #[derive(Default)] requires
                 // unstable #[default] attribute on a variant
                 "Default" => has_default = true,
-                "Copy" if config.is_memtest => {
-                    // Skip Copy for memtest - if Clone is implemented, it works
-                    // Copy requires all fields to be Copy which may not be true
+                // Skip Copy for memtest and drop_via_external (Python bindings)
+                // Copy requires all fields to be Copy which may not be true
+                "Copy" if config.is_memtest || config.drop_via_external => {
+                    // Skip Copy
+                }
+                // VecDestructor types get manual impls for these traits in memtest.rs
+                "Debug" | "PartialEq" | "Eq" | "PartialOrd" | "Ord" | "Hash" if is_vec_destructor => {
+                    // Skip - manual impl generated in memtest.rs
+                }
+                // In drop_via_external mode (Python bindings), skip comparison traits for enums
+                // because variants with complex types may not implement them
+                "PartialOrd" | "Ord" if config.drop_via_external => {
+                    // Skip ordering traits - complex variants may not support them
                 }
                 other => {
                     if config.is_memtest {
@@ -1408,26 +1522,86 @@ fn generate_enum_definition(
 
     // Generate impl Default for enums - ALWAYS needed since #[derive(Default)] requires
     // unstable #[default] attribute on a variant
-    if has_default && !config.no_derive {
-        // Find the first variant name for the default
-        let first_variant_name = enum_fields
-            .first()
-            .and_then(|m| m.keys().next())
-            .map(|s| s.as_str())
-            .unwrap_or("Unknown");
-
+    // In drop_via_external mode: also generate for Option types (they default to None)
+    // Also generate if Default is in custom_impls (needs manual impl via external delegation)
+    // Note: struct_name may be prefixed (AzOption...) or unprefixed (Option...)
+    let is_option_type = (struct_name.starts_with("Option") || struct_name.contains("Option")) 
+        && enum_fields.iter().any(|m| m.contains_key("None"));
+    let has_custom_default = struct_meta.custom_impls.contains(&"Default".to_string());
+    let should_gen_default = (has_default && !config.no_derive) 
+        || (config.drop_via_external && is_option_type)
+        || (config.drop_via_external && has_custom_default);
+    
+    if should_gen_default {
         code.push_str(&format!(
             "{}impl{} Default for {} {{\n",
             indent_str, impl_generics, type_with_generics
         ));
         code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
+        
+        // For custom_impls Default: use external delegation
+        // For other cases (has_default from derive or option types): use first variant
+        if has_custom_default && !is_option_type {
+            let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
+            let external_crate = external_path.replace("azul_dll", "crate");
+            code.push_str(&format!(
+                "{}        unsafe {{ core::mem::transmute(<{} as Default>::default()) }}\n",
+                indent_str, external_crate
+            ));
+        } else {
+            // For Option types, use "None" as the default
+            // For other enums, use the first variant
+            let first_variant_name = if is_option_type {
+                "None"
+            } else {
+                enum_fields
+                    .first()
+                    .and_then(|m| m.keys().next())
+                    .map(|s| s.as_str())
+                    .unwrap_or("Unknown")
+            };
+            code.push_str(&format!(
+                "{}        {}::{}\n",
+                indent_str, type_with_generics, first_variant_name
+            ));
+        }
+        code.push_str(&format!("{}    }}\n", indent_str));
+        code.push_str(&format!("{}}}\n\n", indent_str));
+    }
+
+    // For drop_via_external mode: generate Debug impl via external delegation for enums
+    // This is needed because enums may have derive: [] (empty) but still need Debug
+    // Note: struct_name may start with "Az" prefix
+    let is_generic_type_enum = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+    let is_vec_destructor_type = struct_name.ends_with("VecDestructor") && !struct_name.ends_with("VecDestructorType");
+    
+    if config.drop_via_external 
+        && struct_meta.external.is_some() 
+        && !is_generic_type_enum 
+        && !is_vec_destructor_type  // VecDestructor gets custom Debug in memtest.rs
+        && !struct_meta.derive.contains(&"Debug".to_string())  // Not already derived
+    {
+        let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
+        let external_crate = external_path.replace("azul_dll", "crate");
+        
         code.push_str(&format!(
-            "{}        {}::{}\n",
-            indent_str, type_with_generics, first_variant_name
+            "{}impl core::fmt::Debug for {} {{\n",
+            indent_str, struct_name
+        ));
+        code.push_str(&format!(
+            "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+            indent_str
+        ));
+        code.push_str(&format!(
+            "{}        unsafe {{ (*(self as *const {} as *const {})).fmt(f) }}\n",
+            indent_str, struct_name, external_crate
         ));
         code.push_str(&format!("{}    }}\n", indent_str));
         code.push_str(&format!("{}}}\n\n", indent_str));
     }
+
+    // NOTE: In drop_via_external mode, we skip PartialEq/PartialOrd derives for structs
+    // so we don't need to generate them for Option types either
 
     // For memtest: generate manual trait implementations for enums (except Default which is handled
     // above)
