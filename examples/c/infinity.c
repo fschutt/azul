@@ -15,15 +15,15 @@ typedef struct {
     size_t visible_count;
 } InfinityState;
 
-void InfinityState_destructor(InfinityState* s) { }
+void InfinityState_destructor(void* s) { }
 AZ_REFLECT(InfinityState, InfinityState_destructor);
 
-AzStyledDom render_iframe(AzRefAny* data, AzIFrameCallbackInfo* info);
-AzUpdate on_scroll(AzRefAny* data, AzCallbackInfo* info);
+AzIFrameCallbackReturn render_iframe(AzRefAny data, AzIFrameCallbackInfo info);
+AzUpdate on_scroll(AzRefAny data, AzCallbackInfo info);
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
-    InfinityStateRef d = InfinityStateRef_create(data);
-    if (!InfinityState_downcastRef(data, &d)) {
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    InfinityStateRef d = InfinityStateRef_create(&data);
+    if (!InfinityState_downcastRef(&data, &d)) {
         return AzStyledDom_default();
     }
     
@@ -31,53 +31,64 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
     snprintf(title_buf, sizeof(title_buf), "Infinite Gallery - %zu images", d.ptr->file_count);
     InfinityStateRef_delete(&d);
     
-    AzDom title = AzDom_text(AzString_fromConstStr(title_buf));
-    AzDom_setInlineStyle(&title, AzString_fromConstStr("font-size: 20px; margin-bottom: 10px;"));
+    AzString title_text = AzString_copyFromBytes((const uint8_t*)title_buf, 0, strlen(title_buf));
+    AzDom title = AzDom_text(title_text);
+    AzString title_style = AzString_copyFromBytes((const uint8_t*)"font-size: 20px; margin-bottom: 10px;", 0, 38);
+    AzDom_setInlineStyle(&title, title_style);
     
-    AzDom iframe = AzDom_iframe(AzRefAny_clone(data), render_iframe);
-    AzDom_setInlineStyle(&iframe, AzString_fromConstStr("flex-grow: 1; overflow: scroll; background: #f5f5f5;"));
-    AzDom_setCallback(&iframe, AzOn_Scroll, AzRefAny_clone(data), on_scroll);
+    AzDom iframe = AzDom_iframe(AzRefAny_deepCopy(&data), render_iframe);
+    AzString iframe_style = AzString_copyFromBytes((const uint8_t*)"flex-grow: 1; overflow: scroll; background: #f5f5f5;", 0, 53);
+    AzDom_setInlineStyle(&iframe, iframe_style);
+    AzEventFilter scroll_event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_Scroll } };
+    AzDom_addCallback(&iframe, scroll_event, AzRefAny_deepCopy(&data), on_scroll);
     
     AzDom body = AzDom_body();
-    AzDom_setInlineStyle(&body, AzString_fromConstStr("padding: 20px; font-family: sans-serif;"));
+    AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 20px; font-family: sans-serif;", 0, 40);
+    AzDom_setInlineStyle(&body, body_style);
     AzDom_addChild(&body, title);
     AzDom_addChild(&body, iframe);
     
     return AzStyledDom_new(body, AzCss_empty());
 }
 
-AzStyledDom render_iframe(AzRefAny* data, AzIFrameCallbackInfo* info) {
-    InfinityStateRef d = InfinityStateRef_create(data);
-    if (!InfinityState_downcastRef(data, &d)) {
-        return AzStyledDom_default();
+AzIFrameCallbackReturn render_iframe(AzRefAny data, AzIFrameCallbackInfo info) {
+    InfinityStateRef d = InfinityStateRef_create(&data);
+    if (!InfinityState_downcastRef(&data, &d)) {
+        return (AzIFrameCallbackReturn){ .dom = { .Some = AzStyledDom_default() }, .scroll_size = {0}, .scroll_offset = {0} };
     }
     
     AzDom container = AzDom_div();
-    AzDom_setInlineStyle(&container, AzString_fromConstStr("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;"));
+    AzString container_style = AzString_copyFromBytes((const uint8_t*)"display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;", 0, 58);
+    AzDom_setInlineStyle(&container, container_style);
     
     size_t end = d.ptr->visible_start + d.ptr->visible_count;
     if (end > d.ptr->file_count) end = d.ptr->file_count;
     
     for (size_t i = d.ptr->visible_start; i < end; i++) {
         AzDom item = AzDom_div();
-        AzDom_setInlineStyle(&item, AzString_fromConstStr("width: 150px; height: 150px; background: white; border: 1px solid #ddd;"));
-        AzDom_addChild(&item, AzDom_text(AzString_fromConstStr(d.ptr->file_paths[i])));
+        AzString item_style = AzString_copyFromBytes((const uint8_t*)"width: 150px; height: 150px; background: white; border: 1px solid #ddd;", 0, 72);
+        AzDom_setInlineStyle(&item, item_style);
+        AzString item_text = AzString_copyFromBytes((const uint8_t*)d.ptr->file_paths[i], 0, strlen(d.ptr->file_paths[i]));
+        AzDom_addChild(&item, AzDom_text(item_text));
         AzDom_addChild(&container, item);
     }
     
+    size_t file_count = d.ptr->file_count;
     InfinityStateRef_delete(&d);
     
-    return AzStyledDom_new(container, AzCss_empty());
+    AzStyledDom dom = AzStyledDom_new(container, AzCss_empty());
+    AzOptionStyledDom some_dom = { .Some = { .tag = AzOptionStyledDom_Tag_Some, .payload = dom } };
+    return (AzIFrameCallbackReturn){ .dom = some_dom, .scroll_size = { .width = 800, .height = 160 * ((file_count + 3) / 4) }, .scroll_offset = {0} };
 }
 
-AzUpdate on_scroll(AzRefAny* data, AzCallbackInfo* info) {
-    InfinityStateRefMut d = InfinityStateRefMut_create(data);
-    if (!InfinityState_downcastMut(data, &d)) {
+AzUpdate on_scroll(AzRefAny data, AzCallbackInfo info) {
+    InfinityStateRefMut d = InfinityStateRefMut_create(&data);
+    if (!InfinityState_downcastMut(&data, &d)) {
         return AzUpdate_DoNothing;
     }
     
     AzScrollPosition scroll_pos;
-    if (!AzCallbackInfo_getScrollPosition(info, &scroll_pos)) {
+    if (!AzCallbackInfo_getScrollPosition(&info, &scroll_pos)) {
         InfinityStateRefMut_delete(&d);
         return AzUpdate_DoNothing;
     }

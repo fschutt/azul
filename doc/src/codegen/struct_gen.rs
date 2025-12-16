@@ -40,6 +40,10 @@ pub struct GenerateConfig {
     /// (e.g., `pub type AzLayoutCallbackType = azul_core::callbacks::LayoutCallbackType;`)
     /// instead of redefining the function signature with FFI types
     pub callback_typedef_use_external: bool,
+    /// If true, skip generating trait impls that require external crate references
+    /// (Default, PartialEq, PartialOrd, Ord, Eq, Hash, Debug)
+    /// Used for public Rust API that should be standalone without internal crate deps
+    pub skip_external_trait_impls: bool,
 }
 
 impl Default for GenerateConfig {
@@ -54,6 +58,7 @@ impl Default for GenerateConfig {
             is_for_dll: false,
             drop_via_external: false,
             callback_typedef_use_external: false,
+            skip_external_trait_impls: false,
         }
     }
 }
@@ -888,7 +893,8 @@ fn generate_struct_definition(
     // Generate trait implementations for custom_impls
     // These cast to the external type, call the trait method, and cast back if needed
     // Skip for memtest - those traits are already implemented in the original source
-    if !config.is_memtest {
+    // Skip if skip_external_trait_impls is set - for public APIs that shouldn't depend on internal crates
+    if !config.is_memtest && !config.skip_external_trait_impls {
         let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
         let external_crate = if config.is_for_dll {
             external_path.replace("azul_dll", "crate")
@@ -1134,7 +1140,7 @@ fn generate_struct_definition(
 
         // NOTE: In drop_via_external mode, we skip PartialEq/PartialOrd derives for structs
         // so we don't need to generate them for Vec types either
-    } else {
+    } else if config.is_memtest {
         // For memtest: generate manual trait implementations that don't rely on field types
         // This is necessary because Vec types and other custom destructor types don't derive traits
 

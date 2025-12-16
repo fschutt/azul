@@ -81,6 +81,7 @@ pub fn generate_rust_dll_bindings(
         private_pointers: config.private_pointers,
         no_derive: false,
         wrapper_postfix: config.wrapper_postfix.clone(),
+        skip_external_trait_impls: config.skip_external_trait_impls,
         ..Default::default()
     };
 

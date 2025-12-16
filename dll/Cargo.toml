@@ -153,6 +153,9 @@ staticlib = []
 link-static = ["rlib"]
 link-dynamic = ["cdylib", "staticlib"]
 
+# Dynamic linking for Rust API
+dynamic = ["desktop", "cdylib", "all_img_formats", "svg", "xml", "c-api"]
+
 # Predefined target configurations
 desktop-cdylib = ["desktop", "cdylib", "all_img_formats", "svg", "xml"]
 desktop-staticlib = ["desktop", "staticlib", "all_img_formats", "svg", "xml"]

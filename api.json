@@ -15,25 +15,25 @@
           "displayName": "C++",
           "default": "cpp23",
           "variants": {
-            "cpp20": {
-              "displayName": "C++20",
-              "altText": "Example for C++ 2020 standard"
+            "cpp03": {
+              "displayName": "C++03",
+              "altText": "Example for C++ 2003 standard"
+            },
+            "cpp11": {
+              "displayName": "C++11",
+              "altText": "Example for C++ 2011 standard"
             },
             "cpp14": {
               "displayName": "C++14",
               "altText": "Example for C++ 2014 standard"
             },
-            "cpp03": {
-              "displayName": "C++03",
-              "altText": "Example for C++ 2003 standard"
-            },
             "cpp17": {
               "displayName": "C++17",
               "altText": "Example for C++ 2017 standard"
             },
-            "cpp11": {
-              "displayName": "C++11",
-              "altText": "Example for C++ 2011 standard"
+            "cpp20": {
+              "displayName": "C++20",
+              "altText": "Example for C++ 2020 standard"
             },
             "cpp23": {
               "displayName": "C++23",
@@ -43,128 +43,9 @@
         }
       },
       "languages": {
-        "rust": {
-          "displayName": "Rust",
-          "methods": {
-            "cargo": {
-              "displayName": null,
-              "description": "Add to Cargo.toml",
-              "steps": [
-                {
-                  "type": "code",
-                  "language": "toml",
-                  "content": "[dependencies]\nazul = { git = \"$HOSTNAME/$VERSION.git\" }"
-                },
-                {
-                  "type": "command",
-                  "content": "cargo build"
-                }
-              ]
-            }
-          }
-        },
-        "python": {
-          "displayName": "Python",
-          "methods": {
-            "uv": {
-              "displayName": "uv",
-              "description": "Install via uv (fast)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "uv add azul==$VERSION"
-                }
-              ]
-            },
-            "pip": {
-              "displayName": "pip",
-              "description": "Install via pip",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "pip3 install azul==$VERSION"
-                }
-              ]
-            }
-          }
-        },
-        "cpp14": {
-          "displayName": "C++14",
-          "dialectOf": "cpp",
-          "platforms": {
-            "macos": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world"
-                }
-              ]
-            },
-            "linux": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
-            },
-            "windows": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            }
-          }
-        },
         "c": {
           "displayName": "C",
           "platforms": {
-            "macos": {
-              "description": "Download and compile with Clang",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                },
-                {
-                  "type": "command",
-                  "content": "clang -I. hello-world.c -L. -lazul -o hello-world"
-                }
-              ]
-            },
             "linux": {
               "description": "Download and compile with GCC",
               "steps": [
@@ -179,6 +60,23 @@
                 {
                   "type": "command",
                   "content": "gcc -I. hello-world.c -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile with Clang",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "clang -I. hello-world.c -L. -lazul -o hello-world"
                 }
               ]
             },
@@ -201,46 +99,12 @@
             }
           }
         },
-        "cpp20": {
-          "displayName": "C++20",
+        "cpp03": {
+          "displayName": "C++03",
           "dialectOf": "cpp",
           "platforms": {
-            "macos": {
-              "description": "Download and compile (C++20)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world"
-                }
-              ]
-            },
-            "windows": {
-              "description": "Download and compile (C++20)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
             "linux": {
-              "description": "Download and compile (C++20)",
+              "description": "Download and compile (C++03)",
               "steps": [
                 {
                   "type": "command",
@@ -248,11 +112,45 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++03)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++03)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
                 }
               ]
             }
@@ -262,23 +160,6 @@
           "displayName": "C++11",
           "dialectOf": "cpp",
           "platforms": {
-            "windows": {
-              "description": "Download and compile (C++11)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
             "linux": {
               "description": "Download and compile (C++11)",
               "steps": [
@@ -312,49 +193,9 @@
                   "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world"
                 }
               ]
-            }
-          }
-        },
-        "cpp23": {
-          "displayName": "C++23",
-          "dialectOf": "cpp",
-          "platforms": {
-            "macos": {
-              "description": "Download and compile (C++23)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world"
-                }
-              ]
-            },
-            "linux": {
-              "description": "Download and compile (C++23)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
             },
             "windows": {
-              "description": "Download and compile (C++23)",
+              "description": "Download and compile (C++11)",
               "steps": [
                 {
                   "type": "command",
@@ -362,11 +203,68 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                  "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "cpp14": {
+          "displayName": "C++14",
+          "dialectOf": "cpp",
+          "platforms": {
+            "linux": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
                 }
               ]
             }
@@ -376,6 +274,23 @@
           "displayName": "C++17",
           "dialectOf": "cpp",
           "platforms": {
+            "linux": {
+              "description": "Download and compile (C++17)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
             "macos": {
               "description": "Download and compile (C++17)",
               "steps": [
@@ -409,32 +324,15 @@
                   "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
                 }
               ]
-            },
-            "linux": {
-              "description": "Download and compile (C++17)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
             }
           }
         },
-        "cpp03": {
-          "displayName": "C++03",
+        "cpp20": {
+          "displayName": "C++20",
           "dialectOf": "cpp",
           "platforms": {
             "linux": {
-              "description": "Download and compile (C++03)",
+              "description": "Download and compile (C++20)",
               "steps": [
                 {
                   "type": "command",
@@ -442,33 +340,16 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
-            },
-            "windows": {
-              "description": "Download and compile (C++03)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                 }
               ]
             },
             "macos": {
-              "description": "Download and compile (C++03)",
+              "description": "Download and compile (C++20)",
               "steps": [
                 {
                   "type": "command",
@@ -476,11 +357,130 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world"
+                  "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "cpp23": {
+          "displayName": "C++23",
+          "dialectOf": "cpp",
+          "platforms": {
+            "linux": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "macos": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++23)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "python": {
+          "displayName": "Python",
+          "methods": {
+            "pip": {
+              "displayName": "pip",
+              "description": "Install via pip",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "pip3 install azul==$VERSION"
+                }
+              ]
+            },
+            "uv": {
+              "displayName": "uv",
+              "description": "Install via uv (fast)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "uv add azul==$VERSION"
+                }
+              ]
+            }
+          }
+        },
+        "rust": {
+          "displayName": "Rust",
+          "methods": {
+            "cargo": {
+              "displayName": null,
+              "description": "Add to Cargo.toml",
+              "steps": [
+                {
+                  "type": "code",
+                  "language": "toml",
+                  "content": "[dependencies]\nazul = { git = \"$HOSTNAME/$VERSION.git\" }"
+                },
+                {
+                  "type": "command",
+                  "content": "cargo build"
                 }
               ]
             }
@@ -1949,17 +1949,7 @@
                 }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "IFrameCallbackType": {
             "doc": [
@@ -2469,7 +2459,7 @@
                   "ref_kind": "constptr"
                 },
                 "callable_ptr": {
-                  "type": "OptionRefAny",
+                  "type": "c_void",
                   "ref_kind": "constptr"
                 },
                 "_abi_mut": {
@@ -2566,14 +2556,7 @@
             ],
             "external": "azul_core::callbacks::LayoutCallback",
             "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
+              "Default"
             ],
             "struct_fields": [
               {
@@ -2602,7 +2585,8 @@
           "LayoutCallbackInfo": {
             "external": "azul_core::callbacks::LayoutCallbackInfo",
             "custom_impls": [
-              "Clone"
+              "Clone",
+              "Debug"
             ],
             "struct_fields": [
               {
@@ -5696,29 +5680,17 @@
           },
           "ListViewOnColumnClickCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClickCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "ListViewOnColumnClickCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "TagIdToNodeIdMapping": {
             "external": "azul_core::styled_dom::TagIdToNodeIdMapping",
@@ -5765,6 +5737,9 @@
           },
           "CoreCallback": {
             "external": "azul_core::callbacks::CoreCallback",
+            "custom_impls": [
+              "From"
+            ],
             "derive": [
               "PartialEq",
               "Ord",
@@ -5840,29 +5815,17 @@
           },
           "ListViewOnRowClickCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnRowClickCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "ListViewOnRowClickCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "SvgSimpleNode": {
             "external": "azul_core::svg::SvgSimpleNode",
@@ -5950,55 +5913,31 @@
           },
           "CheckBoxOnToggleCallback": {
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggleCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "CheckBoxOnToggleCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "TabOnClickCallback": {
             "external": "azul_layout::widgets::tabs::TabOnClickCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "TabOnClickCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "ParentWithNodeDepth": {
             "external": "azul_core::styled_dom::ParentWithNodeDepth",
@@ -6030,29 +5969,17 @@
           },
           "ListViewOnLazyLoadScrollCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScrollCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "ListViewOnLazyLoadScrollCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "AttributeType": {
             "external": "azul_core::dom::AttributeType",
@@ -6247,29 +6174,17 @@
           },
           "ButtonOnClickCallback": {
             "external": "azul_layout::widgets::button::ButtonOnClickCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "ButtonOnClickCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "XmlNode": {
             "external": "azul_core::xml::XmlNode",
@@ -6546,16 +6461,6 @@
           },
           "Callback": {
             "external": "azul_layout::callbacks::Callback",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ],
             "struct_fields": [
               {
                 "cb": {
@@ -6572,16 +6477,6 @@
           },
           "RenderImageCallback": {
             "external": "azul_layout::callbacks::RenderImageCallback",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ],
             "struct_fields": [
               {
                 "cb": {
@@ -13880,9 +13775,7 @@
             "derive": [
               "PartialEq",
               "Clone",
-              "Debug",
-              "Eq",
-              "Hash"
+              "Debug"
             ],
             "enum_fields": [
               {
@@ -14827,9 +14720,7 @@
             "derive": [
               "Clone",
               "PartialEq",
-              "Debug",
-              "Eq",
-              "Hash"
+              "Debug"
             ],
             "enum_fields": [
               {
@@ -15227,9 +15118,7 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq",
-              "Eq",
-              "Hash"
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -16842,7 +16731,8 @@
               "Eq",
               "PartialOrd",
               "Ord",
-              "Hash"
+              "Hash",
+              "Debug"
             ],
             "struct_fields": [
               {
@@ -16925,9 +16815,7 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq",
-              "Eq",
-              "Hash"
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -17638,29 +17526,17 @@
           },
           "FileInputOnPathChangeCallback": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChangeCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "FileInputOnPathChangeCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "CheckBox": {
             "external": "azul_layout::widgets::check_box::CheckBox",
@@ -17961,29 +17837,17 @@
           },
           "ColorInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChangeCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "ColorInputOnValueChangeCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "TextInput": {
             "external": "azul_layout::widgets::text_input::TextInput",
@@ -18412,29 +18276,17 @@
           },
           "TextInputOnTextInputCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnTextInputCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "TextInputOnTextInputCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "TextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDown",
@@ -18455,29 +18307,17 @@
           },
           "TextInputOnVirtualKeyDownCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDownCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "TextInputOnVirtualKeyDownCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "TextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
@@ -18498,29 +18338,17 @@
           },
           "TextInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLostCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "TextInputOnFocusLostCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "OnTextInputReturn": {
             "external": "azul_layout::widgets::text_input::OnTextInputReturn",
@@ -18886,29 +18714,17 @@
           },
           "NumberInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChangeCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "NumberInputOnValueChangeCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "NumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
@@ -18929,29 +18745,17 @@
           },
           "NumberInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLostCallback",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "NumberInputOnFocusLostCallbackType"
                 }
-              },
-              {
-                "callable": {
-                  "type": "OptionRefAny"
-                }
               }
             ],
-            "repr": "C",
-            "custom_impls": [
-              "Debug",
-              "Display",
-              "Clone",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Eq"
-            ]
+            "repr": "C"
           },
           "ProgressBar": {
             "external": "azul_layout::widgets::progressbar::ProgressBar",
@@ -36518,8 +36322,7 @@
             "external": "azul_layout::widgets::list_view::ListViewRowVec",
             "custom_impls": [
               "Clone",
-              "Debug",
-              "Default"
+              "Debug"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36556,8 +36359,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36594,8 +36396,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36632,8 +36433,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36670,8 +36470,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36708,8 +36507,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36746,8 +36544,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36784,8 +36581,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36822,8 +36618,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36860,8 +36655,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36898,8 +36692,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36936,8 +36729,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -36974,8 +36766,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37009,8 +36800,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37044,8 +36834,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37079,8 +36868,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37114,8 +36902,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37149,8 +36936,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37187,8 +36973,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37225,8 +37010,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37260,8 +37044,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37298,8 +37081,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37336,8 +37118,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37371,8 +37152,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37406,8 +37186,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37444,8 +37223,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37479,8 +37257,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37517,8 +37294,7 @@
               "PartialOrd",
               "Eq",
               "Ord",
-              "Hash",
-              "Default"
+              "Hash"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37590,8 +37366,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37628,8 +37403,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37667,8 +37441,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37705,8 +37478,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37743,8 +37515,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37781,8 +37552,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37819,8 +37589,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37854,8 +37623,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37889,8 +37657,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37924,8 +37691,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37959,8 +37725,7 @@
               "Clone",
               "Debug",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -37997,8 +37762,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38035,8 +37799,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38073,8 +37836,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38111,8 +37873,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38149,8 +37910,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38187,8 +37947,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "custom_destructor": true,
             "derive": [
@@ -38461,7 +38220,12 @@
             "external": "azul_core::gl::OptionU8VecRef",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "PartialEq",
+              "Eq"
             ],
             "enum_fields": [
               {
@@ -40014,8 +39778,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "derive": [
               "Debug"
@@ -40138,8 +39901,7 @@
               "Hash",
               "Ord",
               "PartialEq",
-              "PartialOrd",
-              "Default"
+              "PartialOrd"
             ],
             "derive": [
               "Debug"
@@ -40174,7 +39936,9 @@
             "external": "azul_css::props::basic::animation::OptionSvgPoint",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40246,7 +40010,12 @@
             "external": "azul_core::menu::OptionMenu",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "PartialOrd",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -40264,7 +40033,13 @@
             "external": "azul_css::props::basic::pixel::OptionPixelValueNoPercent",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Ord",
+              "Hash",
+              "Copy",
+              "Eq"
             ],
             "enum_fields": [
               {
@@ -40426,7 +40201,10 @@
             "external": "azul_layout::widgets::text_input::OptionTextInputSelection",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Hash",
+              "Eq",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40480,7 +40258,12 @@
             "external": "azul_core::menu::OptionMenuItemIcon",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialOrd",
+              "Hash",
+              "PartialEq",
+              "Eq",
+              "Ord"
             ],
             "enum_fields": [
               {
@@ -40498,7 +40281,12 @@
             "external": "azul_core::window::OptionVirtualKeyCodeCombo",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -40516,7 +40304,13 @@
             "external": "azul_core::task::OptionTimerId",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Copy",
+              "Hash",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40534,7 +40328,13 @@
             "external": "azul_css::corety::OptionI16",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Copy",
+              "PartialEq",
+              "Hash",
+              "PartialOrd",
+              "Eq"
             ],
             "enum_fields": [
               {
@@ -40552,7 +40352,13 @@
             "external": "azul_css::corety::OptionU16",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Hash",
+              "Eq",
+              "Copy",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40570,7 +40376,13 @@
             "external": "azul_css::corety::OptionU32",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Hash",
+              "Eq",
+              "PartialEq",
+              "Copy",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40588,7 +40400,12 @@
             "external": "azul_core::resources::OptionImageRef",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord"
             ],
             "enum_fields": [
               {
@@ -40606,7 +40423,10 @@
             "external": "azul_css::props::basic::font::OptionFontRef",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "PartialEq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -40624,7 +40444,12 @@
             "external": "azul_core::refany::OptionRefAny",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Hash",
+              "PartialOrd",
+              "Eq",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40642,7 +40467,13 @@
             "external": "azul_css::props::basic::geometry::OptionLayoutSize",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Eq",
+              "PartialEq",
+              "Hash",
+              "Copy",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40660,7 +40491,13 @@
             "external": "azul_core::dom::OptionDomNodeId",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Copy",
+              "Hash",
+              "PartialOrd",
+              "Ord"
             ],
             "enum_fields": [
               {
@@ -40678,7 +40515,13 @@
             "external": "azul_css::props::basic::color::OptionColorU",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "Ord",
+              "Eq",
+              "Copy",
+              "PartialOrd",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -40696,7 +40539,9 @@
             "external": "azul_core::resources::OptionRawImage",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialOrd",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40714,7 +40559,10 @@
             "external": "azul_core::svg::OptionSvgDashPattern",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "Copy",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40732,7 +40580,13 @@
             "external": "azul_core::dom::OptionTabIndex",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40750,7 +40604,13 @@
             "external": "azul_core::dom::OptionTagId",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "Hash",
+              "Ord",
+              "Eq",
+              "PartialOrd",
+              "Copy"
             ],
             "enum_fields": [
               {
@@ -40768,7 +40628,13 @@
             "external": "azul_core::task::OptionDuration",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "PartialEq",
+              "Copy",
+              "Ord",
+              "PartialOrd",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -40786,7 +40652,13 @@
             "external": "azul_core::gl::OptionUsize",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Ord",
+              "PartialEq",
+              "Copy",
+              "PartialOrd",
+              "Hash",
+              "Eq"
             ],
             "enum_fields": [
               {
@@ -40804,7 +40676,12 @@
             "external": "azul_core::menu::OptionCoreMenuCallback",
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "PartialEq",
+              "Hash",
+              "Ord",
+              "Eq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40822,7 +40699,8 @@
             "external": "azul_core::styled_dom::OptionStyledDom",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40941,7 +40819,10 @@
             "external": "azul_core::geom::OptionLogicalPosition",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40957,7 +40838,12 @@
             "external": "azul_css::corety::OptionString",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "PartialEq",
+              "Ord",
+              "Hash",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40972,15 +40858,16 @@
           "OptionF32": {
             "external": "azul_css::corety::OptionF32",
             "custom_impls": [
-              "PartialEq",
               "Eq",
               "Hash",
-              "PartialOrd",
               "Ord"
             ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -40996,7 +40883,9 @@
             "external": "azul_core::window::OptionWaylandTheme",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -41012,7 +40901,13 @@
             "external": "azul_core::window::OptionMouseCursorType",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Eq",
+              "Copy",
+              "PartialOrd",
+              "PartialEq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -41028,7 +40923,12 @@
             "external": "azul_core::window::OptionWindowIcon",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Hash",
+              "Eq",
+              "Ord"
             ],
             "enum_fields": [
               {
@@ -41048,7 +40948,6 @@
             "derive": [
               "Debug",
               "Eq",
-              "Copy",
               "Clone",
               "PartialEq",
               "PartialOrd",
@@ -41069,7 +40968,12 @@
             "external": "azul_core::window::OptionTaskBarIcon",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -41085,7 +40989,12 @@
             "external": "azul_core::window::OptionHwndHandle",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "PartialEq",
+              "Hash",
+              "Eq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -41101,7 +41010,13 @@
             "external": "azul_core::window::OptionLinuxDecorationsState",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq",
+              "Copy",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -41117,7 +41032,13 @@
             "external": "azul_css::corety::OptionI32",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Copy"
             ],
             "enum_fields": [
               {
@@ -41133,7 +41054,10 @@
             "external": "azul_core::geom::OptionLogicalSize",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -41149,7 +41073,13 @@
             "external": "azul_core::window::OptionVirtualKeyCode",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Copy",
+              "Eq",
+              "PartialOrd",
+              "PartialEq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -41165,7 +41095,13 @@
             "external": "azul_core::window::OptionX11Visual",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "PartialEq",
+              "Hash",
+              "PartialOrd",
+              "Ord",
+              "Copy"
             ],
             "enum_fields": [
               {
@@ -41211,7 +41147,13 @@
             "external": "azul_core::window::OptionRendererOptions",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Ord",
+              "Eq",
+              "Copy",
+              "PartialEq",
+              "PartialOrd",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -41227,7 +41169,13 @@
             "external": "azul_core::window::OptionWindowTheme",
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "PartialEq",
+              "Ord",
+              "Eq",
+              "Copy",
+              "Hash",
+              "PartialOrd"
             ],
             "enum_fields": [
               {

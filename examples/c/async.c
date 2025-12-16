@@ -22,30 +22,35 @@ typedef struct {
     float progress;
 } AsyncState;
 
-void AsyncState_destructor(AsyncState* s) { }
+void AsyncState_destructor(void* s) { }
 AZ_REFLECT(AsyncState, AsyncState_destructor);
 
-AzUpdate start_connection(AzRefAny* data, AzCallbackInfo* info);
-AzUpdate reset_connection(AzRefAny* data, AzCallbackInfo* info);
-AzUpdate on_timer_tick(AzRefAny* data, AzTimerCallbackInfo* info);
+AzUpdate start_connection(AzRefAny data, AzCallbackInfo info);
+AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
+AzTimerCallbackReturn on_timer_tick(AzRefAny data, AzTimerCallbackInfo info);
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
-    AsyncStateRef d = AsyncStateRef_create(data);
-    if (!AsyncState_downcastRef(data, &d)) {
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    AsyncStateRef d = AsyncStateRef_create(&data);
+    if (!AsyncState_downcastRef(&data, &d)) {
         return AzStyledDom_default();
     }
     
-    AzDom title = AzDom_text(AzString_fromConstStr("Async Database Connection"));
-    AzDom_setInlineStyle(&title, AzString_fromConstStr("font-size: 24px; margin-bottom: 20px;"));
+    AzString title_text = AzString_copyFromBytes((const uint8_t*)"Async Database Connection", 0, 26);
+    AzDom title = AzDom_text(title_text);
+    AzString title_style = AzString_copyFromBytes((const uint8_t*)"font-size: 24px; margin-bottom: 20px;", 0, 38);
+    AzDom_setInlineStyle(&title, title_style);
     
     AzDom content;
     
     switch (d.ptr->stage) {
         case Stage_NotConnected: {
             content = AzDom_div();
-            AzDom_setInlineStyle(&content, AzString_fromConstStr("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"));
-            AzDom_addChild(&content, AzDom_text(AzString_fromConstStr("Connect")));
-            AzDom_setCallback(&content, AzOn_MouseUp, AzRefAny_clone(data), start_connection);
+            AzString btn_style = AzString_copyFromBytes((const uint8_t*)"padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;", 0, 73);
+            AzDom_setInlineStyle(&content, btn_style);
+            AzString connect_text = AzString_copyFromBytes((const uint8_t*)"Connect", 0, 7);
+            AzDom_addChild(&content, AzDom_text(connect_text));
+            AzEventFilter event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+            AzDom_addCallback(&content, event, AzRefAny_deepCopy(&data), start_connection);
             break;
         }
         case Stage_Connecting:
@@ -54,7 +59,8 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
             snprintf(progress_buf, sizeof(progress_buf), "Progress: %d%%", (int)d.ptr->progress);
             
             content = AzDom_div();
-            AzDom_addChild(&content, AzDom_text(AzString_fromConstStr(progress_buf)));
+            AzString progress_text = AzString_copyFromBytes((const uint8_t*)progress_buf, 0, strlen(progress_buf));
+            AzDom_addChild(&content, AzDom_text(progress_text));
             AzDom_addChild(&content, AzProgressBar_dom(AzProgressBar_new(d.ptr->progress)));
             break;
         }
@@ -63,17 +69,22 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
             snprintf(status_buf, sizeof(status_buf), "Loaded %zu records", d.ptr->record_count);
             
             AzDom reset_btn = AzDom_div();
-            AzDom_setInlineStyle(&reset_btn, AzString_fromConstStr("padding: 10px; background: #2196F3; color: white; cursor: pointer;"));
-            AzDom_addChild(&reset_btn, AzDom_text(AzString_fromConstStr("Reset")));
-            AzDom_setCallback(&reset_btn, AzOn_MouseUp, AzRefAny_clone(data), reset_connection);
+            AzString reset_style = AzString_copyFromBytes((const uint8_t*)"padding: 10px; background: #2196F3; color: white; cursor: pointer;", 0, 68);
+            AzDom_setInlineStyle(&reset_btn, reset_style);
+            AzString reset_text = AzString_copyFromBytes((const uint8_t*)"Reset", 0, 5);
+            AzDom_addChild(&reset_btn, AzDom_text(reset_text));
+            AzEventFilter reset_event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+            AzDom_addCallback(&reset_btn, reset_event, AzRefAny_deepCopy(&data), reset_connection);
             
             content = AzDom_div();
-            AzDom_addChild(&content, AzDom_text(AzString_fromConstStr(status_buf)));
+            AzString status_text = AzString_copyFromBytes((const uint8_t*)status_buf, 0, strlen(status_buf));
+            AzDom_addChild(&content, AzDom_text(status_text));
             AzDom_addChild(&content, reset_btn);
             break;
         }
         case Stage_Error: {
-            content = AzDom_text(AzString_fromConstStr("Error occurred"));
+            AzString error_text = AzString_copyFromBytes((const uint8_t*)"Error occurred", 0, 14);
+            content = AzDom_text(error_text);
             break;
         }
     }
@@ -81,16 +92,17 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
     AsyncStateRef_delete(&d);
     
     AzDom body = AzDom_body();
-    AzDom_setInlineStyle(&body, AzString_fromConstStr("padding: 30px; font-family: sans-serif;"));
+    AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 30px; font-family: sans-serif;", 0, 40);
+    AzDom_setInlineStyle(&body, body_style);
     AzDom_addChild(&body, title);
     AzDom_addChild(&body, content);
     
     return AzStyledDom_new(body, AzCss_empty());
 }
 
-AzUpdate start_connection(AzRefAny* data, AzCallbackInfo* info) {
-    AsyncStateRefMut d = AsyncStateRefMut_create(data);
-    if (!AsyncState_downcastMut(data, &d)) {
+AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
+    AsyncStateRefMut d = AsyncStateRefMut_create(&data);
+    if (!AsyncState_downcastMut(&data, &d)) {
         return AzUpdate_DoNothing;
     }
     
@@ -98,17 +110,19 @@ AzUpdate start_connection(AzRefAny* data, AzCallbackInfo* info) {
     d.ptr->progress = 0.0f;
     AsyncStateRefMut_delete(&d);
     
-    AzTimer timer = AzTimer_new(AzRefAny_clone(data), on_timer_tick, AzCallbackInfo_getSystemTimeFn(info));
-    AzTimer_setInterval(&timer, AzDuration_milliseconds(100));
-    AzCallbackInfo_startTimer(info, timer);
+    AzDuration interval = { .System = { .tag = AzDuration_Tag_System, .payload = AzSystemTimeDiff_fromMillis(100) } };
+    AzTimer timer = AzTimer_new(AzRefAny_deepCopy(&data), on_timer_tick, AzCallbackInfo_getSystemTimeFn(&info));
+    timer = AzTimer_withInterval(timer, interval);
+    AzTimerId timer_id = { .id = 1 };
+    AzCallbackInfo_addTimer(&info, timer_id, timer);
     
     return AzUpdate_RefreshDom;
 }
 
-AzUpdate on_timer_tick(AzRefAny* data, AzTimerCallbackInfo* info) {
-    AsyncStateRefMut d = AsyncStateRefMut_create(data);
-    if (!AsyncState_downcastMut(data, &d)) {
-        return AzUpdate_DoNothing;
+AzTimerCallbackReturn on_timer_tick(AzRefAny data, AzTimerCallbackInfo info) {
+    AsyncStateRefMut d = AsyncStateRefMut_create(&data);
+    if (!AsyncState_downcastMut(&data, &d)) {
+        return (AzTimerCallbackReturn){ .should_update = AzUpdate_DoNothing };
     }
     
     d.ptr->progress += 2.0f;
@@ -120,16 +134,16 @@ AzUpdate on_timer_tick(AzRefAny* data, AzTimerCallbackInfo* info) {
             snprintf(d.ptr->loaded_data[i], sizeof(d.ptr->loaded_data[i]), "Record %d", i + 1);
         }
         AsyncStateRefMut_delete(&d);
-        return AzUpdate_RefreshDomAndStopTimer;
+        return (AzTimerCallbackReturn){ .should_update = AzUpdate_RefreshDom };
     }
     
     AsyncStateRefMut_delete(&d);
-    return AzUpdate_RefreshDom;
+    return (AzTimerCallbackReturn){ .should_update = AzUpdate_RefreshDom };
 }
 
-AzUpdate reset_connection(AzRefAny* data, AzCallbackInfo* info) {
-    AsyncStateRefMut d = AsyncStateRefMut_create(data);
-    if (!AsyncState_downcastMut(data, &d)) {
+AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
+    AsyncStateRefMut d = AsyncStateRefMut_create(&data);
+    if (!AsyncState_downcastMut(&data, &d)) {
         return AzUpdate_DoNothing;
     }
     

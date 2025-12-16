@@ -10,42 +10,46 @@ typedef struct {
     int texture_uploaded;
 } OpenGlState;
 
-void OpenGlState_destructor(OpenGlState* s) { }
+void OpenGlState_destructor(void* s) { }
 AZ_REFLECT(OpenGlState, OpenGlState_destructor);
 
-AzImageRef render_texture(AzRefAny* data, AzRenderImageCallbackInfo* info);
-AzUpdate on_startup(AzRefAny* data, AzCallbackInfo* info);
-AzUpdate animate(AzRefAny* data, AzTimerCallbackInfo* info);
+AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info);
+AzUpdate on_startup(AzRefAny data, AzCallbackInfo info);
+AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info);
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
-    AzDom title = AzDom_text(AzString_fromConstStr("OpenGL Integration Demo"));
-    AzDom_setInlineStyle(&title, AzString_fromConstStr("color: white; font-size: 24px; margin-bottom: 20px;"));
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    AzString title_text = AzString_copyFromBytes((const uint8_t*)"OpenGL Integration Demo", 0, 23);
+    AzDom title = AzDom_text(title_text);
+    AzString title_style = AzString_copyFromBytes((const uint8_t*)"color: white; font-size: 24px; margin-bottom: 20px;", 0, 52);
+    AzDom_setInlineStyle(&title, title_style);
     
-    AzDom image = AzDom_image(AzImageRef_callback(AzRefAny_clone(data), render_texture));
-    AzDom_setInlineStyle(&image, AzString_fromConstStr(
+    AzDom image = AzDom_image(AzImageRef_callback(AzRefAny_deepCopy(&data), render_texture));
+    AzString image_style = AzString_copyFromBytes((const uint8_t*)
         "flex-grow: 1;"
         "min-height: 300px;"
         "border-radius: 10px;"
-        "box-shadow: 0px 0px 20px rgba(0,0,0,0.5);"));
+        "box-shadow: 0px 0px 20px rgba(0,0,0,0.5);", 0, 94);
+    AzDom_setInlineStyle(&image, image_style);
     
     AzDom body = AzDom_body();
-    AzDom_setInlineStyle(&body, AzString_fromConstStr("background: linear-gradient(#1a1a2e, #16213e); padding: 20px;"));
+    AzString body_style = AzString_copyFromBytes((const uint8_t*)"background: linear-gradient(#1a1a2e, #16213e); padding: 20px;", 0, 62);
+    AzDom_setInlineStyle(&body, body_style);
     AzDom_addChild(&body, title);
     AzDom_addChild(&body, image);
     
     return AzStyledDom_new(body, AzCss_empty());
 }
 
-AzImageRef render_texture(AzRefAny* data, AzRenderImageCallbackInfo* info) {
-    AzPhysicalSizeU32 size = AzRenderImageCallbackInfo_getBounds(info).physical_size;
+AzImageRef render_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
+    AzPhysicalSizeU32 size = AzRenderImageCallbackInfo_getBounds(&info).physical_size;
     
-    OpenGlStateRef d = OpenGlStateRef_create(data);
-    if (!OpenGlState_downcastRef(data, &d)) {
+    OpenGlStateRef d = OpenGlStateRef_create(&data);
+    if (!OpenGlState_downcastRef(&data, &d)) {
         AzVec_u8 empty = AzVec_u8_new();
         return AzImageRef_nullImage(size.width, size.height, AzRawImageFormat_RGBA8, empty);
     }
     
-    AzGlContextPtr gl_context = AzRenderImageCallbackInfo_getGlContext(info);
+    AzGlContextPtr gl_context = AzRenderImageCallbackInfo_getGlContext(&info);
     if (!gl_context.ptr) {
         AzVec_u8 empty = AzVec_u8_new();
         OpenGlStateRef_delete(&d);
@@ -72,17 +76,19 @@ AzImageRef render_texture(AzRefAny* data, AzRenderImageCallbackInfo* info) {
     return AzImageRef_glTexture(texture);
 }
 
-AzUpdate on_startup(AzRefAny* data, AzCallbackInfo* info) {
-    AzTimer timer = AzTimer_new(AzRefAny_clone(data), animate, AzCallbackInfo_getSystemTimeFn(info));
-    AzTimer_setInterval(&timer, AzDuration_milliseconds(16));
-    AzCallbackInfo_startTimer(info, timer);
+AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
+    AzDuration interval = { .System = { .tag = AzDuration_Tag_System, .payload = AzSystemTimeDiff_fromMillis(16) } };
+    AzTimer timer = AzTimer_new(AzRefAny_deepCopy(&data), animate, AzCallbackInfo_getSystemTimeFn(&info));
+    timer = AzTimer_withInterval(timer, interval);
+    AzTimerId timer_id = { .id = 1 };
+    AzCallbackInfo_addTimer(&info, timer_id, timer);
     return AzUpdate_DoNothing;
 }
 
-AzUpdate animate(AzRefAny* data, AzTimerCallbackInfo* info) {
-    OpenGlStateRefMut d = OpenGlStateRefMut_create(data);
-    if (!OpenGlState_downcastMut(data, &d)) {
-        return AzUpdate_DoNothing;
+AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
+    OpenGlStateRefMut d = OpenGlStateRefMut_create(&data);
+    if (!OpenGlState_downcastMut(&data, &d)) {
+        return (AzTimerCallbackReturn){ .should_update = AzUpdate_DoNothing };
     }
     
     d.ptr->rotation_deg += 1.0f;
@@ -91,7 +97,7 @@ AzUpdate animate(AzRefAny* data, AzTimerCallbackInfo* info) {
     }
     OpenGlStateRefMut_delete(&d);
     
-    return AzUpdate_RefreshDom;
+    return (AzTimerCallbackReturn){ .should_update = AzUpdate_RefreshDom };
 }
 
 int main() {

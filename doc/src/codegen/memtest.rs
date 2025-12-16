@@ -794,6 +794,7 @@ fn generate_dll_module(
         is_for_dll: config.is_for_dll,
         drop_via_external: config.drop_via_external,
         callback_typedef_use_external: config.callback_typedef_use_external,
+        skip_external_trait_impls: false,
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,

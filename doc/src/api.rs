@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
@@ -481,7 +481,7 @@ pub struct DialectConfig {
     /// Default variant to use (e.g., "cpp23")
     pub default: String,
     /// Available variants with their display names and alt texts
-    pub variants: std::collections::HashMap<String, DialectVariant>,
+    pub variants: BTreeMap<String, DialectVariant>,
 }
 
 /// A specific dialect variant (e.g., C++23)
@@ -506,10 +506,10 @@ pub struct LanguageInstallConfig {
     pub dialect_of: Option<String>,
     /// Installation methods (for languages like Python with pip/uv)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub methods: Option<std::collections::HashMap<String, MethodConfig>>,
+    pub methods: Option<BTreeMap<String, MethodConfig>>,
     /// Platform-specific installation (for C/C++)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platforms: Option<std::collections::HashMap<String, InstallationSteps>>,
+    pub platforms: Option<BTreeMap<String, InstallationSteps>>,
 }
 
 /// Configuration for an installation method
@@ -535,17 +535,17 @@ pub struct Installation {
     /// Dialect configurations (e.g., cpp -> { displayName: "C++", default: "cpp23", variants:
     /// {...} })
     #[serde(default)]
-    pub dialects: std::collections::HashMap<String, DialectConfig>,
+    pub dialects: BTreeMap<String, DialectConfig>,
     /// Language-specific installation instructions
     #[serde(default)]
-    pub languages: std::collections::HashMap<String, LanguageInstallConfig>,
+    pub languages: BTreeMap<String, LanguageInstallConfig>,
 }
 
 impl Installation {
     /// Get the list of top-level languages (excluding dialect variants shown separately)
     pub fn get_top_level_languages(&self) -> Vec<&str> {
         let mut langs: Vec<&str> = Vec::new();
-        let dialect_keys: std::collections::HashSet<&str> =
+        let dialect_keys: BTreeSet<&str> =
             self.dialects.keys().map(|s| s.as_str()).collect();
 
         for (key, config) in &self.languages {
@@ -1258,8 +1258,8 @@ pub struct CallbackArgData {
 // These helpers make it easy to extract all type references for recursive discovery.
 
 /// Extract all type references from a ClassData
-pub fn extract_types_from_class_data(class_data: &ClassData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_class_data(class_data: &ClassData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Extract from struct fields
     if let Some(struct_fields) = &class_data.struct_fields {
@@ -1310,8 +1310,8 @@ pub fn extract_types_from_class_data(class_data: &ClassData) -> HashSet<String> 
 
 /// Extract type from FieldData
 /// Skips types behind pointers (they don't need to be in the API)
-pub fn extract_types_from_field_data(field_data: &FieldData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_field_data(field_data: &FieldData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Skip types behind pointers - they're opaque and don't need to be exposed
     if let Some(base_type) = extract_base_type_if_not_opaque(&field_data.r#type) {
@@ -1323,8 +1323,8 @@ pub fn extract_types_from_field_data(field_data: &FieldData) -> HashSet<String> 
 
 /// Extract types from FieldData INCLUDING pointer types
 /// Used for unused type analysis where we need ALL references
-pub fn extract_types_from_field_data_all(field_data: &FieldData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_field_data_all(field_data: &FieldData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Include types behind pointers for reachability analysis
     if let Some(base_type) = extract_base_type_including_pointers(&field_data.r#type) {
@@ -1336,8 +1336,8 @@ pub fn extract_types_from_field_data_all(field_data: &FieldData) -> HashSet<Stri
 
 /// Extract types from EnumVariantData
 /// Skips types behind pointers
-pub fn extract_types_from_enum_variant(variant_data: &EnumVariantData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_enum_variant(variant_data: &EnumVariantData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     if let Some(variant_type) = &variant_data.r#type {
         if let Some(base_type) = extract_base_type_if_not_opaque(variant_type) {
@@ -1350,8 +1350,8 @@ pub fn extract_types_from_enum_variant(variant_data: &EnumVariantData) -> HashSe
 
 /// Extract types from EnumVariantData INCLUDING pointer types
 /// Used for unused type analysis
-pub fn extract_types_from_enum_variant_all(variant_data: &EnumVariantData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_enum_variant_all(variant_data: &EnumVariantData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     if let Some(variant_type) = &variant_data.r#type {
         if let Some(base_type) = extract_base_type_including_pointers(variant_type) {
@@ -1364,8 +1364,8 @@ pub fn extract_types_from_enum_variant_all(variant_data: &EnumVariantData) -> Ha
 
 /// Extract types from FunctionData
 /// Skips types behind pointers
-pub fn extract_types_from_function_data(fn_data: &FunctionData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_function_data(fn_data: &FunctionData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Extract return type
     if let Some(return_data) = &fn_data.returns {
@@ -1395,8 +1395,8 @@ pub fn extract_types_from_function_data(fn_data: &FunctionData) -> HashSet<Strin
 /// Skips types behind pointers
 pub fn extract_types_from_callback_definition(
     callback_def: &CallbackDefinition,
-) -> HashSet<String> {
-    let mut types = HashSet::new();
+) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Extract return type
     if let Some(return_data) = &callback_def.returns {
@@ -1415,8 +1415,8 @@ pub fn extract_types_from_callback_definition(
 
 /// Extract type from ReturnTypeData
 /// Skips types behind pointers
-pub fn extract_types_from_return_data(return_data: &ReturnTypeData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn extract_types_from_return_data(return_data: &ReturnTypeData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     if let Some(base_type) = extract_base_type_if_not_opaque(&return_data.r#type) {
         types.insert(base_type);
@@ -1583,8 +1583,8 @@ pub fn extract_base_type_if_not_opaque(type_str: &str) -> Option<String> {
 }
 
 /// Collect all type references from the entire API
-pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> HashSet<String> {
-    let mut types = HashSet::new();
+pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
 
     // Include callback_typedefs - they can be referenced and need patches
     // (e.g. FooDestructorType is referenced from FooDestructor enum)
@@ -1604,9 +1604,9 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
 /// first_chain_description
 pub fn collect_all_referenced_types_from_api_with_chains(
     api_data: &crate::api::ApiData,
-) -> (HashSet<String>, HashMap<String, String>) {
-    let mut types = HashSet::new();
-    let mut chains: HashMap<String, String> = HashMap::new();
+) -> (BTreeSet<String>, BTreeMap<String, String>) {
+    let mut types = BTreeSet::new();
+    let mut chains: BTreeMap<String, String> = BTreeMap::new();
 
     for (_version_name, version_data) in &api_data.0 {
         for (_module_name, module_data) in &version_data.api {
@@ -1759,12 +1759,12 @@ pub fn collect_all_referenced_types_from_api_with_chains(
 /// Then recursively follows struct fields and enum variants to find all reachable types.
 /// Returns the set of type names that are defined but never reachable.
 pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
-    let mut reachable_types: HashSet<String> = HashSet::new();
-    let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new(); // type_name -> (module, version)
+    let mut reachable_types: BTreeSet<String> = BTreeSet::new();
+    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new(); // type_name -> (module, version)
 
     // Collect all defined types and build a lookup for their definitions
     // Important: Keep only the "most complete" definition (one with struct_fields or enum_fields)
-    let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
+    let mut type_definitions: BTreeMap<String, &ClassData> = BTreeMap::new();
 
     for (version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
@@ -1978,7 +1978,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
 /// This catches types that become unused only after other unused types are removed.
 pub fn find_all_unused_types_recursive(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> {
     let mut all_unused: Vec<UnusedTypeInfo> = Vec::new();
-    let mut removed_types: HashSet<String> = HashSet::new();
+    let mut removed_types: BTreeSet<String> = BTreeSet::new();
     let mut iteration = 0;
     let max_iterations = 50; // Safety limit
 
@@ -2029,11 +2029,11 @@ pub fn find_all_unused_types_recursive(api_data: &crate::api::ApiData) -> Vec<Un
 /// - References TO them are ignored (as if they don't exist)
 fn find_unused_types_simulating_removal(
     api_data: &crate::api::ApiData,
-    removed: &HashSet<String>,
+    removed: &BTreeSet<String>,
 ) -> Vec<UnusedTypeInfo> {
-    let mut reachable_types: HashSet<String> = HashSet::new();
-    let mut all_defined_types: HashMap<String, (String, String)> = HashMap::new();
-    let mut type_definitions: HashMap<String, &ClassData> = HashMap::new();
+    let mut reachable_types: BTreeSet<String> = BTreeSet::new();
+    let mut all_defined_types: BTreeMap<String, (String, String)> = BTreeMap::new();
+    let mut type_definitions: BTreeMap<String, &ClassData> = BTreeMap::new();
 
     // First pass: collect all type definitions, EXCLUDING removed types
     for (version_name, version_data) in &api_data.0 {

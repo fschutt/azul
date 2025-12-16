@@ -10,7 +10,7 @@ use crate::{
     },
     utils::{
         analyze::{
-            analyze_type, class_is_stack_allocated, get_all_imports, is_primitive_arg,
+            analyze_type, class_is_stack_allocated, get_all_imports, get_class, is_primitive_arg,
             search_for_class_by_class_name,
         },
         string::snake_case_to_lower_camel,
@@ -47,6 +47,7 @@ fn is_generic_type_param(type_name: &str) -> bool {
 
 /// Format function arguments from api.json fn_args into Rust function signature
 /// fn_args is Vec<IndexMap<String, String>> where each map has one entry: arg_name -> type
+/// In api.json, self is specified as {"self": "value"|"ref"|"refmut"|"mut value"}
 fn format_fn_args(
     fn_args: &[IndexMap<String, String>],
     version_data: &VersionData,
@@ -65,17 +66,22 @@ fn format_fn_args(
             }
 
             // Handle self parameter for methods
-            if i == 0 && is_method {
-                if arg_type.contains("&mut") || arg_type.contains("RefMut") {
-                    args_sig.push("&mut self".to_string());
-                    args_call.push("self".to_string());
-                } else if arg_type.contains("&") || arg_type.contains("Ref") {
-                    args_sig.push("&self".to_string());
-                    args_call.push("self".to_string());
-                } else {
-                    // Value self - take ownership
-                    args_sig.push("self".to_string());
-                    args_call.push("self".to_string());
+            // In api.json, self is specified as {"self": "value"|"ref"|"refmut"|"mut value"}
+            if arg_name == "self" && is_method {
+                match arg_type.as_str() {
+                    "refmut" => {
+                        args_sig.push("&mut self".to_string());
+                        args_call.push("self".to_string());
+                    }
+                    "ref" => {
+                        args_sig.push("&self".to_string());
+                        args_call.push("self".to_string());
+                    }
+                    "value" | "mut value" | _ => {
+                        // Value self - take ownership
+                        args_sig.push("self".to_string());
+                        args_call.push("self".to_string());
+                    }
                 }
                 continue;
             }
@@ -102,6 +108,18 @@ fn convert_type_to_rust_api(type_str: &str, version_data: &VersionData, prefix: 
     if let Some((module_name, class_name)) =
         search_for_class_by_class_name(version_data, &type_name)
     {
+        // Check if this type is a type alias (concrete instantiation of a generic type)
+        // If so, use crate::dll::Az{TypeName} instead of crate::{module}::{TypeName}
+        // because type aliases are not re-exported in the module, only in dll
+        if let Some(class_data) = get_class(version_data, module_name, class_name) {
+            if class_data.type_alias.is_some() {
+                return format!(
+                    "{}crate::dll::{}{}{}",
+                    ref_prefix, prefix, class_name, suffix
+                );
+            }
+        }
+        
         format!(
             "{}crate::{}::{}{}",
             ref_prefix, module_name, class_name, suffix
@@ -144,12 +162,15 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     let functions_map = build_functions_map(version_data, &prefix).unwrap();
 
     // Generate Rust DLL bindings
+    // Use skip_external_trait_impls to avoid generating trait impls that reference azul_core etc.
+    // The public Rust API should be standalone without internal crate dependencies
     let dll_config = GenerateConfig {
         prefix: prefix.clone(),
         indent: 8,
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
+        skip_external_trait_impls: true,
         ..Default::default()
     };
 
@@ -188,6 +209,17 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
         // Process all classes in this module
         for (class_name, class_data) in &module.classes {
+            // Skip type aliases - they are simple primitive type aliases (like GLuint = u32)
+            // and are already defined in the dll module, imported via `use crate::dll::*;`
+            if class_data.type_alias.is_some() {
+                continue;
+            }
+
+            // Skip primitive types and generic type parameters
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
+
             // Class properties
             let class_can_derive_debug = class_data
                 .derive
@@ -421,8 +453,24 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
                 code.push_str("    }\r\n\r\n"); // end of class impl
             }
 
-            // Add Clone implementation if type has custom Clone
-            if class_can_be_cloned {
+            // Add Clone implementation if type needs FFI-based clone (via deepCopy)
+            // Only generate if:
+            // - custom_impls contains "Clone" (indicates deepCopy exists in DLL)
+            // - type is not Copy (Copy types derive Clone)
+            // - type is not derived Clone (would conflict)
+            let has_custom_clone_impl = class_data
+                .custom_impls
+                .as_ref()
+                .map_or(false, |impls| impls.contains(&"Clone".to_string()));
+            let derives_clone = class_data
+                .derive
+                .as_ref()
+                .map_or(false, |d| d.contains(&"Clone".to_string()));
+            let needs_ffi_clone = has_custom_clone_impl 
+                && !class_can_be_copied 
+                && !derives_clone;
+            
+            if needs_ffi_clone {
                 code.push_str(&format!(
                     "    impl Clone for {} {{ fn clone(&self) -> Self {{ unsafe {{ \
                      crate::dll::{}_deepCopy(self) }} }} }}\r\n",
@@ -431,7 +479,14 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
             }
 
             // Add Drop implementation if needed
-            if treat_external_as_ptr {
+            // Drop is needed when:
+            // - has_custom_drop() returns true (custom_impls has "Drop" or custom_destructor: true)
+            // - OR treat_external_as_ptr (external boxed object)
+            // AND type is not Copy
+            let class_has_custom_drop = class_data.has_custom_drop();
+            let needs_ffi_drop = !class_can_be_copied && (class_has_custom_drop || treat_external_as_ptr);
+            
+            if needs_ffi_drop {
                 code.push_str(&format!(
                     "    impl Drop for {} {{ fn drop(&mut self) {{ if self.run_destructor {{ \
                      unsafe {{ crate::dll::{}_delete(self) }} }} }} }}\r\n",
@@ -451,6 +506,16 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
 
     // Add Rust header - in a real implementation you'd read this from a file
     final_code.push_str(include_str!("./api-patch/header.rs"));
+
+    // Generate dynamic prelude based on actually generated modules
+    final_code.push_str("/// Module to re-export common structs\r\n");
+    final_code.push_str("pub mod prelude {\r\n");
+    for module_name in module_file_map.keys() {
+        if module_name != "dll" {
+            final_code.push_str(&format!("    pub use crate::{}::*;\r\n", module_name));
+        }
+    }
+    final_code.push_str("}\r\n\r\n");
 
     // Add all modules
     for module_name in module_file_map.keys() {

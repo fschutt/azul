@@ -4,6 +4,7 @@
 #include <azul.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 char* read_file(const char* path) {
     FILE* f = fopen(path, "r");
@@ -18,7 +19,7 @@ char* read_file(const char* path) {
     return buf;
 }
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char* xhtml = read_file("assets/spreadsheet.xhtml");
     AzStyledDom dom = AzStyledDom_fromXml(AzString_copyFromBytes((uint8_t*)xhtml, 0, strlen(xhtml)));
     free(xhtml);
@@ -26,9 +27,13 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
 }
 
 int main() {
-    AzApp app = AzApp_new(AzRefAny_newC(NULL), AzAppConfig_default());
+    AzString empty_type = AzString_copyFromBytes((const uint8_t*)"", 0, 0);
+    AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
+    AzAppConfig config = { 0 }; // Use zero-initialization instead of default macro
+    AzApp app = AzApp_new(empty_data, config);
     AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
-    window.state.title = AzString_fromConstStr("XHTML Spreadsheet");
+    AzString window_title = AzString_copyFromBytes((const uint8_t*)"XHTML Spreadsheet", 0, 17);
+    window.state.title = window_title;
     AzApp_run(&app, window);
     return 0;
 }

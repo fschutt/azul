@@ -24,7 +24,7 @@ typedef struct {
     int clear_on_next_input;
 } Calculator;
 
-void Calculator_destructor(Calculator* c) { }
+void Calculator_destructor(void* c) { }
 AZ_REFLECT(Calculator, Calculator_destructor);
 
 typedef enum {
@@ -43,7 +43,8 @@ typedef struct {
     Operation operation;
 } ButtonData;
 
-void ButtonData_destructor(ButtonData* b) { 
+void ButtonData_destructor(void* b_ptr) { 
+    ButtonData* b = (ButtonData*)b_ptr;
     AzRefAny_delete(&b->calc);
 }
 AZ_REFLECT(ButtonData, ButtonData_destructor);
@@ -86,19 +87,22 @@ void Calculator_calculate(Calculator* c) {
     c->clear_on_next_input = 1;
 }
 
-AzUpdate on_button_click(AzRefAny* data, AzCallbackInfo* info);
+AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit, Operation op, const char* style) {
     ButtonData bd;
-    bd.calc = AzRefAny_clone(calc);
+    bd.calc = AzRefAny_deepCopy(calc);
     bd.event_type = evt;
     bd.digit = digit;
     bd.operation = op;
     
     AzDom button = AzDom_div();
-    AzDom_setInlineStyle(&button, AzString_fromConstStr(style));
-    AzDom_addChild(&button, AzDom_text(AzString_fromConstStr(label)));
-    AzDom_setCallback(&button, AzOn_MouseUp, ButtonData_upcast(bd), on_button_click);
+    AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, strlen(style));
+    AzDom_setInlineStyle(&button, style_str);
+    AzString label_str = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
+    AzDom_addChild(&button, AzDom_text(label_str));
+    AzEventFilter event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+    AzDom_addCallback(&button, event, ButtonData_upcast(bd), on_button_click);
     
     return button;
 }
@@ -154,9 +158,9 @@ static const char* ZERO_STYLE =
     "padding-left:28px;"
     "grid-column:span 2;";
 
-AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
-    CalculatorRef c = CalculatorRef_create(data);
-    if (!Calculator_downcastRef(data, &c)) {
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    CalculatorRef c = CalculatorRef_create(&data);
+    if (!Calculator_downcastRef(&data, &c)) {
         return AzStyledDom_default();
     }
     
@@ -166,54 +170,57 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo* info) {
 
     // Display
     AzDom display = AzDom_div();
-    AzDom_setInlineStyle(&display, AzString_fromConstStr(DISPLAY_STYLE));
+    AzString display_style = AzString_copyFromBytes((const uint8_t*)DISPLAY_STYLE, 0, strlen(DISPLAY_STYLE));
+    AzDom_setInlineStyle(&display, display_style);
     AzDom_addChild(&display, AzDom_text(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
 
     // Buttons grid
     AzDom buttons = AzDom_div();
-    AzDom_setInlineStyle(&buttons, AzString_fromConstStr(BUTTONS_STYLE));
+    AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));
+    AzDom_setInlineStyle(&buttons, buttons_style);
     
     // Row 1
-    AzDom_addChild(&buttons, create_button(data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "+/-", EVT_INVERT, 0, OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "%", EVT_PERCENT, 0, OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "\xc3\xb7", EVT_OPERATION, 0, OP_DIVIDE, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "+/-", EVT_INVERT, 0, OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "%", EVT_PERCENT, 0, OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "\xc3\xb7", EVT_OPERATION, 0, OP_DIVIDE, OP_STYLE));
     
     // Row 2
-    AzDom_addChild(&buttons, create_button(data, "7", EVT_DIGIT, '7', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "8", EVT_DIGIT, '8', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "9", EVT_DIGIT, '9', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "\xc3\x97", EVT_OPERATION, 0, OP_MULTIPLY, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "7", EVT_DIGIT, '7', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "8", EVT_DIGIT, '8', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "9", EVT_DIGIT, '9', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "\xc3\x97", EVT_OPERATION, 0, OP_MULTIPLY, OP_STYLE));
     
     // Row 3
-    AzDom_addChild(&buttons, create_button(data, "4", EVT_DIGIT, '4', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "5", EVT_DIGIT, '5', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "6", EVT_DIGIT, '6', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "-", EVT_OPERATION, 0, OP_SUBTRACT, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "4", EVT_DIGIT, '4', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "5", EVT_DIGIT, '5', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "6", EVT_DIGIT, '6', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "-", EVT_OPERATION, 0, OP_SUBTRACT, OP_STYLE));
     
     // Row 4
-    AzDom_addChild(&buttons, create_button(data, "1", EVT_DIGIT, '1', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "2", EVT_DIGIT, '2', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "3", EVT_DIGIT, '3', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "+", EVT_OPERATION, 0, OP_ADD, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "1", EVT_DIGIT, '1', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "2", EVT_DIGIT, '2', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "3", EVT_DIGIT, '3', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "+", EVT_OPERATION, 0, OP_ADD, OP_STYLE));
     
     // Row 5
-    AzDom_addChild(&buttons, create_button(data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
-    AzDom_addChild(&buttons, create_button(data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
 
     // Main container
     AzDom body = AzDom_div();
-    AzDom_setInlineStyle(&body, AzString_fromConstStr(CALC_STYLE));
+    AzString body_style = AzString_copyFromBytes((const uint8_t*)CALC_STYLE, 0, strlen(CALC_STYLE));
+    AzDom_setInlineStyle(&body, body_style);
     AzDom_addChild(&body, display);
     AzDom_addChild(&body, buttons);
 
     return AzStyledDom_new(body, AzCss_empty());
 }
 
-AzUpdate on_button_click(AzRefAny* data, AzCallbackInfo* info) {
-    ButtonDataRef bd = ButtonDataRef_create(data);
-    if (!ButtonData_downcastRef(data, &bd)) {
+AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
+    ButtonDataRef bd = ButtonDataRef_create(&data);
+    if (!ButtonData_downcastRef(&data, &bd)) {
         return AzUpdate_DoNothing;
     }
     
