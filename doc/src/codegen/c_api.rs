@@ -127,6 +127,58 @@ pub fn escape_cpp_keyword(name: &str) -> String {
     }
 }
 
+/// Check if a type is a "callback struct" - a struct with a `cb` field (function pointer)
+/// and a `callable` field (for FFI bindings).
+/// 
+/// Callback structs are things like `Callback`, `ButtonOnClickCallback`, `RenderImageCallback`.
+/// These have the pattern: `struct FooCallback { cb: FooCallbackType, callable: OptionRefAny }`
+/// 
+/// For the C API, when a function takes a callback struct as parameter, we generate two variants:
+/// 1. The base function that takes just the function pointer (CallbackType) - for C/C++ users
+/// 2. A `_withCallback` variant that takes the full struct - for FFI bindings like Python
+fn is_callback_struct(api_data: &ApiData, version: &str, type_name: &str) -> bool {
+    let version_data = match api_data.get_version(version) {
+        Some(v) => v,
+        None => return false,
+    };
+    
+    // Look up the type in all modules
+    for module in version_data.api.values() {
+        if let Some(class_data) = module.classes.get(type_name) {
+            // A callback struct has struct_fields with "cb" and "callable" fields
+            if let Some(struct_fields) = &class_data.struct_fields {
+                let has_cb = struct_fields.iter().any(|f| f.contains_key("cb"));
+                let has_callable = struct_fields.iter().any(|f| f.contains_key("callable"));
+                return has_cb && has_callable;
+            }
+        }
+    }
+    
+    false
+}
+
+/// Get the CallbackType name for a Callback struct.
+/// For example: `Callback` -> `CallbackType`, `ButtonOnClickCallback` -> `ButtonOnClickCallbackType`
+fn get_callback_type_for_struct(callback_struct_name: &str) -> String {
+    format!("{}Type", callback_struct_name)
+}
+
+/// Check if any argument in a function is a callback struct
+fn function_has_callback_arg(api_data: &ApiData, version: &str, function_data: &crate::api::FunctionData) -> Option<(String, String)> {
+    for arg in &function_data.fn_args {
+        if let Some((arg_name, arg_type)) = arg.iter().next() {
+            if arg_name == "self" {
+                continue;
+            }
+            let (_, base_type, _) = analyze_type(arg_type);
+            if is_callback_struct(api_data, version, &base_type) {
+                return Some((arg_name.clone(), base_type));
+            }
+        }
+    }
+    None
+}
+
 /// Convert a Rust type (possibly with pointer prefix) to a C type.
 ///
 /// Handles types like "*mut c_void" -> "void*", "*const InstantPtr" -> "const AzInstantPtr*"
@@ -558,6 +610,101 @@ fn format_c_function_args(
             } else {
                 // Non-primitive type - add PREFIX
                 let c_type = format!("{}{}", PREFIX, replace_primitive_ctype(&base_type));
+                let ptr_suffix = if prefix_ptr == "*const " || prefix_ptr == "&" {
+                    "* "
+                } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                    "* restrict "
+                } else {
+                    " "
+                };
+
+                args.push(format!("{}{}{}", c_type, ptr_suffix, safe_arg_name));
+            }
+        }
+    }
+
+    args.join(", ")
+}
+
+/// Format C function arguments, with option to replace callback structs with their CallbackType.
+/// 
+/// When `replace_callback_with_type` is true:
+/// - `Callback` becomes `CallbackType` (the function pointer)
+/// - This is the default C API behavior - users pass function pointers directly
+/// 
+/// When `replace_callback_with_type` is false:
+/// - The full callback struct is used (e.g., `AzCallback`)
+/// - This is for the `_withCallback` variant used by FFI bindings
+fn format_c_function_args_ex(
+    api_data: &ApiData,
+    version: &str,
+    function_data: &crate::api::FunctionData,
+    class_name: &str,
+    class_ptr_name: &str,
+    self_as_first_arg: bool,
+    replace_callback_with_type: bool,
+) -> String {
+    let mut args = Vec::new();
+
+    // Handle self parameter if needed
+    if self_as_first_arg {
+        if let Some(first_arg) = function_data.fn_args.first() {
+            if let Some((arg_name, self_type)) = first_arg.iter().next() {
+                if arg_name == "self" {
+                    let class_lower = class_name.to_lowercase();
+
+                    match self_type.as_str() {
+                        "value" => {
+                            args.push(format!("const {} {}", class_ptr_name, class_lower));
+                        }
+                        "mut value" => {
+                            args.push(format!("{}* restrict {}", class_ptr_name, class_lower));
+                        }
+                        "refmut" => {
+                            args.push(format!("{}* restrict {}", class_ptr_name, class_lower));
+                        }
+                        "ref" => {
+                            args.push(format!("const {}* {}", class_ptr_name, class_lower));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle other arguments
+    for arg in &function_data.fn_args {
+        if let Some((arg_name, arg_type)) = arg.iter().next() {
+            if arg_name == "self" {
+                continue; // Skip self, already handled
+            }
+
+            // Escape C++ reserved keywords
+            let safe_arg_name = escape_cpp_keyword(arg_name);
+
+            let (prefix_ptr, base_type, _suffix) = analyze_type(arg_type);
+
+            // Check if this is a callback struct that should be replaced with its Type
+            let effective_base_type = if replace_callback_with_type && is_callback_struct(api_data, version, &base_type) {
+                get_callback_type_for_struct(&base_type)
+            } else {
+                base_type.clone()
+            };
+
+            if is_primitive_arg(&effective_base_type) {
+                let c_type = replace_primitive_ctype(&effective_base_type);
+
+                if prefix_ptr == "*const " || prefix_ptr == "&" {
+                    args.push(format!("const {}* {}", c_type, safe_arg_name));
+                } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
+                    args.push(format!("{}* restrict {}", c_type, safe_arg_name));
+                } else {
+                    args.push(format!("{} {}", c_type, safe_arg_name));
+                }
+            } else {
+                // Non-primitive type - add PREFIX
+                let c_type = format!("{}{}", PREFIX, replace_primitive_ctype(&effective_base_type));
                 let ptr_suffix = if prefix_ptr == "*const " || prefix_ptr == "&" {
                     "* "
                 } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
@@ -1152,14 +1299,18 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     let c_fn_name =
                         format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
 
-                    // Generate function arguments
-                    let fn_args = format_c_function_args(
+                    // Check if this function has a callback struct argument
+                    let has_callback_arg = function_has_callback_arg(api_data, version, constructor);
+
+                    // Generate function arguments - replace callback struct with CallbackType for base version
+                    let fn_args = format_c_function_args_ex(
                         api_data,
                         version,
                         constructor,
                         class_name,
                         &class_ptr_name,
                         false, // Constructors don't have self as first arg
+                        true,  // Replace callback structs with CallbackType
                     );
 
                     // Return type is the class itself
@@ -1169,6 +1320,23 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         "extern DLLIMPORT {} {}({});\r\n",
                         returns, c_fn_name, fn_args
                     ));
+
+                    // If this function has a callback argument, also generate WithCallable variant
+                    if has_callback_arg.is_some() {
+                        let fn_args_with_callback = format_c_function_args_ex(
+                            api_data,
+                            version,
+                            constructor,
+                            class_name,
+                            &class_ptr_name,
+                            false, // Constructors don't have self as first arg
+                            false, // Don't replace - use full callback struct
+                        );
+                        code.push_str(&format!(
+                            "extern DLLIMPORT {} {}WithCallable({});\r\n",
+                            returns, c_fn_name, fn_args_with_callback
+                        ));
+                    }
                 }
             }
 
@@ -1178,14 +1346,18 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                     let c_fn_name =
                         format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
 
-                    // Generate function arguments
-                    let fn_args = format_c_function_args(
+                    // Check if this function has a callback struct argument
+                    let has_callback_arg = function_has_callback_arg(api_data, version, function);
+
+                    // Generate function arguments - replace callback struct with CallbackType for base version
+                    let fn_args = format_c_function_args_ex(
                         api_data,
                         version,
                         function,
                         class_name,
                         &class_ptr_name,
                         true, // Methods have self as first arg
+                        true, // Replace callback structs with CallbackType
                     );
 
                     // Generate return type
@@ -1220,6 +1392,23 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         "extern DLLIMPORT {} {}({});\r\n",
                         returns, c_fn_name, fn_args
                     ));
+
+                    // If this function has a callback argument, also generate _withCallback variant
+                    if has_callback_arg.is_some() {
+                        let fn_args_with_callback = format_c_function_args_ex(
+                            api_data,
+                            version,
+                            function,
+                            class_name,
+                            &class_ptr_name,
+                            true,  // Methods have self as first arg
+                            false, // Don't replace - use full callback struct
+                        );
+                        code.push_str(&format!(
+                            "extern DLLIMPORT {} {}WithCallable({});\r\n",
+                            returns, c_fn_name, fn_args_with_callback
+                        ));
+                    }
                 }
             }
 
