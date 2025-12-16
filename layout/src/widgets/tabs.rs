@@ -1222,15 +1222,15 @@ impl TabHeader {
         self
     }
 
-    pub fn set_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) {
+    pub fn set_on_click<C: Into<TabOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
         self.on_click = Some(TabOnClick {
             data,
-            callback: TabOnClickCallback { cb: on_click, callable: azul_core::refany::OptionRefAny::None },
+            callback: on_click.into(),
         })
         .into();
     }
 
-    pub fn with_on_click(mut self, data: RefAny, on_click: TabOnClickCallbackType) -> Self {
+    pub fn with_on_click<C: Into<TabOnClickCallback>>(mut self, data: RefAny, on_click: C) -> Self {
         self.set_on_click(data, on_click);
         self
     }

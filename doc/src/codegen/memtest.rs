@@ -163,6 +163,9 @@ pub struct MemtestConfig {
     /// Whether to generate Clone/Drop by transmuting to external type
     /// (for Python extension where C-ABI functions don't exist)
     pub drop_via_external: bool,
+    /// Whether to generate callback_typedef types as aliases to external types
+    /// (e.g., `pub type AzLayoutCallbackType = azul_core::callbacks::LayoutCallbackType;`)
+    pub callback_typedef_use_external: bool,
 }
 
 impl Default for MemtestConfig {
@@ -175,6 +178,7 @@ impl Default for MemtestConfig {
             generate_no_mangle: true,  // Default is to generate #[no_mangle]
             skip_c_abi_functions: false, // Default is to generate C-ABI functions
             drop_via_external: false,  // Default is to call C-ABI functions for Drop/Clone
+            callback_typedef_use_external: false, // Default is to re-define callback function signatures
         }
     }
 }
@@ -789,6 +793,7 @@ fn generate_dll_module(
         is_memtest: !config.drop_via_external, // Skip trait impls if not using drop_via_external
         is_for_dll: config.is_for_dll,
         drop_via_external: config.drop_via_external,
+        callback_typedef_use_external: config.callback_typedef_use_external,
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
@@ -886,6 +891,22 @@ fn generate_dll_module(
                 {name}::DefaultRust => 0usize.hash(state),
                 {name}::NoDestructor => 1usize.hash(state),
                 {name}::External(f) => (2usize + (*f as usize)).hash(state),
+            }}
+        }}
+    }}
+
+"#,
+                name = prefixed_name
+            ));
+
+            // Clone implementation - function pointers are Copy, so cloning is trivial
+            dll_code.push_str(&format!(
+                r#"    impl Clone for {name} {{
+        fn clone(&self) -> Self {{
+            match self {{
+                {name}::DefaultRust => {name}::DefaultRust,
+                {name}::NoDestructor => {name}::NoDestructor,
+                {name}::External(f) => {name}::External(*f),
             }}
         }}
     }}
@@ -1205,6 +1226,8 @@ fn generate_dll_module(
                         &fn_info.fn_args,
                         config.is_for_dll,
                         false, // C-API uses class_name for self variable, not "self"
+                        false, // No force_clone_self for C-API
+                        &std::collections::HashSet::new(), // No pre-converted args for C-API
                     )
                 } else {
                     // No fn_body in api.json - ERROR! All functions must have fn_body defined
@@ -1378,6 +1401,8 @@ pub fn generate_transmuted_fn_body(
     fn_args: &str,
     is_for_dll: bool,
     keep_self_name: bool, // If true, use "_self" for self parameter (for PyO3 bindings)
+    force_clone_self: bool, // If true, always clone self (for PyO3 methods where API says self by-value)
+    skip_args: &std::collections::HashSet<String>, // Arguments to skip (already converted with _ffi suffix)
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
@@ -1442,6 +1467,11 @@ pub fn generate_transmuted_fn_body(
 
     // Generate transmutations for ALL arguments on separate lines
     for (arg_name, arg_type) in &parsed_args {
+        // Skip arguments that are already converted (have _ffi suffix handled elsewhere)
+        if skip_args.contains(arg_name) {
+            continue;
+        }
+        
         let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
         
         // Track if self is a reference
@@ -1504,20 +1534,38 @@ pub fn generate_transmuted_fn_body(
     // IMPORTANT: If self is a reference AND fn_body uses consuming methods (builder pattern),
     // we need to clone. Builder methods like .with_*() consume self.
     // But for methods that just use references (like encode_bmp()), we should NOT clone.
+    // ALSO: If force_clone_self is true, we always clone (for PyO3 methods where API says self by-value)
     if keep_self_name && !is_constructor {
         // Detect if fn_body uses builder pattern (consuming methods)
         // Builder pattern methods typically are: .with_*, .set_*, etc. that return Self
         let uses_builder_pattern = fn_body.contains(&format!("{}.with_", self_var))
             || fn_body.contains(&format!("{}.set_", self_var))
             || fn_body.contains(&format!("{}.add_", self_var))
-            || fn_body.contains("object.with_");
+            || fn_body.contains("object.with_")
+            || fn_body.contains("_self.with_");
         
-        if self_is_ref && uses_builder_pattern {
+        if force_clone_self || (self_is_ref && uses_builder_pattern) {
             // Clone for consuming methods - the fn_body calls methods like .with_node_type()
-            // that take self by value
-            lines.push(format!("    let {} = _self.clone();", self_var));
+            // that take self by value, OR the API expects self by value but PyO3 gives us &self
+            // Since fn_body uses _self (after object. -> _self. replacement), clone to _self
+            // Use a temporary to avoid "use of moved value" error
+            lines.push(format!("    let __cloned = _self.clone();"));
+            // Now fn_body replacements: replace "_self." with "__cloned." below
         } else {
             lines.push(format!("    let {} = _self;", self_var));
+        }
+    }
+    
+    // If we cloned, replace _self with __cloned in fn_body
+    if keep_self_name && !is_constructor {
+        let uses_builder_pattern = fn_body.contains(&format!("{}.with_", self_var))
+            || fn_body.contains(&format!("{}.set_", self_var))
+            || fn_body.contains(&format!("{}.add_", self_var))
+            || fn_body.contains("object.with_")
+            || fn_body.contains("_self.with_");
+        if force_clone_self || (self_is_ref && uses_builder_pattern) {
+            fn_body = fn_body.replace("_self.", "__cloned.");
+            fn_body = fn_body.replace(&format!("{}.", self_var), "__cloned.");
         }
     }
 
@@ -1562,6 +1610,8 @@ pub fn generate_transmuted_fn_body(
             ));
         }
 
+        // Transmute result back to local type
+        // The From/Into traits handle conversion between wrapper types
         lines.push(format!(
             "    core::mem::transmute::<{ext}, {local}>(__result)",
             ext = return_external,

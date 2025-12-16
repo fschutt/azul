@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     api::{ApiData, ClassData, EnumVariantData, FieldData, FunctionData, RefKind, VersionData},
@@ -18,6 +18,15 @@ use super::memtest::{
 };
 
 const PREFIX: &str = "Az";
+
+/// Capitalize the first character of a string (e.g., "u8" → "U8", "f32" → "F32")
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+    }
+}
 
 // Recursive types - they cause "infinite size" errors in PyO3
 // These would need Box<> indirection which the C-API doesn't have
@@ -136,6 +145,27 @@ struct CallbackTypeInfo {
 fn is_refany_type(type_name: &str) -> bool {
     let (_, base_type, _) = analyze_type(type_name);
     base_type == "RefAny"
+}
+
+/// Check if a type name is a callback_typedef (raw function pointer type like LayoutCallbackType)
+/// These are different from Callback structs which pair a function pointer with RefAny data
+fn is_callback_typedef_by_name(type_name: &str, version_data: &VersionData) -> bool {
+    let (_, base_type, _) = analyze_type(type_name);
+    
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, &base_type) {
+        if let Some(class_data) = get_class(version_data, module, &base_type) {
+            return class_data.callback_typedef.is_some();
+        }
+    }
+    false
+}
+
+/// Get the trampoline name for a callback_typedef type
+fn get_callback_typedef_trampoline(type_name: &str) -> String {
+    // LayoutCallbackType → invoke_py_layout_callback
+    // CallbackType → invoke_py_callback
+    let base = type_name.replace("Type", "");
+    format!("invoke_py_{}", to_snake_case(&base))
 }
 
 /// Check if a type is a VecRef type (raw pointer slice wrapper)
@@ -332,6 +362,27 @@ fn has_sync_trait(class_data: &ClassData) -> bool {
     false
 }
 
+/// Check if a type is a primitive type or a type alias that resolves to a primitive.
+/// For example, GLint -> i32, GLuint -> u32, GLfloat -> f32, etc.
+fn is_primitive_or_alias_to_primitive(type_name: &str, version_data: &VersionData) -> bool {
+    // First check if it's directly a primitive
+    if is_primitive_arg(type_name) {
+        return true;
+    }
+    
+    // Then check if it's a type alias to a primitive
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, type_name) {
+        if let Some(class_data) = get_class(version_data, module, type_name) {
+            if let Some(ref type_alias) = class_data.type_alias {
+                // Recursively check the target type
+                return is_primitive_or_alias_to_primitive(&type_alias.target, version_data);
+            }
+        }
+    }
+    
+    false
+}
+
 /// Check if a class has any mutable methods (&mut self)
 /// In PyO3 0.27+, unsendable implies frozen which forbids &mut self methods
 fn class_has_mutable_methods(class_data: &ClassData) -> bool {
@@ -456,6 +507,10 @@ fn generate_python_patches_prefix(version_data: &VersionData, prefix: &str) -> S
     code.push_str("type AzU8VecDestructor = __dll_api_inner::dll::AzU8VecDestructor;\r\n");
     code.push_str("type AzStringVecDestructor = __dll_api_inner::dll::AzStringVecDestructor;\r\n");
     code.push_str("type AzRefAny = __dll_api_inner::dll::AzRefAny;\r\n");
+    // GL Vec types for return value conversion
+    code.push_str("type AzGLuintVec = __dll_api_inner::dll::AzGLuintVec;\r\n");
+    code.push_str("type AzGLintVec = __dll_api_inner::dll::AzGLintVec;\r\n");
+    // Note: GLint64Vec does not exist in api.json, only GLint64VecRefMut
     // Types used in enum variants that need full paths (C-API types, not Python wrappers)
     code.push_str("type AzStringMenuItem = __dll_api_inner::dll::AzStringMenuItem;\r\n");
     code.push_str("type AzInstantPtr = __dll_api_inner::dll::AzInstantPtr;\r\n");
@@ -475,6 +530,27 @@ fn generate_python_patches_prefix(version_data: &VersionData, prefix: &str) -> S
 }
 
 fn az_vecu8_to_py_vecu8(input: AzU8Vec) -> Vec<u8> {
+    let slice = unsafe {
+        core::slice::from_raw_parts(input.ptr, input.len)
+    };
+    slice.to_vec()
+}
+
+fn az_stringvec_to_py_stringvec(input: AzStringVec) -> Vec<String> {
+    let slice = unsafe {
+        core::slice::from_raw_parts(input.ptr, input.len)
+    };
+    slice.iter().map(|s| az_string_to_py_string(s.clone())).collect()
+}
+
+fn az_gluintvec_to_py_vecu32(input: AzGLuintVec) -> Vec<u32> {
+    let slice = unsafe {
+        core::slice::from_raw_parts(input.ptr, input.len)
+    };
+    slice.to_vec()
+}
+
+fn az_glintvec_to_py_veci32(input: AzGLintVec) -> Vec<i32> {
     let slice = unsafe {
         core::slice::from_raw_parts(input.ptr, input.len)
     };
@@ -715,17 +791,17 @@ pub struct PyObjectWrapper {
     code.push_str("// --- Callback Trampolines (extern \"C\" functions) ---\r\n\r\n");
     
     // Special trampoline for layout callback (uses AppDataTy)
+    // Since callback_typedef_use_external is enabled, we must use EXTERNAL types in signature
     code.push_str(&format!(r#"/// Trampoline for layout callbacks - uses AppDataTy wrapper
 /// Layout callback is special: both data and callback are in AppDataTy
+/// Signature uses external types to match azul_core::callbacks::LayoutCallbackType
 extern "C" fn invoke_py_layout_callback(
-    app_data: ffi::AzRefAny,
-    info: ffi::AzLayoutCallbackInfo
-) -> ffi::AzStyledDom {{
-    let default: ffi::AzStyledDom = unsafe {{ 
-        mem::transmute(azul_core::styled_dom::StyledDom::default()) 
-    }};
+    app_data: azul_core::refany::RefAny,
+    info: azul_core::callbacks::LayoutCallbackInfo
+) -> azul_core::styled_dom::StyledDom {{
+    let default = azul_core::styled_dom::StyledDom::default();
     
-    let mut app_data_core: azul_core::refany::RefAny = unsafe {{ mem::transmute(app_data) }};
+    let mut app_data_core = app_data;
     
     let app = match app_data_core.downcast_ref::<AppDataTy>() {{
         Some(s) => s,
@@ -743,13 +819,13 @@ extern "C" fn invoke_py_layout_callback(
     }};
 
     Python::attach(|py| {{
-        // Wrap FFI type in Python wrapper struct
-        let info_py = {prefix}LayoutCallbackInfo {{ inner: info }};
+        // Transmute external type to Python wrapper struct
+        let info_py: {prefix}LayoutCallbackInfo = unsafe {{ mem::transmute(info) }};
         
         match py_callback.call1(py, (py_data.clone_ref(py), info_py)) {{
             Ok(result) => {{
                 match result.extract::<{prefix}StyledDom>(py) {{
-                    Ok(styled_dom) => styled_dom.inner,
+                    Ok(styled_dom) => unsafe {{ mem::transmute(styled_dom) }},
                     Err(e) => {{
                         #[cfg(feature = "logging")]
                         log::error!("Layout callback must return StyledDom: {{:?}}", e);
@@ -770,6 +846,7 @@ extern "C" fn invoke_py_layout_callback(
     
     // Generate trampolines for other callbacks
     // These use PyDataWrapper for data and get_callable() for the callable
+    // IMPORTANT: Signatures must use EXTERNAL types (azul_core::...) to match CallbackType definitions
     for (callback_name, callback_def) in &callback_types {
         // Skip LayoutCallbackType - handled above
         if callback_name == "LayoutCallbackType" {
@@ -778,8 +855,9 @@ extern "C" fn invoke_py_layout_callback(
         
         let trampoline_name = format!("invoke_py_{}", to_snake_case(&callback_name.replace("Type", "")));
         
-        // Parse function arguments
+        // Parse function arguments - use EXTERNAL types for signature
         let mut args_sig = String::new();
+        let mut args_sig_ffi = String::new();  // For converting to FFI inside function
         let mut first_arg = true;
         let mut info_type = String::new();
         let mut info_arg_name = String::new();
@@ -795,8 +873,15 @@ extern "C" fn invoke_py_layout_callback(
             };
             
             let type_str = &arg.r#type;
-            // Use ffi:: prefix for FFI types (cleaner than __dll_api_inner::dll::)
-            let arg_type = if is_primitive_arg(type_str) {
+            // Use EXTERNAL types for signature (to match the callback type definition)
+            let arg_type_external = if is_primitive_arg(type_str) {
+                arg.r#type.clone()
+            } else {
+                get_type_external_path(&arg.r#type, version_data)
+            };
+            
+            // FFI type for internal use
+            let arg_type_ffi = if is_primitive_arg(type_str) {
                 arg.r#type.clone()
             } else if arg.r#type == "RefAny" {
                 "ffi::AzRefAny".to_string()
@@ -815,51 +900,62 @@ extern "C" fn invoke_py_layout_callback(
             if !first_arg {
                 args_sig.push_str(",\r\n    ");
             }
-            args_sig.push_str(&format!("{}: {}", arg_name, arg_type));
+            args_sig.push_str(&format!("{}: {}", arg_name, arg_type_external));
             first_arg = false;
         }
         
-        // Return type - use ffi:: prefix
+        // Return type - use EXTERNAL type for signature
         let return_type = callback_def.returns.as_ref()
             .map(|r| r.r#type.clone())
             .unwrap_or_else(|| "()".to_string());
+        let return_type_external = if is_primitive_arg(&return_type) || return_type == "()" {
+            return_type.clone()
+        } else {
+            get_type_external_path(&return_type, version_data)
+        };
         let capi_return_type = if is_primitive_arg(&return_type) || return_type == "()" {
             return_type.clone()
         } else {
             format!("ffi::{}{}", prefix, return_type)
         };
         
-        // Default value for return - use ffi:: prefix
+        // Default value for return - use external type
         let default_expr = match return_type.as_str() {
             "()" => "()".to_string(),
-            "Update" => format!("{}::DoNothing", capi_return_type),
+            "Update" => format!("{}::DoNothing", return_type_external),
             "OnTextInputReturn" => format!(
-                "{} {{ update: ffi::AzUpdate::DoNothing, valid: ffi::AzTextInputValid::Yes }}",
-                capi_return_type
+                "{} {{ update: azul_core::callbacks::Update::DoNothing, valid: azul_layout::widgets::text_input::TextInputValid::Yes }}",
+                return_type_external
             ),
+            "ImageRef" => {
+                // ImageRef doesn't implement Default, use null_image() with empty values instead
+                format!("{}::null_image(0, 0, azul_core::resources::RawImageFormat::BGRA8, Vec::new())", return_type_external)
+            }
             _ => {
-                let ext_path = get_type_external_path(&return_type, version_data);
-                if !ext_path.is_empty() && !ext_path.contains("::") {
-                    format!("{}::default()", capi_return_type)
-                } else if !ext_path.is_empty() {
-                    format!("unsafe {{ mem::transmute::<{}, {}>({}::default()) }}", ext_path, capi_return_type, ext_path)
-                } else {
-                    format!("{}::default()", capi_return_type)
-                }
+                format!("{}::default()", return_type_external)
             }
         };
         
-        // Generate trampoline
+        // Generate trampoline with EXTERNAL types in signature
         code.push_str(&format!("/// Trampoline for {} - bridges Python to Rust\r\n", callback_name));
         code.push_str(&format!("/// Data is in RefAny (PyDataWrapper), callable is retrieved via {}.get_callable()\r\n", info_type));
+        code.push_str(&format!("/// Signature uses external types to match the callback type definition\r\n"));
         code.push_str(&format!("extern \"C\" fn {}(\r\n    {}\r\n) -> {} {{\r\n", 
-            trampoline_name, args_sig, capi_return_type));
+            trampoline_name, args_sig, return_type_external));
         
         code.push_str(&format!("    let default = {};\r\n\r\n", default_expr));
         
-        // Get user data from RefAny (PyDataWrapper)
+        // Convert external types to FFI for Python wrapper interaction
+        if !info_type.is_empty() {
+            let info_ffi_type = format!("ffi::{}{}", prefix, info_type);
+            code.push_str(&format!("    // Convert external info type to FFI for Python wrapper\r\n"));
+            code.push_str(&format!("    let {}_ffi: {} = unsafe {{ mem::transmute({}) }};\r\n\r\n", 
+                info_arg_name, info_ffi_type, info_arg_name));
+        }
+        
+        // Get user data from RefAny (PyDataWrapper) - data is already external type
         code.push_str("    // Extract Python user data from RefAny\r\n");
-        code.push_str("    let mut data_core: azul_core::refany::RefAny = unsafe { mem::transmute(data) };\r\n");
+        code.push_str("    let mut data_core = data;\r\n");
         code.push_str("    let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {\r\n");
         code.push_str("        Some(s) => s,\r\n");
         code.push_str("        None => return default,\r\n");
@@ -870,10 +966,10 @@ extern "C" fn invoke_py_layout_callback(
         code.push_str("    };\r\n\r\n");
         
         // Get callable from info.get_callable() (PyCallableWrapper)
-        // We transmute the FFI info type to the Rust info type and call get_callable() directly
+        // Use the original external type (data is already external)
         let info_external_path = get_type_external_path(&info_type, version_data);
         code.push_str("    // Get Python callable from info.get_callable()\r\n");
-        code.push_str(&format!("    let info_rust: &{} = unsafe {{ mem::transmute(&{}) }};\r\n", info_external_path, info_arg_name));
+        code.push_str(&format!("    let info_rust: &{} = unsafe {{ mem::transmute(&{}_ffi) }};\r\n", info_external_path, info_arg_name));
         code.push_str("    let callable_opt: azul_core::refany::OptionRefAny = info_rust.get_callable();\r\n");
         code.push_str("    let callable_refany = match callable_opt {\r\n");
         code.push_str("        azul_core::refany::OptionRefAny::Some(r) => r,\r\n");
@@ -892,19 +988,22 @@ extern "C" fn invoke_py_layout_callback(
         // Call Python
         code.push_str("    Python::attach(|py| {\r\n");
         
-        // Wrap FFI type in Python wrapper struct (no transmute needed)
+        // Wrap FFI type in Python wrapper struct
         if !info_type.is_empty() {
             let info_py_type = format!("{}{}", prefix, info_type);
-            code.push_str(&format!("        let info_py = {} {{ inner: {} }};\r\n", info_py_type, info_arg_name));
+            code.push_str(&format!("        let info_py = {} {{ inner: {}_ffi }};\r\n", info_py_type, info_arg_name));
         }
         
-        // Wrap extra args in Python wrappers
+        // Wrap extra args in Python wrappers - convert external to FFI first
         for (arg_name, arg_type) in &extra_args {
             if is_primitive_arg(arg_type) {
                 code.push_str(&format!("        let {}_py = {};\r\n", arg_name, arg_name));
             } else {
                 let py_type = format!("{}{}", prefix, arg_type);
-                code.push_str(&format!("        let {}_py = {} {{ inner: {} }};\r\n", 
+                let ffi_type = format!("ffi::{}{}", prefix, arg_type);
+                code.push_str(&format!("        let {}_ffi: {} = unsafe {{ mem::transmute({}) }};\r\n", 
+                    arg_name, ffi_type, arg_name));
+                code.push_str(&format!("        let {}_py = {} {{ inner: {}_ffi }};\r\n", 
                     arg_name, py_type, arg_name));
             }
         }
@@ -926,9 +1025,9 @@ extern "C" fn invoke_py_layout_callback(
         if return_type == "()" {
             code.push_str("                ()\r\n");
         } else {
-            // Extract Python wrapper and return its inner FFI type
+            // Extract Python wrapper and transmute FFI result back to external type
             code.push_str(&format!("                match result.extract::<{}>(py) {{\r\n", return_py_type));
-            code.push_str("                    Ok(ret) => ret.inner,\r\n");
+            code.push_str(&format!("                    Ok(ret) => unsafe {{ mem::transmute(ret.inner) }},\r\n"));
             code.push_str("                    Err(_) => default,\r\n");
             code.push_str("                }\r\n");
         }
@@ -1369,6 +1468,10 @@ fn should_skip_type(class_name: &str, class_data: &ClassData, version_data: &Ver
         "String",    // AzString <-> Python str
         "U8Vec",     // AzU8Vec <-> Python bytes  
         "StringVec", // AzStringVec <-> Python list[str]
+        // GL Vec types - used internally for OpenGL, converted via helper functions
+        "GLuintVec",    // AzGLuintVec <-> Vec<u32>
+        "GLintVec",     // AzGLintVec <-> Vec<i32>
+        // Note: GLint64Vec does not exist in api.json - only GLint64VecRefMut
         // Internal types - not exposed to Python, used internally for wrapping
         "RefAny",    // Internal: wraps Python PyObject for Rust callbacks
         "RefCount",  // Internal: reference counting for RefAny
@@ -1590,6 +1693,7 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
         generate_no_mangle: false,      // Not needed - we skip C-ABI functions
         skip_c_abi_functions: true,     // Skip C-ABI functions - we call Rust directly
         drop_via_external: true,        // Use transmute for Drop/Clone (no C-ABI functions)
+        callback_typedef_use_external: true, // Use external types for callbacks (compatible signatures)
     };
     let replacements = TypeReplacements::new(version_data).unwrap();
     let dll_api_code = generate_generated_rs(api_data, &config, &replacements)
@@ -1847,7 +1951,7 @@ fn generate_struct_definition(
     class_name: &str,
     class_data: &ClassData,
     prefix: &str,
-    _version_data: &VersionData,
+    version_data: &VersionData,
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
@@ -2212,17 +2316,98 @@ fn generate_enum_pymethods(
                             "    fn {}(v: {}) -> Self {{\r\n",
                             variant_name, py_type
                         ));
-                        code.push_str(&format!(
-                            "        Self {{ inner: {}::{}(v.inner) }}\r\n",
-                            c_api_type, variant_name
-                        ));
+                        // For primitive types and aliases to primitives, use v directly
+                        // For Vec types, we need to convert to the FFI Vec type
+                        // For wrapper types, extract .inner
+                        if is_primitive_or_alias_to_primitive(&base_type, version_data) {
+                            code.push_str(&format!(
+                                "        Self {{ inner: {}::{}(v) }}\r\n",
+                                c_api_type, variant_name
+                            ));
+                        } else if let Some(element_type) = get_vec_element_type(&base_type) {
+                            // Vec<AzFoo> needs conversion
+                            let vec_type_name = format!("{}{}Vec", prefix, element_type);
+                            let elem_type_name = format!("{}{}", prefix, element_type);
+                            let external_vec_path = type_to_external.get(&vec_type_name)
+                                .cloned()
+                                .unwrap_or_else(|| format!("azul_core::dom::{}Vec", element_type));
+                            let external_elem_path = type_to_external.get(&elem_type_name)
+                                .cloned()
+                                .unwrap_or_else(|| format!("azul_core::dom::{}", element_type));
+                            
+                            if is_primitive_or_alias_to_primitive(&element_type, version_data) {
+                                // Vec<u8>, Vec<f32> etc.
+                                // For FFI types: u8 → U8, f32 → F32
+                                let capitalized = capitalize_first(&element_type);
+                                let primitive_vec_type = format!("{}{}Vec", prefix, capitalized);
+                                let external_primitive_vec = type_to_external.get(&primitive_vec_type)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("azul_css::corety::{}Vec", capitalized));
+                                code.push_str(&format!(
+                                    "        let converted: __dll_api_inner::dll::Az{}Vec = unsafe {{\r\n\
+                                         let elem_vec: Vec<{}> = v;\r\n\
+                                         let wrapped: {} = elem_vec.into();\r\n\
+                                         core::mem::transmute(wrapped)\r\n\
+                                     }};\r\n",
+                                    capitalized,
+                                    element_type,
+                                    external_primitive_vec,
+                                ));
+                                code.push_str(&format!(
+                                    "        Self {{ inner: {}::{}(converted) }}\r\n",
+                                    c_api_type, variant_name
+                                ));
+                            } else {
+                                code.push_str(&format!(
+                                    "        let converted: __dll_api_inner::dll::Az{}Vec = unsafe {{\r\n\
+                                         let inners: Vec<__dll_api_inner::dll::Az{}> = v.into_iter().map(|x| x.inner).collect();\r\n\
+                                         let transmuted: Vec<{}> = core::mem::transmute(inners);\r\n\
+                                         let wrapped: {} = transmuted.into();\r\n\
+                                         core::mem::transmute(wrapped)\r\n\
+                                     }};\r\n",
+                                    element_type,
+                                    element_type,
+                                    external_elem_path,
+                                    external_vec_path,
+                                ));
+                                code.push_str(&format!(
+                                    "        Self {{ inner: {}::{}(converted) }}\r\n",
+                                    c_api_type, variant_name
+                                ));
+                            }
+                        } else {
+                            // Check if it's an array type like [PixelValue; 2]
+                            let (array_prefix, array_base, array_suffix) = analyze_type(variant_type);
+                            if !array_suffix.is_empty() {
+                                // Array type: need to convert each element's .inner
+                                // For [AzPixelValue; 2] → [dll::AzPixelValue; 2]
+                                // array_prefix contains "[", array_suffix contains "; 2]"
+                                // The type should be [__dll_api_inner::dll::AzFoo; N] not __dll_api_inner::dll::[AzFoo; N]
+                                code.push_str(&format!(
+                                    "        let converted: {}__dll_api_inner::dll::{}{}{} = unsafe {{\r\n\
+                                         let inners = v.map(|x| x.inner);\r\n\
+                                         inners\r\n\
+                                     }};\r\n",
+                                    array_prefix, prefix, array_base, array_suffix
+                                ));
+                                code.push_str(&format!(
+                                    "        Self {{ inner: {}::{}(converted) }}\r\n",
+                                    c_api_type, variant_name
+                                ));
+                            } else {
+                                code.push_str(&format!(
+                                    "        Self {{ inner: {}::{}(v.inner) }}\r\n",
+                                    c_api_type, variant_name
+                                ));
+                            }
+                        }
                         code.push_str("    }\r\n\r\n");
                     } else {
-                        // Unit variant in tagged union
+                        // Unit variant in tagged union - no parentheses after variant name
                         code.push_str("    #[staticmethod]\r\n");
                         code.push_str(&format!("    fn {}() -> Self {{\r\n", variant_name));
                         code.push_str(&format!(
-                            "        Self {{ inner: {}::{}() }}\r\n",
+                            "        Self {{ inner: {}::{} }}\r\n",
                             c_api_type, variant_name
                         ));
                         code.push_str("    }\r\n\r\n");
@@ -2355,8 +2540,8 @@ fn generate_default_constructor(
         for (field_name, field_data) in field_map {
             let field_type = &field_data.r#type;
             
-            // For primitives - use directly
-            let value_expr = if is_primitive_arg(field_type) {
+            // For primitives (including type aliases to primitives like GLint -> i32) - use directly
+            let value_expr = if is_primitive_or_alias_to_primitive(field_type, version_data) {
                 field_name.clone()
             }
             // For String - transmute from Rust String
@@ -2365,7 +2550,7 @@ fn generate_default_constructor(
             }
             // For Vec types - convert appropriately
             else if let Some(element_type) = get_vec_element_type(field_type) {
-                if is_primitive_arg(&element_type) {
+                if is_primitive_or_alias_to_primitive(&element_type, version_data) {
                     format!("unsafe {{ core::mem::transmute({}.clone().into()) }}", field_name)
                 } else if element_type == "String" {
                     format!("unsafe {{ core::mem::transmute(azul_css::corety::StringVec::from({}.clone().into_iter().map(|s| azul_css::corety::AzString::from(s)).collect::<Vec<_>>())) }}", field_name)
@@ -2375,7 +2560,7 @@ fn generate_default_constructor(
             }
             // For RefAny (Py<PyAny>) - create RefAny wrapper
             else if field_type == "RefAny" {
-                format!("unsafe {{ let wrapper = PyObjectWrapper {{ py_obj: {}.clone() }}; core::mem::transmute::<_, __dll_api_inner::dll::AzRefAny>(azul_core::refany::RefAny::new(wrapper)) }}", field_name)
+                format!("Python::with_gil(|py| unsafe {{ let wrapper = PyObjectWrapper {{ py_obj: {}.clone_ref(py) }}; core::mem::transmute::<_, __dll_api_inner::dll::AzRefAny>(azul_core::refany::RefAny::new(wrapper)) }})", field_name)
             }
             // For callback types and CallbackType aliases - skip constructor entirely
             // (this should not happen as can_have_python_constructor should have returned false)
@@ -2432,14 +2617,18 @@ fn rust_type_to_wrapper_type(rust_type: &str, ref_kind: RefKind, prefix: &str, v
         return "String".to_string();
     }
     
-    // Vec types → Vec<...>
+    // Vec types with primitive elements → Vec<primitive>
+    // Vec types with complex elements → keep as AzFooVec wrapper
+    // This ensures the return type matches what transmute produces
     if let Some(element_type) = get_vec_element_type(trimmed) {
         if is_primitive_arg(&element_type) {
             return format!("Vec<{}>", element_type);
         } else if element_type == "String" {
             return "Vec<String>".to_string();
         } else {
-            return format!("Vec<{}{}>", prefix, element_type);
+            // Non-primitive element type: keep as AzFooVec wrapper (e.g., AzDebugMessageVec)
+            // This matches the transmute output in the function body
+            return format!("{}{}", prefix, trimmed);
         }
     }
     
@@ -2526,18 +2715,53 @@ fn generate_function(
     // Build C-ABI style fn_args string for generate_transmuted_fn_body
     let mut c_api_args = Vec::new();
     
-    // Other parameters
-    let mut first_param = is_static;
+    // First pass: identify arguments that need special conversion and should be skipped in transmute
+    let mut skip_transmute_args: HashSet<String> = HashSet::new();
     for arg_map in &fn_data.fn_args {
         for (arg_name, arg_type) in arg_map {
             if arg_name == "self" {
+                continue;
+            }
+            let (ptr_prefix, base_type, _) = analyze_type(arg_type);
+            // Skip primitives
+            if is_primitive_arg(&base_type) || (!ptr_prefix.is_empty() && base_type == "c_void") {
+                continue;
+            }
+            // These types are manually converted and should NOT be transmuted again
+            if base_type == "RefAny" 
+                || get_callback_info_for_type(&base_type, version_data).is_some()
+                || is_callback_typedef_by_name(&base_type, version_data)
+                || base_type == "String"
+                || get_vec_element_type(&base_type).is_some() 
+            {
+                skip_transmute_args.insert(arg_name.clone());
+            }
+            // Non-primitive wrapper types also get .inner extracted
+            // and need the converted name used
+            else {
+                skip_transmute_args.insert(arg_name.clone());
+            }
+        }
+    }
+    
+    // Other parameters
+    let mut first_param = is_static;
+    let mut self_is_value = false;
+    for arg_map in &fn_data.fn_args {
+        for (arg_name, arg_type) in arg_map {
+            if arg_name == "self" {
+                // Track if self is by-value (needs clone in fn_body)
+                self_is_value = arg_type == "value" || arg_type == "mut value";
                 // Add self to c_api_args with proper type
                 // In PyO3, the self parameter is named "self", not the class name
+                // IMPORTANT: In PyO3, we ALWAYS receive &self or &mut self, never self by-value
+                // So c_api_args must reflect what we actually receive from PyO3
+                // The self_is_value flag is used later to tell generate_transmuted_fn_body to clone
                 let self_c_type = format!("{}{}",  prefix, class_name);
                 let self_c_arg = match self_param.as_str() {
                     "&self" => format!("self: &{}", self_c_type),
                     "&mut self" => format!("self: &mut {}", self_c_type),
-                    _ => format!("self: {}", self_c_type),
+                    _ => format!("self: &{}", self_c_type), // Default to & even if API says value
                 };
                 c_api_args.push(self_c_arg);
                 continue;
@@ -2550,8 +2774,8 @@ fn generate_function(
             code.push_str(&format!("{}: {}", arg_name, py_type));
             
             // Add to C-API args with Az-prefixed type
-            // Note: For RefAny/Callback args, we still use the FFI type here
-            // The conversion happens in the function body
+            // All args go here, but some will be pre-converted with *_ffi suffix
+            // generate_transmuted_fn_body uses these to determine what to transmute
             let c_api_type = rust_type_to_c_api_type(arg_type, prefix, version_data);
             c_api_args.push(format!("{}: {}", arg_name, c_api_type));
         }
@@ -2559,9 +2783,12 @@ fn generate_function(
 
     code.push_str(")");
 
-    // Return type
+    // Return type - track both the Python return type and the C-API return type
+    // so we can add conversion wrappers for types that need it (String, Vec<u8>, etc.)
+    // Use rust_type_to_python_return_type for return types to keep Vec wrappers (matches transmute)
+    let original_return_type = fn_data.returns.as_ref().map(|r| r.r#type.clone());
     let return_type_str = if let Some(ret) = &fn_data.returns {
-        let ret_type = rust_type_to_python_type(&ret.r#type, prefix, version_data);
+        let ret_type = rust_type_to_python_return_type(&ret.r#type, prefix, version_data);
         code.push_str(&format!(" -> {}", ret_type));
         rust_type_to_c_api_type(&ret.r#type, prefix, version_data)
     } else if is_constructor {
@@ -2599,96 +2826,167 @@ fn generate_function(
             
             let converted_name = format!("{}_ffi", arg_name);
             
-            // RefAny conversion: Py<PyAny> → ffi::AzRefAny
+            // RefAny conversion: Py<PyAny> → azul_core::refany::RefAny (external type directly)
+            // We produce the external type directly since fn_body expects external types
             if base_type == "RefAny" {
                 conversion_code.push_str(&format!(
-                    "        // Convert Python object to RefAny\r\n\
-                     let {converted} = {{\r\n\
-                         let wrapper = PyObjectWrapper {{ py_obj: {arg}.clone() }};\r\n\
-                         let refany = azul_core::refany::RefAny::new(wrapper);\r\n\
-                         unsafe {{ core::mem::transmute::<_, ffi::AzRefAny>(refany) }}\r\n\
-                     }};\r\n",
+                    "        // Convert Python object to RefAny (external type)\r\n\
+                     let {converted}: azul_core::refany::RefAny = Python::with_gil(|py| {{\r\n\
+                         let wrapper = PyObjectWrapper {{ py_obj: {arg}.clone_ref(py) }};\r\n\
+                         azul_core::refany::RefAny::new(wrapper)\r\n\
+                     }});\r\n",
                     converted = converted_name,
                     arg = arg_name,
                 ));
                 converted_arg_names.insert(arg_name.clone(), converted_name);
             }
-            // Callback conversion: Py<PyAny> → ffi::Az{Callback} with trampoline
+            // Callback conversion: Py<PyAny> → external callback type with trampoline
+            // These are callback+data pair structs like IFrameCallback, Callback, etc.
             else if let Some(cb_info) = get_callback_info_for_type(&base_type, version_data) {
+                // Get external type path
+                let prefixed_type = format!("{}{}", prefix, cb_info.original_type);
+                let external_type = type_to_external.get(&prefixed_type)
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_core::callbacks::{}", cb_info.original_type));
+                let prefixed_cb_type = format!("{}{}", prefix, cb_info.callback_type);
+                let external_cb_type = type_to_external.get(&prefixed_cb_type)
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_core::callbacks::{}", cb_info.callback_type));
                 conversion_code.push_str(&format!(
-                    "        // Convert Python callable to {} with trampoline\r\n\
-                     let {converted} = {{\r\n\
+                    "        // Convert Python callable to {} with trampoline (external type)\r\n\
+                     let {converted}: {ext_type} = Python::with_gil(|py| {{\r\n\
                          let wrapper = {wrapper_name} {{\r\n\
-                             _py_callback: Some({arg}.clone()),\r\n\
+                             _py_callback: Some({arg}.clone_ref(py)),\r\n\
                              _py_data: None,\r\n\
                          }};\r\n\
                          let refany = azul_core::refany::RefAny::new(wrapper);\r\n\
-                         ffi::Az{original_type} {{\r\n\
-                             cb: ffi::Az{cb_type} {{ cb: {trampoline} }},\r\n\
-                             data: unsafe {{ core::mem::transmute::<_, ffi::AzRefAny>(refany) }},\r\n\
+                         {ext_type} {{\r\n\
+                             cb: {ext_cb_type} {{ cb: {trampoline} }},\r\n\
+                             data: refany,\r\n\
                          }}\r\n\
-                     }};\r\n",
+                     }});\r\n",
                     cb_info.original_type,
                     converted = converted_name,
                     wrapper_name = cb_info.wrapper_name,
                     arg = arg_name,
-                    original_type = cb_info.original_type,
-                    cb_type = cb_info.callback_type,
+                    ext_type = external_type,
+                    ext_cb_type = external_cb_type,
                     trampoline = cb_info.trampoline_name,
                 ));
                 converted_arg_names.insert(arg_name.clone(), converted_name);
             }
-            // String conversion: Rust String → ffi::AzString
+            // callback_typedef conversion: Py<PyAny> → external callback type (raw function pointer with trampoline)
+            // These are types like LayoutCallbackType that are direct function pointers (type aliases)
+            // The Python argument is ignored here since these callback typedefs don't carry data.
+            // The callable is expected to be stored separately (e.g., in AppDataTy._py_layout_callback).
+            else if is_callback_typedef_by_name(&base_type, version_data) {
+                let trampoline = get_callback_typedef_trampoline(&base_type);
+                // Get external type from type_to_external
+                let prefixed_type = format!("{}{}", prefix, base_type);
+                let external_type = type_to_external.get(&prefixed_type)
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_core::callbacks::{}", base_type));
+                // callback_typedef is just a function pointer type alias, not a struct
+                // So we cast the trampoline function to the external type using 'as'
+                conversion_code.push_str(&format!(
+                    "        // callback_typedef: {base} - use trampoline directly (external type)\r\n\
+                     let {converted}: {ext_type} = {trampoline} as {ext_type};\r\n",
+                    base = base_type,
+                    converted = converted_name,
+                    ext_type = external_type,
+                    trampoline = trampoline,
+                ));
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+            // String conversion: Rust String → azul_css::corety::AzString (external type)
             // Use .clone() to preserve original value for use in fn_body
             else if base_type == "String" {
                 conversion_code.push_str(&format!(
-                    "        let {converted}: ffi::AzString = unsafe {{ core::mem::transmute(azul_css::corety::AzString::from({arg}.clone())) }};\r\n",
+                    "        let {converted}: azul_css::corety::AzString = azul_css::corety::AzString::from({arg}.clone());\r\n",
                     converted = converted_name,
                     arg = arg_name,
                 ));
                 converted_arg_names.insert(arg_name.clone(), converted_name);
             }
-            // Vec<AzFoo> conversion: collect .inner values and convert to ffi::AzFooVec
+            // Vec<AzFoo> conversion: collect .inner values and convert to external Vec type
+            // Since fn_body expects external types, we produce external types directly
             else if let Some(element_type) = get_vec_element_type(&base_type) {
+                // Check if element type is a GL primitive type alias (GLuint, GLint, etc.)
+                let is_gl_primitive = matches!(element_type.as_str(), 
+                    "GLuint" | "GLint" | "GLfloat" | "GLdouble" | "GLsizei" | "GLenum" |
+                    "GLbitfield" | "GLbyte" | "GLubyte" | "GLshort" | "GLushort" |
+                    "GLuint64" | "GLint64");
+                
+                // Get external Vec type path
+                // For primitives, capitalize first letter (u8 -> U8Vec)
+                let capitalized_elem = if is_primitive_arg(&element_type) {
+                    element_type.chars().next().unwrap().to_uppercase().to_string() + &element_type[1..]
+                } else {
+                    element_type.clone()
+                };
+                let vec_type_name = format!("{}{}Vec", prefix, capitalized_elem);
+                let external_vec_path = type_to_external.get(&vec_type_name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_css::corety::{}Vec", capitalized_elem));
+                    
                 if is_primitive_arg(&element_type) {
-                    // Vec<u8> → ffi::AzU8Vec - capitalize first letter for FFI type name
-                    let ffi_base = element_type.chars().next().unwrap().to_uppercase().to_string() 
-                        + &element_type[1..];
+                    // Vec<u8> → external type (e.g., azul_css::corety::U8Vec)
                     conversion_code.push_str(&format!(
-                        "        let {converted}: ffi::Az{base}Vec = unsafe {{ core::mem::transmute({arg}.into()) }};\r\n",
+                        "        let {converted}: {ext_vec} = {arg}.into();\r\n",
                         converted = converted_name,
-                        base = ffi_base,
+                        ext_vec = external_vec_path,
+                        arg = arg_name,
+                    ));
+                } else if is_gl_primitive {
+                    // Vec<GLuint> → external type (e.g., azul_core::gl::GLuintVec)
+                    conversion_code.push_str(&format!(
+                        "        let {converted}: {ext_vec} = {arg}.into();\r\n",
+                        converted = converted_name,
+                        ext_vec = external_vec_path,
                         arg = arg_name,
                     ));
                 } else if element_type == "String" {
-                    // Vec<String> → ffi::AzStringVec
+                    // Vec<String> → azul_css::corety::StringVec
                     conversion_code.push_str(&format!(
-                        "        let {converted}: ffi::AzStringVec = unsafe {{\r\n\
+                        "        let {converted}: azul_css::corety::StringVec = {{\r\n\
                              let strings: Vec<azul_css::corety::AzString> = {arg}.into_iter().map(|s| azul_css::corety::AzString::from(s)).collect();\r\n\
-                             core::mem::transmute(azul_css::corety::StringVec::from(strings))\r\n\
+                             azul_css::corety::StringVec::from(strings)\r\n\
                          }};\r\n",
                         converted = converted_name,
                         arg = arg_name,
                     ));
                 } else {
-                    // Vec<AzFoo> → ffi::AzFooVec: collect .inner and transmute
+                    // Vec<AzFoo> → external Vec type: collect .inner values, convert to external Vec type
+                    let elem_type_name = format!("{}{}", prefix, element_type);
+                    let external_elem_path = type_to_external.get(&elem_type_name)
+                        .cloned()
+                        .unwrap_or_else(|| format!("azul_core::dom::{}", element_type));
                     conversion_code.push_str(&format!(
-                        "        let {converted}: ffi::Az{elem}Vec = unsafe {{\r\n\
-                             let inners: Vec<ffi::Az{elem}> = {arg}.into_iter().map(|x| x.inner).collect();\r\n\
-                             core::mem::transmute(inners)\r\n\
+                        "        let {converted}: {ext_vec} = unsafe {{\r\n\
+                             let inners: Vec<__dll_api_inner::dll::Az{elem}> = {arg}.into_iter().map(|x| x.inner).collect();\r\n\
+                             let transmuted_inners: Vec<{ext_elem}> = core::mem::transmute(inners);\r\n\
+                             transmuted_inners.into()\r\n\
                          }};\r\n",
                         converted = converted_name,
                         elem = element_type,
                         arg = arg_name,
+                        ext_elem = external_elem_path,
+                        ext_vec = external_vec_path,
                     ));
                 }
                 converted_arg_names.insert(arg_name.clone(), converted_name);
             }
-            // All other non-primitive types: extract .inner from wrapper
+            // All other non-primitive types: extract .inner from wrapper and transmute to external type
+            // The .inner field is the FFI type (dll::AzFoo), we need to transmute to external type
             else {
+                let prefixed_type = format!("{}{}", prefix, base_type);
+                let external_type = type_to_external.get(&prefixed_type)
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_core::dom::{}", base_type));
                 conversion_code.push_str(&format!(
-                    "        let {converted} = {arg}.inner.clone();\r\n",
+                    "        let {converted}: {ext_type} = unsafe {{ core::mem::transmute({arg}.inner.clone()) }};\r\n",
                     converted = converted_name,
+                    ext_type = external_type,
                     arg = arg_name,
                 ));
                 converted_arg_names.insert(arg_name.clone(), converted_name);
@@ -2702,6 +3000,7 @@ fn generate_function(
     }
 
     // Generate the function body using generate_transmuted_fn_body
+    // Pass skip_transmute_args so already-converted args aren't transmuted again
     let c_api_args_str = c_api_args.join(", ");
     let mut body = generate_transmuted_fn_body(
         &fn_body,
@@ -2713,31 +3012,114 @@ fn generate_function(
         &c_api_args_str,
         true, // is_for_dll
         true, // keep_self_name: PyO3 uses "self" as the parameter name
+        self_is_value, // force_clone_self: clone if API says self by-value
+        &skip_transmute_args, // Skip args that are already converted with _ffi suffix
     );
     
     // Replace original arg names with converted names in the function body
-    for (original, converted) in &converted_arg_names {
-        body = body.replace(&format!(" {}", original), &format!(" {}", converted));
+    // IMPORTANT: Sort by length descending to avoid partial replacements
+    // (e.g., replace "dom_ffi" before "dom" to avoid "dom_ffi" → "dom_ffi_ffi")
+    let mut sorted_replacements: Vec<_> = converted_arg_names.iter().collect();
+    sorted_replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    
+    for (original, converted) in sorted_replacements {
+        // Use word boundary matching to avoid partial replacements
+        // Only replace when arg is a complete word (not part of another identifier)
+        // Handle various contexts where the arg name might appear
+        body = body.replace(&format!(" {}, ", original), &format!(" {}, ", converted));
+        body = body.replace(&format!(" {})", original), &format!(" {})", converted));
         body = body.replace(&format!("({})", original), &format!("({})", converted));
         body = body.replace(&format!("({},", original), &format!("({},", converted));
         body = body.replace(&format!(", {})", original), &format!(", {})", converted));
         body = body.replace(&format!(", {},", original), &format!(", {},", converted));
+        body = body.replace(&format!("({}, ", original), &format!("({}, ", converted));
+        // Handle .into() pattern: arg.into()
+        body = body.replace(&format!("{}.into()", original), &format!("{}.into()", converted));
+        // Handle reference patterns: &arg and &mut arg (with word boundary after)
+        body = body.replace(&format!("&mut {},", original), &format!("&mut {},", converted));
+        body = body.replace(&format!("&mut {})", original), &format!("&mut {})", converted));
+        body = body.replace(&format!("&{},", original), &format!("&{},", converted));
+        body = body.replace(&format!("&{})", original), &format!("&{})", converted));
+        // Handle comparison patterns: &arg < value, &arg > value
+        body = body.replace(&format!("&{} <", original), &format!("&{} <", converted));
+        body = body.replace(&format!("&{} >", original), &format!("&{} >", converted));
+        body = body.replace(&format!("&{} ==", original), &format!("&{} ==", converted));
+        body = body.replace(&format!("&{} !=", original), &format!("&{} !=", converted));
+        // Handle assignment patterns: let mut arg = arg; and arg = value
+        body = body.replace(&format!("let mut {} = {}", original, original), &format!("let mut {} = {}", converted, converted));
+        body = body.replace(&format!("= {};", original), &format!("= {};", converted));
     }
+
+    // Determine if we need to wrap the return value for Python type conversion
+    // String/Vec<u8>/Vec<String>/etc. need conversion from AzString/AzU8Vec/etc.
+    let return_conversion = original_return_type.as_ref().and_then(|rt| {
+        let (_, base_type, _) = analyze_type(rt);
+        if base_type == "String" {
+            Some(("__ffi_result", "az_string_to_py_string(__ffi_result)".to_string()))
+        } else if let Some(element_type) = get_vec_element_type(&base_type) {
+            if element_type == "u8" {
+                Some(("__ffi_result", "az_vecu8_to_py_vecu8(__ffi_result)".to_string()))
+            } else if element_type == "String" {
+                Some(("__ffi_result", "az_stringvec_to_py_stringvec(__ffi_result)".to_string()))
+            } else if element_type == "GLuint" {
+                // GLuintVec -> Vec<u32>
+                Some(("__ffi_result", "az_gluintvec_to_py_vecu32(__ffi_result)".to_string()))
+            } else if element_type == "GLint" {
+                // GLintVec -> Vec<i32>
+                Some(("__ffi_result", "az_glintvec_to_py_veci32(__ffi_result)".to_string()))
+            } else if is_primitive_arg(&element_type) {
+                // Vec<u32> etc. - just transmute to Vec<primitive>
+                None
+            } else {
+                // Vec<AzFoo> - need to convert AzFooVec to Vec<AzFoo>
+                // The transmute returns AzFooVec (Python wrapper with FFI inner), we need to convert to Vec<AzFoo>
+                // First transmute .inner (FFI type) to external type, then call into_library_owned_vec()
+                // Then wrap each external element in AzFoo wrapper
+                let external_vec_type = type_to_external.get(&format!("{}{}Vec", prefix, element_type))
+                    .cloned()
+                    .unwrap_or_else(|| format!("azul_core::gl::{}Vec", element_type));
+                Some(("__ffi_result", format!(
+                    "{{ let ext_vec: {} = unsafe {{ core::mem::transmute(__ffi_result.inner) }}; ext_vec.into_library_owned_vec().into_iter().map(|x| Az{}{{ inner: unsafe {{ core::mem::transmute(x) }} }}).collect() }}",
+                    external_vec_type,
+                    element_type
+                )))
+            }
+        } else {
+            None
+        }
+    });
 
     // The body is already wrapped in { }, so we need to indent it properly
     // and add unsafe block
-    code.push_str("        unsafe {\r\n");
-    for line in body.lines() {
-        if line.trim().is_empty() {
-            code.push_str("\r\n");
-        } else if line == "{" || line == "}" {
-            // Skip outer braces from generate_transmuted_fn_body
-            continue;
-        } else {
-            code.push_str(&format!("        {}\r\n", line));
+    if let Some((result_name, conversion)) = return_conversion {
+        // Wrap the FFI result and convert it
+        code.push_str(&format!("        let {} = unsafe {{\r\n", result_name));
+        for line in body.lines() {
+            if line.trim().is_empty() {
+                code.push_str("\r\n");
+            } else if line == "{" || line == "}" {
+                // Skip outer braces from generate_transmuted_fn_body
+                continue;
+            } else {
+                code.push_str(&format!("        {}\r\n", line));
+            }
         }
+        code.push_str("        };\r\n");
+        code.push_str(&format!("        {}\r\n", conversion));
+    } else {
+        code.push_str("        unsafe {\r\n");
+        for line in body.lines() {
+            if line.trim().is_empty() {
+                code.push_str("\r\n");
+            } else if line == "{" || line == "}" {
+                // Skip outer braces from generate_transmuted_fn_body
+                continue;
+            } else {
+                code.push_str(&format!("        {}\r\n", line));
+            }
+        }
+        code.push_str("        }\r\n");
     }
-    code.push_str("        }\r\n");
     code.push_str("    }\r\n\r\n");
 
     code
@@ -2783,10 +3165,10 @@ fn get_self_type(fn_data: &FunctionData) -> (String, String) {
             return match self_type.as_str() {
                 "ref" => ("&self".to_string(), "mem::transmute(self)".to_string()),
                 "refmut" => ("&mut self".to_string(), "mem::transmute(self)".to_string()),
-                // PyO3 does NOT support self by-value - use &self and clone instead
-                // The caller must handle the clone + modify + return pattern
-                "value" => ("&self".to_string(), "mem::transmute(self.clone())".to_string()),
-                "mut value" => ("&self".to_string(), "mem::transmute(self.clone())".to_string()),
+                // PyO3 does NOT allow self by-value directly (Python objects are shared)
+                // Use &self and clone() before consuming methods
+                "value" => ("&self".to_string(), "mem::transmute(self.inner.clone())".to_string()),
+                "mut value" => ("&self".to_string(), "mem::transmute(self.inner.clone())".to_string()),
                 _ => ("&self".to_string(), "mem::transmute(self)".to_string()),
             };
         }
@@ -2821,71 +3203,76 @@ fn generate_callback_data_pair_wrapper(
     code.push_str("}\r\n\r\n");
 
     // 2. Generate the trampoline function
-    // Use C-API types (__dll_api_inner::dll::Az*) for the signature so it matches
-    // what the C-API callback type expects
+    // Since callback_typedef_use_external is enabled, the callback type is an alias
+    // to the external type. So we must use EXTERNAL types in the signature, not C-API types.
     let info_type_az = format!("{}{}", prefix, cb_sig.info_type);
     let return_type_az = format!("{}{}", prefix, cb_sig.return_type);
 
-    // C-API types for the function signature - use full path to avoid conflicts with Python wrappers
-    let capi_return_type = format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.return_type);
-    let capi_info_type = format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.info_type);
+    // Use external types for the function signature since callback_typedef_use_external=true
+    // This makes the trampoline compatible with the callback type alias
+    let external_return_type = if cb_sig.return_type_external.is_empty() {
+        format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.return_type)
+    } else {
+        cb_sig.return_type_external.clone()
+    };
+    let external_info_type = if cb_sig.info_type_external.is_empty() {
+        format!("__dll_api_inner::dll::{}{}", prefix, cb_sig.info_type)
+    } else {
+        cb_sig.info_type_external.clone()
+    };
 
-    // Also need C-API RefAny type
-    let capi_refany_type = "__dll_api_inner::dll::AzRefAny";
+    // External RefAny type
+    let external_refany_type = "azul_core::refany::RefAny";
 
-    // Build extra args for signature (using C-API types)
+    // Build extra args for signature (using external types)
     let mut extra_args_sig = String::new();
-    for (name, type_name, _ref_kind, _ext_path) in cb_sig.extra_args.iter() {
+    for (name, type_name, _ref_kind, ext_path) in cb_sig.extra_args.iter() {
         // All callback args are now by-value
-        let capi_arg_type = if is_primitive_arg(type_name) {
+        let arg_type = if is_primitive_arg(type_name) {
             type_name.clone()
+        } else if !ext_path.is_empty() {
+            ext_path.clone()
         } else {
             format!("__dll_api_inner::dll::{}{}", prefix, type_name)
         };
-        extra_args_sig.push_str(&format!(", {}: {}", name, capi_arg_type));
+        extra_args_sig.push_str(&format!(", {}: {}", name, arg_type));
     }
 
     code.push_str(&format!(
         "/// Trampoline for {} - called by C-API, invokes Python\r\n",
         class_name
     ));
-    // Callbacks now take by-value arguments using C-API types
+    // Callbacks now take by-value arguments using external types
     code.push_str(&format!(
         "extern \"C\" fn {}(\r\n    data: {},\r\n    info: {}{}\r\n) -> {} {{\r\n",
-        trampoline_name, capi_refany_type, capi_info_type, extra_args_sig, capi_return_type
+        trampoline_name, external_refany_type, external_info_type, extra_args_sig, external_return_type
     ));
 
-    // Default value - construct C-API types
+    // Default value - using external types directly (no transmute needed)
     // CRITICAL: Use Default::default() of the external type, never mem::zeroed()
     // mem::zeroed() can cause UB for types with function pointers or non-null invariants
     let default_expr = match cb_sig.return_type.as_str() {
-        "Update" => format!("{}::DoNothing", capi_return_type),
+        "Update" => format!("{}::DoNothing", external_return_type),
         "OnTextInputReturn" => format!(
-            "{} {{ update: __dll_api_inner::dll::AzUpdate::DoNothing, valid: \
-             __dll_api_inner::dll::AzTextInputValid::Yes }}",
-            capi_return_type
+            "{} {{ update: azul_core::callbacks::Update::DoNothing, valid: \
+             azul_layout::widgets::text_input::TextInputValid::Yes }}",
+            external_return_type
         ),
         "()" => "()".to_string(),
+        "ImageRef" => {
+            // ImageRef doesn't implement Default, use null_image() instead
+            format!("{}::null_image()", external_return_type)
+        }
         _ => {
-            // Use the external type's Default implementation and transmute to C-API type
-            // This is safe because the types have identical layout (repr(C))
-            if !cb_sig.return_type_external.is_empty() {
-                format!(
-                    "unsafe {{ mem::transmute::<{}, {}>({}::default()) }}",
-                    cb_sig.return_type_external, capi_return_type, cb_sig.return_type_external
-                )
-            } else {
-                // Fallback for types without external path - use C-API default
-                // This should only happen for primitive types or simple enums
-                format!("{}::default()", capi_return_type)
-            }
+            // Use the external type's Default implementation directly
+            format!("{}::default()", external_return_type)
         }
     };
     code.push_str(&format!("    let default = {};\r\n\r\n", default_expr));
 
-    // Transmute C-API RefAny to core RefAny to use downcast_mut
+    // data is already azul_core::refany::RefAny, no transmute needed
     code.push_str(
-        "    let mut data_core: azul_core::refany::RefAny = unsafe { mem::transmute(data) };\r\n",
+        "    let mut data_core = data;\r\n",
     );
 
     // Downcast RefAny to our wrapper - now using by-value mut binding
@@ -2910,7 +3297,7 @@ fn generate_callback_data_pair_wrapper(
 
     // Call Python with GIL
     code.push_str("    Python::attach(|py| {\r\n");
-    // info is now by-value, so we transmute the value directly
+    // info is now by-value external type, transmute to Python wrapper type
     code.push_str(&format!(
         "        let info_py: {} = unsafe {{ mem::transmute(info) }};\r\n",
         info_type_az
@@ -2925,7 +3312,7 @@ fn generate_callback_data_pair_wrapper(
         } else {
             format!("{}{}", prefix, type_name)
         };
-        // All args are by-value now
+        // All args are by-value now - transmute from external to Python wrapper type
         let transmute_type = py_type;
         code.push_str(&format!(
             "        let {}_py: {} = unsafe {{ mem::transmute({}) }};\r\n",
@@ -2943,7 +3330,11 @@ fn generate_callback_data_pair_wrapper(
         "                match result.extract::<{}>(py) {{\r\n",
         return_type_az
     ));
-    code.push_str("                    Ok(ret) => unsafe { mem::transmute(ret) },\r\n");
+    // Transmute from Python wrapper type back to external type
+    code.push_str(&format!(
+        "                    Ok(ret) => unsafe {{ mem::transmute::<{}, {}>(ret) }},\r\n",
+        return_type_az, external_return_type
+    ));
     code.push_str("                    Err(_) => default,\r\n");
     code.push_str("                }\r\n");
     code.push_str("            }\r\n");
@@ -3025,6 +3416,8 @@ fn generate_callback_data_pair_struct(
     code.push_str("        let ref_any = azul_core::refany::RefAny::new(wrapper);\r\n\r\n");
 
     // Create the C-API struct using the correct callback type name from api.json
+    // NOTE: The callback struct has a `callable` field for Python callable storage,
+    // but for widget callbacks we use None since the callable is stored in the RefAny wrapper
     code.push_str("        Ok(Self {\r\n");
     code.push_str(&format!(
         "            inner: {} {{\r\n",
@@ -3035,6 +3428,7 @@ fn generate_callback_data_pair_struct(
         cb_field_name, cb_struct_name
     ));
     code.push_str(&format!("                    cb: {},\r\n", trampoline_name));
+    code.push_str("                    callable: __dll_api_inner::dll::AzOptionRefAny::None,\r\n");
     code.push_str("                },\r\n");
     code.push_str("                data: unsafe { mem::transmute(ref_any) },\r\n");
     code.push_str("            },\r\n");
@@ -3174,6 +3568,16 @@ fn rust_type_to_python_type_with_ref(
             // Value types are handled below
         }
     }
+    rust_type_to_python_type(rust_type, prefix, version_data)
+}
+
+/// Convert a Rust type to Python-compatible return type name
+/// For most types, this is the same as rust_type_to_python_type.
+/// The key difference: the function body still calls az_*vec_to_py_vec* 
+/// which converts to Vec<T>, so we must use the same types as input.
+fn rust_type_to_python_return_type(rust_type: &str, prefix: &str, version_data: &VersionData) -> String {
+    // Return types use the same conversion as input types
+    // because the generated body calls conversion functions that produce Vec<AzFoo>
     rust_type_to_python_type(rust_type, prefix, version_data)
 }
 

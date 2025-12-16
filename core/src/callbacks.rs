@@ -480,6 +480,15 @@ impl Clone for LayoutCallbackInfo {
     }
 }
 
+impl core::fmt::Debug for LayoutCallbackInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LayoutCallbackInfo")
+            .field("window_size", &self.window_size)
+            .field("theme", &self.theme)
+            .finish_non_exhaustive()
+    }
+}
+
 impl LayoutCallbackInfo {
     pub fn new<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
@@ -712,6 +721,17 @@ pub struct CoreCallback {
     pub callable: OptionRefAny,
 }
 
+/// Allow creating CoreCallback from a raw function pointer (as usize)
+/// Sets callable to None (for native Rust/C usage)
+impl From<CoreCallbackType> for CoreCallback {
+    fn from(cb: CoreCallbackType) -> Self {
+        CoreCallback {
+            cb,
+            callable: OptionRefAny::None,
+        }
+    }
+}
+
 impl_option!(
     CoreCallback,
     OptionCoreCallback,
@@ -784,6 +804,17 @@ pub struct CoreRenderImageCallback {
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
     pub callable: OptionRefAny,
+}
+
+/// Allow creating CoreRenderImageCallback from a raw function pointer (as usize)
+/// Sets callable to None (for native Rust/C usage)
+impl From<CoreRenderImageCallbackType> for CoreRenderImageCallback {
+    fn from(cb: CoreRenderImageCallbackType) -> Self {
+        CoreRenderImageCallback {
+            cb,
+            callable: OptionRefAny::None,
+        }
+    }
 }
 
 /// Image callback with associated data

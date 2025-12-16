@@ -1584,43 +1584,40 @@ impl ListView {
         self.column_context_menu = Some(column_context_menu).into();
     }
 
-    pub fn with_on_column_click(
+    pub fn with_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
         mut self,
         data: RefAny,
-        on_column_click: ListViewOnColumnClickCallbackType,
+        on_column_click: C,
     ) -> Self {
         self.set_on_column_click(data, on_column_click);
         self
     }
 
-    pub fn set_on_column_click(
+    pub fn set_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
         &mut self,
         data: RefAny,
-        on_column_click: ListViewOnColumnClickCallbackType,
+        on_column_click: C,
     ) {
         self.on_column_click = Some(ListViewOnColumnClick {
             data,
-            callback: ListViewOnColumnClickCallback {
-                cb: on_column_click,
-                callable: azul_core::refany::OptionRefAny::None,
-            },
+            callback: on_column_click.into(),
         })
         .into();
     }
 
-    pub fn with_on_row_click(
+    pub fn with_on_row_click<C: Into<ListViewOnRowClickCallback>>(
         mut self,
         data: RefAny,
-        on_row_click: ListViewOnRowClickCallbackType,
+        on_row_click: C,
     ) -> Self {
         self.set_on_row_click(data, on_row_click);
         self
     }
 
-    pub fn set_on_row_click(&mut self, data: RefAny, on_row_click: ListViewOnRowClickCallbackType) {
+    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(&mut self, data: RefAny, on_row_click: C) {
         self.on_row_click = Some(ListViewOnRowClick {
             data,
-            callback: ListViewOnRowClickCallback { cb: on_row_click, callable: azul_core::refany::OptionRefAny::None },
+            callback: on_row_click.into(),
         })
         .into();
     }

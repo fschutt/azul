@@ -424,16 +424,16 @@ impl Button {
     }
 
     #[inline]
-    pub fn set_on_click(&mut self, data: RefAny, on_click: ButtonOnClickCallbackType) {
+    pub fn set_on_click<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
         self.on_click = Some(ButtonOnClick {
             data,
-            callback: ButtonOnClickCallback { cb: on_click, callable: azul_core::refany::OptionRefAny::None },
+            callback: on_click.into(),
         })
         .into();
     }
 
     #[inline]
-    pub fn with_on_click(mut self, data: RefAny, on_click: ButtonOnClickCallbackType) -> Self {
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, on_click: C) -> Self {
         self.set_on_click(data, on_click);
         self
     }

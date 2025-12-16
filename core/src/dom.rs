@@ -2635,29 +2635,15 @@ impl NodeData {
     }
 
     #[inline]
-    pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType) {
+    pub fn add_callback<C: Into<CoreCallback>>(&mut self, event: EventFilter, data: RefAny, callback: C) {
+        let callback = callback.into();
         let mut v: CoreCallbackDataVec = Vec::new().into();
         mem::swap(&mut v, &mut self.callbacks);
         let mut v = v.into_library_owned_vec();
         v.push(CoreCallbackData {
             event,
             data,
-            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::None },
-        });
-        self.callbacks = v.into();
-    }
-
-    /// Add a callback with a callable (for FFI language bindings like Python)
-    /// The callable is stored in the callback and can be retrieved via `CallbackInfo.get_callable()`
-    #[inline]
-    pub fn add_callback_with_callable(&mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType, callable: RefAny) {
-        let mut v: CoreCallbackDataVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.callbacks);
-        let mut v = v.into_library_owned_vec();
-        v.push(CoreCallbackData {
-            event,
-            data,
-            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::Some(callable) },
+            callback,
         });
         self.callbacks = v.into();
     }
@@ -2731,24 +2717,13 @@ impl NodeData {
         self
     }
     #[inline(always)]
-    pub fn with_callback(
+    pub fn with_callback<C: Into<CoreCallback>>(
         mut self,
         event: EventFilter,
         data: RefAny,
-        callback: CoreCallbackType,
+        callback: C,
     ) -> Self {
-        self.add_callback(event, data, callback as usize);
-        self
-    }
-    #[inline(always)]
-    pub fn with_callback_with_callable(
-        mut self,
-        event: EventFilter,
-        data: RefAny,
-        callback: CoreCallbackType,
-        callable: RefAny,
-    ) -> Self {
-        self.add_callback_with_callable(event, data, callback as usize, callable);
+        self.add_callback(event, data, callback);
         self
     }
     #[inline(always)]
@@ -4564,24 +4539,13 @@ impl Dom {
         self
     }
     #[inline(always)]
-    pub fn with_callback(
+    pub fn with_callback<C: Into<CoreCallback>>(
         mut self,
         event: EventFilter,
         data: RefAny,
-        callback: CoreCallbackType,
+        callback: C,
     ) -> Self {
-        self.root.add_callback(event, data, callback as usize);
-        self
-    }
-    #[inline(always)]
-    pub fn with_callback_with_callable(
-        mut self,
-        event: EventFilter,
-        data: RefAny,
-        callback: CoreCallbackType,
-        callable: RefAny,
-    ) -> Self {
-        self.root.add_callback_with_callable(event, data, callback as usize, callable);
+        self.root.add_callback(event, data, callback);
         self
     }
     #[inline(always)]

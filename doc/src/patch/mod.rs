@@ -1551,6 +1551,8 @@ mod tests {
                 apiversion: 1,
                 git: "test".to_string(),
                 date: "2025-01-01".to_string(),
+                installation: Default::default(),
+                package: None,
                 examples: vec![],
                 notes: vec![],
                 api: IndexMap::from([(
@@ -1696,6 +1698,8 @@ mod tests {
                 apiversion: 1,
                 git: "test".to_string(),
                 date: "2025-01-01".to_string(),
+                installation: Default::default(),
+                package: None,
                 examples: vec![],
                 notes: vec![],
                 api: IndexMap::from([(

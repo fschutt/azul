@@ -2282,12 +2282,76 @@ fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<Me
     methods_map
 }
 
+/// Extract Into<T> bounds from method generics and build a map of type parameter -> concrete type
+/// 
+/// For example, `fn foo<C: Into<Callback>>(callback: C)` would return {"C" -> "Callback"}
+/// This allows us to "desugar" generic callback parameters back to concrete types for api.json.
+fn extract_into_bounds(sig: &syn::Signature) -> HashMap<String, String> {
+    let mut into_map = HashMap::new();
+    
+    for param in &sig.generics.params {
+        if let syn::GenericParam::Type(type_param) = param {
+            let param_name = type_param.ident.to_string();
+            
+            // Check bounds on the type parameter itself (e.g., <C: Into<Callback>>)
+            for bound in &type_param.bounds {
+                if let Some(concrete_type) = extract_into_inner_type(bound) {
+                    into_map.insert(param_name.clone(), concrete_type);
+                    break; // Use first Into bound found
+                }
+            }
+        }
+    }
+    
+    // Also check where clause (e.g., where C: Into<Callback>)
+    if let Some(where_clause) = &sig.generics.where_clause {
+        for predicate in &where_clause.predicates {
+            if let syn::WherePredicate::Type(pred_type) = predicate {
+                let param_name = extract_type_name(&pred_type.bounded_ty);
+                
+                for bound in &pred_type.bounds {
+                    if let Some(concrete_type) = extract_into_inner_type(bound) {
+                        into_map.insert(param_name.clone(), concrete_type);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    into_map
+}
+
+/// Extract the inner type T from an Into<T> trait bound
+/// Returns Some("Callback") for Into<Callback>, None for other bounds
+fn extract_into_inner_type(bound: &syn::TypeParamBound) -> Option<String> {
+    if let syn::TypeParamBound::Trait(trait_bound) = bound {
+        let path = &trait_bound.path;
+        
+        // Check if this is Into<T> (last segment is "Into" with one generic arg)
+        if let Some(last_segment) = path.segments.last() {
+            if last_segment.ident == "Into" {
+                if let syn::PathArguments::AngleBracketed(args) = &last_segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                        return Some(extract_type_name(inner_ty));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Extract a single method definition from an ImplItemFn
 fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<MethodDef> {
     let method_name = method.sig.ident.to_string();
 
     // Check visibility (pub or not) - vis is on the method, not the sig
     let is_public = matches!(&method.vis, syn::Visibility::Public(_));
+    
+    // Build map of generic type parameters with Into<T> bounds
+    // This allows us to rewrite "C" -> "Callback" when C: Into<Callback>
+    let into_bounds = extract_into_bounds(&method.sig);
 
     // Determine self kind
     let self_kind: Option<SelfKind> = match method.sig.receiver() {
@@ -2344,7 +2408,14 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             };
 
             // Get type and ref kind
-            let (ty, ref_kind) = extract_ref_kind_from_syn_type(&pat_type.ty);
+            let (mut ty, ref_kind) = extract_ref_kind_from_syn_type(&pat_type.ty);
+            
+            // If this type is a generic parameter with an Into<T> bound,
+            // rewrite it to the concrete type T
+            // e.g., for fn foo<C: Into<Callback>>(callback: C), rewrite "C" -> "Callback"
+            if let Some(concrete_type) = into_bounds.get(&ty) {
+                ty = concrete_type.clone();
+            }
 
             args.push(MethodArg {
                 name: arg_name,
@@ -3372,6 +3443,164 @@ pub struct OnTextInputReturn {
         );
         for cb in &callback_typedefs {
             eprintln!("  - {}", cb.type_name);
+        }
+    }
+
+    #[test]
+    fn test_extract_into_bounds_rewrites_generic_callback_arg() {
+        // Test that fn foo<C: Into<Callback>>(callback: C) extracts arg type as "Callback"
+        let source = r#"
+            pub struct TestType;
+            
+            impl TestType {
+                pub fn with_callback<C: Into<Callback>>(self, event: EventFilter, data: RefAny, callback: C) -> Self {
+                    self
+                }
+            }
+        "#;
+        
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        
+        // Find the impl block and extract methods
+        for item in &syntax_tree.items {
+            if let Item::Impl(impl_block) = item {
+                for impl_item in &impl_block.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
+                        
+                        assert_eq!(method_def.name, "with_callback");
+                        assert_eq!(method_def.args.len(), 3, "Should have 3 args: event, data, callback");
+                        
+                        // The callback arg should have type "Callback", not "C"
+                        let callback_arg = &method_def.args[2];
+                        assert_eq!(callback_arg.name, "callback");
+                        assert_eq!(
+                            callback_arg.ty, "Callback",
+                            "Generic C: Into<Callback> should be rewritten to 'Callback', got '{}'",
+                            callback_arg.ty
+                        );
+                        
+                        eprintln!("✓ Generic Into<T> bound correctly rewritten:");
+                        eprintln!("  callback arg: type={}, ref_kind={:?}", callback_arg.ty, callback_arg.ref_kind);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_into_bounds_where_clause() {
+        // Test where clause syntax: fn foo<C>(callback: C) where C: Into<Callback>
+        let source = r#"
+            pub struct TestType;
+            
+            impl TestType {
+                pub fn add_callback<C>(&mut self, callback: C) where C: Into<CoreCallback> {
+                }
+            }
+        "#;
+        
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        
+        for item in &syntax_tree.items {
+            if let Item::Impl(impl_block) = item {
+                for impl_item in &impl_block.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
+                        
+                        assert_eq!(method_def.name, "add_callback");
+                        assert_eq!(method_def.args.len(), 1);
+                        
+                        let callback_arg = &method_def.args[0];
+                        assert_eq!(callback_arg.name, "callback");
+                        assert_eq!(
+                            callback_arg.ty, "CoreCallback",
+                            "Where clause C: Into<CoreCallback> should be rewritten to 'CoreCallback', got '{}'",
+                            callback_arg.ty
+                        );
+                        
+                        eprintln!("✓ Where clause Into<T> correctly rewritten:");
+                        eprintln!("  callback arg: type={}", callback_arg.ty);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_non_into_generic_not_rewritten() {
+        // Test that generics without Into<T> bounds are NOT rewritten
+        let source = r#"
+            pub struct TestType;
+            
+            impl TestType {
+                pub fn clone_item<T: Clone>(item: T) -> T {
+                    item
+                }
+            }
+        "#;
+        
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        
+        for item in &syntax_tree.items {
+            if let Item::Impl(impl_block) = item {
+                for impl_item in &impl_block.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
+                        
+                        assert_eq!(method_def.name, "clone_item");
+                        assert_eq!(method_def.args.len(), 1);
+                        
+                        let item_arg = &method_def.args[0];
+                        assert_eq!(item_arg.name, "item");
+                        // Should stay as "T" because Clone is not Into<T>
+                        assert_eq!(
+                            item_arg.ty, "T",
+                            "Generic T: Clone should NOT be rewritten, got '{}'",
+                            item_arg.ty
+                        );
+                        
+                        eprintln!("✓ Non-Into generic correctly preserved as 'T'");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_concrete_callback_type_unchanged() {
+        // Test that concrete Callback types are not affected
+        let source = r#"
+            pub struct TestType;
+            
+            impl TestType {
+                pub fn with_callback(self, callback: Callback) -> Self {
+                    self
+                }
+            }
+        "#;
+        
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        
+        for item in &syntax_tree.items {
+            if let Item::Impl(impl_block) = item {
+                for impl_item in &impl_block.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
+                        
+                        assert_eq!(method_def.name, "with_callback");
+                        let callback_arg = &method_def.args[0];
+                        assert_eq!(callback_arg.name, "callback");
+                        assert_eq!(
+                            callback_arg.ty, "Callback",
+                            "Concrete Callback should remain 'Callback', got '{}'",
+                            callback_arg.ty
+                        );
+                        
+                        eprintln!("✓ Concrete Callback type preserved");
+                    }
+                }
+            }
         }
     }
 }

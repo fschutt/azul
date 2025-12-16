@@ -503,9 +503,9 @@ impl ImageRef {
         })
     }
 
-    pub fn callback(gl_callback: CoreRenderImageCallbackType, data: RefAny) -> Self {
+    pub fn callback<C: Into<CoreRenderImageCallback>>(callback: C, data: RefAny) -> Self {
         Self::new(DecodedImage::Callback(CoreImageCallback {
-            callback: CoreRenderImageCallback { cb: gl_callback, callable: crate::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         }))
     }

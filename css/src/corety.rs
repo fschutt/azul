@@ -287,6 +287,7 @@ impl core::ops::Deref for AzString {
 }
 
 impl_vec!(u8, U8Vec, U8VecDestructor);
+impl_vec_mut!(u8, U8Vec);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);
 impl_vec_ord!(u8, U8Vec);

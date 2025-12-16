@@ -36,6 +36,10 @@ pub struct GenerateConfig {
     /// If true, generate Drop impl by transmuting to external type and dropping
     /// (for Python extension where C-ABI functions don't exist)
     pub drop_via_external: bool,
+    /// If true, generate callback_typedef types as aliases to external types
+    /// (e.g., `pub type AzLayoutCallbackType = azul_core::callbacks::LayoutCallbackType;`)
+    /// instead of redefining the function signature with FFI types
+    pub callback_typedef_use_external: bool,
 }
 
 impl Default for GenerateConfig {
@@ -49,6 +53,7 @@ impl Default for GenerateConfig {
             is_memtest: false,
             is_for_dll: false,
             drop_via_external: false,
+            callback_typedef_use_external: false,
         }
     }
 }
@@ -373,12 +378,39 @@ fn generate_single_type(
     // Handle callback typedefs
     if struct_meta.is_callback_typedef {
         if let Some(callback_typedef) = &struct_meta.callback_typedef {
-            let fn_ptr =
-                generate_rust_callback_fn_type(version_data, callback_typedef, &config.prefix)?;
-            code.push_str(&format!(
-                "{}pub type {} = {};\n\n",
-                indent_str, struct_name, fn_ptr
-            ));
+            // VecDestructorType types are special - they exist as enums externally, not type aliases
+            // So we should NOT use external aliasing for them
+            let is_destructor_type = struct_name.ends_with("DestructorType");
+            
+            if config.callback_typedef_use_external && !is_destructor_type {
+                // Use external type directly instead of redefining the function signature
+                // This makes the FFI types compatible with external types
+                if let Some(external) = &struct_meta.external {
+                    code.push_str(&format!(
+                        "{}/// `{}` struct\n",
+                        indent_str, struct_name
+                    ));
+                    code.push_str(&format!(
+                        "{}pub type {} = {};\n\n",
+                        indent_str, struct_name, external
+                    ));
+                } else {
+                    // Fallback: generate the function pointer type
+                    let fn_ptr =
+                        generate_rust_callback_fn_type(version_data, callback_typedef, &config.prefix)?;
+                    code.push_str(&format!(
+                        "{}pub type {} = {};\n\n",
+                        indent_str, struct_name, fn_ptr
+                    ));
+                }
+            } else {
+                let fn_ptr =
+                    generate_rust_callback_fn_type(version_data, callback_typedef, &config.prefix)?;
+                code.push_str(&format!(
+                    "{}pub type {} = {};\n\n",
+                    indent_str, struct_name, fn_ptr
+                ));
+            }
             return Ok(code);
         }
     }
@@ -645,6 +677,24 @@ fn generate_struct_definition(
         // For memtest: DON'T add custom_impls as derives because the field types
         // (like Vec types with custom destructors) may not implement those traits.
         // Instead, we'll generate manual impls after the struct definition.
+        
+        // EXCEPTION: For GENERIC types, add custom_impls traits as derives
+        // because manual impl via transmute doesn't work for generic types
+        // (the external type path needs the generic parameter)
+        let is_generic_type = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        if is_generic_type && config.drop_via_external {
+            for trait_name in &struct_meta.custom_impls {
+                match trait_name.as_str() {
+                    "Debug" | "Clone" | "PartialEq" | "Eq" | "PartialOrd" | "Ord" | "Hash" => {
+                        // Add to derives if not already there
+                        if !derives.contains(&trait_name.as_str()) {
+                            derives.push(trait_name.as_str());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     // For callback wrapper structs, don't derive any traits because we generate custom
@@ -1369,8 +1419,10 @@ fn generate_enum_definition(
                 }
                 // In drop_via_external mode (Python bindings), skip comparison traits for enums
                 // because variants with complex types may not implement them
-                "PartialOrd" | "Ord" if config.drop_via_external => {
-                    // Skip ordering traits - complex variants may not support them
+                // This includes PartialEq because generic types like PhysicalPosition<T>
+                // may not derive PartialEq
+                "PartialEq" | "Eq" | "PartialOrd" | "Ord" if config.drop_via_external => {
+                    // Skip comparison/equality traits - complex variants may not support them
                 }
                 other => {
                     if config.is_memtest {
@@ -1570,6 +1622,12 @@ fn generate_enum_definition(
         String::new()
     };
     let type_with_generics = format!("{}{}", struct_name, impl_generics);
+    // For accessing enum variants with generics, use turbofish syntax (::< instead of <)
+    let type_turbofish = if impl_generics.is_empty() {
+        struct_name.to_string()
+    } else {
+        format!("{}::{}", struct_name, impl_generics)
+    };
 
     // Generate impl Default for enums - ALWAYS needed since #[derive(Default)] requires
     // unstable #[default] attribute on a variant
@@ -1590,9 +1648,13 @@ fn generate_enum_definition(
         ));
         code.push_str(&format!("{}    fn default() -> Self {{\n", indent_str));
         
-        // For custom_impls Default: use external delegation
+        // Check if this is a generic type - generic types can't use transmute-based Default
+        // because the external type path needs the generic parameter which we don't have
+        let is_generic = struct_meta.generic_params.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
+        
+        // For custom_impls Default: use external delegation (but NOT for generic types)
         // For other cases (has_default from derive or option types): use first variant
-        if has_custom_default && !is_option_type {
+        if has_custom_default && !is_option_type && !is_generic {
             let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
             let external_crate = external_path.replace("azul_dll", "crate");
             code.push_str(&format!(
@@ -1611,9 +1673,10 @@ fn generate_enum_definition(
                     .map(|s| s.as_str())
                     .unwrap_or("Unknown")
             };
+            // Use turbofish syntax for generic types to avoid parsing ambiguity
             code.push_str(&format!(
                 "{}        {}::{}\n",
-                indent_str, type_with_generics, first_variant_name
+                indent_str, type_turbofish, first_variant_name
             ));
         }
         code.push_str(&format!("{}    }}\n", indent_str));
@@ -2127,6 +2190,8 @@ mod tests {
             apiversion: 1,
             git: "test".to_string(),
             date: "2025-01-01".to_string(),
+            installation: Default::default(),
+            package: None,
             examples: Vec::new(),
             notes: Vec::new(),
             api: IndexMap::new(),
@@ -2215,6 +2280,8 @@ mod tests {
             apiversion: 1,
             git: "test".to_string(),
             date: "2025-01-01".to_string(),
+            installation: Default::default(),
+            package: None,
             examples: Vec::new(),
             notes: Vec::new(),
             api: IndexMap::new(),
@@ -2294,6 +2361,8 @@ mod tests {
             apiversion: 1,
             git: "test".to_string(),
             date: "2025-01-01".to_string(),
+            installation: Default::default(),
+            package: None,
             examples: Vec::new(),
             notes: Vec::new(),
             api: IndexMap::new(),

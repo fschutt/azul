@@ -151,7 +151,7 @@ pub type GridAutoTracks = GridTemplate;
 // --- grid-row / grid-column (grid line placement) ---
 
 /// Named grid line with optional span count (FFI-safe wrapper)
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NamedGridLine {
     pub name: AzString,

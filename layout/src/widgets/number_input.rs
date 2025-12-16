@@ -20,8 +20,11 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::text_input::{
-        OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
+        OnTextInputReturn, TextInput, 
+        TextInputOnTextInputCallback, TextInputOnTextInputCallbackType,
+        TextInputOnVirtualKeyDownCallback, TextInputOnVirtualKeyDownCallbackType, 
+        TextInputOnFocusLostCallback, TextInputOnFocusLostCallbackType,
+        TextInputState, TextInputValid,
     },
 };
 
@@ -92,31 +95,31 @@ impl NumberInput {
         }
     }
 
-    pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, data: RefAny, callback: C) {
         self.text_input.set_on_text_input(data, callback);
     }
 
-    pub fn with_on_text_input(
+    pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         data: RefAny,
-        callback: TextInputOnTextInputCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_text_input(data, callback);
         self
     }
 
-    pub fn set_on_virtual_key_down(
+    pub fn set_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         &mut self,
         data: RefAny,
-        callback: TextInputOnVirtualKeyDownCallbackType,
+        callback: C,
     ) {
         self.text_input.set_on_virtual_key_down(data, callback);
     }
 
-    pub fn with_on_virtual_key_down(
+    pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         data: RefAny,
-        callback: TextInputOnVirtualKeyDownCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_virtual_key_down(data, callback);
         self
@@ -150,43 +153,43 @@ impl NumberInput {
     }
 
     // Function called when the input has been parsed as a number
-    pub fn set_on_value_change(
+    pub fn set_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         &mut self,
         data: RefAny,
-        callback: NumberInputOnValueChangeCallbackType,
+        callback: C,
     ) {
         self.state.on_value_change = Some(NumberInputOnValueChange {
-            callback: NumberInputOnValueChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         })
         .into();
     }
 
-    pub fn with_on_value_change(
+    pub fn with_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         mut self,
         data: RefAny,
-        callback: NumberInputOnValueChangeCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_value_change(data, callback);
         self
     }
 
-    pub fn set_on_focus_lost(
+    pub fn set_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         &mut self,
         data: RefAny,
-        callback: NumberInputOnFocusLostCallbackType,
+        callback: C,
     ) {
         self.state.on_focus_lost = Some(NumberInputOnFocusLost {
-            callback: NumberInputOnFocusLostCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         })
         .into();
     }
 
-    pub fn with_on_focus_lost(
+    pub fn with_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         mut self,
         data: RefAny,
-        callback: NumberInputOnFocusLostCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_focus_lost(data, callback);
         self
@@ -209,8 +212,8 @@ impl NumberInput {
         let state = RefAny::new(self.state);
 
         self.text_input
-            .set_on_text_input(state.clone(), validate_text_input);
-        self.text_input.set_on_focus_lost(state, on_focus_lost);
+            .set_on_text_input(state.clone(), validate_text_input as TextInputOnTextInputCallbackType);
+        self.text_input.set_on_focus_lost(state, on_focus_lost as TextInputOnFocusLostCallbackType);
         self.text_input.dom()
     }
 }

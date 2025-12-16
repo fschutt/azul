@@ -686,56 +686,56 @@ impl TextInput {
         self
     }
 
-    pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, data: RefAny, callback: C) {
         self.state.on_text_input = Some(TextInputOnTextInput {
-            callback: TextInputOnTextInputCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         })
         .into();
     }
 
-    pub fn with_on_text_input(
+    pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
         data: RefAny,
-        callback: TextInputOnTextInputCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_text_input(data, callback);
         self
     }
 
-    pub fn set_on_virtual_key_down(
+    pub fn set_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         &mut self,
         data: RefAny,
-        callback: TextInputOnVirtualKeyDownCallbackType,
+        callback: C,
     ) {
         self.state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
-            callback: TextInputOnVirtualKeyDownCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         })
         .into();
     }
 
-    pub fn with_on_virtual_key_down(
+    pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
         data: RefAny,
-        callback: TextInputOnVirtualKeyDownCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_virtual_key_down(data, callback);
         self
     }
 
-    pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
+    pub fn set_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(&mut self, data: RefAny, callback: C) {
         self.state.on_focus_lost = Some(TextInputOnFocusLost {
-            callback: TextInputOnFocusLostCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+            callback: callback.into(),
             data,
         })
         .into();
     }
 
-    pub fn with_on_focus_lost(
+    pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
         data: RefAny,
-        callback: TextInputOnFocusLostCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_focus_lost(data, callback);
         self

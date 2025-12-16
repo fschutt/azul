@@ -313,6 +313,11 @@ pub fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
     }
 }
 
+/// By-value wrapper for raw_line_intersection (for FFI)
+pub fn raw_line_intersection_byval(p: &SvgLine, q: SvgLine) -> Option<SvgPoint> {
+    raw_line_intersection(p, &q)
+}
+
 pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLineCap) -> SvgPath {
     if distance == 0.0 {
         return p.clone();
@@ -782,6 +787,11 @@ pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgM
     geo_to_svg_multipolygon(u)
 }
 
+/// By-value wrapper for svg_multi_polygon_union (for FFI)
+pub fn svg_multi_polygon_union_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_union(a, &b)
+}
+
 pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
     use geo::{BooleanOps, Coord};
 
@@ -791,6 +801,11 @@ pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) 
     let u = a.intersection(&b);
 
     geo_to_svg_multipolygon(u)
+}
+
+/// By-value wrapper for svg_multi_polygon_intersection (for FFI)
+pub fn svg_multi_polygon_intersection_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_intersection(a, &b)
 }
 
 pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
@@ -804,6 +819,11 @@ pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) ->
     geo_to_svg_multipolygon(u)
 }
 
+/// By-value wrapper for svg_multi_polygon_difference (for FFI)
+pub fn svg_multi_polygon_difference_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_difference(a, &b)
+}
+
 pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
     use geo::{BooleanOps, Coord};
 
@@ -813,6 +833,11 @@ pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMul
     let u = a.xor(&b);
 
     geo_to_svg_multipolygon(u)
+}
+
+/// By-value wrapper for svg_multi_polygon_xor (for FFI)
+pub fn svg_multi_polygon_xor_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+    svg_multi_polygon_xor(a, &b)
 }
 
 #[cfg(feature = "svg")]

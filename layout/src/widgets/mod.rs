@@ -104,6 +104,17 @@ macro_rules! impl_callback {
         }
 
         impl Eq for $callback_value {}
+
+        /// Allow creating callback from a raw function pointer
+        /// Sets callable to None (for native Rust/C usage)
+        impl From<$callback_ty> for $callback_value {
+            fn from(cb: $callback_ty) -> Self {
+                $callback_value {
+                    cb,
+                    callable: azul_core::refany::OptionRefAny::None,
+                }
+            }
+        }
     };
 }
 

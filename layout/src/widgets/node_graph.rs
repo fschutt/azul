@@ -29,11 +29,11 @@ use crate::{
     callbacks::{Callback, CallbackInfo},
     extra::coloru_from_str,
     widgets::{
-        check_box::{CheckBox, CheckBoxState},
+        check_box::{CheckBox, CheckBoxState, CheckBoxOnToggleCallbackType},
         color_input::{ColorInput, ColorInputState},
         file_input::{FileInput, FileInputState},
-        number_input::{NumberInput, NumberInputState},
-        text_input::{TextInput, TextInputState},
+        number_input::{NumberInput, NumberInputState, NumberInputOnFocusLostCallbackType},
+        text_input::{TextInput, TextInputState, TextInputOnFocusLostCallbackType},
     },
 };
 
@@ -2473,17 +2473,17 @@ fn render_node(
                                        NodeTypeFieldValue::TextInput(initial_text) => {
                                            TextInput::new()
                                            .with_text(initial_text.clone())
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost)
+                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost as TextInputOnFocusLostCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
                                            NumberInput::new(*initial_value)
-                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost)
+                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost as NumberInputOnFocusLostCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
                                            CheckBox::new(*initial_checked)
-                                           .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed)
+                                           .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed as CheckBoxOnToggleCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {

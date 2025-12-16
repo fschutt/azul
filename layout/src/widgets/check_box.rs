@@ -200,16 +200,16 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn set_on_toggle(&mut self, data: RefAny, on_toggle: CheckBoxOnToggleCallbackType) {
+    pub fn set_on_toggle<C: Into<CheckBoxOnToggleCallback>>(&mut self, data: RefAny, on_toggle: C) {
         self.state.on_toggle = Some(CheckBoxOnToggle {
-            callback: CheckBoxOnToggleCallback { cb: on_toggle, callable: azul_core::refany::OptionRefAny::None },
+            callback: on_toggle.into(),
             data,
         })
         .into();
     }
 
     #[inline]
-    pub fn with_on_toggle(mut self, data: RefAny, on_toggle: CheckBoxOnToggleCallbackType) -> Self {
+    pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(mut self, data: RefAny, on_toggle: C) -> Self {
         self.set_on_toggle(data, on_toggle);
         self
     }

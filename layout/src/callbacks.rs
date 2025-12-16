@@ -284,7 +284,7 @@ pub struct Callback {
     pub callable: OptionRefAny,
 }
 
-impl_callback!(Callback);
+impl_callback!(Callback, CallbackType);
 
 impl Callback {
     /// Create a new callback with just a function pointer (for native Rust code)
@@ -314,7 +314,16 @@ impl Callback {
             callable: self.callable,
         }
     }
+}
 
+/// Allow Callback to be passed to functions expecting `C: Into<CoreCallback>`
+impl From<Callback> for CoreCallback {
+    fn from(callback: Callback) -> Self {
+        callback.to_core()
+    }
+}
+
+impl Callback {
     /// Safely invoke the callback with the given data and info
     ///
     /// This is a safe wrapper around calling the function pointer directly.
@@ -2849,7 +2858,7 @@ pub struct RenderImageCallback {
     pub callable: OptionRefAny,
 }
 
-impl_callback!(RenderImageCallback);
+impl_callback!(RenderImageCallback, RenderImageCallbackType);
 
 impl RenderImageCallback {
     /// Create a new callback with just a function pointer (for native Rust code)
@@ -2867,8 +2876,25 @@ impl RenderImageCallback {
     pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core_callback.cb) },
-            callable: OptionRefAny::None,
+            callable: core_callback.callable.clone(),
         }
+    }
+
+    /// Convert to CoreRenderImageCallback (function pointer stored as usize)
+    ///
+    /// This is always safe - we're just casting the function pointer to usize for storage.
+    pub fn to_core(self) -> azul_core::callbacks::CoreRenderImageCallback {
+        azul_core::callbacks::CoreRenderImageCallback {
+            cb: self.cb as usize,
+            callable: self.callable,
+        }
+    }
+}
+
+/// Allow RenderImageCallback to be passed to functions expecting `C: Into<CoreRenderImageCallback>`
+impl From<RenderImageCallback> for azul_core::callbacks::CoreRenderImageCallback {
+    fn from(callback: RenderImageCallback) -> Self {
+        callback.to_core()
     }
 }
 

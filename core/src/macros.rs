@@ -128,6 +128,7 @@ macro_rules! impl_display {
 ///
 /// // impl Display, Debug, etc. for MyCallback
 /// impl_callback!(MyCallback);
+/// impl_callback!(MyCallback, MyCallbackType);  // Also generates From<MyCallbackType> for MyCallback
 /// ```
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
@@ -185,6 +186,22 @@ macro_rules! impl_callback {
         }
 
         impl Eq for $callback_value {}
+    };
+    
+    // Version with callback type - also generates From impl
+    ($callback_value:ident, $callback_ty:ty) => {
+        $crate::impl_callback!($callback_value);
+        
+        /// Allow creating callback from a raw function pointer
+        /// Sets callable to None (for native Rust/C usage)
+        impl From<$callback_ty> for $callback_value {
+            fn from(cb: $callback_ty) -> Self {
+                $callback_value {
+                    cb,
+                    callable: $crate::refany::OptionRefAny::None,
+                }
+            }
+        }
     };
 }
 

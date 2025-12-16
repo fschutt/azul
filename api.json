@@ -2880,34 +2880,10 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CallbackType"
+                    "callback": "Callback"
                   }
                 ],
-                "fn_body": "dom.root.add_callback(event, data, callback as usize)"
-              },
-              "add_callback_with_callable": {
-                "doc": [
-                  "Adds a callback with a callable to this DOM node (for FFI language bindings).",
-                  "The callable can be retrieved via CallbackInfo.get_callable() in the trampoline."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "event": "EventFilter"
-                  },
-                  {
-                    "data": "RefAny"
-                  },
-                  {
-                    "callback": "CallbackType"
-                  },
-                  {
-                    "callable": "RefAny"
-                  }
-                ],
-                "fn_body": "dom.root.add_callback_with_callable(event, data, callback as usize, callable)"
+                "fn_body": "dom.root.add_callback(event, data, callback)"
               },
               "with_callback": {
                 "doc": [
@@ -2924,39 +2900,13 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CallbackType"
+                    "callback": "Callback"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "dom.with_callback(event, data, callback as usize)"
-              },
-              "with_callback_with_callable": {
-                "doc": [
-                  "Same as add_callback_with_callable, but as a builder method."
-                ],
-                "fn_args": [
-                  {
-                    "self": "value"
-                  },
-                  {
-                    "event": "EventFilter"
-                  },
-                  {
-                    "data": "RefAny"
-                  },
-                  {
-                    "callback": "CallbackType"
-                  },
-                  {
-                    "callable": "RefAny"
-                  }
-                ],
-                "returns": {
-                  "type": "Dom"
-                },
-                "fn_body": "dom.with_callback_with_callable(event, data, callback as usize, callable)"
+                "fn_body": "dom.with_callback(event, data, callback)"
               },
               "add_child": {
                 "doc": [
@@ -3740,34 +3690,10 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CallbackType"
+                    "callback": "Callback"
                   }
                 ],
-                "fn_body": "nodedata.add_callback(event, data, callback as usize)"
-              },
-              "add_callback_with_callable": {
-                "doc": [
-                  "Adds a callback with a callable to this NodeData (for FFI language bindings).",
-                  "The callable can be retrieved via CallbackInfo.get_callable() in the trampoline."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "event": "EventFilter"
-                  },
-                  {
-                    "data": "RefAny"
-                  },
-                  {
-                    "callback": "CallbackType"
-                  },
-                  {
-                    "callable": "RefAny"
-                  }
-                ],
-                "fn_body": "nodedata.add_callback_with_callable(event, data, callback as usize, callable)"
+                "fn_body": "nodedata.add_callback(event, data, callback)"
               },
               "with_callback": {
                 "doc": [
@@ -3784,39 +3710,13 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CallbackType"
+                    "callback": "Callback"
                   }
                 ],
                 "returns": {
                   "type": "NodeData"
                 },
-                "fn_body": "nodedata.with_callback(event, data, callback as usize)"
-              },
-              "with_callback_with_callable": {
-                "doc": [
-                  "Same as add_callback_with_callable, but as a builder method."
-                ],
-                "fn_args": [
-                  {
-                    "self": "value"
-                  },
-                  {
-                    "event": "EventFilter"
-                  },
-                  {
-                    "data": "RefAny"
-                  },
-                  {
-                    "callback": "CallbackType"
-                  },
-                  {
-                    "callable": "RefAny"
-                  }
-                ],
-                "returns": {
-                  "type": "NodeData"
-                },
-                "fn_body": "nodedata.with_callback_with_callable(event, data, callback as usize, callable)"
+                "fn_body": "nodedata.with_callback(event, data, callback)"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -6660,6 +6560,32 @@
               {
                 "cb": {
                   "type": "CallbackType"
+                }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "RenderImageCallback": {
+            "external": "azul_layout::callbacks::RenderImageCallback",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "RenderImageCallbackType"
                 }
               },
               {
@@ -32798,7 +32724,7 @@
                     "tag": "U8Vec"
                   }
                 ],
-                "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.as_ref().to_vec())"
+                "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.into())"
               },
               "raw_image": {
                 "doc": [
@@ -32828,13 +32754,13 @@
               "callback": {
                 "fn_args": [
                   {
-                    "gl_callback": "RenderImageCallbackType"
+                    "callback": "RenderImageCallback"
                   },
                   {
                     "data": "RefAny"
                   }
                 ],
-                "fn_body": "azul_core::resources::ImageRef::callback(gl_callback as usize, data)"
+                "fn_body": "{ let core_callback: azul_core::callbacks::CoreRenderImageCallback = callback.into(); azul_core::resources::ImageRef::callback(core_callback, data) }"
               }
             },
             "functions": {
@@ -34048,7 +33974,7 @@
                 "returns": {
                   "type": "SvgMultiPolygon"
                 },
-                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_union(svgmultipolygon, &other)"
+                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_union_byval(svgmultipolygon, other)"
               },
               "intersection": {
                 "doc": [
@@ -34065,7 +33991,7 @@
                 "returns": {
                   "type": "SvgMultiPolygon"
                 },
-                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_intersection(svgmultipolygon, &other)"
+                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_intersection_byval(svgmultipolygon, other)"
               },
               "difference": {
                 "doc": [
@@ -34082,7 +34008,7 @@
                 "returns": {
                   "type": "SvgMultiPolygon"
                 },
-                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_difference(svgmultipolygon, &other)"
+                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_difference_byval(svgmultipolygon, other)"
               },
               "xor": {
                 "doc": [
@@ -34099,7 +34025,7 @@
                 "returns": {
                   "type": "SvgMultiPolygon"
                 },
-                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_xor(svgmultipolygon, &other)"
+                "fn_body": "azul_layout::xml::svg::svg_multi_polygon_xor_byval(svgmultipolygon, other)"
               },
               "tessellate_fill": {
                 "fn_args": [
@@ -34951,7 +34877,7 @@
                 "returns": {
                   "type": "OptionSvgPoint"
                 },
-                "fn_body": "azul_layout::xml::svg::raw_line_intersection(svgline, &other).into()"
+                "fn_body": "azul_layout::xml::svg::raw_line_intersection_byval(svgline, other).into()"
               },
               "tessellate_stroke": {
                 "fn_args": [
