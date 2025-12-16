@@ -235,6 +235,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
                         callback: CoreCallback {
                             cb: csd_menubar_item_callback as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                         data: RefAny::new(submenu),
                     }]
@@ -295,6 +296,7 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_minimize_callback as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(()),
                 }]
@@ -318,6 +320,7 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_maximize_callback as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(()),
                 }]
@@ -341,6 +344,7 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_close_callback as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(()),
                 }]
@@ -360,6 +364,7 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::DragStart),
                     callback: CoreCallback {
                         cb: csd_titlebar_drag_start_callback as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(TitlebarDragMarker),
                 },
@@ -367,6 +372,7 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::Drag),
                     callback: CoreCallback {
                         cb: csd_titlebar_drag_callback as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(TitlebarDragMarker),
                 },

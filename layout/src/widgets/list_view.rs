@@ -1602,6 +1602,7 @@ impl ListView {
             data,
             callback: ListViewOnColumnClickCallback {
                 cb: on_column_click,
+                callable: azul_core::refany::OptionRefAny::None,
             },
         })
         .into();
@@ -1619,7 +1620,7 @@ impl ListView {
     pub fn set_on_row_click(&mut self, data: RefAny, on_row_click: ListViewOnRowClickCallbackType) {
         self.on_row_click = Some(ListViewOnRowClick {
             data,
-            callback: ListViewOnRowClickCallback { cb: on_row_click },
+            callback: ListViewOnRowClickCallback { cb: on_row_click, callable: azul_core::refany::OptionRefAny::None },
         })
         .into();
     }

@@ -25,7 +25,7 @@ use azul_core::{
     gl::OptionGlContextPtr,
     gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::{
         Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
         OpacityKey, RendererResources,
@@ -2638,6 +2638,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style,
+                callable: OptionRefAny::None,
             };
 
             let callback_info = CallbackInfo::new(
@@ -2854,6 +2855,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style: system_style.clone(),
+                callable: OptionRefAny::None,
             };
 
             let callback_info = CallbackInfo::new(
@@ -3063,6 +3065,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            callable: OptionRefAny::None,
         };
 
         let callback_info = CallbackInfo::new(
@@ -3227,6 +3230,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            callable: OptionRefAny::None,
         };
 
         let callback_info = CallbackInfo::new(

@@ -771,6 +771,7 @@ impl RenderBackend {
     }
 
     pub fn run(&mut self) {
+        eprintln!("[RENDER_BACKEND] >>>>> run() started <<<<<");
         let mut frame_counter: u32 = 0;
         let mut status = RenderBackendStatus::Continue;
 
@@ -779,9 +780,16 @@ impl RenderBackend {
         }
 
         while let RenderBackendStatus::Continue = status {
+            eprintln!("[RENDER_BACKEND] Waiting for message on api_rx...");
             status = match self.api_rx.recv() {
-                Ok(msg) => self.process_api_msg(msg, &mut frame_counter),
-                Err(..) => RenderBackendStatus::ShutDown(None),
+                Ok(msg) => {
+                    eprintln!("[RENDER_BACKEND] Received message: {:?}", std::mem::discriminant(&msg));
+                    self.process_api_msg(msg, &mut frame_counter)
+                }
+                Err(e) => {
+                    eprintln!("[RENDER_BACKEND] Channel error: {:?}", e);
+                    RenderBackendStatus::ShutDown(None)
+                }
             };
         }
 
@@ -1191,6 +1199,7 @@ impl RenderBackend {
                 request.sender.send(glyph_indices).unwrap();
             }
             SceneBuilderResult::FlushComplete(tx) => {
+                eprintln!("[RENDER_BACKEND] Processing FlushComplete, sending () response");
                 tx.send(()).ok();
             }
             SceneBuilderResult::ExternalEvent(evt) => {

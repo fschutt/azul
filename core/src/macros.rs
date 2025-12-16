@@ -133,6 +133,67 @@ macro_rules! impl_display {
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]
 macro_rules! impl_callback {
+    // Version with callable field (for UI callbacks that need FFI support)
+    ($callback_value:ident) => {
+        impl ::core::fmt::Display for $callback_value {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{:?}", self)
+            }
+        }
+
+        impl ::core::fmt::Debug for $callback_value {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                let callback = stringify!($callback_value);
+                write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
+            }
+        }
+
+        impl Clone for $callback_value {
+            fn clone(&self) -> Self {
+                $callback_value {
+                    cb: self.cb.clone(),
+                    callable: self.callable.clone(),
+                }
+            }
+        }
+
+        impl ::core::hash::Hash for $callback_value {
+            fn hash<H>(&self, state: &mut H)
+            where
+                H: ::core::hash::Hasher,
+            {
+                state.write_usize(self.cb as usize);
+            }
+        }
+
+        impl PartialEq for $callback_value {
+            fn eq(&self, rhs: &Self) -> bool {
+                self.cb as usize == rhs.cb as usize
+            }
+        }
+
+        impl PartialOrd for $callback_value {
+            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
+                Some((self.cb as usize).cmp(&(other.cb as usize)))
+            }
+        }
+
+        impl Ord for $callback_value {
+            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
+                (self.cb as usize).cmp(&(other.cb as usize))
+            }
+        }
+
+        impl Eq for $callback_value {}
+    };
+}
+
+/// Macro to implement callback traits for simple system callbacks (no callable field)
+///
+/// Use this for destructor callbacks, system callbacks, and other internal callbacks
+/// that don't need FFI callable support.
+#[macro_export]
+macro_rules! impl_callback_simple {
     ($callback_value:ident) => {
         impl ::core::fmt::Display for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {

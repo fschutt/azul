@@ -427,7 +427,7 @@ impl Button {
     pub fn set_on_click(&mut self, data: RefAny, on_click: ButtonOnClickCallbackType) {
         self.on_click = Some(ButtonOnClick {
             data,
-            callback: ButtonOnClickCallback { cb: on_click },
+            callback: ButtonOnClickCallback { cb: on_click, callable: azul_core::refany::OptionRefAny::None },
         })
         .into();
     }
@@ -450,6 +450,7 @@ impl Button {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
                 callback: CoreCallback {
                     cb: callback.cb as usize,
+                    callable: callback.callable,
                 },
                 data,
             }],

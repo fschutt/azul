@@ -31,7 +31,7 @@ use crate::{
     hit_test::OverflowingScrollNode,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeId},
     prop_cache::CssPropertyCache,
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::{
         DpiScaleFactor, FontInstanceKey, IdNamespace, ImageCache, ImageMask, ImageRef,
         RendererResources,
@@ -92,12 +92,6 @@ impl Update {
 /// across the callback boundary.
 pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> StyledDom;
 
-#[repr(C)]
-pub struct LayoutCallbackInner {
-    pub cb: LayoutCallbackType,
-}
-impl_callback!(LayoutCallbackInner);
-
 extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     StyledDom::default()
 }
@@ -110,26 +104,26 @@ extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> Style
 ///
 /// The trampoline function (stored in `cb`) knows how to extract both
 /// from the RefAny and invoke the foreign callback with the user data.
-#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct LayoutCallback {
-    pub cb: LayoutCallbackInner,
+    pub cb: LayoutCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
+impl_callback!(LayoutCallback);
 
 impl LayoutCallback {
     pub fn new(cb: LayoutCallbackType) -> Self {
-        Self {
-            cb: LayoutCallbackInner { cb },
-        }
+        Self { cb, callable: OptionRefAny::None }
     }
 }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
         Self {
-            cb: LayoutCallbackInner {
-                cb: default_layout_callback,
-            },
+            cb: default_layout_callback,
+            callable: OptionRefAny::None,
         }
     }
 }
@@ -143,8 +137,17 @@ pub type IFrameCallbackType = extern "C" fn(RefAny, IFrameCallbackInfo) -> IFram
 #[repr(C)]
 pub struct IFrameCallback {
     pub cb: IFrameCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
 impl_callback!(IFrameCallback);
+
+impl IFrameCallback {
+    pub fn new(cb: IFrameCallbackType) -> Self {
+        Self { cb, callable: OptionRefAny::None }
+    }
+}
 
 /// Reason why an IFrame callback is being invoked.
 ///
@@ -186,8 +189,9 @@ pub struct IFrameCallbackInfo {
     pub scroll_offset: LogicalPosition,
     pub virtual_scroll_size: LogicalSize,
     pub virtual_scroll_offset: LogicalPosition,
-    /// Extension for future ABI stability (referenced data)
-    _abi_ref: *const c_void,
+    /// Pointer to the callable (OptionRefAny) for FFI language bindings (Python, etc.)
+    /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
+    callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut c_void,
 }
@@ -204,7 +208,7 @@ impl Clone for IFrameCallbackInfo {
             scroll_offset: self.scroll_offset,
             virtual_scroll_size: self.virtual_scroll_size,
             virtual_scroll_offset: self.virtual_scroll_offset,
-            _abi_ref: self._abi_ref,
+            callable_ptr: self.callable_ptr,
             _abi_mut: self._abi_mut,
         }
     }
@@ -232,8 +236,22 @@ impl IFrameCallbackInfo {
             scroll_offset,
             virtual_scroll_size,
             virtual_scroll_offset,
-            _abi_ref: core::ptr::null(),
+            callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
+        }
+    }
+
+    /// Set the callable pointer for FFI language bindings
+    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = callable as *const OptionRefAny;
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    pub fn get_callable(&self) -> OptionRefAny {
+        if self.callable_ptr.is_null() {
+            OptionRefAny::None
+        } else {
+            unsafe { (*self.callable_ptr).clone() }
         }
     }
 
@@ -443,8 +461,9 @@ pub struct LayoutCallbackInfo {
     pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
     pub theme: WindowTheme,
-    /// Extension for future ABI stability (referenced data)
-    _abi_ref: *const core::ffi::c_void,
+    /// Pointer to the callable (OptionRefAny) for FFI language bindings (Python, etc.)
+    /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
+    callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut core::ffi::c_void,
 }
@@ -455,7 +474,7 @@ impl Clone for LayoutCallbackInfo {
             ref_data: self.ref_data,
             window_size: self.window_size,
             theme: self.theme,
-            _abi_ref: self._abi_ref,
+            callable_ptr: self.callable_ptr,
             _abi_mut: self._abi_mut,
         }
     }
@@ -473,28 +492,28 @@ impl LayoutCallbackInfo {
             ref_data: unsafe { core::mem::transmute(ref_data) },
             window_size,
             theme,
-            _abi_ref: core::ptr::null(),
+            callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
+        }
+    }
+
+    /// Set the callable pointer for FFI language bindings
+    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+        self.callable_ptr = callable as *const OptionRefAny;
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    pub fn get_callable(&self) -> OptionRefAny {
+        if self.callable_ptr.is_null() {
+            OptionRefAny::None
+        } else {
+            unsafe { (*self.callable_ptr).clone() }
         }
     }
 
     /// Get a clone of the system style Arc
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
-    }
-
-    /// Get the ABI extension pointer (for future extensibility)
-    pub fn get_abi_ref(&self) -> *const c_void {
-        self._abi_ref
-    }
-
-    /// Set the ABI extension pointer (for future extensibility)
-    ///
-    /// # Safety
-    /// The caller must ensure the pointer remains valid for the lifetime
-    /// of this LayoutCallbackInfo and is properly cleaned up.
-    pub unsafe fn set_abi_ref(&mut self, ptr: *const c_void) {
-        self._abi_ref = ptr;
     }
 
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache {
@@ -684,16 +703,19 @@ pub type CoreCallbackType = usize;
 /// When invoking, the usize must be unsafely cast back to the function pointer type.
 ///
 /// Must return an `Update` that denotes if the screen should be redrawn.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreCallback {
     pub cb: CoreCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
 
 impl_option!(
     CoreCallback,
     OptionCoreCallback,
-    [Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash]
+    [Debug, Eq, Clone, PartialEq, PartialOrd, Ord, Hash]
 );
 
 /// Data associated with a callback (event filter, callback, and user data)
@@ -755,10 +777,13 @@ impl CoreCallbackDataVec {
 pub type CoreRenderImageCallbackType = usize;
 
 /// Callback that returns a rendered OpenGL texture (usize placeholder)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreRenderImageCallback {
     pub cb: CoreRenderImageCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
 
 /// Image callback with associated data

@@ -860,7 +860,7 @@ macro_rules! impl_option {
             pub fn into_option(&self) -> Option<$struct_type> {
                 match self {
                     $struct_name::None => None,
-                    $struct_name::Some(t) => Some(*t),
+                    $struct_name::Some(t) => Some(t.clone()),
                 }
             }
         }

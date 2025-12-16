@@ -936,6 +936,7 @@ impl DropDown {
                         data: data.clone(),
                         callback: CoreCallback {
                             cb: on_dropdown_click as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     }]
                     .into(),

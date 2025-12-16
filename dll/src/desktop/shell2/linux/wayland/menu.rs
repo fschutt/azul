@@ -12,7 +12,7 @@
 //! - This provides native-quality menus on Wayland
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner},
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::Menu,
     refany::RefAny,
@@ -118,9 +118,8 @@ pub fn create_menu_popup_options(
 
     // Set layout callback - RefAny contains menu data, callback knows how to use it
     options.state.layout_callback = LayoutCallback {
-        cb: LayoutCallbackInner {
-            cb: menu_layout_callback,
-        },
+        cb: menu_layout_callback,
+        callable: azul_core::refany::OptionRefAny::None,
     };
 
     // Store menu data in app_data (will be passed to callback)

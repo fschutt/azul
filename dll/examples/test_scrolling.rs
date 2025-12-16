@@ -136,6 +136,7 @@ fn main() {
     window.state.close_callback =
         azul_layout::callbacks::OptionCallback::Some(azul_layout::callbacks::Callback {
             cb: on_window_close,
+            callable: azul_core::refany::OptionRefAny::None,
         });
 
     app.run(window);

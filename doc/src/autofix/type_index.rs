@@ -127,6 +127,10 @@ pub enum TypeDefKind {
         source_macro: String,
         base_type: String,
         kind: MacroGeneratedKind,
+        /// Derives from the macro invocation (e.g., ["Debug", "Clone"])
+        derives: Vec<String>,
+        /// Traits with manual `impl Trait for Type` blocks (e.g., Eq from impl_vec_eq!)
+        implemented_traits: Vec<String>,
     },
 }
 
@@ -191,6 +195,8 @@ impl TypeDefinition {
                 kind,
                 base_type,
                 source_macro,
+                derives: macro_derives,
+                implemented_traits,
             } => {
                 match kind {
                     MacroGeneratedKind::Vec => {
@@ -240,8 +246,12 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::VecDestructor => {
@@ -277,8 +287,12 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::VecDestructorType => {
@@ -317,8 +331,12 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string(), "Clone".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string(), "Clone".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::OptionEnumWrapper => {
@@ -347,8 +365,12 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string(), "Clone".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string(), "Clone".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::Result => {
@@ -377,8 +399,12 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string(), "Clone".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string(), "Clone".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::CallbackWrapper => {
@@ -408,8 +434,12 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                     MacroGeneratedKind::CallbackValue => {
@@ -428,8 +458,12 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: vec!["Debug".to_string()],
-                            custom_impls: vec![],
+                            derives: if macro_derives.is_empty() { 
+                                vec!["Debug".to_string()] 
+                            } else { 
+                                macro_derives.clone() 
+                            },
+                            custom_impls: implemented_traits.clone(),
                         }
                     }
                 }
@@ -1596,6 +1630,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: base_type.clone(),
                         kind: MacroGeneratedKind::Vec,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1612,6 +1648,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: base_type.clone(),
                         kind: MacroGeneratedKind::VecDestructor,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1629,6 +1667,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name,
                         base_type: vec_type, // The vec type is referenced in the callback
                         kind: MacroGeneratedKind::VecDestructorType,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1666,6 +1706,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: base_type.clone(),
                         kind: MacroGeneratedKind::Option,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1684,6 +1726,8 @@ fn extract_macro_generated_types(
                             source_macro: macro_name,
                             base_type,
                             kind: MacroGeneratedKind::OptionEnumWrapper,
+                            derives: Vec::new(),
+                            implemented_traits: Vec::new(),
                         },
                         source_code: m.to_token_stream().to_string(),
                         methods: Vec::new(),
@@ -1710,6 +1754,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name,
                         base_type: format!("Result<{}, {}>", ok_type, err_type),
                         kind: MacroGeneratedKind::Result,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1718,9 +1764,14 @@ fn extract_macro_generated_types(
         }
 
         "impl_callback" => {
-            // impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType)
-            // Generates: CallbackWrapper (struct), OptionCallbackWrapper, CallbackValue (struct)
-            // CallbackType is already a type alias defined separately
+            // Two versions of this macro:
+            // 1. impl_callback!(CallbackValue) - 1 parameter
+            //    Just implements traits (Clone, Eq, Hash, etc.) for an existing struct
+            //    This doesn't generate new types, just trait impls for existing types
+            //    These are handled via custom_impls in api.json
+            // 2. impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType) - 4 parameters
+            //    Generates: CallbackWrapper (struct), OptionCallbackWrapper, CallbackValue (struct)
+            
             if args.len() >= 4 {
                 let callback_wrapper = args[0].to_string();
                 let option_callback_wrapper = args[1].to_string();
@@ -1738,6 +1789,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: callback_value.clone(), // References CallbackValue
                         kind: MacroGeneratedKind::CallbackWrapper,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1754,6 +1807,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: callback_wrapper.clone(),
                         kind: MacroGeneratedKind::Option,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1770,6 +1825,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name,
                         base_type: callback_type, // References CallbackType (the extern "C" fn)
                         kind: MacroGeneratedKind::CallbackValue,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -2159,6 +2216,11 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
             custom_impls.extend(impls);
             custom_impls.sort();
             custom_impls.dedup();
+        }
+        TypeDefKind::MacroGenerated { implemented_traits, .. } => {
+            implemented_traits.extend(impls);
+            implemented_traits.sort();
+            implemented_traits.dedup();
         }
         // Other kinds don't have custom_impls
         _ => {}

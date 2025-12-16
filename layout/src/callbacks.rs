@@ -24,7 +24,7 @@ use azul_core::{
     id::NodeId as CoreNodeId,
     impl_callback,
     menu::Menu,
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
     selection::{Selection, SelectionRange, SelectionState, TextCursor},
     styled_dom::{NodeHierarchyItemId, StyledDom},
@@ -279,11 +279,19 @@ pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 #[repr(C)]
 pub struct Callback {
     pub cb: CallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
 
 impl_callback!(Callback);
 
 impl Callback {
+    /// Create a new callback with just a function pointer (for native Rust code)
+    pub fn new(cb: CallbackType) -> Self {
+        Self { cb, callable: OptionRefAny::None }
+    }
+
     /// Convert from CoreCallback (stored as usize) to Callback (actual function pointer)
     ///
     /// # Safety
@@ -293,6 +301,7 @@ impl Callback {
     pub fn from_core(core: CoreCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core.cb) },
+            callable: OptionRefAny::None,
         }
     }
 
@@ -302,6 +311,7 @@ impl Callback {
     pub fn to_core(self) -> CoreCallback {
         CoreCallback {
             cb: self.cb as usize,
+            callable: self.callable,
         }
     }
 
@@ -328,7 +338,7 @@ pub unsafe fn core_callback_to_fn(core: CoreCallback) -> CallbackType {
 ///
 /// This enum provides an ABI-stable alternative to `Option<Callback>`
 /// that can be safely passed across FFI boundaries.
-#[derive(Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Eq, Clone, PartialEq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum OptionCallback {
     /// No callback is present.
@@ -412,6 +422,9 @@ pub struct CallbackInfoRefData<'a> {
     /// Platform-specific system style (colors, spacing, etc.)
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     pub system_style: Arc<SystemStyle>,
+    /// The callable for FFI language bindings (Python, etc.)
+    /// Cloned from the Callback struct before invocation. Native Rust callbacks have this as None.
+    pub callable: OptionRefAny,
 }
 
 /// CallbackInfo is a lightweight wrapper around pointers to stack-local data.
@@ -426,7 +439,6 @@ pub struct CallbackInfo {
     /// Single reference to all readonly reference data
     /// This consolidates 8 individual parameters into 1, improving API ergonomics
     ref_data: *const CallbackInfoRefData<'static>,
-
     // Context Info (Immutable Event Data)
     /// The ID of the DOM + the node that was hit
     hit_dom_node: DomNodeId,
@@ -435,7 +447,6 @@ pub struct CallbackInfo {
     cursor_relative_to_item: OptionLogicalPosition,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**
     cursor_in_viewport: OptionLogicalPosition,
-
     // Transaction Container (New System)
     /// All changes made by the callback, applied atomically after callback returns
     changes: *mut Vec<CallbackChange>,
@@ -463,6 +474,14 @@ impl CallbackInfo {
             // Transaction container (new system)
             changes: changes as *mut Vec<CallbackChange>,
         }
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    ///
+    /// Returns the cloned OptionRefAny if a callable was set, or None if this
+    /// is a native Rust callback.
+    pub fn get_callable(&self) -> OptionRefAny {
+        unsafe { (*self.ref_data).callable.clone() }
     }
 
     // Helper methods for transaction system
@@ -2825,11 +2844,19 @@ pub type RenderImageCallbackType = extern "C" fn(RefAny, RenderImageCallbackInfo
 #[repr(C)]
 pub struct RenderImageCallback {
     pub cb: RenderImageCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub callable: OptionRefAny,
 }
 
 impl_callback!(RenderImageCallback);
 
 impl RenderImageCallback {
+    /// Create a new callback with just a function pointer (for native Rust code)
+    pub fn new(cb: RenderImageCallbackType) -> Self {
+        Self { cb, callable: OptionRefAny::None }
+    }
+
     /// Convert from the core crate's `CoreRenderImageCallback` (which stores cb as usize)
     /// back to the layout crate's typed function pointer.
     ///
@@ -2840,6 +2867,7 @@ impl RenderImageCallback {
     pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core_callback.cb) },
+            callable: OptionRefAny::None,
         }
     }
 }
@@ -2858,8 +2886,8 @@ pub struct RenderImageCallbackInfo {
     image_cache: *const ImageCache,
     /// System font cache
     system_fonts: *const FcFontCache,
-    /// Extension for future ABI stability (referenced data)
-    _abi_ref: *const core::ffi::c_void,
+    /// Pointer to callable (Python/FFI callback function)
+    callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut core::ffi::c_void,
 }
@@ -2872,7 +2900,7 @@ impl Clone for RenderImageCallbackInfo {
             gl_context: self.gl_context,
             image_cache: self.image_cache,
             system_fonts: self.system_fonts,
-            _abi_ref: self._abi_ref,
+            callable_ptr: self.callable_ptr,
             _abi_mut: self._abi_mut,
         }
     }
@@ -2892,9 +2920,23 @@ impl RenderImageCallbackInfo {
             gl_context: gl_context as *const OptionGlContextPtr,
             image_cache: image_cache as *const ImageCache,
             system_fonts: system_fonts as *const FcFontCache,
-            _abi_ref: core::ptr::null(),
+            callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         }
+    }
+
+    /// Get the callable for FFI language bindings (Python, etc.)
+    pub fn get_callable(&self) -> OptionRefAny {
+        if self.callable_ptr.is_null() {
+            OptionRefAny::None
+        } else {
+            unsafe { (*self.callable_ptr).clone() }
+        }
+    }
+
+    /// Set the callable pointer (called before invoking callback)
+    pub unsafe fn set_callable_ptr(&mut self, ptr: *const OptionRefAny) {
+        self.callable_ptr = ptr;
     }
 
     pub fn get_callback_node_id(&self) -> DomNodeId {

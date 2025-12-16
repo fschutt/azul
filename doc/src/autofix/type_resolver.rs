@@ -319,6 +319,7 @@ impl<'a> TypeResolver<'a> {
                 base_type,
                 kind,
                 source_macro,
+                ..
             } => {
                 use super::type_index::MacroGeneratedKind;
 

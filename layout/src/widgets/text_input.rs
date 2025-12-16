@@ -688,7 +688,7 @@ impl TextInput {
 
     pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
         self.state.on_text_input = Some(TextInputOnTextInput {
-            callback: TextInputOnTextInputCallback { cb: callback },
+            callback: TextInputOnTextInputCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -709,7 +709,7 @@ impl TextInput {
         callback: TextInputOnVirtualKeyDownCallbackType,
     ) {
         self.state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
-            callback: TextInputOnVirtualKeyDownCallback { cb: callback },
+            callback: TextInputOnVirtualKeyDownCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -726,7 +726,7 @@ impl TextInput {
 
     pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
         self.state.on_focus_lost = Some(TextInputOnFocusLost {
-            callback: TextInputOnFocusLostCallback { cb: callback },
+            callback: TextInputOnFocusLostCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -812,6 +812,7 @@ impl TextInput {
                         data: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_focus_received as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
@@ -819,6 +820,7 @@ impl TextInput {
                         data: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_focus_lost as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
@@ -826,6 +828,7 @@ impl TextInput {
                         data: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_text_input as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
@@ -833,6 +836,7 @@ impl TextInput {
                         data: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_virtual_key_down as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
@@ -840,6 +844,7 @@ impl TextInput {
                         data: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_mouse_hover as usize,
+                            callable: azul_core::refany::OptionRefAny::None,
                         },
                     },
                 ]

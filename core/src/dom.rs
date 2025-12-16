@@ -606,7 +606,7 @@ impl NodeType {
             Text(s) => Text(s.clone_self()),
             Image(i) => Image(i.clone()), // note: shallow clone
             IFrame(i) => IFrame(IFrameNode {
-                callback: i.callback,
+                callback: i.callback.clone(),
                 data: i.data.clone(),
             }),
         }
@@ -2464,7 +2464,7 @@ impl NodeData {
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
         Self::new(NodeType::IFrame(IFrameNode {
-            callback: IFrameCallback { cb: callback },
+            callback: IFrameCallback::new(callback),
             data,
         }))
     }
@@ -2642,10 +2642,26 @@ impl NodeData {
         v.push(CoreCallbackData {
             event,
             data,
-            callback: CoreCallback { cb: callback },
+            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::None },
         });
         self.callbacks = v.into();
     }
+
+    /// Add a callback with a callable (for FFI language bindings like Python)
+    /// The callable is stored in the callback and can be retrieved via `CallbackInfo.get_callable()`
+    #[inline]
+    pub fn add_callback_with_callable(&mut self, event: EventFilter, data: RefAny, callback: CoreCallbackType, callable: RefAny) {
+        let mut v: CoreCallbackDataVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.callbacks);
+        let mut v = v.into_library_owned_vec();
+        v.push(CoreCallbackData {
+            event,
+            data,
+            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::Some(callable) },
+        });
+        self.callbacks = v.into();
+    }
+
     #[inline]
     pub fn add_id(&mut self, s: AzString) {
         let mut v: IdOrClassVec = Vec::new().into();
@@ -2722,6 +2738,17 @@ impl NodeData {
         callback: CoreCallbackType,
     ) -> Self {
         self.add_callback(event, data, callback as usize);
+        self
+    }
+    #[inline(always)]
+    pub fn with_callback_with_callable(
+        mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: CoreCallbackType,
+        callable: RefAny,
+    ) -> Self {
+        self.add_callback_with_callable(event, data, callback as usize, callable);
         self
     }
     #[inline(always)]
@@ -3223,7 +3250,7 @@ impl Dom {
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
         Self::new(NodeType::IFrame(IFrameNode {
-            callback: IFrameCallback { cb: callback },
+            callback: IFrameCallback::new(callback),
             data,
         }))
     }
@@ -4544,6 +4571,17 @@ impl Dom {
         callback: CoreCallbackType,
     ) -> Self {
         self.root.add_callback(event, data, callback as usize);
+        self
+    }
+    #[inline(always)]
+    pub fn with_callback_with_callable(
+        mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: CoreCallbackType,
+        callable: RefAny,
+    ) -> Self {
+        self.root.add_callback_with_callable(event, data, callback as usize, callable);
         self
     }
     #[inline(always)]

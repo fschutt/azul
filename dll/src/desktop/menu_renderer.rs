@@ -61,7 +61,7 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
     // Invoke the menu item's callback if present
     if let Some(ref menu_callback) = callback_data.menu_item.callback.as_option() {
         // Convert CoreCallback to actual function pointer using safe wrapper
-        let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback);
+        let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback.clone());
 
         // Invoke with the menu item's data
         let callback_data_refany = menu_callback.data.clone();
@@ -346,6 +346,7 @@ fn create_string_menu_item_dom(
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
                     cb: menu_item_click_callback as usize,
+                    callable: azul_core::refany::OptionRefAny::None,
                 },
                 data: RefAny::new(callback_data),
             });
@@ -363,6 +364,7 @@ fn create_string_menu_item_dom(
                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
                 callback: CoreCallback {
                     cb: submenu_hover_callback as usize,
+                    callable: azul_core::refany::OptionRefAny::None,
                 },
                 data: RefAny::new(submenu_data),
             });

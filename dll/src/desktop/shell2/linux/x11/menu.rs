@@ -11,7 +11,7 @@
 //! - This works identically across all platforms (X11, Wayland, macOS, Windows)
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner},
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
     geom::LogicalSize,
     menu::Menu,
     refany::RefAny,
@@ -126,9 +126,8 @@ pub fn create_menu_window_options(
 
     // Set layout callback - RefAny contains menu data
     options.state.layout_callback = LayoutCallback {
-        cb: LayoutCallbackInner {
-            cb: menu_layout_callback,
-        },
+        cb: menu_layout_callback,
+        callable: azul_core::refany::OptionRefAny::None,
     };
 
     options

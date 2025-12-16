@@ -156,7 +156,7 @@ impl NumberInput {
         callback: NumberInputOnValueChangeCallbackType,
     ) {
         self.state.on_value_change = Some(NumberInputOnValueChange {
-            callback: NumberInputOnValueChangeCallback { cb: callback },
+            callback: NumberInputOnValueChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -177,7 +177,7 @@ impl NumberInput {
         callback: NumberInputOnFocusLostCallbackType,
     ) {
         self.state.on_focus_lost = Some(NumberInputOnFocusLost {
-            callback: NumberInputOnFocusLostCallback { cb: callback },
+            callback: NumberInputOnFocusLostCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();

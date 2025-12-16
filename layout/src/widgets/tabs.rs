@@ -1225,7 +1225,7 @@ impl TabHeader {
     pub fn set_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) {
         self.on_click = Some(TabOnClick {
             data,
-            callback: TabOnClickCallback { cb: on_click },
+            callback: TabOnClickCallback { cb: on_click, callable: azul_core::refany::OptionRefAny::None },
         })
         .into();
     }
@@ -1335,6 +1335,7 @@ impl TabHeader {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                                     callback: CoreCallback {
                                         cb: on_tab_click as usize,
+                                        callable: azul_core::refany::OptionRefAny::None,
                                     },
                                     data: dataset.clone(),
                                 }]

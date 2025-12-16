@@ -202,7 +202,7 @@ impl CheckBox {
     #[inline]
     pub fn set_on_toggle(&mut self, data: RefAny, on_toggle: CheckBoxOnToggleCallbackType) {
         self.state.on_toggle = Some(CheckBoxOnToggle {
-            callback: CheckBoxOnToggleCallback { cb: on_toggle },
+            callback: CheckBoxOnToggleCallback { cb: on_toggle, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -229,6 +229,7 @@ impl CheckBox {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
                         cb: self::input::default_on_checkbox_clicked as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                     data: RefAny::new(self.state),
                 }]

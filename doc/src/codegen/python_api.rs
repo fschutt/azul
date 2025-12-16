@@ -68,6 +68,76 @@ const VECREF_TYPES: &[&str] = &[
     "F32VecRefMut",
 ];
 
+/// Check if a type name is a callback type that needs Python→Rust routing
+/// Returns the callback wrapper struct name if it is, None otherwise
+fn get_callback_info_for_type(type_name: &str, version_data: &VersionData) -> Option<CallbackTypeInfo> {
+    let (_, base_type, _) = analyze_type(type_name);
+    
+    // Direct callback types (e.g., "Callback", "IFrameCallback")
+    // Look up in api.json to find the callback_typedef
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, &base_type) {
+        if let Some(class_data) = get_class(version_data, module, &base_type) {
+            // Check if this type has struct_fields that contain a callback
+            // e.g., Callback has { cb: CallbackType, data: RefAny }
+            if let Some(ref struct_fields) = class_data.struct_fields {
+                let mut has_callback = false;
+                let mut has_refany = false;
+                let mut callback_field_type = String::new();
+                
+                for field_map in struct_fields {
+                    for (field_name, field_data) in field_map {
+                        if field_data.r#type == "RefAny" {
+                            has_refany = true;
+                        }
+                        // Check if this field is a callback typedef
+                        if let Some((mod2, _)) = search_for_class_by_class_name(version_data, &field_data.r#type) {
+                            if let Some(field_class) = get_class(version_data, mod2, &field_data.r#type) {
+                                if field_class.callback_typedef.is_some() {
+                                    has_callback = true;
+                                    callback_field_type = field_data.r#type.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if has_callback && has_refany {
+                    // This is a callback+data pair struct
+                    let wrapper_name = format!("{}Wrapper", callback_field_type.replace("Type", ""));
+                    let trampoline_name = format!("invoke_py_{}", to_snake_case(&callback_field_type.replace("Type", "")));
+                    return Some(CallbackTypeInfo {
+                        original_type: base_type.clone(),
+                        callback_type: callback_field_type,
+                        wrapper_name,
+                        trampoline_name,
+                    });
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Information about a callback type for Python routing
+#[derive(Debug, Clone)]
+struct CallbackTypeInfo {
+    /// Original type name (e.g., "Callback", "IFrameCallback")
+    original_type: String,
+    /// The inner callback typedef (e.g., "CallbackType")
+    callback_type: String,
+    /// Wrapper struct name for holding Python objects (e.g., "CallbackWrapper")
+    wrapper_name: String,
+    /// Trampoline function name (e.g., "invoke_py_callback")
+    trampoline_name: String,
+}
+
+/// Check if a type is RefAny - needs Python PyObject wrapping
+fn is_refany_type(type_name: &str) -> bool {
+    let (_, base_type, _) = analyze_type(type_name);
+    base_type == "RefAny"
+}
+
 /// Check if a type is a VecRef type (raw pointer slice wrapper)
 /// These have `vec_ref_element_type` field in api.json or are in the hardcoded list
 fn is_vec_ref_type(class_data: &ClassData) -> bool {
@@ -201,6 +271,17 @@ fn can_have_python_constructor(class_data: &ClassData, version_data: &VersionDat
                     return false;
                 }
 
+                // Skip if type name ends with "CallbackType" (function pointer types)
+                // These are stored as usize but are actually function pointers
+                if type_str.ends_with("CallbackType") {
+                    return false;
+                }
+                
+                // Skip if type is RefAny (requires special handling)
+                if type_str == "RefAny" {
+                    return false;
+                }
+
                 // Skip if type is a callback type (contains function pointers)
                 if let Some((module, _)) = search_for_class_by_class_name(version_data, type_str) {
                     if let Some(field_class) = get_class(version_data, module, type_str) {
@@ -208,6 +289,12 @@ fn can_have_python_constructor(class_data: &ClassData, version_data: &VersionDat
                             return false;
                         }
                     }
+                }
+                
+                // Skip if type is a Vec type (requires complex conversion)
+                // Vec types have suffix "Vec" but are not primitives
+                if type_str.ends_with("Vec") && type_str.len() > 3 && !type_str.contains("Destructor") {
+                    return false;
                 }
             }
         }
@@ -342,8 +429,10 @@ pub struct CallbackSignature {
 /// - PyO3 conversion traits (FromPyObject, IntoPyObject)
 /// - Callback wrapper types (AppDataTy, etc.)
 /// - Callback trampolines (extern "C" fn invoke_py_*)
-/// - App class implementation
-fn generate_python_patches(version_data: &VersionData, prefix: &str) -> String {
+///
+/// NOTE: This generates the PREFIX part only. The App class is generated separately
+/// AFTER wrapper types are defined, since App uses AzWindowCreateOptions which is a wrapper.
+fn generate_python_patches_prefix(version_data: &VersionData, prefix: &str) -> String {
     let mut code = String::new();
     
     code.push_str("// ============================================================================\r\n");
@@ -539,8 +628,9 @@ impl AzStringVec {
     // --- Callback wrapper types and trampolines ---
     code.push_str(&generate_callback_trampolines(version_data, prefix));
     
-    // --- App implementation ---
-    code.push_str(&generate_app_class(prefix));
+    // NOTE: App class is NOT generated here!
+    // It's generated separately after wrapper types, since it uses AzWindowCreateOptions.
+    // See generate_app_class() which is called in generate_python_api().
     
     code
 }
@@ -548,14 +638,38 @@ impl AzStringVec {
 fn generate_callback_trampolines(version_data: &VersionData, prefix: &str) -> String {
     let mut code = String::new();
     
-    code.push_str("// --- Callback Wrapper Types (hold Py<PyAny> in RefAny) ---\r\n\r\n");
+    code.push_str("// --- Python Wrapper Types for RefAny ---\r\n\r\n");
     
     // Special wrapper for App (holds both data and layout callback)
     code.push_str(r#"/// Holds Python objects for the main App (data + layout callback)
+/// Layout callback is stored in WindowState.layout_callback,
+/// but for App we store both data and callback together.
 #[repr(C)]
 pub struct AppDataTy {
     pub _py_app_data: Option<Py<PyAny>>,
     pub _py_layout_callback: Option<Py<PyAny>>,
+}
+
+/// Generic wrapper for Python user data stored in RefAny
+/// Used by all callbacks (except layout) to wrap Python objects.
+/// The callable is retrieved separately via info.get_callable().
+#[repr(C)]
+pub struct PyDataWrapper {
+    pub _py_data: Option<Py<PyAny>>,
+}
+
+/// Wrapper for Python callable stored in the callback's `callable` field.
+/// Retrieved via info.get_callable() in trampolines.
+#[repr(C)]
+pub struct PyCallableWrapper {
+    pub _py_callable: Option<Py<PyAny>>,
+}
+
+/// Generic wrapper for any Python object stored in RefAny.
+/// Used when we just need to wrap a Py<PyAny> without specific semantics.
+#[repr(C)]
+pub struct PyObjectWrapper {
+    pub py_obj: Py<PyAny>,
 }
 
 "#);
@@ -594,26 +708,15 @@ pub struct AppDataTy {
         }
     }
     
-    // Generate wrapper types for storing Python objects
-    for (callback_name, _) in &callback_types {
-        // Skip LayoutCallbackType - we use AppDataTy for that
-        if callback_name == "LayoutCallbackType" {
-            continue;
-        }
-        let wrapper_name = format!("{}Wrapper", callback_name.replace("Type", ""));
-        code.push_str(&format!("/// Wrapper for {} - holds Python callback and data\r\n", callback_name));
-        code.push_str("#[repr(C)]\r\n");
-        code.push_str(&format!("pub struct {} {{\r\n", wrapper_name));
-        code.push_str("    pub _py_callback: Option<Py<PyAny>>,\r\n");
-        code.push_str("    pub _py_data: Option<Py<PyAny>>,\r\n");
-        code.push_str("}\r\n\r\n");
-    }
+    // No per-callback wrapper types needed anymore!
+    // We use PyDataWrapper for data and PyCallableWrapper for callables.
     
     // Generate trampoline functions
     code.push_str("// --- Callback Trampolines (extern \"C\" functions) ---\r\n\r\n");
     
     // Special trampoline for layout callback (uses AppDataTy)
     code.push_str(&format!(r#"/// Trampoline for layout callbacks - uses AppDataTy wrapper
+/// Layout callback is special: both data and callback are in AppDataTy
 extern "C" fn invoke_py_layout_callback(
     app_data: ffi::AzRefAny,
     info: ffi::AzLayoutCallbackInfo
@@ -666,19 +769,20 @@ extern "C" fn invoke_py_layout_callback(
 "#, prefix = prefix));
     
     // Generate trampolines for other callbacks
+    // These use PyDataWrapper for data and get_callable() for the callable
     for (callback_name, callback_def) in &callback_types {
         // Skip LayoutCallbackType - handled above
         if callback_name == "LayoutCallbackType" {
             continue;
         }
         
-        let wrapper_name = format!("{}Wrapper", callback_name.replace("Type", ""));
         let trampoline_name = format!("invoke_py_{}", to_snake_case(&callback_name.replace("Type", "")));
         
         // Parse function arguments
         let mut args_sig = String::new();
         let mut first_arg = true;
         let mut info_type = String::new();
+        let mut info_arg_name = String::new();
         let mut extra_args: Vec<(String, String)> = Vec::new();
         
         for (i, arg) in callback_def.fn_args.iter().enumerate() {
@@ -702,6 +806,7 @@ extern "C" fn invoke_py_layout_callback(
             
             if i == 1 {
                 info_type = arg.r#type.clone();
+                info_arg_name = arg_name.clone();
             }
             if i >= 2 {
                 extra_args.push((arg_name.clone(), arg.r#type.clone()));
@@ -746,25 +851,40 @@ extern "C" fn invoke_py_layout_callback(
         
         // Generate trampoline
         code.push_str(&format!("/// Trampoline for {} - bridges Python to Rust\r\n", callback_name));
+        code.push_str(&format!("/// Data is in RefAny (PyDataWrapper), callable is retrieved via {}.get_callable()\r\n", info_type));
         code.push_str(&format!("extern \"C\" fn {}(\r\n    {}\r\n) -> {} {{\r\n", 
             trampoline_name, args_sig, capi_return_type));
         
         code.push_str(&format!("    let default = {};\r\n\r\n", default_expr));
         
-        // Transmute RefAny and downcast
+        // Get user data from RefAny (PyDataWrapper)
+        code.push_str("    // Extract Python user data from RefAny\r\n");
         code.push_str("    let mut data_core: azul_core::refany::RefAny = unsafe { mem::transmute(data) };\r\n");
-        code.push_str(&format!("    let cb = match data_core.downcast_mut::<{}>() {{\r\n", wrapper_name));
+        code.push_str("    let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {\r\n");
+        code.push_str("        Some(s) => s,\r\n");
+        code.push_str("        None => return default,\r\n");
+        code.push_str("    };\r\n");
+        code.push_str("    let py_data = match py_data_wrapper._py_data.as_ref() {\r\n");
         code.push_str("        Some(s) => s,\r\n");
         code.push_str("        None => return default,\r\n");
         code.push_str("    };\r\n\r\n");
         
-        // Extract Python objects
-        code.push_str("    let py_callback = match cb._py_callback.as_ref() {\r\n");
+        // Get callable from info.get_callable() (PyCallableWrapper)
+        // We transmute the FFI info type to the Rust info type and call get_callable() directly
+        let info_external_path = get_type_external_path(&info_type, version_data);
+        code.push_str("    // Get Python callable from info.get_callable()\r\n");
+        code.push_str(&format!("    let info_rust: &{} = unsafe {{ mem::transmute(&{}) }};\r\n", info_external_path, info_arg_name));
+        code.push_str("    let callable_opt: azul_core::refany::OptionRefAny = info_rust.get_callable();\r\n");
+        code.push_str("    let callable_refany = match callable_opt {\r\n");
+        code.push_str("        azul_core::refany::OptionRefAny::Some(r) => r,\r\n");
+        code.push_str("        azul_core::refany::OptionRefAny::None => return default,\r\n");
+        code.push_str("    };\r\n");
+        code.push_str("    let mut callable_core = callable_refany;\r\n");
+        code.push_str("    let py_callable_wrapper = match callable_core.downcast_ref::<PyCallableWrapper>() {\r\n");
         code.push_str("        Some(s) => s,\r\n");
         code.push_str("        None => return default,\r\n");
-        code.push_str("    };\r\n\r\n");
-        
-        code.push_str("    let py_data = match cb._py_data.as_ref() {\r\n");
+        code.push_str("    };\r\n");
+        code.push_str("    let py_callable = match py_callable_wrapper._py_callable.as_ref() {\r\n");
         code.push_str("        Some(s) => s,\r\n");
         code.push_str("        None => return default,\r\n");
         code.push_str("    };\r\n\r\n");
@@ -775,7 +895,7 @@ extern "C" fn invoke_py_layout_callback(
         // Wrap FFI type in Python wrapper struct (no transmute needed)
         if !info_type.is_empty() {
             let info_py_type = format!("{}{}", prefix, info_type);
-            code.push_str(&format!("        let info_py = {} {{ inner: info }};\r\n", info_py_type));
+            code.push_str(&format!("        let info_py = {} {{ inner: {} }};\r\n", info_py_type, info_arg_name));
         }
         
         // Wrap extra args in Python wrappers
@@ -799,7 +919,7 @@ extern "C" fn invoke_py_layout_callback(
         }
         
         // Make the call
-        code.push_str(&format!("\r\n        match py_callback.call1(py, ({})) {{\r\n", call_args));
+        code.push_str(&format!("\r\n        match py_callable.call1(py, ({})) {{\r\n", call_args));
         
         let return_py_type = format!("{}{}", prefix, return_type);
         code.push_str("            Ok(result) => {\r\n");
@@ -865,9 +985,8 @@ impl AzApp {{
     fn run(&mut self, mut window: {prefix}WindowCreateOptions) {{
         // Access the inner FFI type and set the layout callback
         window.inner.state.layout_callback = ffi::AzLayoutCallback {{
-            cb: ffi::AzLayoutCallbackInner {{
-                cb: invoke_py_layout_callback,
-            }},
+            cb: invoke_py_layout_callback,
+            callable: ffi::AzOptionRefAny::None,
         }};
         
         let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
@@ -879,9 +998,8 @@ impl AzApp {{
     fn add_window(&mut self, mut window: {prefix}WindowCreateOptions) {{
         // Access the inner FFI type and set the layout callback
         window.inner.state.layout_callback = ffi::AzLayoutCallback {{
-            cb: ffi::AzLayoutCallbackInner {{
-                cb: invoke_py_layout_callback,
-            }},
+            cb: invoke_py_layout_callback,
+            callable: ffi::AzOptionRefAny::None,
         }};
         
         let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
@@ -1043,63 +1161,53 @@ fn get_callback_signature(
     })
 }
 
-/// Check if a struct field contains a type that is forbidden for Python
-/// (callbacks, RefAny, raw function pointers, internal types, destructor callbacks)
+/// Check if a struct field contains a type that CANNOT be wrapped for Python.
+/// 
+/// Most types CAN be wrapped:
+/// - RefAny → Python takes PyObject, internally wrapped in RefAny
+/// - Callbacks → Python takes Callable, routed through trampolines
+/// - Regular structs/enums → Wrapped with { inner: ffi::AzFoo }
+///
+/// Only truly unwrappable types are forbidden:
+/// - Raw pointers (*const, *mut) - unsafe, can't be safely exposed
+/// - VecRef types - borrow semantics can't be expressed in Python
+/// - Destructor types - internal implementation detail
 fn field_has_forbidden_type(field_type: &str, version_data: &VersionData) -> bool {
     let (_, base_type, _) = analyze_type(field_type);
 
-    // Direct RefAny reference
-    if base_type == "RefAny" || base_type == "RefCount" {
+    // Raw pointers can't be safely exposed to Python
+    if field_type.contains("*const") || field_type.contains("*mut") {
         return true;
     }
 
-    // Option<RefAny> is also forbidden
-    if base_type == "OptionRefAny" {
+    // VecRef types have borrow semantics that can't be expressed in Python
+    if base_type.ends_with("VecRef") || base_type.ends_with("VecRefMut") {
         return true;
     }
 
-    // Internal types that shouldn't be exposed
-    if base_type.ends_with("Inner") {
+    // Refstr is a raw string pointer
+    if base_type == "Refstr" {
         return true;
     }
 
-    // Callback types (function pointers)
-    if base_type.ends_with("Callback") || base_type.ends_with("CallbackType") {
+    // Destructor types are internal implementation details
+    if base_type.ends_with("Destructor") || base_type.ends_with("DestructorCallbackType") {
         return true;
     }
 
-    // Destructor types (enum with function pointer variants)
-    if base_type.ends_with("Destructor") {
-        return true;
-    }
-
-    // Look up the type in api.json
+    // Look up the type in api.json to check for vec_ref_element_type
     if let Some((module, _)) = search_for_class_by_class_name(version_data, &base_type) {
         if let Some(class_data) = get_class(version_data, module, &base_type) {
-            // Is it a callback typedef?
-            if is_callback_typedef(class_data) {
+            // VecRef types (detected by property, not name)
+            if class_data.vec_ref_element_type.is_some() {
                 return true;
             }
-            // Is it a type alias to a callback or destructor?
-            if let Some(ref type_alias) = class_data.type_alias {
-                let target = &type_alias.target;
-                if target.ends_with("Callback")
-                    || target.ends_with("Type")
-                    || target.ends_with("Destructor")
-                {
-                    return true;
-                }
-            }
-        }
-    } else {
-        // Type not found in api.json - might be internal
-        // Skip types that look like callbacks or internal types
-        if base_type.contains("Callback")
-            || (base_type.contains("Data") && base_type != "StyleFontFamiliesValue")
-        {
-            return true;
         }
     }
+
+    // RefAny is NOT forbidden - it gets wrapped (Python PyObject → RefAny)
+    // Callbacks are NOT forbidden - they go through trampolines
+    // Regular types are NOT forbidden - they get wrapped
 
     false
 }
@@ -1120,8 +1228,13 @@ fn is_vec_type(class_data: &ClassData) -> bool {
     false
 }
 
-/// Check if a struct has any fields with forbidden types
-/// For Vec types, we ignore the destructor field
+/// Check if a struct has any fields with truly forbidden types.
+/// For Vec types and boxed objects, destructor fields are internal and ignored.
+///
+/// Most types are NOT forbidden - they get wrapped:
+/// - RefAny → Python PyObject wrapped internally
+/// - Callbacks → Routed through trampolines
+/// - Regular types → Wrapped with { inner: ffi::AzFoo }
 fn struct_has_forbidden_field(class_data: &ClassData, version_data: &VersionData) -> bool {
     let is_vec = is_vec_type(class_data);
     let is_boxed = class_data.is_boxed_object;
@@ -1181,7 +1294,17 @@ fn function_takes_mut_self(fn_data: &FunctionData) -> bool {
     false
 }
 
-/// Check if a function has arguments with types that can't be used in Python
+/// Check if a function has arguments with types that can't be used in Python.
+///
+/// Most types CAN be used - they get routed through wrappers:
+/// - RefAny → Python takes PyObject, wrapped internally
+/// - Callbacks → Python takes Callable, routed through trampolines
+/// - Regular types → Wrapped with { inner: ffi::AzFoo }
+///
+/// Only truly unsupported types:
+/// - Raw pointers (*const, *mut) - unsafe
+/// - VecRef types - borrow semantics
+/// - &mut self methods - PyO3 0.27+ frozen classes
 fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionData) -> bool {
     // Skip &mut self methods - PyO3 0.27+ makes unsendable classes frozen
     if function_takes_mut_self(fn_data) {
@@ -1201,41 +1324,34 @@ fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionD
 
             let (_, base_type, _) = analyze_type(arg_type);
 
-            // RefAny can't be passed from Python directly
-            if base_type == "RefAny" || base_type == "RefCount" {
-                return true;
-            }
-
-            // Check hardcoded VecRef types by name
+            // VecRef types have borrow semantics that can't be expressed
             if is_vec_ref_type_by_name(&base_type) {
                 return true;
             }
 
-            // Look up the type
+            // Look up the type to check properties
             if let Some((module, _)) = search_for_class_by_class_name(version_data, &base_type) {
                 if let Some(class_data) = get_class(version_data, module, &base_type) {
-                    // Callback typedefs can't be passed
-                    if is_callback_typedef(class_data) {
-                        return true;
-                    }
-                    // VecRef types need special conversion
                     if is_vec_ref_type(class_data) {
                         return true;
                     }
+                    // Callback typedef types are NOW SUPPORTED - routed through trampolines
+                    // RefAny is NOW SUPPORTED - wrapped (Python PyObject → RefAny)
                 }
             }
         }
     }
 
-    // Also check return type
+    // Also check return type for raw pointers and VecRef
     if let Some(ref ret) = fn_data.returns {
         if ret.r#type.contains('*') {
             return true;
         }
         let (_, base_type, _) = analyze_type(&ret.r#type);
-        if base_type == "RefAny" || base_type == "RefCount" {
+        if is_vec_ref_type_by_name(&base_type) {
             return true;
         }
+        // RefAny return is OK - wrapped back to PyObject
     }
 
     false
@@ -1243,17 +1359,25 @@ fn function_has_unsupported_args(fn_data: &FunctionData, version_data: &VersionD
 
 /// Should this type be completely skipped for Python binding generation?
 fn should_skip_type(class_name: &str, class_data: &ClassData, version_data: &VersionData) -> bool {
-    // Skip types that have custom Python integration in generate_python_patches()
-    // These have complex behavior (callbacks, GC, String/bytes conversion, etc.)
+    // Skip types that have custom Python integration or are internal implementation details.
+    // These types have type aliases in generate_python_patches_prefix() and should not
+    // have wrapper structs generated (would cause duplicate definitions).
     const MANUAL_TYPES: &[&str] = &[
-        "App",
-        "LayoutCallbackInfo",
-        "WindowCreateOptions",
+        "App", // Has custom constructor with Python callback (see generate_app_class)
         // These have manual FromPyObject/IntoPyObject impls for Python str/bytes/list conversion
         // If we also generate #[pyclass] for them, PyO3 creates conflicting trait impls
         "String",    // AzString <-> Python str
-        "U8Vec",     // AzU8Vec <-> Python bytes
+        "U8Vec",     // AzU8Vec <-> Python bytes  
         "StringVec", // AzStringVec <-> Python list[str]
+        // Internal types - not exposed to Python, used internally for wrapping
+        "RefAny",    // Internal: wraps Python PyObject for Rust callbacks
+        "RefCount",  // Internal: reference counting for RefAny
+        // Destructor types - internal implementation detail, not API types
+        "U8VecDestructor",
+        "StringVecDestructor",
+        // Types with raw pointers that are used internally
+        "StringMenuItem", // Has raw pointer fields
+        "InstantPtr",     // Is a pointer type
     ];
     if MANUAL_TYPES.contains(&class_name) {
         return true;
@@ -1503,9 +1627,10 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
     code.push_str("type AzGLfloat = __dll_api_inner::dll::GLfloat;\r\n");
     code.push_str("\r\n");
 
-    // Generated Python patches (helper functions, conversions, App class, trampolines)
-    // This includes helper functions, From/Into impls, PyO3 traits, callbacks, and App class
-    code.push_str(&generate_python_patches(version_data, &prefix));
+    // Generated Python patches PREFIX (helper functions, conversions, trampolines)
+    // This includes helper functions, From/Into impls, PyO3 traits, and callback trampolines.
+    // NOTE: App class is generated AFTER wrapper types, see end of this function.
+    code.push_str(&generate_python_patches_prefix(version_data, &prefix));
     code.push_str("\r\n\r\n");
 
     // Collect all types
@@ -1701,6 +1826,11 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
         version_data,
     ));
 
+    // Generate App class AFTER all wrapper types are defined
+    // App uses AzWindowCreateOptions and AzMonitorVec which are wrapper types
+    code.push_str("\r\n");
+    code.push_str(&generate_app_class(&prefix));
+
     code
 }
 
@@ -1747,7 +1877,7 @@ fn generate_struct_definition(
     code.push_str("}\r\n\r\n");
     
     code.push_str(&format!("impl From<{}> for {} {{\r\n", struct_name, c_api_type));
-    code.push_str("    fn from(wrapper: Self) -> Self { wrapper.inner }\r\n");
+    code.push_str(&format!("    fn from(wrapper: {}) -> Self {{ wrapper.inner }}\r\n", struct_name));
     code.push_str("}\r\n\r\n");
 
     code
@@ -1819,7 +1949,7 @@ fn generate_enum_definition(
     code.push_str("}\r\n\r\n");
 
     code.push_str(&format!("impl From<{}> for {} {{\r\n", enum_name, c_api_type));
-    code.push_str("    fn from(wrapper: Self) -> Self { wrapper.inner }\r\n");
+    code.push_str(&format!("    fn from(wrapper: {}) -> Self {{ wrapper.inner }}\r\n", enum_name));
     code.push_str("}\r\n\r\n");
 
     // Clone implementation - delegate to inner
@@ -1836,11 +1966,10 @@ fn generate_enum_definition(
     code.push_str("    }\r\n");
     code.push_str("}\r\n\r\n");
 
-    // For simple enums: also implement Copy and PartialEq/Eq/Hash for Python comparison
+    // For simple enums: implement PartialEq/Eq/Hash for Python comparison
+    // NOTE: We DON'T implement Copy because the inner FFI type may not be Copy
+    // (e.g., enums with String variants). Clone is sufficient for Python.
     if !is_union {
-        // Copy - simple enums are trivially copyable
-        code.push_str(&format!("impl Copy for {} {{}}\r\n\r\n", enum_name));
-
         // PartialEq via discriminant comparison
         code.push_str(&format!("impl PartialEq for {} {{\r\n", enum_name));
         code.push_str("    fn eq(&self, other: &Self) -> bool {\r\n");
@@ -2203,26 +2332,63 @@ fn generate_default_constructor(
     code.push_str("    #[new]\r\n");
     code.push_str("    fn new(\r\n");
 
-    // Parameters - use C-API types for inner construction
+    // Parameters - use PyO3 wrapper types (AzFoo, not __dll_api_inner::dll::AzFoo)
+    // because PyO3 needs to be able to extract them from Python objects
     for field_map in struct_fields {
         for (field_name, field_data) in field_map {
-            // Use C-API type (with __dll_api_inner prefix) for the parameter
-            let field_type = rust_type_to_c_api_inner_type(
+            // Use wrapper type for the parameter (PyO3 compatible)
+            let field_type = rust_type_to_wrapper_type(
                 &field_data.r#type,
                 field_data.ref_kind.clone(),
                 prefix,
+                version_data,
             );
             code.push_str(&format!("        {}: {},\r\n", field_name, field_type));
         }
     }
 
     code.push_str("    ) -> Self {\r\n");
-    // Construct the C-API type, then wrap it
+    // Construct the C-API type using .inner from wrapper types, then wrap it
     code.push_str(&format!("        Self {{ inner: {} {{\r\n", c_api_type));
 
     for field_map in struct_fields {
-        for (field_name, _) in field_map {
-            code.push_str(&format!("            {},\r\n", field_name));
+        for (field_name, field_data) in field_map {
+            let field_type = &field_data.r#type;
+            
+            // For primitives - use directly
+            let value_expr = if is_primitive_arg(field_type) {
+                field_name.clone()
+            }
+            // For String - transmute from Rust String
+            else if field_type == "String" {
+                format!("unsafe {{ core::mem::transmute(azul_css::corety::AzString::from({}.clone())) }}", field_name)
+            }
+            // For Vec types - convert appropriately
+            else if let Some(element_type) = get_vec_element_type(field_type) {
+                if is_primitive_arg(&element_type) {
+                    format!("unsafe {{ core::mem::transmute({}.clone().into()) }}", field_name)
+                } else if element_type == "String" {
+                    format!("unsafe {{ core::mem::transmute(azul_css::corety::StringVec::from({}.clone().into_iter().map(|s| azul_css::corety::AzString::from(s)).collect::<Vec<_>>())) }}", field_name)
+                } else {
+                    format!("unsafe {{ core::mem::transmute({}.clone().into_iter().map(|x| x.inner).collect::<Vec<_>>()) }}", field_name)
+                }
+            }
+            // For RefAny (Py<PyAny>) - create RefAny wrapper
+            else if field_type == "RefAny" {
+                format!("unsafe {{ let wrapper = PyObjectWrapper {{ py_obj: {}.clone() }}; core::mem::transmute::<_, __dll_api_inner::dll::AzRefAny>(azul_core::refany::RefAny::new(wrapper)) }}", field_name)
+            }
+            // For callback types and CallbackType aliases - skip constructor entirely
+            // (this should not happen as can_have_python_constructor should have returned false)
+            else if field_type.ends_with("CallbackType") {
+                // Fallback - just use field_name, will likely cause compile error
+                // but the constructor should have been skipped
+                field_name.clone()
+            }
+            // For other non-primitives - extract .inner from wrapper
+            else {
+                format!("{}.inner", field_name)
+            };
+            code.push_str(&format!("            {}: {},\r\n", field_name, value_expr));
         }
     }
 
@@ -2230,6 +2396,56 @@ fn generate_default_constructor(
     code.push_str("    }\r\n\r\n");
 
     code
+}
+
+/// Convert a Rust type to PyO3 wrapper type (AzFoo, not __dll_api_inner::dll::AzFoo)
+/// These are the #[pyclass] types that PyO3 can extract from Python objects
+fn rust_type_to_wrapper_type(rust_type: &str, ref_kind: RefKind, prefix: &str, version_data: &VersionData) -> String {
+    let trimmed = rust_type.trim();
+    
+    // Handle primitives - they don't need wrappers
+    if is_primitive_arg(trimmed) {
+        return trimmed.to_string();
+    }
+    
+    // RefAny → Py<PyAny>
+    if trimmed == "RefAny" {
+        return "Py<PyAny>".to_string();
+    }
+    
+    // Callback types → Py<PyAny>
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, trimmed) {
+        if let Some(class_data) = get_class(version_data, module, trimmed) {
+            if class_data.callback_typedef.is_some() {
+                return "Py<PyAny>".to_string();
+            }
+        }
+    }
+    
+    // CallbackType types (type aliases to function pointers) → Py<PyAny>
+    if trimmed.ends_with("CallbackType") {
+        return "Py<PyAny>".to_string();
+    }
+    
+    // String → String (PyO3 auto-converts)
+    if trimmed == "String" {
+        return "String".to_string();
+    }
+    
+    // Vec types → Vec<...>
+    if let Some(element_type) = get_vec_element_type(trimmed) {
+        if is_primitive_arg(&element_type) {
+            return format!("Vec<{}>", element_type);
+        } else if element_type == "String" {
+            return "Vec<String>".to_string();
+        } else {
+            return format!("Vec<{}{}>", prefix, element_type);
+        }
+    }
+    
+    // For non-primitives, use the wrapper type (AzFoo)
+    // Note: we don't handle pointers/refs here because constructors shouldn't have them
+    format!("{}{}", prefix, trimmed)
 }
 
 /// Convert a Rust type to C-API inner type (__dll_api_inner::dll::AzFoo)
@@ -2334,6 +2550,8 @@ fn generate_function(
             code.push_str(&format!("{}: {}", arg_name, py_type));
             
             // Add to C-API args with Az-prefixed type
+            // Note: For RefAny/Callback args, we still use the FFI type here
+            // The conversion happens in the function body
             let c_api_type = rust_type_to_c_api_type(arg_type, prefix, version_data);
             c_api_args.push(format!("{}: {}", arg_name, c_api_type));
         }
@@ -2355,9 +2573,137 @@ fn generate_function(
 
     code.push_str(" {\r\n");
 
+    // Generate conversion code for ALL non-primitive argument types
+    // Python wrapper types (AzFoo) need to be converted to FFI types (ffi::AzFoo)
+    // via .inner access or transmute
+    let mut conversion_code = String::new();
+    let mut converted_arg_names: HashMap<String, String> = HashMap::new();
+    
+    for arg_map in &fn_data.fn_args {
+        for (arg_name, arg_type) in arg_map {
+            if arg_name == "self" {
+                continue;
+            }
+            
+            let (ptr_prefix, base_type, _) = analyze_type(arg_type);
+            
+            // Skip primitives - they don't need conversion
+            if is_primitive_arg(&base_type) {
+                continue;
+            }
+            
+            // Skip pointer types - they're passed as usize
+            if !ptr_prefix.is_empty() && base_type == "c_void" {
+                continue;
+            }
+            
+            let converted_name = format!("{}_ffi", arg_name);
+            
+            // RefAny conversion: Py<PyAny> → ffi::AzRefAny
+            if base_type == "RefAny" {
+                conversion_code.push_str(&format!(
+                    "        // Convert Python object to RefAny\r\n\
+                     let {converted} = {{\r\n\
+                         let wrapper = PyObjectWrapper {{ py_obj: {arg}.clone() }};\r\n\
+                         let refany = azul_core::refany::RefAny::new(wrapper);\r\n\
+                         unsafe {{ core::mem::transmute::<_, ffi::AzRefAny>(refany) }}\r\n\
+                     }};\r\n",
+                    converted = converted_name,
+                    arg = arg_name,
+                ));
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+            // Callback conversion: Py<PyAny> → ffi::Az{Callback} with trampoline
+            else if let Some(cb_info) = get_callback_info_for_type(&base_type, version_data) {
+                conversion_code.push_str(&format!(
+                    "        // Convert Python callable to {} with trampoline\r\n\
+                     let {converted} = {{\r\n\
+                         let wrapper = {wrapper_name} {{\r\n\
+                             _py_callback: Some({arg}.clone()),\r\n\
+                             _py_data: None,\r\n\
+                         }};\r\n\
+                         let refany = azul_core::refany::RefAny::new(wrapper);\r\n\
+                         ffi::Az{original_type} {{\r\n\
+                             cb: ffi::Az{cb_type} {{ cb: {trampoline} }},\r\n\
+                             data: unsafe {{ core::mem::transmute::<_, ffi::AzRefAny>(refany) }},\r\n\
+                         }}\r\n\
+                     }};\r\n",
+                    cb_info.original_type,
+                    converted = converted_name,
+                    wrapper_name = cb_info.wrapper_name,
+                    arg = arg_name,
+                    original_type = cb_info.original_type,
+                    cb_type = cb_info.callback_type,
+                    trampoline = cb_info.trampoline_name,
+                ));
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+            // String conversion: Rust String → ffi::AzString
+            // Use .clone() to preserve original value for use in fn_body
+            else if base_type == "String" {
+                conversion_code.push_str(&format!(
+                    "        let {converted}: ffi::AzString = unsafe {{ core::mem::transmute(azul_css::corety::AzString::from({arg}.clone())) }};\r\n",
+                    converted = converted_name,
+                    arg = arg_name,
+                ));
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+            // Vec<AzFoo> conversion: collect .inner values and convert to ffi::AzFooVec
+            else if let Some(element_type) = get_vec_element_type(&base_type) {
+                if is_primitive_arg(&element_type) {
+                    // Vec<u8> → ffi::AzU8Vec - capitalize first letter for FFI type name
+                    let ffi_base = element_type.chars().next().unwrap().to_uppercase().to_string() 
+                        + &element_type[1..];
+                    conversion_code.push_str(&format!(
+                        "        let {converted}: ffi::Az{base}Vec = unsafe {{ core::mem::transmute({arg}.into()) }};\r\n",
+                        converted = converted_name,
+                        base = ffi_base,
+                        arg = arg_name,
+                    ));
+                } else if element_type == "String" {
+                    // Vec<String> → ffi::AzStringVec
+                    conversion_code.push_str(&format!(
+                        "        let {converted}: ffi::AzStringVec = unsafe {{\r\n\
+                             let strings: Vec<azul_css::corety::AzString> = {arg}.into_iter().map(|s| azul_css::corety::AzString::from(s)).collect();\r\n\
+                             core::mem::transmute(azul_css::corety::StringVec::from(strings))\r\n\
+                         }};\r\n",
+                        converted = converted_name,
+                        arg = arg_name,
+                    ));
+                } else {
+                    // Vec<AzFoo> → ffi::AzFooVec: collect .inner and transmute
+                    conversion_code.push_str(&format!(
+                        "        let {converted}: ffi::Az{elem}Vec = unsafe {{\r\n\
+                             let inners: Vec<ffi::Az{elem}> = {arg}.into_iter().map(|x| x.inner).collect();\r\n\
+                             core::mem::transmute(inners)\r\n\
+                         }};\r\n",
+                        converted = converted_name,
+                        elem = element_type,
+                        arg = arg_name,
+                    ));
+                }
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+            // All other non-primitive types: extract .inner from wrapper
+            else {
+                conversion_code.push_str(&format!(
+                    "        let {converted} = {arg}.inner.clone();\r\n",
+                    converted = converted_name,
+                    arg = arg_name,
+                ));
+                converted_arg_names.insert(arg_name.clone(), converted_name);
+            }
+        }
+    }
+    
+    if !conversion_code.is_empty() {
+        code.push_str(&conversion_code);
+        code.push_str("\r\n");
+    }
+
     // Generate the function body using generate_transmuted_fn_body
     let c_api_args_str = c_api_args.join(", ");
-    let body = generate_transmuted_fn_body(
+    let mut body = generate_transmuted_fn_body(
         &fn_body,
         class_name,
         is_constructor,
@@ -2368,6 +2714,15 @@ fn generate_function(
         true, // is_for_dll
         true, // keep_self_name: PyO3 uses "self" as the parameter name
     );
+    
+    // Replace original arg names with converted names in the function body
+    for (original, converted) in &converted_arg_names {
+        body = body.replace(&format!(" {}", original), &format!(" {}", converted));
+        body = body.replace(&format!("({})", original), &format!("({})", converted));
+        body = body.replace(&format!("({},", original), &format!("({},", converted));
+        body = body.replace(&format!(", {})", original), &format!(", {})", converted));
+        body = body.replace(&format!(", {},", original), &format!(", {},", converted));
+    }
 
     // The body is already wrapped in { }, so we need to indent it properly
     // and add unsafe block
@@ -2748,11 +3103,9 @@ fn generate_python_module(
     code.push_str("        let _ = pyo3_log::init();\r\n");
     code.push_str("    }\r\n\r\n");
 
-    // Add manually implemented classes
+    // Add manually implemented classes (App has custom constructor)
     code.push_str("    // Manual implementations\r\n");
     code.push_str("    m.add_class::<AzApp>()?;\r\n");
-    code.push_str("    m.add_class::<AzLayoutCallbackInfo>()?;\r\n");
-    code.push_str("    m.add_class::<AzWindowCreateOptions>()?;\r\n");
     code.push_str("\r\n");
 
     // Add structs
@@ -2778,13 +3131,24 @@ fn generate_python_module(
 }
 
 // helper functions
-/// Types that are imported from C-API but have manual IntoPyObject/FromPyObject impls
-/// They should use just Az{type} without path since they're already imported
-const IMPORTED_CAPI_TYPES: &[&str] = &[
-    "String",    // AzString - imported, has IntoPyObject impl
-    "U8Vec",     // AzU8Vec - imported, has IntoPyObject impl
-    "StringVec", // AzStringVec - imported, has IntoPyObject impl
-];
+
+/// Get the inner element type for a Vec type (e.g., "DomVec" -> Some("Dom"))
+/// Returns None if not a Vec type
+/// Special cases: U8Vec -> "u8", U16Vec -> "u16", F32Vec -> "f32", etc.
+fn get_vec_element_type(type_name: &str) -> Option<String> {
+    if type_name.ends_with("Vec") && type_name.len() > 3 {
+        let element = &type_name[..type_name.len() - 3];
+        // Handle primitive type Vecs with uppercase names
+        let lowercase = element.to_lowercase();
+        if is_primitive_arg(&lowercase) {
+            Some(lowercase)
+        } else {
+            Some(element.to_string())
+        }
+    } else {
+        None
+    }
+}
 
 /// Convert a Rust type to Python-compatible type name with explicit ref_kind
 /// CRITICAL: All pointer types (*const T, *mut T, Box<T>) become usize in Python
@@ -2815,6 +3179,10 @@ fn rust_type_to_python_type_with_ref(
 
 /// Convert a Rust type to Python-compatible type name
 /// Resolves type aliases to their underlying types
+/// 
+/// Special handling:
+/// - RefAny → Py<PyAny> (Python object wrapped in RefAny internally)
+/// - Callback types → Py<PyAny> (Python callable routed through trampolines)
 fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &VersionData) -> String {
     // Convert *const c_void and *mut c_void to usize for Python compatibility
     let trimmed = rust_type.trim();
@@ -2825,6 +3193,26 @@ fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &Versio
 
     let (ptr_prefix, base_type, array_suffix) = analyze_type(rust_type);
 
+    // RefAny → Py<PyAny> (Python object that gets wrapped internally)
+    if base_type == "RefAny" {
+        return "Py<PyAny>".to_string();
+    }
+
+    // Callback wrapper types (e.g., Callback, IFrameCallback) → Py<PyAny>
+    if get_callback_info_for_type(&base_type, version_data).is_some() {
+        return "Py<PyAny>".to_string();
+    }
+    
+    // Raw callback_typedef types (e.g., CallbackType, LayoutCallbackType) → Py<PyAny>
+    // These are function pointer types that can't be exposed to Python directly
+    if let Some((module, _)) = search_for_class_by_class_name(version_data, &base_type) {
+        if let Some(class_data) = get_class(version_data, module, &base_type) {
+            if class_data.callback_typedef.is_some() {
+                return "Py<PyAny>".to_string();
+            }
+        }
+    }
+
     // If the base type is c_void with a pointer prefix, convert to usize
     if base_type == "c_void" && (ptr_prefix.contains("const") || ptr_prefix.contains("mut")) {
         return "usize".to_string();
@@ -2834,13 +3222,24 @@ fn rust_type_to_python_type(rust_type: &str, prefix: &str, version_data: &Versio
         return format!("{}{}{}", ptr_prefix, base_type, array_suffix);
     }
 
-    // For types that are imported from C-API with IntoPyObject impls, use just Az{type}
-    // without the  path since they're already imported
-    if IMPORTED_CAPI_TYPES.contains(&base_type.as_str()) {
-        return format!(
-            "{}Az{}{}",
-            ptr_prefix, base_type, array_suffix
-        );
+    // String → String (Rust String, PyO3 auto-converts from Python str)
+    if base_type == "String" {
+        return "String".to_string();
+    }
+
+    // FooVec types → Vec<AzFoo> (PyO3 auto-converts from Python list)
+    // e.g., DomVec → Vec<AzDom>, U8Vec → Vec<u8>, StringVec → Vec<String>
+    if let Some(element_type) = get_vec_element_type(&base_type) {
+        if is_primitive_arg(&element_type) {
+            // U8Vec → Vec<u8>, etc.
+            return format!("Vec<{}>", element_type);
+        } else if element_type == "String" {
+            // StringVec → Vec<String>
+            return "Vec<String>".to_string();
+        } else {
+            // DomVec → Vec<AzDom>, etc.
+            return format!("Vec<{}{}>", prefix, element_type);
+        }
     }
 
     // Look up if this type is a simple type alias

@@ -103,7 +103,7 @@ impl ColorInput {
         callback: ColorInputOnValueChangeCallbackType,
     ) {
         self.state.on_value_change = Some(ColorInputOnValueChange {
-            callback: ColorInputOnValueChangeCallback { cb: callback },
+            callback: ColorInputOnValueChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
             data,
         })
         .into();
@@ -147,6 +147,7 @@ impl ColorInput {
                     data: RefAny::new(self.state),
                     callback: CoreCallback {
                         cb: on_color_input_clicked as usize,
+                        callable: azul_core::refany::OptionRefAny::None,
                     },
                 }]
                 .into(),

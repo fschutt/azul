@@ -15,29 +15,29 @@
           "displayName": "C++",
           "default": "cpp23",
           "variants": {
+            "cpp20": {
+              "displayName": "C++20",
+              "altText": "Example for C++ 2020 standard"
+            },
             "cpp14": {
               "displayName": "C++14",
               "altText": "Example for C++ 2014 standard"
             },
-            "cpp23": {
-              "displayName": "C++23",
-              "altText": "Example for C++ 2023 standard"
-            },
-            "cpp11": {
-              "displayName": "C++11",
-              "altText": "Example for C++ 2011 standard"
+            "cpp03": {
+              "displayName": "C++03",
+              "altText": "Example for C++ 2003 standard"
             },
             "cpp17": {
               "displayName": "C++17",
               "altText": "Example for C++ 2017 standard"
             },
-            "cpp20": {
-              "displayName": "C++20",
-              "altText": "Example for C++ 2020 standard"
+            "cpp11": {
+              "displayName": "C++11",
+              "altText": "Example for C++ 2011 standard"
             },
-            "cpp03": {
-              "displayName": "C++03",
-              "altText": "Example for C++ 2003 standard"
+            "cpp23": {
+              "displayName": "C++23",
+              "altText": "Example for C++ 2023 standard"
             }
           }
         }
@@ -58,6 +58,201 @@
                 {
                   "type": "command",
                   "content": "cargo build"
+                }
+              ]
+            }
+          }
+        },
+        "python": {
+          "displayName": "Python",
+          "methods": {
+            "uv": {
+              "displayName": "uv",
+              "description": "Install via uv (fast)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "uv add azul==$VERSION"
+                }
+              ]
+            },
+            "pip": {
+              "displayName": "pip",
+              "description": "Install via pip",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "pip3 install azul==$VERSION"
+                }
+              ]
+            }
+          }
+        },
+        "cpp14": {
+          "displayName": "C++14",
+          "dialectOf": "cpp",
+          "platforms": {
+            "macos": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++14)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "c": {
+          "displayName": "C",
+          "platforms": {
+            "macos": {
+              "description": "Download and compile with Clang",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "clang -I. hello-world.c -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile with GCC",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "gcc -I. hello-world.c -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile with MSVC or MinGW",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                },
+                {
+                  "type": "command",
+                  "content": "gcc -I. hello-world.c -L. -lazul -o hello-world.exe"
+                }
+              ]
+            }
+          }
+        },
+        "cpp20": {
+          "displayName": "C++20",
+          "dialectOf": "cpp",
+          "platforms": {
+            "macos": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world"
+                }
+              ]
+            },
+            "windows": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                }
+              ]
+            },
+            "linux": {
+              "description": "Download and compile (C++20)",
+              "steps": [
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                },
+                {
+                  "type": "command",
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                },
+                {
+                  "type": "command",
+                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                 }
               ]
             }
@@ -120,46 +315,12 @@
             }
           }
         },
-        "cpp03": {
-          "displayName": "C++03",
+        "cpp23": {
+          "displayName": "C++23",
           "dialectOf": "cpp",
           "platforms": {
-            "linux": {
-              "description": "Download and compile (C++03)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
-            },
-            "windows": {
-              "description": "Download and compile (C++03)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
             "macos": {
-              "description": "Download and compile (C++03)",
+              "description": "Download and compile (C++23)",
               "steps": [
                 {
                   "type": "command",
@@ -167,22 +328,16 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world"
+                  "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world"
                 }
               ]
-            }
-          }
-        },
-        "cpp20": {
-          "displayName": "C++20",
-          "dialectOf": "cpp",
-          "platforms": {
+            },
             "linux": {
-              "description": "Download and compile (C++20)",
+              "description": "Download and compile (C++23)",
               "steps": [
                 {
                   "type": "command",
@@ -190,16 +345,16 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                 }
               ]
             },
             "windows": {
-              "description": "Download and compile (C++20)",
+              "description": "Download and compile (C++23)",
               "steps": [
                 {
                   "type": "command",
@@ -207,53 +362,11 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
-            "macos": {
-              "description": "Download and compile (C++20)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -o hello-world"
-                }
-              ]
-            }
-          }
-        },
-        "python": {
-          "displayName": "Python",
-          "methods": {
-            "pip": {
-              "displayName": "pip",
-              "description": "Install via pip",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "pip3 install azul==$VERSION"
-                }
-              ]
-            },
-            "uv": {
-              "displayName": "uv",
-              "description": "Install via uv (fast)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "uv add azul==$VERSION"
+                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
                 }
               ]
             }
@@ -316,125 +429,12 @@
             }
           }
         },
-        "c": {
-          "displayName": "C",
-          "platforms": {
-            "windows": {
-              "description": "Download and compile with MSVC or MinGW",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                },
-                {
-                  "type": "command",
-                  "content": "gcc -I. hello-world.c -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
-            "linux": {
-              "description": "Download and compile with GCC",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                },
-                {
-                  "type": "command",
-                  "content": "gcc -I. hello-world.c -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
-            },
-            "macos": {
-              "description": "Download and compile with Clang",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                },
-                {
-                  "type": "command",
-                  "content": "clang -I. hello-world.c -L. -lazul -o hello-world"
-                }
-              ]
-            }
-          }
-        },
-        "cpp14": {
-          "displayName": "C++14",
-          "dialectOf": "cpp",
-          "platforms": {
-            "windows": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
-                }
-              ]
-            },
-            "linux": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
-                }
-              ]
-            },
-            "macos": {
-              "description": "Download and compile (C++14)",
-              "steps": [
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                },
-                {
-                  "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
-                },
-                {
-                  "type": "command",
-                  "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -o hello-world"
-                }
-              ]
-            }
-          }
-        },
-        "cpp23": {
-          "displayName": "C++23",
+        "cpp03": {
+          "displayName": "C++03",
           "dialectOf": "cpp",
           "platforms": {
             "linux": {
-              "description": "Download and compile (C++23)",
+              "description": "Download and compile (C++03)",
               "steps": [
                 {
                   "type": "command",
@@ -442,16 +442,16 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,'$ORIGIN' -o hello-world"
                 }
               ]
             },
             "windows": {
-              "description": "Download and compile (C++23)",
+              "description": "Download and compile (C++03)",
               "steps": [
                 {
                   "type": "command",
@@ -459,16 +459,16 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
+                  "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world.exe"
                 }
               ]
             },
             "macos": {
-              "description": "Download and compile (C++23)",
+              "description": "Download and compile (C++03)",
               "steps": [
                 {
                   "type": "command",
@@ -476,11 +476,11 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
                 },
                 {
                   "type": "command",
-                  "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -o hello-world"
+                  "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -o hello-world"
                 }
               ]
             }
@@ -1942,9 +1942,24 @@
                 "cb": {
                   "type": "IFrameCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
             ],
-            "repr": "C"
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
+            ]
           },
           "IFrameCallbackType": {
             "doc": [
@@ -2350,7 +2365,7 @@
                 "virtual_scroll_offset": {
                   "type": "LogicalPosition"
                 },
-                "_abi_ref": {
+                "callable_ptr": {
                   "type": "c_void",
                   "ref_kind": "constptr"
                 },
@@ -2360,6 +2375,22 @@
                 }
               }
             ],
+            "functions": {
+              "get_callable": {
+                "doc": [
+                  "Get the callable for FFI language bindings (Python, etc.)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "iframecallbackinfo.get_callable()"
+              }
+            },
             "repr": "C"
           },
           "CallbackInfo": {
@@ -2390,6 +2421,23 @@
                 }
               }
             ],
+            "functions": {
+              "get_callable": {
+                "doc": [
+                  "Get the callable for FFI language bindings (Python, etc.)",
+                  "Returns the cloned OptionRefAny if a callable was set, or None if this is a native Rust callback."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "callbackinfo.get_callable()"
+              }
+            },
             "repr": "C"
           },
           "RenderImageCallbackInfo": {
@@ -2420,8 +2468,8 @@
                   "type": "c_void",
                   "ref_kind": "constptr"
                 },
-                "_abi_ref": {
-                  "type": "c_void",
+                "callable_ptr": {
+                  "type": "OptionRefAny",
                   "ref_kind": "constptr"
                 },
                 "_abi_mut": {
@@ -2430,6 +2478,22 @@
                 }
               }
             ],
+            "functions": {
+              "get_callable": {
+                "doc": [
+                  "Get the callable for FFI language bindings (Python, etc.)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "renderimagecallbackinfo.get_callable()"
+              }
+            },
             "repr": "C"
           },
           "IFrameCallbackReason": {
@@ -2495,17 +2559,6 @@
             },
             "repr": "C"
           },
-          "LayoutCallbackInner": {
-            "external": "azul_core::callbacks::LayoutCallbackInner",
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "LayoutCallbackType"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "LayoutCallback": {
             "doc": [
               "Wrapper around the layout callback function pointer.",
@@ -2513,17 +2566,24 @@
             ],
             "external": "azul_core::callbacks::LayoutCallback",
             "custom_impls": [
-              "Default"
-            ],
-            "derive": [
               "Debug",
+              "Display",
               "Clone",
-              "PartialEq"
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ],
             "struct_fields": [
               {
                 "cb": {
-                  "type": "LayoutCallbackInner"
+                  "type": "LayoutCallbackType"
+                }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -2556,7 +2616,7 @@
                 "theme": {
                   "type": "WindowTheme"
                 },
-                "_abi_ref": {
+                "callable_ptr": {
                   "type": "c_void",
                   "ref_kind": "constptr"
                 },
@@ -2566,6 +2626,22 @@
                 }
               }
             ],
+            "functions": {
+              "get_callable": {
+                "doc": [
+                  "Get the callable for FFI language bindings (Python, etc.)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "layoutcallbackinfo.get_callable()"
+              }
+            },
             "repr": "C"
           }
         }
@@ -2791,7 +2867,7 @@
               },
               "add_callback": {
                 "doc": [
-                  "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies."
+                  "Adds a callback to this DOM node."
                 ],
                 "fn_args": [
                   {
@@ -2809,9 +2885,33 @@
                 ],
                 "fn_body": "dom.root.add_callback(event, data, callback as usize)"
               },
+              "add_callback_with_callable": {
+                "doc": [
+                  "Adds a callback with a callable to this DOM node (for FFI language bindings).",
+                  "The callable can be retrieved via CallbackInfo.get_callable() in the trampoline."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "event": "EventFilter"
+                  },
+                  {
+                    "data": "RefAny"
+                  },
+                  {
+                    "callback": "CallbackType"
+                  },
+                  {
+                    "callable": "RefAny"
+                  }
+                ],
+                "fn_body": "dom.root.add_callback_with_callable(event, data, callback as usize, callable)"
+              },
               "with_callback": {
                 "doc": [
-                  "Same as add_child, but as a builder method."
+                  "Same as add_callback, but as a builder method."
                 ],
                 "fn_args": [
                   {
@@ -2831,6 +2931,32 @@
                   "type": "Dom"
                 },
                 "fn_body": "dom.with_callback(event, data, callback as usize)"
+              },
+              "with_callback_with_callable": {
+                "doc": [
+                  "Same as add_callback_with_callable, but as a builder method."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "event": "EventFilter"
+                  },
+                  {
+                    "data": "RefAny"
+                  },
+                  {
+                    "callback": "CallbackType"
+                  },
+                  {
+                    "callable": "RefAny"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "dom.with_callback_with_callable(event, data, callback as usize, callable)"
               },
               "add_child": {
                 "doc": [
@@ -3601,7 +3727,7 @@
               },
               "add_callback": {
                 "doc": [
-                  "Adds a callback this DOM (potentially heap-allocates in Rust code)"
+                  "Adds a callback to this NodeData"
                 ],
                 "fn_args": [
                   {
@@ -3619,9 +3745,33 @@
                 ],
                 "fn_body": "nodedata.add_callback(event, data, callback as usize)"
               },
+              "add_callback_with_callable": {
+                "doc": [
+                  "Adds a callback with a callable to this NodeData (for FFI language bindings).",
+                  "The callable can be retrieved via CallbackInfo.get_callable() in the trampoline."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "event": "EventFilter"
+                  },
+                  {
+                    "data": "RefAny"
+                  },
+                  {
+                    "callback": "CallbackType"
+                  },
+                  {
+                    "callable": "RefAny"
+                  }
+                ],
+                "fn_body": "nodedata.add_callback_with_callable(event, data, callback as usize, callable)"
+              },
               "with_callback": {
                 "doc": [
-                  "Same as add_child, but as a builder method."
+                  "Same as add_callback, but as a builder method."
                 ],
                 "fn_args": [
                   {
@@ -3641,6 +3791,32 @@
                   "type": "NodeData"
                 },
                 "fn_body": "nodedata.with_callback(event, data, callback as usize)"
+              },
+              "with_callback_with_callable": {
+                "doc": [
+                  "Same as add_callback_with_callable, but as a builder method."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "event": "EventFilter"
+                  },
+                  {
+                    "data": "RefAny"
+                  },
+                  {
+                    "callback": "CallbackType"
+                  },
+                  {
+                    "callable": "RefAny"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeData"
+                },
+                "fn_body": "nodedata.with_callback_with_callable(event, data, callback as usize, callable)"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -5625,7 +5801,23 @@
                 "cb": {
                   "type": "ListViewOnColumnClickCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "TagIdToNodeIdMapping": {
@@ -5674,7 +5866,6 @@
           "CoreCallback": {
             "external": "azul_core::callbacks::CoreCallback",
             "derive": [
-              "Copy",
               "PartialEq",
               "Ord",
               "Eq",
@@ -5687,6 +5878,11 @@
               {
                 "cb": {
                   "type": "CoreCallbackType"
+                }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -5749,7 +5945,23 @@
                 "cb": {
                   "type": "ListViewOnRowClickCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "SvgSimpleNode": {
@@ -5843,7 +6055,23 @@
                 "cb": {
                   "type": "CheckBoxOnToggleCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "TabOnClickCallback": {
@@ -5853,7 +6081,23 @@
                 "cb": {
                   "type": "TabOnClickCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "ParentWithNodeDepth": {
@@ -5891,7 +6135,23 @@
                 "cb": {
                   "type": "ListViewOnLazyLoadScrollCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "AttributeType": {
@@ -6092,7 +6352,23 @@
                 "cb": {
                   "type": "ButtonOnClickCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "XmlNode": {
@@ -6370,10 +6646,25 @@
           },
           "Callback": {
             "external": "azul_layout::callbacks::Callback",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
+            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "CallbackType"
+                }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -6900,7 +7191,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize } });"
+                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize, callable: azul_core::refany::OptionRefAny::None } });"
               },
               "with_callback": {
                 "doc": [
@@ -13663,7 +13954,9 @@
             "derive": [
               "PartialEq",
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -14608,7 +14901,9 @@
             "derive": [
               "Clone",
               "PartialEq",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -15006,7 +15301,9 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq"
+              "PartialEq",
+              "Eq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -16702,7 +16999,9 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq"
+              "PartialEq",
+              "Eq",
+              "Hash"
             ],
             "enum_fields": [
               {
@@ -17188,6 +17487,9 @@
           },
           "ButtonOnClick": {
             "external": "azul_layout::widgets::button::ButtonOnClick",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -17197,7 +17499,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "FileInput": {
             "external": "azul_layout::widgets::file_input::FileInput",
@@ -17392,6 +17695,9 @@
           },
           "FileInputOnPathChange": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChange",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -17401,19 +17707,33 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "FileInputOnPathChangeCallback": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChangeCallback",
-            "derive": [
-              "Copy"
-            ],
             "struct_fields": [
               {
                 "cb": {
                   "type": "FileInputOnPathChangeCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "CheckBox": {
@@ -17535,6 +17855,9 @@
           },
           "CheckBoxOnToggle": {
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggle",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -17544,7 +17867,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CheckBoxState": {
             "external": "azul_layout::widgets::check_box::CheckBoxState",
@@ -17694,6 +18018,9 @@
           },
           "ColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChange",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -17703,7 +18030,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ColorInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChangeCallback",
@@ -17712,7 +18040,23 @@
                 "cb": {
                   "type": "ColorInputOnValueChangeCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "TextInput": {
@@ -18125,6 +18469,9 @@
           },
           "TextInputOnTextInput": {
             "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18134,7 +18481,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "TextInputOnTextInputCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnTextInputCallback",
@@ -18143,11 +18491,30 @@
                 "cb": {
                   "type": "TextInputOnTextInputCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "TextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDown",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18157,7 +18524,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "TextInputOnVirtualKeyDownCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDownCallback",
@@ -18166,11 +18534,30 @@
                 "cb": {
                   "type": "TextInputOnVirtualKeyDownCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "TextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18180,7 +18567,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "TextInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLostCallback",
@@ -18189,7 +18577,23 @@
                 "cb": {
                   "type": "TextInputOnFocusLostCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "OnTextInputReturn": {
@@ -18539,6 +18943,9 @@
           },
           "NumberInputOnValueChange": {
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChange",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18548,7 +18955,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NumberInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChangeCallback",
@@ -18557,11 +18965,30 @@
                 "cb": {
                   "type": "NumberInputOnValueChangeCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "NumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18571,7 +18998,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NumberInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLostCallback",
@@ -18580,7 +19008,23 @@
                 "cb": {
                   "type": "NumberInputOnFocusLostCallbackType"
                 }
+              },
+              {
+                "callable": {
+                  "type": "OptionRefAny"
+                }
               }
+            ],
+            "repr": "C",
+            "custom_impls": [
+              "Debug",
+              "Display",
+              "Clone",
+              "Hash",
+              "PartialEq",
+              "PartialOrd",
+              "Ord",
+              "Eq"
             ]
           },
           "ProgressBar": {
@@ -18840,6 +19284,9 @@
           },
           "TabOnClick": {
             "external": "azul_layout::widgets::tabs::TabOnClick",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -18849,7 +19296,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "Frame": {
             "external": "azul_layout::widgets::frame::Frame",
@@ -19083,6 +19531,9 @@
           },
           "ListViewOnLazyLoadScroll": {
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScroll",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -19092,10 +19543,14 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ListViewOnColumnClick": {
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClick",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -19105,10 +19560,14 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ListViewOnRowClick": {
             "external": "azul_layout::widgets::list_view::ListViewOnRowClick",
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -19118,7 +19577,8 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "IFrameNode": {
             "external": "azul_core::dom::IFrameNode",
@@ -36130,8 +36590,15 @@
               "Wrapper over a Rust-allocated `Vec<ListViewRow>"
             ],
             "external": "azul_layout::widgets::list_view::ListViewRowVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36148,15 +36615,28 @@
                   "type": "ListViewRowVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleFilterVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleFilter>"
             ],
             "external": "azul_css::props::style::filter::StyleFilterVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36173,15 +36653,28 @@
                   "type": "StyleFilterVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AccessibilityStateVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<AccessibilityState>"
             ],
             "external": "azul_core::dom::AccessibilityStateVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36198,15 +36691,28 @@
                   "type": "AccessibilityStateVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "MenuItemVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<MenuItem>"
             ],
             "external": "azul_core::menu::MenuItemVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36223,15 +36729,28 @@
                   "type": "MenuItemVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleFontFamilyVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleFontFamily>"
             ],
             "external": "azul_css::props::basic::font::StyleFontFamilyVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36248,15 +36767,28 @@
                   "type": "StyleFontFamilyVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "DomVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<Dom>"
             ],
             "external": "azul_core::dom::DomVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36273,15 +36805,28 @@
                   "type": "DomVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "IdOrClassVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<IdOrClass>"
             ],
             "external": "azul_core::dom::IdOrClassVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36298,15 +36843,28 @@
                   "type": "IdOrClassVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeDataInlineCssPropertyVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>"
             ],
             "external": "azul_core::dom::NodeDataInlineCssPropertyVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36323,15 +36881,28 @@
                   "type": "NodeDataInlineCssPropertyVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundContentVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>"
             ],
             "external": "azul_css::props::style::background::StyleBackgroundContentVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36348,15 +36919,28 @@
                   "type": "StyleBackgroundContentVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundPositionVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>"
             ],
             "external": "azul_css::props::style::background::StyleBackgroundPositionVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36373,15 +36957,28 @@
                   "type": "StyleBackgroundPositionVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundRepeatVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>"
             ],
             "external": "azul_css::props::style::background::StyleBackgroundRepeatVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36398,15 +36995,28 @@
                   "type": "StyleBackgroundRepeatVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundSizeVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>"
             ],
             "external": "azul_css::props::style::background::StyleBackgroundSizeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36423,15 +37033,28 @@
                   "type": "StyleBackgroundSizeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleTransformVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyleTransform>"
             ],
             "external": "azul_css::props::style::transform::StyleTransformVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36448,15 +37071,25 @@
                   "type": "StyleTransformVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgMultiPolygonVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>"
             ],
             "external": "azul_core::svg::SvgMultiPolygonVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36473,15 +37106,25 @@
                   "type": "SvgMultiPolygonVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgSimpleNodeVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<SvgSimpleNode>"
             ],
             "external": "azul_core::svg::SvgSimpleNodeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36498,15 +37141,25 @@
                   "type": "SvgSimpleNodeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgPathVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<SvgPath>"
             ],
             "external": "azul_core::svg::SvgPathVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36523,15 +37176,25 @@
                   "type": "SvgPathVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgPathElementVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<SvgPathElement>"
             ],
             "external": "azul_core::svg::SvgPathElementVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36548,15 +37211,25 @@
                   "type": "SvgPathElementVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgVertexVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<SvgVertex>"
             ],
             "external": "azul_core::svg::SvgVertexVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36573,15 +37246,28 @@
                   "type": "SvgVertexVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U32Vec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<u32>"
             ],
             "external": "azul_css::corety::U32Vec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36598,15 +37284,28 @@
                   "type": "U32VecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "VirtualKeyCodeVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<VirtualKeyCode>"
             ],
             "external": "azul_core::window::VirtualKeyCodeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36623,15 +37322,25 @@
                   "type": "VirtualKeyCodeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CascadeInfoVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<CascadeInfo>"
             ],
             "external": "azul_core::style::CascadeInfoVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36648,15 +37357,28 @@
                   "type": "CascadeInfoVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CssDeclarationVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<CssDeclaration>"
             ],
             "external": "azul_css::css::CssDeclarationVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36673,15 +37395,28 @@
                   "type": "CssDeclarationVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CssPathSelectorVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<CssPathSelector>"
             ],
             "external": "azul_css::css::CssPathSelectorVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36698,15 +37433,25 @@
                   "type": "CssPathSelectorVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StylesheetVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<Stylesheet>"
             ],
             "external": "azul_css::css::StylesheetVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36723,15 +37468,25 @@
                   "type": "StylesheetVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CssRuleBlockVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<CssRuleBlock>"
             ],
             "external": "azul_css::css::CssRuleBlockVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36748,15 +37503,28 @@
                   "type": "CssRuleBlockVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U16Vec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<u16>"
             ],
             "external": "azul_css::corety::U16Vec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36773,15 +37541,25 @@
                   "type": "U16VecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "F32Vec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<f32>"
             ],
             "external": "azul_css::corety::F32Vec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36798,7 +37576,8 @@
                   "type": "F32VecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U8Vec": {
             "doc": [
@@ -36812,10 +37591,13 @@
               "PartialOrd",
               "Eq",
               "Ord",
-              "Hash"
+              "Hash",
+              "Default"
             ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36867,15 +37649,28 @@
                 },
                 "fn_body": "u8vec.as_ref().into()"
               }
-            }
+            },
+            "repr": "C"
           },
           "GLuintVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<GLuint>"
             ],
             "external": "azul_core::gl::GLuintVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36892,15 +37687,28 @@
                   "type": "GLuintVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "GLintVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<GLint>"
             ],
             "external": "azul_core::gl::GLintVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36917,7 +37725,8 @@
                   "type": "GLintVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StringVec": {
             "doc": [
@@ -36927,14 +37736,18 @@
             "custom_impls": [
               "Clone",
               "Debug",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
               "PartialEq",
               "PartialOrd",
-              "Eq",
-              "Ord",
-              "Hash"
+              "Default"
             ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36951,15 +37764,28 @@
                   "type": "StringVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StringPairVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StringPair>"
             ],
             "external": "azul_core::window::StringPairVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -36976,15 +37802,28 @@
                   "type": "StringPairVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NormalizedLinearColorStopVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NormalizedLinearColorStop>"
             ],
             "external": "azul_css::props::style::background::NormalizedLinearColorStopVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37001,15 +37840,28 @@
                   "type": "NormalizedLinearColorStopVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NormalizedRadialColorStopVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NormalizedRadialColorStop>"
             ],
             "external": "azul_css::props::style::background::NormalizedRadialColorStopVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37026,15 +37878,28 @@
                   "type": "NormalizedRadialColorStopVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeIdVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NodeId>"
             ],
             "external": "azul_core::styled_dom::NodeIdVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37051,15 +37916,25 @@
                   "type": "NodeIdVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeHierarchyItemVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>"
             ],
             "external": "azul_core::styled_dom::NodeHierarchyItemVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37076,15 +37951,25 @@
                   "type": "NodeHierarchyItemVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyledNodeVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<StyledNode>"
             ],
             "external": "azul_core::styled_dom::StyledNodeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37101,15 +37986,25 @@
                   "type": "StyledNodeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "TagIdToNodeIdMappingVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<TagIdToNodeIdMapping>"
             ],
             "external": "azul_core::styled_dom::TagIdToNodeIdMappingVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37126,15 +38021,25 @@
                   "type": "TagIdToNodeIdMappingVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ParentWithNodeDepthVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<ParentWithNodeDepth>"
             ],
             "external": "azul_core::styled_dom::ParentWithNodeDepthVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37151,15 +38056,28 @@
                   "type": "ParentWithNodeDepthVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeDataVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<NodeData>"
             ],
             "external": "azul_core::dom::NodeDataVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37176,15 +38094,28 @@
                   "type": "NodeDataVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AttributeVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<Attribute>"
             ],
             "external": "azul_core::dom::AttributeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37201,15 +38132,28 @@
                   "type": "AttributeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CoreCallbackDataVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<CoreCallbackData>"
             ],
             "external": "azul_core::callbacks::CoreCallbackDataVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37226,15 +38170,28 @@
                   "type": "CoreCallbackDataVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AccessibilityActionVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<AccessibilityAction>"
             ],
             "external": "azul_core::dom::AccessibilityActionVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37251,15 +38208,28 @@
                   "type": "AccessibilityActionVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "XmlNodeChildVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<XmlNodeChild>"
             ],
             "external": "azul_core::xml::XmlNodeChildVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37276,15 +38246,28 @@
                   "type": "XmlNodeChildVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "GridTrackSizingVec": {
             "doc": [
               "Wrapper over a Rust-allocated `Vec<GridTrackSizing>"
             ],
             "external": "azul_css::props::layout::grid::GridTrackSizingVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "custom_destructor": true,
-            "derive": [],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -37301,7 +38284,8 @@
                   "type": "GridTrackSizingVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "GLbooleanVecRefMut": {
             "external": "azul_core::gl::GLbooleanVecRefMut",
@@ -37549,7 +38533,10 @@
           },
           "OptionU8VecRef": {
             "external": "azul_core::gl::OptionU8VecRef",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -37559,7 +38546,8 @@
                   "type": "U8VecRef"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundContentVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructorType",
@@ -37575,6 +38563,9 @@
           },
           "SvgPathVecDestructor": {
             "external": "azul_core::svg::SvgPathVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37583,7 +38574,8 @@
                   "type": "SvgPathVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundRepeatVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructorType",
@@ -37599,6 +38591,9 @@
           },
           "StyleFilterVecDestructor": {
             "external": "azul_css::props::style::filter::StyleFilterVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37607,10 +38602,14 @@
                   "type": "StyleFilterVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleTransformVecDestructor": {
             "external": "azul_css::props::style::transform::StyleTransformVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37619,7 +38618,8 @@
                   "type": "StyleTransformVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "MenuItemVecDestructorType": {
             "external": "azul_core::menu::MenuItemVecDestructorType",
@@ -37683,6 +38683,9 @@
           },
           "GLuintVecDestructor": {
             "external": "azul_core::gl::GLuintVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37691,10 +38694,14 @@
                   "type": "GLuintVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "XmlNodeChildVecDestructor": {
             "external": "azul_core::xml::XmlNodeChildVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37703,7 +38710,8 @@
                   "type": "XmlNodeChildVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundSizeVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructorType",
@@ -37719,6 +38727,9 @@
           },
           "StyleBackgroundContentVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37727,7 +38738,8 @@
                   "type": "StyleBackgroundContentVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StringVecDestructorType": {
             "external": "azul_css::corety::StringVecDestructorType",
@@ -37743,6 +38755,9 @@
           },
           "CascadeInfoVecDestructor": {
             "external": "azul_core::style::CascadeInfoVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37751,7 +38766,8 @@
                   "type": "CascadeInfoVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "DomVecDestructorType": {
             "external": "azul_core::dom::DomVecDestructorType",
@@ -37767,6 +38783,9 @@
           },
           "AccessibilityStateVecDestructor": {
             "external": "azul_core::dom::AccessibilityStateVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37775,7 +38794,8 @@
                   "type": "AccessibilityStateVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StringPairVecDestructorType": {
             "external": "azul_core::window::StringPairVecDestructorType",
@@ -37791,6 +38811,9 @@
           },
           "DomVecDestructor": {
             "external": "azul_core::dom::DomVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37799,10 +38822,14 @@
                   "type": "DomVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StringVecDestructor": {
             "external": "azul_css::corety::StringVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37811,7 +38838,8 @@
                   "type": "StringVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CssRuleBlockVecDestructorType": {
             "external": "azul_css::css::CssRuleBlockVecDestructorType",
@@ -37827,6 +38855,9 @@
           },
           "NodeDataVecDestructor": {
             "external": "azul_core::dom::NodeDataVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37835,10 +38866,14 @@
                   "type": "NodeDataVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "MenuItemVecDestructor": {
             "external": "azul_core::menu::MenuItemVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37847,7 +38882,8 @@
                   "type": "MenuItemVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AttributeVecDestructorType": {
             "external": "azul_core::dom::AttributeVecDestructorType",
@@ -37863,6 +38899,9 @@
           },
           "SvgMultiPolygonVecDestructor": {
             "external": "azul_core::svg::SvgMultiPolygonVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37871,10 +38910,14 @@
                   "type": "SvgMultiPolygonVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ListViewRowVecDestructor": {
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37883,7 +38926,8 @@
                   "type": "ListViewRowVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeIdVecDestructorType": {
             "external": "azul_core::styled_dom::NodeIdVecDestructorType",
@@ -37923,6 +38967,9 @@
           },
           "SvgVertexVecDestructor": {
             "external": "azul_core::svg::SvgVertexVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37931,10 +38978,14 @@
                   "type": "SvgVertexVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StylesheetVecDestructor": {
             "external": "azul_css::css::StylesheetVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37943,10 +38994,14 @@
                   "type": "StylesheetVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U32VecDestructor": {
             "external": "azul_css::corety::U32VecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37955,10 +39010,14 @@
                   "type": "U32VecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CssRuleBlockVecDestructor": {
             "external": "azul_css::css::CssRuleBlockVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37967,7 +39026,8 @@
                   "type": "CssRuleBlockVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ParentWithNodeDepthVecDestructorType": {
             "external": "azul_core::styled_dom::ParentWithNodeDepthVecDestructorType",
@@ -37983,6 +39043,9 @@
           },
           "NormalizedLinearColorStopVecDestructor": {
             "external": "azul_css::props::style::background::NormalizedLinearColorStopVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -37991,7 +39054,8 @@
                   "type": "NormalizedLinearColorStopVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CoreCallbackDataVecDestructorType": {
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructorType",
@@ -38007,6 +39071,9 @@
           },
           "StyleFontFamilyVecDestructor": {
             "external": "azul_css::props::basic::font::StyleFontFamilyVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38015,7 +39082,8 @@
                   "type": "StyleFontFamilyVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CascadeInfoVecDestructorType": {
             "external": "azul_core::style::CascadeInfoVecDestructorType",
@@ -38055,6 +39123,9 @@
           },
           "CssPathSelectorVecDestructor": {
             "external": "azul_css::css::CssPathSelectorVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38063,7 +39134,8 @@
                   "type": "CssPathSelectorVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundPositionVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructorType",
@@ -38091,6 +39163,9 @@
           },
           "NodeHierarchyItemVecDestructor": {
             "external": "azul_core::styled_dom::NodeHierarchyItemVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38099,10 +39174,14 @@
                   "type": "NodeHierarchyItemVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "VirtualKeyCodeVecDestructor": {
             "external": "azul_core::window::VirtualKeyCodeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38111,7 +39190,8 @@
                   "type": "VirtualKeyCodeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgVertexVecDestructorType": {
             "external": "azul_core::svg::SvgVertexVecDestructorType",
@@ -38127,6 +39207,9 @@
           },
           "F32VecDestructor": {
             "external": "azul_css::corety::F32VecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38135,7 +39218,8 @@
                   "type": "F32VecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgPathElementVecDestructorType": {
             "external": "azul_core::svg::SvgPathElementVecDestructorType",
@@ -38151,6 +39235,9 @@
           },
           "StyleBackgroundRepeatVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38159,10 +39246,14 @@
                   "type": "StyleBackgroundRepeatVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AccessibilityActionVecDestructor": {
             "external": "azul_core::dom::AccessibilityActionVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38171,7 +39262,8 @@
                   "type": "AccessibilityActionVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ListViewRowVecDestructorType": {
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructorType",
@@ -38223,6 +39315,9 @@
           },
           "U16VecDestructor": {
             "external": "azul_css::corety::U16VecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38231,10 +39326,14 @@
                   "type": "U16VecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "TagIdToNodeIdMappingVecDestructor": {
             "external": "azul_core::styled_dom::TagIdToNodeIdMappingVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38243,10 +39342,14 @@
                   "type": "TagIdToNodeIdMappingVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeIdVecDestructor": {
             "external": "azul_core::styled_dom::NodeIdVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38255,7 +39358,8 @@
                   "type": "NodeIdVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U16VecDestructorType": {
             "external": "azul_css::corety::U16VecDestructorType",
@@ -38307,6 +39411,9 @@
           },
           "ParentWithNodeDepthVecDestructor": {
             "external": "azul_core::styled_dom::ParentWithNodeDepthVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38315,10 +39422,14 @@
                   "type": "ParentWithNodeDepthVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "GLintVecDestructor": {
             "external": "azul_core::gl::GLintVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38327,10 +39438,14 @@
                   "type": "GLintVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeDataInlineCssPropertyVecDestructor": {
             "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38339,7 +39454,8 @@
                   "type": "NodeDataInlineCssPropertyVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NormalizedRadialColorStopVecDestructorType": {
             "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructorType",
@@ -38355,6 +39471,9 @@
           },
           "NormalizedRadialColorStopVecDestructor": {
             "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38363,10 +39482,14 @@
                   "type": "NormalizedRadialColorStopVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyledNodeVecDestructor": {
             "external": "azul_core::styled_dom::StyledNodeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38375,10 +39498,14 @@
                   "type": "StyledNodeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundPositionVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38387,7 +39514,8 @@
                   "type": "StyleBackgroundPositionVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgMultiPolygonVecDestructorType": {
             "external": "azul_core::svg::SvgMultiPolygonVecDestructorType",
@@ -38403,6 +39531,9 @@
           },
           "SvgSimpleNodeVecDestructor": {
             "external": "azul_core::svg::SvgSimpleNodeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38411,7 +39542,8 @@
                   "type": "SvgSimpleNodeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "AccessibilityActionVecDestructorType": {
             "external": "azul_core::dom::AccessibilityActionVecDestructorType",
@@ -38439,6 +39571,9 @@
           },
           "AttributeVecDestructor": {
             "external": "azul_core::dom::AttributeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38447,7 +39582,8 @@
                   "type": "AttributeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "NodeDataVecDestructorType": {
             "external": "azul_core::dom::NodeDataVecDestructorType",
@@ -38463,6 +39599,9 @@
           },
           "CssDeclarationVecDestructor": {
             "external": "azul_css::css::CssDeclarationVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38471,7 +39610,8 @@
                   "type": "CssDeclarationVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyledNodeVecDestructorType": {
             "external": "azul_core::styled_dom::StyledNodeVecDestructorType",
@@ -38487,6 +39627,9 @@
           },
           "IdOrClassVecDestructor": {
             "external": "azul_core::dom::IdOrClassVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38495,10 +39638,14 @@
                   "type": "IdOrClassVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "StyleBackgroundSizeVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38507,7 +39654,8 @@
                   "type": "StyleBackgroundSizeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgPathVecDestructorType": {
             "external": "azul_core::svg::SvgPathVecDestructorType",
@@ -38535,6 +39683,9 @@
           },
           "StringPairVecDestructor": {
             "external": "azul_core::window::StringPairVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38543,10 +39694,14 @@
                   "type": "StringPairVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "CoreCallbackDataVecDestructor": {
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38555,10 +39710,14 @@
                   "type": "CoreCallbackDataVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgPathElementVecDestructor": {
             "external": "azul_core::svg::SvgPathElementVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38567,10 +39726,14 @@
                   "type": "SvgPathElementVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "U8VecDestructor": {
             "external": "azul_css::corety::U8VecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38579,10 +39742,14 @@
                   "type": "U8VecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "GridTrackSizingVecDestructor": {
             "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38591,7 +39758,8 @@
                   "type": "GridTrackSizingVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "IdOrClassVecDestructorType": {
             "external": "azul_core::dom::IdOrClassVecDestructorType",
@@ -38655,6 +39823,9 @@
           },
           "VertexAttributeVecDestructor": {
             "external": "azul_core::gl::VertexAttributeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38663,10 +39834,23 @@
                   "type": "VertexAttributeVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "VertexAttributeVec": {
             "external": "azul_core::gl::VertexAttributeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -38683,10 +39867,14 @@
                   "type": "VertexAttributeVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "DebugMessageVecDestructor": {
             "external": "azul_core::gl::DebugMessageVecDestructor",
+            "derive": [
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "DefaultRust": {},
@@ -38695,7 +39883,8 @@
                   "type": "DebugMessageVecDestructorType"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "DebugMessageVecDestructorType": {
             "external": "azul_core::gl::DebugMessageVecDestructorType",
@@ -38711,6 +39900,18 @@
           },
           "DebugMessageVec": {
             "external": "azul_core::gl::DebugMessageVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "ptr": {
@@ -38727,7 +39928,8 @@
                   "type": "DebugMessageVecDestructor"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ShapePointVecDestructor": {
             "external": "azul_css::shape::ShapePointVecDestructor",
@@ -38760,6 +39962,15 @@
           },
           "ShapePointVec": {
             "external": "azul_css::shape::ShapePointVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug"
             ],
@@ -38784,6 +39995,12 @@
           },
           "MonitorVec": {
             "external": "azul_core::window::MonitorVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug"
             ],
@@ -38834,6 +40051,12 @@
           },
           "VideoModeVec": {
             "external": "azul_core::window::VideoModeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug"
             ],
@@ -38858,6 +40081,16 @@
           },
           "XWindowTypeVec": {
             "external": "azul_core::window::XWindowTypeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "derive": [
               "Debug"
             ],
@@ -38972,6 +40205,16 @@
           },
           "ScanCodeVec": {
             "external": "azul_core::window::ScanCodeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd",
+              "Default"
+            ],
             "derive": [
               "Debug"
             ],
@@ -39003,7 +40246,10 @@
         "classes": {
           "OptionSvgPoint": {
             "external": "azul_css::props::basic::animation::OptionSvgPoint",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39013,11 +40259,15 @@
                   "type": "SvgPoint"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionListViewOnRowClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnRowClick",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39027,11 +40277,15 @@
                   "type": "ListViewOnRowClick"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionListViewOnColumnClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnColumnClick",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39041,11 +40295,15 @@
                   "type": "ListViewOnColumnClick"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionListViewOnLazyLoadScroll": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnLazyLoadScroll",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39055,11 +40313,15 @@
                   "type": "ListViewOnLazyLoadScroll"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionMenu": {
             "external": "azul_core::menu::OptionMenu",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39069,11 +40331,15 @@
                   "type": "Menu"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionPixelValueNoPercent": {
             "external": "azul_css::props::basic::pixel::OptionPixelValueNoPercent",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39083,11 +40349,15 @@
                   "type": "PixelValueNoPercent"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::OptionColorInputOnValueChange",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39097,11 +40367,15 @@
                   "type": "ColorInputOnValueChange"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionButtonOnClick": {
             "external": "azul_layout::widgets::button::OptionButtonOnClick",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39111,11 +40385,15 @@
                   "type": "ButtonOnClick"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTabOnClick": {
             "external": "azul_layout::widgets::tabs::OptionTabOnClick",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39125,11 +40403,15 @@
                   "type": "TabOnClick"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionFileInputOnPathChange": {
             "external": "azul_layout::widgets::file_input::OptionFileInputOnPathChange",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39139,11 +40421,15 @@
                   "type": "FileInputOnPathChange"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionCheckBoxOnToggle": {
             "external": "azul_layout::widgets::check_box::OptionCheckBoxOnToggle",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39153,11 +40439,15 @@
                   "type": "CheckBoxOnToggle"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTextInputOnTextInput": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnTextInput",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39167,11 +40457,15 @@
                   "type": "TextInputOnTextInput"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnVirtualKeyDown",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39181,11 +40475,15 @@
                   "type": "TextInputOnVirtualKeyDown"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnFocusLost",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39195,11 +40493,15 @@
                   "type": "TextInputOnFocusLost"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTextInputSelection": {
             "external": "azul_layout::widgets::text_input::OptionTextInputSelection",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39209,11 +40511,15 @@
                   "type": "TextInputSelection"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionNumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnFocusLost",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39223,11 +40529,15 @@
                   "type": "NumberInputOnFocusLost"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionNumberInputOnValueChange": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnValueChange",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39237,11 +40547,15 @@
                   "type": "NumberInputOnValueChange"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionMenuItemIcon": {
             "external": "azul_core::menu::OptionMenuItemIcon",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39251,11 +40565,15 @@
                   "type": "MenuItemIcon"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionVirtualKeyCodeCombo": {
             "external": "azul_core::window::OptionVirtualKeyCodeCombo",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39265,12 +40583,14 @@
                   "type": "VirtualKeyCodeCombo"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTimerId": {
             "external": "azul_core::task::OptionTimerId",
             "derive": [
-              "Copy"
+              "Debug",
+              "Clone"
             ],
             "enum_fields": [
               {
@@ -39281,12 +40601,14 @@
                   "type": "TimerId"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionI16": {
             "external": "azul_css::corety::OptionI16",
             "derive": [
-              "Copy"
+              "Debug",
+              "Clone"
             ],
             "enum_fields": [
               {
@@ -39297,12 +40619,14 @@
                   "type": "i16"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionU16": {
             "external": "azul_css::corety::OptionU16",
             "derive": [
-              "Copy"
+              "Debug",
+              "Clone"
             ],
             "enum_fields": [
               {
@@ -39313,12 +40637,14 @@
                   "type": "u16"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionU32": {
             "external": "azul_css::corety::OptionU32",
             "derive": [
-              "Copy"
+              "Debug",
+              "Clone"
             ],
             "enum_fields": [
               {
@@ -39329,11 +40655,15 @@
                   "type": "u32"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionImageRef": {
             "external": "azul_core::resources::OptionImageRef",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39343,11 +40673,15 @@
                   "type": "ImageRef"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionFontRef": {
             "external": "azul_css::props::basic::font::OptionFontRef",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39357,11 +40691,15 @@
                   "type": "FontRef"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionRefAny": {
             "external": "azul_core::refany::OptionRefAny",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39371,11 +40709,15 @@
                   "type": "RefAny"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionLayoutSize": {
             "external": "azul_css::props::basic::geometry::OptionLayoutSize",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39385,12 +40727,14 @@
                   "type": "LayoutSize"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionDomNodeId": {
             "external": "azul_core::dom::OptionDomNodeId",
             "derive": [
-              "Copy"
+              "Debug",
+              "Clone"
             ],
             "enum_fields": [
               {
@@ -39401,12 +40745,14 @@
                   "type": "DomNodeId"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionColorU": {
             "external": "azul_css::props::basic::color::OptionColorU",
             "derive": [
-              "Copy"
+              "Clone",
+              "Debug"
             ],
             "enum_fields": [
               {
@@ -39417,11 +40763,15 @@
                   "type": "ColorU"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionRawImage": {
             "external": "azul_core::resources::OptionRawImage",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39431,12 +40781,14 @@
                   "type": "RawImage"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionSvgDashPattern": {
             "external": "azul_core::svg::OptionSvgDashPattern",
             "derive": [
-              "Copy"
+              "Clone",
+              "Debug"
             ],
             "enum_fields": [
               {
@@ -39447,11 +40799,15 @@
                   "type": "SvgDashPattern"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTabIndex": {
             "external": "azul_core::dom::OptionTabIndex",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39461,11 +40817,15 @@
                   "type": "TabIndex"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionTagId": {
             "external": "azul_core::dom::OptionTagId",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39475,11 +40835,15 @@
                   "type": "TagId"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionDuration": {
             "external": "azul_core::task::OptionDuration",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39489,12 +40853,14 @@
                   "type": "Duration"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionUsize": {
             "external": "azul_core::gl::OptionUsize",
             "derive": [
-              "Copy"
+              "Clone",
+              "Debug"
             ],
             "enum_fields": [
               {
@@ -39505,11 +40871,15 @@
                   "type": "usize"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionCoreMenuCallback": {
             "external": "azul_core::menu::OptionCoreMenuCallback",
-            "derive": [],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39519,11 +40889,15 @@
                   "type": "CoreMenuCallback"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionStyledDom": {
             "external": "azul_core::styled_dom::OptionStyledDom",
-            "derive": [],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {}
@@ -39533,7 +40907,8 @@
                   "type": "StyledDom"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgParseOptions": {
             "external": "azul_core::svg::SvgParseOptions",
@@ -39638,6 +41013,10 @@
           },
           "OptionLogicalPosition": {
             "external": "azul_core::geom::OptionLogicalPosition",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "None": {},
@@ -39645,7 +41024,8 @@
                   "type": "LogicalPosition"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionString": {
             "external": "azul_css::corety::OptionString",
@@ -39660,10 +41040,18 @@
                   "type": "String"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "OptionF32": {
             "external": "azul_css::corety::OptionF32",
+            "custom_impls": [
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
             "derive": [
               "Debug",
               "Clone"
@@ -39934,6 +41322,10 @@
         "classes": {
           "ResultXmlXmlError": {
             "external": "azul_core::xml::ResultXmlXmlError",
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "Ok": {
@@ -39945,10 +41337,15 @@
                   "type": "XmlError"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ResultSvgSvgParseError": {
             "external": "azul_core::svg::ResultSvgSvgParseError",
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "Ok": {
@@ -39960,7 +41357,8 @@
                   "type": "SvgParseError"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "SvgParseError": {
             "external": "azul_core::svg::SvgParseError",
@@ -40625,6 +42023,10 @@
           },
           "ResultRawImageDecodeImageError": {
             "external": "azul_layout::image::decode::ResultRawImageDecodeImageError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
             "enum_fields": [
               {
                 "Ok": {
@@ -40634,7 +42036,8 @@
                   "type": "DecodeImageError"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "DecodeImageError": {
             "external": "azul_layout::image::decode::DecodeImageError",
@@ -40663,6 +42066,10 @@
           },
           "ResultU8VecEncodeImageError": {
             "external": "azul_layout::image::encode::ResultU8VecEncodeImageError",
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
             "enum_fields": [
               {
                 "Ok": {
@@ -40672,7 +42079,8 @@
                   "type": "EncodeImageError"
                 }
               }
-            ]
+            ],
+            "repr": "C"
           },
           "ResultParsedSvgSvgParseError": {
             "external": "azul_layout::xml::svg::ResultParsedSvgSvgParseError",
@@ -41500,6 +42908,7 @@
           "App": {
             "external": "azul_dll::desktop::app::App",
             "custom_impls": [
+              "Default",
               "Drop"
             ],
             "derive": [

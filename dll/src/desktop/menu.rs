@@ -11,7 +11,7 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInner, Update},
+    callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
     dom::Dom,
     geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPosition},
     menu::{Menu, MenuPopupPosition},
@@ -390,9 +390,8 @@ pub fn create_menu_window(
 
     // Set layout callback that renders the menu
     window_state.layout_callback = LayoutCallback {
-        cb: LayoutCallbackInner {
-            cb: menu_layout_callback,
-        },
+        cb: menu_layout_callback,
+        callable: azul_core::refany::OptionRefAny::None,
     };
 
     WindowCreateOptions {

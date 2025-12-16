@@ -35,6 +35,9 @@ macro_rules! impl_callback {
         #[repr(C)]
         pub struct $callback_value {
             pub cb: $callback_ty,
+            /// For FFI: stores the foreign callable (e.g., PyFunction)
+            /// Native Rust code sets this to None
+            pub callable: azul_core::refany::OptionRefAny,
         }
 
         azul_css::impl_option!(
@@ -43,6 +46,13 @@ macro_rules! impl_callback {
             copy = false,
             [Debug, Clone, PartialEq, PartialOrd]
         );
+
+        impl $callback_value {
+            /// Create a new callback with just a function pointer (for native Rust code)
+            pub fn new(cb: $callback_ty) -> Self {
+                Self { cb, callable: azul_core::refany::OptionRefAny::None }
+            }
+        }
 
         impl ::core::fmt::Display for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
@@ -61,6 +71,7 @@ macro_rules! impl_callback {
             fn clone(&self) -> Self {
                 $callback_value {
                     cb: self.cb.clone(),
+                    callable: self.callable.clone(),
                 }
             }
         }
@@ -93,8 +104,6 @@ macro_rules! impl_callback {
         }
 
         impl Eq for $callback_value {}
-
-        impl Copy for $callback_value {}
     };
 }
 

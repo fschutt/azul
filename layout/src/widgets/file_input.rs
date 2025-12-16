@@ -138,7 +138,7 @@ impl FileInput {
     ) {
         self.state.on_path_change = Some(FileInputOnPathChange {
             data,
-            callback: FileInputOnPathChangeCallback { cb: callback },
+            callback: FileInputOnPathChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
         })
         .into();
     }
@@ -176,6 +176,7 @@ impl FileInput {
                 data: RefAny::new(self.state),
                 callback: ButtonOnClickCallback {
                     cb: fileinput_on_click,
+                    callable: azul_core::refany::OptionRefAny::None,
                 },
             })
             .into(),

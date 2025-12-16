@@ -10,7 +10,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalSizeU32},
     gl::Texture,
     menu::{Menu, MenuItem, StringMenuItem},
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::{ImageRef, RawImageFormat},
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::CursorPosition::InWindow,
@@ -929,6 +929,7 @@ impl NodeGraph {
                                 data: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
                                     cb: nodegraph_drag_graph_or_nodes as usize as usize,
+                                    callable: OptionRefAny::None,
                                 },
                             },
                             CoreCallbackData {
@@ -936,6 +937,7 @@ impl NodeGraph {
                                 data: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
                                     cb: nodegraph_unset_active_node as usize as usize,
+                                    callable: OptionRefAny::None,
                                 },
                             },
                         ]
@@ -2051,7 +2053,7 @@ fn render_node(
            CoreCallbackData {
                event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
                data: node_local_dataset.clone(),
-               callback: CoreCallback { cb: nodegraph_set_active_node as usize },
+               callback: CoreCallback { cb: nodegraph_set_active_node as usize, callable: OptionRefAny::None },
            },
         ].into())
         .with_inline_css_props(vec![
@@ -2288,7 +2290,7 @@ fn render_node(
                    CoreCallbackData {
                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
                        data: node_local_dataset.clone(),
-                       callback: CoreCallback { cb: nodegraph_delete_node as usize },
+                       callback: CoreCallback { cb: nodegraph_delete_node as usize, callable: OptionRefAny::None },
                    },
                ].into())
                .with_ids_and_classes({
@@ -2384,7 +2386,7 @@ fn render_node(
                                                            io_id: Input(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, callable: OptionRefAny::None },
                                                    },
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
@@ -2392,7 +2394,7 @@ fn render_node(
                                                            io_id: Input(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, callable: OptionRefAny::None },
                                                    },
                                                ].into())
                                                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
@@ -2544,7 +2546,7 @@ fn render_node(
                                                            io_id: Output(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, callable: OptionRefAny::None },
                                                    },
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
@@ -2552,7 +2554,7 @@ fn render_node(
                                                            io_id: Output(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, callable: OptionRefAny::None },
                                                    },
                                                ].into())
                                                .with_inline_css_props(

@@ -1,9 +1,7 @@
 //! Re-exports for CSS properties
 
-#[cfg(feature = "css_parser")]
 use azul_css::parser2::{self, CssParseError};
 pub use azul_css::*;
-#[cfg(feature = "css_parser")]
 pub mod css_parser {
     pub use azul_css::parser2::*;
 }

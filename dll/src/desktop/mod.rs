@@ -47,7 +47,6 @@ pub mod compositor2;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub mod csd;
 /// CSS type definitions / CSS parsing functions
-#[cfg(any(feature = "css_parser", feature = "native_style"))]
 pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;

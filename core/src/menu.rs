@@ -264,7 +264,7 @@ impl StringMenuItem {
     pub fn with_callback(mut self, data: RefAny, callback: CoreCallbackType) -> Self {
         self.callback = Some(CoreMenuCallback {
             data,
-            callback: CoreCallback { cb: callback },
+            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::None },
         })
         .into();
         self

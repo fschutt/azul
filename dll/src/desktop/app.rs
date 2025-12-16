@@ -28,6 +28,12 @@ impl Drop for App {
     }
 }
 
+impl Default for App {
+    fn default() -> Self {
+        Self::new(RefAny::new(()), AppConfig::default())
+    }
+}
+
 impl App {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         Self {

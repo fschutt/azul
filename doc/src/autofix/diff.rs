@@ -1206,20 +1206,23 @@ fn compare_derives_and_impls(
 ) -> Vec<TypeModification> {
     let mut modifications = Vec::new();
 
+    // Expand MacroGenerated types to get their derives and custom_impls
+    let expanded = workspace_type.expand_macro_generated();
+
     // Get workspace derives, custom_impls and repr
-    let (workspace_derives, workspace_custom_impls, workspace_repr) = match &workspace_type.kind {
+    let (workspace_derives, workspace_custom_impls, workspace_repr) = match expanded {
         TypeDefKind::Struct {
             derives,
             custom_impls,
             repr,
             ..
-        } => (derives.clone(), custom_impls.clone(), repr.clone()),
+        } => (derives, custom_impls, repr),
         TypeDefKind::Enum {
             derives,
             custom_impls,
             repr,
             ..
-        } => (derives.clone(), custom_impls.clone(), repr.clone()),
+        } => (derives, custom_impls, repr),
         _ => return modifications, // Skip non-struct/enum types
     };
 

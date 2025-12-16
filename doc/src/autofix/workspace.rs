@@ -502,7 +502,12 @@ pub fn generate_patches<T: TypeLookup>(
 
         // If this is an Option type, generate the synthetic Option enum in the "option" module
         if is_option_type(&class_name) {
-            generate_synthetic_option_type(&class_name, &type_info.full_path, &mut all_patches);
+            // Get derives from the parsed type info (from impl_option! macro)
+            let derives = match &type_info.kind {
+                crate::patch::index::TypeKind::Enum { derives, .. } => derives.clone(),
+                _ => Vec::new(),
+            };
+            generate_synthetic_option_type(&class_name, &type_info.full_path, &derives, &mut all_patches);
         }
     }
 
@@ -567,9 +572,15 @@ pub fn generate_patches<T: TypeLookup>(
 
             // If this is an Option type, generate the synthetic Option enum in the "option" module
             if is_option_type(&change.class_name) {
+                // Get derives from the parsed type info (from impl_option! macro)
+                let derives = match &type_info.kind {
+                    crate::patch::index::TypeKind::Enum { derives, .. } => derives.clone(),
+                    _ => Vec::new(),
+                };
                 generate_synthetic_option_type(
                     &change.class_name,
                     &change.new_path,
+                    &derives,
                     &mut all_patches,
                 );
             }
@@ -1330,6 +1341,7 @@ fn ensure_vec_destructor_callback_typedef(
 fn generate_synthetic_option_type(
     option_type_name: &str,
     external_path: &str,
+    derives_from_macro: &[String],
     all_patches: &mut std::collections::BTreeMap<(String, String), crate::patch::ClassPatch>,
 ) {
     use indexmap::IndexMap;
@@ -1395,47 +1407,18 @@ fn generate_synthetic_option_type(
         },
     );
 
-    // Only add Copy derive for primitive inner types that are definitely Copy
-    // For complex types, we can't know if they're Copy without checking all_patches
-    // Use lowercase for primitives (matching what we normalized above)
-    let primitive_copy_types = [
-        "f32",
-        "f64",
-        "i8",
-        "i16",
-        "i32",
-        "i64",
-        "i128",
-        "u8",
-        "u16",
-        "u32",
-        "u64",
-        "u128",
-        "usize",
-        "isize",
-        "bool",
-        "char",
-        // Also some specific types we know are Copy
-        "NodeId",
-        "DomNodeId",
-        "ThreadId",
-        "TimerId",
-        "ColorU",
-        "LayoutRect",
-        "LayoutPoint",
-        "LogicalPosition",
-        "LogicalSize",
-        "PhysicalPosition",
-        "PhysicalSize",
-        "WindowTheme",
-    ];
-
-    // Empty derive list = don't generate any #[derive(...)] attributes
-    // The impl_option! macro provides Debug, Clone, PartialEq, PartialOrd, Default
-    let derive = if primitive_copy_types.contains(&inner_type) {
-        Some(vec!["Copy".to_string()])
+    // Use derives from the actual impl_option! macro call in source code
+    // If no derives provided, use a sensible default (Debug, Clone, PartialEq, PartialOrd)
+    let derive = if !derives_from_macro.is_empty() {
+        Some(derives_from_macro.to_vec())
     } else {
-        Some(vec![]) // Explicitly empty - impl_option! provides traits
+        // Fallback: provide standard derives for Option types
+        Some(vec![
+            "Debug".to_string(),
+            "Clone".to_string(),
+            "PartialEq".to_string(),
+            "PartialOrd".to_string(),
+        ])
     };
 
     let class_patch = ClassPatch {

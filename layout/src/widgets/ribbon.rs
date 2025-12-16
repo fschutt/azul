@@ -2358,34 +2358,34 @@ impl Ribbon {
                                     &[Class(AzString::from_const_str("between-tabs"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9410866575549354381)
                             }),
-                        render_tab_element("HOME", self.tab_active == 0, 0, callback, data.clone()),
+                        render_tab_element("HOME", self.tab_active == 0, 0, callback.clone(), data.clone()),
                         render_tab_element(
                             "INSERT",
                             self.tab_active == 1,
                             1,
-                            callback,
+                            callback.clone(),
                             data.clone(),
                         ),
                         render_tab_element(
                             "PAGE LAYOUT",
                             self.tab_active == 2,
                             2,
-                            callback,
+                            callback.clone(),
                             data.clone(),
                         ),
                         render_tab_element(
                             "FORMULAS",
                             self.tab_active == 3,
                             3,
-                            callback,
+                            callback.clone(),
                             data.clone(),
                         ),
-                        render_tab_element("DATA", self.tab_active == 4, 4, callback, data.clone()),
+                        render_tab_element("DATA", self.tab_active == 4, 4, callback.clone(), data.clone()),
                         render_tab_element(
                             "REVIEW",
                             self.tab_active == 5,
                             5,
-                            callback,
+                            callback.clone(),
                             data.clone(),
                         ),
                         render_tab_element("VIEW", self.tab_active == 6, 6, callback, data.clone()),
@@ -2753,6 +2753,7 @@ fn render_tab_element(
                 event: EventFilter::Hover(HoverEventFilter::MouseUp), // onmouseup
                 callback: CoreCallback {
                     cb: my_callback as usize,
+                    callable: azul_core::refany::OptionRefAny::None,
                 },
                 data: RefAny::new(MyCustomStruct {
                     which_tab_to_activate_on_click,

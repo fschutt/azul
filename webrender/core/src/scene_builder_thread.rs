@@ -344,7 +344,9 @@ impl SceneBuilderThread {
                         true => self.save_capture_sequence(),
                         _ => {}
                     }
+                    eprintln!("[SCENE_BUILDER_THREAD] Calling forward_built_transactions...");
                     self.forward_built_transactions(built_txns);
+                    eprintln!("[SCENE_BUILDER_THREAD] forward_built_transactions returned");
 
                     // Now that we off the critical path, do some memory bookkeeping.
                     self.recycler.recycle_built_scene();
@@ -805,11 +807,17 @@ impl SceneBuilderThread {
         };
 
         #[cfg(not(feature = "capture"))]
-        self.send(SceneBuilderResult::Transactions(txns, result_tx));
+        {
+            eprintln!("[SCENE_BUILDER_THREAD::forward_built_transactions] Sending Transactions to render backend...");
+            self.send(SceneBuilderResult::Transactions(txns, result_tx));
+            eprintln!("[SCENE_BUILDER_THREAD::forward_built_transactions] Transactions sent");
+        }
 
         if let Some(pipeline_info) = pipeline_info {
+            eprintln!("[SCENE_BUILDER_THREAD::forward_built_transactions] Waiting for swap_result from render backend...");
             // Block until the swap is done, then invoke the hook.
             let swap_result = result_rx.unwrap().recv();
+            eprintln!("[SCENE_BUILDER_THREAD::forward_built_transactions] swap_result received: {:?}", swap_result.is_ok());
             Telemetry::stop_and_accumulate_sceneswap_time(timer_id);
             self.hooks
                 .as_ref()

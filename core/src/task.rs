@@ -263,14 +263,14 @@ pub type InstantPtrCloneCallbackType = extern "C" fn(*const InstantPtr) -> Insta
 pub struct InstantPtrCloneCallback {
     pub cb: InstantPtrCloneCallbackType,
 }
-impl_callback!(InstantPtrCloneCallback);
+impl_callback_simple!(InstantPtrCloneCallback);
 
 pub type InstantPtrDestructorCallbackType = extern "C" fn(*mut InstantPtr);
 #[repr(C)]
 pub struct InstantPtrDestructorCallback {
     pub cb: InstantPtrDestructorCallbackType,
 }
-impl_callback!(InstantPtrDestructorCallback);
+impl_callback_simple!(InstantPtrDestructorCallback);
 
 // ----  LIBSTD implementation for InstantPtr BEGIN
 #[cfg(feature = "std")]
@@ -786,7 +786,7 @@ pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
 pub struct GetSystemTimeCallback {
     pub cb: GetSystemTimeCallbackType,
 }
-impl_callback!(GetSystemTimeCallback);
+impl_callback_simple!(GetSystemTimeCallback);
 
 /// Default implementation that gets the current system time
 #[cfg(feature = "std")]
@@ -808,7 +808,7 @@ pub type CheckThreadFinishedCallbackType =
 pub struct CheckThreadFinishedCallback {
     pub cb: CheckThreadFinishedCallbackType,
 }
-impl_callback!(CheckThreadFinishedCallback);
+impl_callback_simple!(CheckThreadFinishedCallback);
 
 /// Callback to send a message to a background thread.
 pub type LibrarySendThreadMsgCallbackType =
@@ -818,7 +818,7 @@ pub type LibrarySendThreadMsgCallbackType =
 pub struct LibrarySendThreadMsgCallback {
     pub cb: LibrarySendThreadMsgCallbackType,
 }
-impl_callback!(LibrarySendThreadMsgCallback);
+impl_callback_simple!(LibrarySendThreadMsgCallback);
 
 /// Callback for a running thread to receive messages from the main thread.
 pub type ThreadRecvCallbackType =
@@ -828,7 +828,7 @@ pub type ThreadRecvCallbackType =
 pub struct ThreadRecvCallback {
     pub cb: ThreadRecvCallbackType,
 }
-impl_callback!(ThreadRecvCallback);
+impl_callback_simple!(ThreadRecvCallback);
 
 /// Callback to destroy a ThreadReceiver.
 pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiverInner);
@@ -837,4 +837,4 @@ pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceive
 pub struct ThreadReceiverDestructorCallback {
     pub cb: ThreadReceiverDestructorCallbackType,
 }
-impl_callback!(ThreadReceiverDestructorCallback);
+impl_callback_simple!(ThreadReceiverDestructorCallback);

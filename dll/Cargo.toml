@@ -99,22 +99,24 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 [features]
 # NOTE: The `c-api` feature MUST be enabled to export the C API functions!
 # Without it, libazul_dll.dylib will not contain any AzXxx symbols.
-default = ["std", "desktop", "logging", "css_parser", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api"]
-# these are the features that currently HAVE to be present
-# removing any of these features will lead to compile error
-# this will be fixed in the future
-minimal = ["std", "css_parser", "font_loading", "text_layout"]
+default = ["std", "desktop", "logging", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api"]
+
+# Core features
 std = ["azul-core/std", "azul-layout/std"]
 logging = ["log"]
-use_fern_logger = ["logging"]
-use_pyo3_logger = ["pyo3-log", "logging"]
-css_parser = []
-all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
+
+# Accessibility support
 a11y = ["accesskit", "azul-layout/a11y", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
+
+# Desktop application support (windowing, OpenGL, clipboard, etc.)
 desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "x11-clipboard", "clipboard-win", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
-# c-api: Include the auto-generated C API functions from target/memtest/dll_api.rs
+
+# C-API: Include the auto-generated C API functions from target/memtest/dll_api.rs
 # To regenerate: cd doc && cargo run --release -- memtest dll
 c-api = ["desktop", "azul-css", "azul-layout"]
+
+# Image format support
+all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]
@@ -125,12 +127,26 @@ tga = ["azul-layout", "azul-layout/tga"]
 hdr = ["azul-layout", "azul-layout/hdr"]
 webp = ["azul-layout", "azul-layout/webp"]
 pnm = ["azul-layout", "azul-layout/pnm"]
+
+# SVG and XML support
 svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
+
+# Font loading
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
+
+# Text layout
 text_layout = ["azul-layout", "azul-layout/text_layout"]
+
+# GNOME menu support (Linux only, requires dbus)
 gnome-menus = []
+
+# Logging backends
+use_fern_logger = ["logging", "fern"]
+use_pyo3_logger = ["pyo3-log", "logging"]
+
+# Link type markers (used by build scripts)
 cdylib = []
 rlib = []
 staticlib = []
