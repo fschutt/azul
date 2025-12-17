@@ -175,7 +175,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             line-height: 1.0;
             margin-top: 0;
             margin-bottom: 20px;
-            text-shadow: 0.02em 0 0 currentColor, -0.02em 0 0 currentColor;
+            text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
             letter-spacing: 0.02em;
         }
         h2, h3, h4 { cursor: pointer; }

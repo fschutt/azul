@@ -210,7 +210,7 @@ main h1 {
     line-height: 1.0;
     margin-bottom: 20px;
     /* Fake bold using text-shadow with em units for consistent boldness */
-    text-shadow: 0.02em 0 0 currentColor, -0.02em 0 0 currentColor;
+    text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
     letter-spacing: 0.02em;
 }
 
