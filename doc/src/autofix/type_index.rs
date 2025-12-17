@@ -1862,12 +1862,24 @@ fn extract_macro_generated_types(
         }
 
         "impl_callback" => {
-            // Two versions of this macro:
+            // impl_callback! generates these trait impls for callback types:
+            // Clone, Debug, Display, Hash, PartialEq, Eq, PartialOrd, Ord
+            let callback_traits = vec![
+                "Clone".to_string(),
+                "Debug".to_string(),
+                "Hash".to_string(),
+                "PartialEq".to_string(),
+                "Eq".to_string(),
+                "PartialOrd".to_string(),
+                "Ord".to_string(),
+            ];
+
+            // Three versions of this macro:
             // 1. impl_callback!(CallbackValue) - 1 parameter
-            //    Just implements traits (Clone, Eq, Hash, etc.) for an existing struct
-            //    This doesn't generate new types, just trait impls for existing types
-            //    These are handled via custom_impls in api.json
-            // 2. impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType) - 4 parameters
+            //    Just implements traits for an existing struct
+            // 2. impl_callback!(CallbackValue, CallbackType) - 2 parameters
+            //    Implements traits + From<CallbackType>
+            // 3. impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType) - 4 parameters
             //    Generates: CallbackWrapper (struct), OptionCallbackWrapper, CallbackValue (struct)
             
             if args.len() >= 4 {
@@ -1875,6 +1887,15 @@ fn extract_macro_generated_types(
                 let option_callback_wrapper = args[1].to_string();
                 let callback_value = args[2].to_string();
                 let callback_type = args[3].to_string(); // The extern "C" fn type
+                let callback_traits = vec![
+                    "Clone".to_string(),
+                    "Debug".to_string(),
+                    "Hash".to_string(),
+                    "PartialEq".to_string(),
+                    "Eq".to_string(),
+                    "PartialOrd".to_string(),
+                    "Ord".to_string(),
+                ];
 
                 // CallbackWrapper struct - has fields: data (RefAny), callback (CallbackValue)
                 types.push(TypeDefinition {
@@ -1887,8 +1908,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: callback_value.clone(), // References CallbackValue
                         kind: MacroGeneratedKind::CallbackWrapper,
-                        derives: Vec::new(),
-                        implemented_traits: Vec::new(),
+                        derives: callback_traits.clone(),
+                        implemented_traits: callback_traits.clone(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1905,8 +1926,8 @@ fn extract_macro_generated_types(
                         source_macro: macro_name.clone(),
                         base_type: callback_wrapper.clone(),
                         kind: MacroGeneratedKind::Option,
-                        derives: Vec::new(),
-                        implemented_traits: Vec::new(),
+                        derives: callback_traits.clone(),
+                        implemented_traits: callback_traits.clone(),
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -1923,13 +1944,16 @@ fn extract_macro_generated_types(
                         source_macro: macro_name,
                         base_type: callback_type, // References CallbackType (the extern "C" fn)
                         kind: MacroGeneratedKind::CallbackValue,
-                        derives: Vec::new(),
-                        implemented_traits: Vec::new(),
+                        derives: callback_traits.clone(),
+                        implemented_traits: callback_traits,
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
                 });
             }
+            // Note: 1- and 2-parameter versions of impl_callback! don't generate new types,
+            // they only add trait implementations to existing types. These are handled in
+            // extract_custom_impls_from_items() instead.
         }
 
         // // css property macros - generate wrapper structs around pixelvalue/etc.
@@ -2268,6 +2292,27 @@ fn extract_custom_impls_from_items(items: &[Item]) -> HashMap<String, Vec<String
                 .last()
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
+            
+            // Handle impl_callback! macro for 1- and 2-parameter versions
+            // These add traits to existing types (not generated types)
+            // impl_callback!(Callback) or impl_callback!(Callback, CallbackType)
+            if macro_name == "impl_callback" {
+                let tokens = m.mac.tokens.to_string();
+                let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
+                
+                // Both 1- and 2-parameter versions add traits to the first argument
+                if args.len() >= 1 && args.len() <= 2 {
+                    let type_name = args[0].to_string();
+                    if !type_name.is_empty() {
+                        let callback_traits = vec![
+                            "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                        ];
+                        for trait_name in callback_traits {
+                            custom_impls.entry(type_name.clone()).or_default().push(trait_name.to_string());
+                        }
+                    }
+                }
+            }
             
             // Map from macro name to the trait it implements
             let macro_to_trait: &[(&str, &str)] = &[

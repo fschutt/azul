@@ -842,6 +842,24 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
+        ["v2", "dll"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2 DLL] Generating DLL API using codegen v2...\n");
+            codegen::v2::generate_dll_api_v2(&api_data, &project_root)?;
+            return Ok(());
+        }
+        ["v2", "python"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2 PYTHON] Generating Python extension using codegen v2...\n");
+            codegen::v2::generate_python_v2(&api_data, &project_root)?;
+            return Ok(());
+        }
+        ["v2", "all"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2] Generating all output files using codegen v2...\n");
+            codegen::v2::generate_all_v2(&api_data, &project_root)?;
+            return Ok(());
+        }
         ["nfpm", version] => {
             // Generate NFPM configuration YAML from api.json package metadata
             let api_data = load_api_json(&api_path)?;
