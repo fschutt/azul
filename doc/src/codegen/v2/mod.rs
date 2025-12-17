@@ -239,8 +239,9 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
 
 /// Generate memtest using codegen v2 (writes to file)
 /// 
-/// This generates a test crate for validating the generated API.
-/// Output is written to `target/memtest/memtest_lib.rs`
+/// This generates test code for validating the generated API sizes/alignments.
+/// Output is written to `target/codegen/v2/memtest.rs`
+/// Included via include!() in dll/src/lib.rs for `cargo test`.
 pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!("[V2] Generating memtest code...");
     
@@ -248,8 +249,9 @@ pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()
     
     let output_path = project_root
         .join("target")
-        .join("memtest")
-        .join("memtest_lib.rs");
+        .join("codegen")
+        .join("v2")
+        .join("memtest.rs");
 
     // Create parent directory if needed
     if let Some(parent) = output_path.parent() {
@@ -259,6 +261,7 @@ pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 
     println!("\n[OK] Memtest v2 generated successfully!");
     println!("     Output: {} ({} bytes)", output_path.display(), code.len());
+    println!("     Run tests with: cd dll && cargo test");
 
     Ok(())
 }

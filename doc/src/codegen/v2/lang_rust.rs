@@ -82,6 +82,13 @@ impl LanguageGenerator for RustGenerator {
         builder.blank();
         self.generate_reexports(&mut builder, "__dll_api_inner");
 
+        // Generate tests if enabled
+        if config.generate_tests {
+            builder.blank();
+            let tests = self.generate_tests(ir, config)?;
+            builder.raw(&tests);
+        }
+
         Ok(builder.finish())
     }
 
@@ -1075,6 +1082,98 @@ impl RustGenerator {
             };
             format!("{}: {}", arg.name, formatted)
         }).collect::<Vec<_>>().join(", ")
+    }
+
+    /// Generate test module with size/alignment verification tests
+    fn generate_tests(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+        let mut builder = CodeBuilder::new(&config.indent);
+
+        builder.line("#[cfg(test)]");
+        builder.line("mod generated_tests {");
+        builder.indent();
+        builder.line("use super::*;");
+        builder.line("use super::__dll_api_inner::dll;");
+        builder.line("use core::mem;");
+        builder.blank();
+
+        // Generate size/alignment tests for each struct
+        for struct_def in &ir.structs {
+            if !config.should_include_type(&struct_def.name) {
+                continue;
+            }
+            // Skip generic types - can't test size at compile time
+            if !struct_def.generic_params.is_empty() {
+                continue;
+            }
+            // Need external_path to compare sizes
+            let Some(external_path) = &struct_def.external_path else {
+                continue;
+            };
+            
+            // Skip if external path contains generic parameters (like <T>)
+            if external_path.contains('<') {
+                continue;
+            }
+            
+            let external_path = config.transform_external_path(external_path);
+            let generated_type = format!("dll::Az{}", struct_def.name);
+            let test_name = format!("test_size_align_{}", struct_def.name.to_lowercase());
+
+            builder.line("#[test]");
+            builder.line(&format!("fn {}() {{", test_name));
+            builder.indent();
+            builder.line(&format!("let gen_size = mem::size_of::<{}>();", generated_type));
+            builder.line(&format!("let ext_size = mem::size_of::<{}>();", external_path));
+            builder.line(&format!("let gen_align = mem::align_of::<{}>();", generated_type));
+            builder.line(&format!("let ext_align = mem::align_of::<{}>();", external_path));
+            builder.line(&format!("assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");", struct_def.name));
+            builder.line(&format!("assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");", struct_def.name));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // Generate size/alignment tests for each enum
+        for enum_def in &ir.enums {
+            if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            // Skip generic types - can't test size at compile time
+            if !enum_def.generic_params.is_empty() {
+                continue;
+            }
+            // Need external_path to compare sizes
+            let Some(external_path) = &enum_def.external_path else {
+                continue;
+            };
+            
+            // Skip if external path contains generic parameters (like <T>)
+            if external_path.contains('<') {
+                continue;
+            }
+            
+            let external_path = config.transform_external_path(external_path);
+            let generated_type = format!("dll::Az{}", enum_def.name);
+            let test_name = format!("test_size_align_{}", enum_def.name.to_lowercase());
+
+            builder.line("#[test]");
+            builder.line(&format!("fn {}() {{", test_name));
+            builder.indent();
+            builder.line(&format!("let gen_size = mem::size_of::<{}>();", generated_type));
+            builder.line(&format!("let ext_size = mem::size_of::<{}>();", external_path));
+            builder.line(&format!("let gen_align = mem::align_of::<{}>();", generated_type));
+            builder.line(&format!("let ext_align = mem::align_of::<{}>();", external_path));
+            builder.line(&format!("assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");", enum_def.name));
+            builder.line(&format!("assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");", enum_def.name));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        builder.dedent();
+        builder.line("} // mod generated_tests");
+
+        Ok(builder.finish())
     }
 }
 

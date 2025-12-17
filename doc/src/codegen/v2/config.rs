@@ -147,9 +147,6 @@ pub enum TraitImplMode {
 /// Different configurations produce different output files.
 #[derive(Debug, Clone)]
 pub struct CodegenConfig {
-    /// Output file identifier (for debugging/logging)
-    pub output_name: String,
-
     /// Target language syntax
     pub target_lang: TargetLang,
 
@@ -191,6 +188,11 @@ pub struct CodegenConfig {
     /// Replace external crate paths (e.g., "azul_dll::" -> "crate::")
     /// Used when generating code inside a crate that refers to itself
     pub external_crate_replacement: Option<(String, String)>,
+
+    /// Whether to generate test functions for the API
+    /// When true, generates #[test] functions that verify type sizes,
+    /// layout compatibility, and basic API functionality
+    pub generate_tests: bool,
 }
 
 impl CodegenConfig {
@@ -339,13 +341,10 @@ fn is_primitive_or_builtin(name: &str) -> bool {
 impl CodegenConfig {
     /// DLL internal API (static linking)
     /// 
-    /// Output: target/memtest/dll_api.rs
-    /// 
     /// This is used when compiling the azul-dll crate itself.
     /// Functions have bodies that transmute to/from internal types.
     pub fn dll_static() -> Self {
         Self {
-            output_name: "dll_api.rs".into(),
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: true },
             struct_mode: StructMode::Prefixed,
@@ -365,6 +364,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             // Replace azul_dll:: with crate:: since we're inside azul-dll
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
+            generate_tests: false,
         }
     }
 
@@ -375,7 +375,6 @@ impl CodegenConfig {
     /// (functions are provided by dll_api.rs).
     pub fn dll_types_only() -> Self {
         Self {
-            output_name: "dll_types.rs".into(),
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::None, // No functions!
             struct_mode: StructMode::Prefixed,
@@ -394,18 +393,16 @@ impl CodegenConfig {
             generate_docs: false, // Skip docs for embedded types
             callback_typedef_use_external: false,
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
+            generate_tests: false,
         }
     }
 
     /// DLL dynamic linking API
     /// 
-    /// Output: target/codegen/dll_api_dynamic.rs
-    /// 
     /// This is used when linking against a pre-compiled .dylib/.so/.dll.
     /// Functions are extern declarations, traits call C-ABI functions.
     pub fn dll_dynamic() -> Self {
         Self {
-            output_name: "dll_api_dynamic.rs".into(),
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::ExternalBindings {
                 link_library: "azul_dll".into(),
@@ -421,15 +418,13 @@ impl CodegenConfig {
             generate_docs: true,
             callback_typedef_use_external: false,
             external_crate_replacement: None,
+            generate_tests: false,
         }
     }
 
     /// C header file
-    /// 
-    /// Output: target/codegen/azul.h
     pub fn c_header() -> Self {
         Self {
-            output_name: "azul.h".into(),
             target_lang: TargetLang::CHeader,
             cabi_functions: CAbiFunctionMode::ExternalBindings {
                 link_library: "azul".into(),
@@ -449,15 +444,13 @@ impl CodegenConfig {
             generate_docs: true,
             callback_typedef_use_external: false,
             external_crate_replacement: None,
+            generate_tests: false,
         }
     }
 
     /// C++ header file
-    /// 
-    /// Output: target/codegen/azul.hpp
     pub fn cpp_header(standard: CppStandard) -> Self {
         Self {
-            output_name: "azul.hpp".into(),
             target_lang: TargetLang::CppHeader { standard },
             cabi_functions: CAbiFunctionMode::ExternalBindings {
                 link_library: "azul".into(),
@@ -477,17 +470,15 @@ impl CodegenConfig {
             generate_docs: true,
             callback_typedef_use_external: false,
             external_crate_replacement: None,
+            generate_tests: false,
         }
     }
 
     /// Public Rust API (unprefixed, ergonomic)
     /// 
-    /// Output: target/codegen/azul.rs
-    /// 
     /// This generates a clean public API without Az prefixes.
     pub fn rust_public_api() -> Self {
         Self {
-            output_name: "azul.rs".into(),
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::None,
             struct_mode: StructMode::Unprefixed,
@@ -501,18 +492,17 @@ impl CodegenConfig {
             generate_docs: true,
             callback_typedef_use_external: false,
             external_crate_replacement: None,
+            generate_tests: false,
         }
     }
 
     /// Memtest configuration (for testing the generated API)
     /// 
-    /// Output: target/memtest/lib.rs
-    /// 
-    /// Similar to dll_static but without #[no_mangle] to avoid symbol conflicts.
-    /// Used for compiling as a separate test crate.
+    /// Similar to dll_static but with generate_tests: true.
+    /// Generates #[test] functions for type size/layout verification.
+    /// Included via include!() in dll/src/lib.rs.
     pub fn memtest() -> Self {
         Self {
-            output_name: "memtest_lib.rs".into(),
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: false },
             struct_mode: StructMode::Prefixed,
@@ -528,10 +518,11 @@ impl CodegenConfig {
             type_filter: None,
             type_exclude: HashSet::new(),
             indent: "    ".into(),
-            generate_docs: false, // Skip docs for test crate
+            generate_docs: false, // Skip docs for test code
             callback_typedef_use_external: false,
-            // Keep azul_dll:: as is (memtest uses azul_dll as dependency)
-            external_crate_replacement: None,
+            // Replace azul_dll:: with crate:: since included in azul-dll
+            external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
+            generate_tests: true, // Generate #[test] functions!
         }
     }
 }
@@ -627,7 +618,6 @@ impl PythonConfig {
 
         Self {
             base: CodegenConfig {
-                output_name: "python_structs.rs".into(),
                 target_lang: TargetLang::Python,
                 cabi_functions: CAbiFunctionMode::None, // Python calls Rust directly
                 struct_mode: StructMode::Prefixed,
@@ -647,6 +637,7 @@ impl PythonConfig {
                 generate_docs: true,
                 callback_typedef_use_external: true, // Use external callback types
                 external_crate_replacement: None,
+                generate_tests: false,
             },
             generate_pyclass: true,
             generate_pymethods: true,

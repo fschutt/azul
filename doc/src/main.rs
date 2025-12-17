@@ -854,6 +854,12 @@ fn main() -> anyhow::Result<()> {
             codegen::v2::generate_python_v2(&api_data, &project_root)?;
             return Ok(());
         }
+        ["v2", "memtest"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2 MEMTEST] Generating memtest using codegen v2...\n");
+            codegen::v2::generate_memtest_v2(&api_data, &project_root)?;
+            return Ok(());
+        }
         ["v2", "all"] => {
             let api_data = load_api_json(&api_path)?;
             println!("[V2] Generating all output files using codegen v2...\n");
