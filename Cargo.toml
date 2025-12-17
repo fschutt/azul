@@ -14,3 +14,10 @@ members = [
 [workspace.dependencies]
 glean = "60.5.0"
 gleam = "0.15.1"
+
+[profile.release]
+opt-level = 3
+strip = true      # Automatically strip symbols from the binary.
+lto = true        # Enable Link Time Optimization (removes dead code).
+codegen-units = 1 # Reduces parallel builds but allows better optimization.
+panic = "abort"   # Removes stack unwinding code (drastic size reduction).
