@@ -1440,6 +1440,49 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                 ));
             }
 
+            // Skip trait functions for generic types and type aliases
+            // Generic types (e.g., CssPropertyValue<T>) have unresolved type parameters
+            // Type aliases are instantiations that reference the generic type
+            let is_generic_type = class_data.generic_params.as_ref().map_or(false, |p| !p.is_empty());
+            let is_type_alias = class_data.type_alias.is_some();
+            
+            if !is_generic_type && !is_type_alias {
+                // Generate partialEq if type has PartialEq
+                if class_data.has_partial_eq() {
+                    code.push_str(&format!(
+                        "extern DLLIMPORT bool {}_partialEq({}* const a, {}* const b);\r\n",
+                        class_ptr_name, class_ptr_name, class_ptr_name
+                    ));
+                }
+
+                // Generate partialCmp if type has PartialOrd
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater, 255 = None
+                if class_data.has_partial_ord() {
+                    code.push_str(&format!(
+                        "extern DLLIMPORT uint8_t {}_partialCmp({}* const a, {}* const b);\r\n",
+                        class_ptr_name, class_ptr_name, class_ptr_name
+                    ));
+                }
+
+                // Generate cmp if type has Ord
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater
+                if class_data.has_ord() {
+                    code.push_str(&format!(
+                        "extern DLLIMPORT uint8_t {}_cmp({}* const a, {}* const b);\r\n",
+                        class_ptr_name, class_ptr_name, class_ptr_name
+                    ));
+                }
+
+                // Generate hash if type has Hash
+                // Returns a u64 hash value
+                if class_data.has_hash() {
+                    code.push_str(&format!(
+                        "extern DLLIMPORT uint64_t {}_hash({}* const instance);\r\n",
+                        class_ptr_name, class_ptr_name
+                    ));
+                }
+            }
+
             code.push_str("\r\n");
         }
     }
