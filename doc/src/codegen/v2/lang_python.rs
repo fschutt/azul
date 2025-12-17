@@ -1222,9 +1222,7 @@ extern "C" fn invoke_py_layout_callback(
     }
 
     fn generate_module_registration(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) -> Result<()> {
-        builder.line("// ============================================================================");
         builder.line("// MODULE REGISTRATION");
-        builder.line("// ============================================================================");
         builder.blank();
 
         let prefix = &config.base.type_prefix;
@@ -1453,50 +1451,6 @@ impl Drop for AzApp {{
     fn function_has_unsupported_args(&self, func: &FunctionDef) -> bool {
         // Skip mutable methods (PyO3 unsendable classes are frozen)
         if func.kind == FunctionKind::MethodMut { return true; }
-        
-        // Methods that exist in api.json but not in actual Rust code
-        // TODO: Sync api.json with actual implementations
-        const MISSING_METHODS: &[(&str, &str)] = &[
-            ("Dom", "hash"),
-            ("NodeData", "hash"),
-            ("ColorU", "from_str"),
-            ("ColorU", "white"),
-            ("ColorU", "black"),
-            ("ColorU", "transparent"),
-            ("StyledDom", "from_xml"),
-            ("StyledDom", "from_file"),
-            ("RawImage", "empty"),
-            ("RawImage", "allocate_clip_mask"),
-            ("RawImage", "encode_png"),
-            ("RawImage", "encode_jpeg"),
-            ("RawImage", "encode_gif"),
-            ("RawImage", "encode_bmp"),
-            ("RawImage", "encode_tga"),
-            ("RawImage", "encode_pnm"),
-            ("RawImage", "encode_tiff"),
-            ("SvgMultiPolygon", "contains_point"),
-            ("SvgMultiPolygon", "intersection"),
-            ("SvgMultiPolygon", "difference"),
-            ("SvgMultiPolygon", "union"),
-            ("SvgMultiPolygon", "xor"),
-            ("SvgMultiPolygon", "tessellate_fill"),
-            ("SvgMultiPolygon", "tessellate_stroke"),
-            ("SvgCircle", "tessellate_fill"),
-            ("SvgCircle", "tessellate_stroke"),
-            ("SvgPath", "tessellate_fill"),
-            ("SvgPath", "tessellate_stroke"),
-            ("SvgRect", "tessellate_fill"),
-            ("SvgRect", "tessellate_stroke"),
-            ("AngleValue", "get_degrees"),
-            ("ProgressBar", "with_container_style"),
-            ("Menu", "with_popup_position"),
-        ];
-        
-        for (class, method) in MISSING_METHODS {
-            if func.class_name == *class && func.method_name == *method {
-                return true;
-            }
-        }
         
         // Types that can't be converted to/from Python easily
         const SKIP_TYPES: &[&str] = &[
