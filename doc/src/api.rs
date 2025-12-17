@@ -1127,6 +1127,43 @@ impl ClassData {
             _ => false,
         }
     }
+
+    /// Check if this type has a trait (either derived or custom impl)
+    pub fn has_trait(&self, trait_name: &str) -> bool {
+        // Check derive list
+        if let Some(ref derives) = self.derive {
+            if derives.iter().any(|s| s == trait_name) {
+                return true;
+            }
+        }
+        // Check custom_impls list
+        self.has_custom_impl(trait_name)
+    }
+
+    /// Check if type has PartialEq (either derived or custom)
+    pub fn has_partial_eq(&self) -> bool {
+        self.has_trait("PartialEq")
+    }
+
+    /// Check if type has Eq (either derived or custom)
+    pub fn has_eq(&self) -> bool {
+        self.has_trait("Eq")
+    }
+
+    /// Check if type has PartialOrd (either derived or custom)
+    pub fn has_partial_ord(&self) -> bool {
+        self.has_trait("PartialOrd")
+    }
+
+    /// Check if type has Ord (either derived or custom)
+    pub fn has_ord(&self) -> bool {
+        self.has_trait("Ord")
+    }
+
+    /// Check if type has Hash (either derived or custom)
+    pub fn has_hash(&self) -> bool {
+        self.has_trait("Hash")
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

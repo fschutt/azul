@@ -221,6 +221,46 @@ pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<F
                 let copy_args = format!("object: &{}", class_ptr_name);
                 functions_map.insert(copy_fn_name, (copy_args, class_ptr_name.clone()));
             }
+
+            // Skip trait functions for generic types and type aliases
+            // Generic types (e.g., CssPropertyValue<T>) don't get trait functions
+            // Type aliases (e.g., LayoutZIndexValue = CssPropertyValue<LayoutZIndex>) don't either
+            // Only concrete instantiations get trait functions
+            let is_generic_type = class_data.generic_params.as_ref().map_or(false, |p| !p.is_empty());
+            let is_type_alias = class_data.type_alias.is_some();
+            
+            if !is_generic_type && !is_type_alias {
+                // Add partialEq function if type has PartialEq
+                if class_data.has_partial_eq() {
+                    let fn_name = format!("{}_partialEq", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(fn_name, (fn_args, "bool".to_string()));
+                }
+
+                // Add partialCmp function if type has PartialOrd
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater, 255 = None
+                if class_data.has_partial_ord() {
+                    let fn_name = format!("{}_partialCmp", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(fn_name, (fn_args, "u8".to_string()));
+                }
+
+                // Add cmp function if type has Ord
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater
+                if class_data.has_ord() {
+                    let fn_name = format!("{}_cmp", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(fn_name, (fn_args, "u8".to_string()));
+                }
+
+                // Add hash function if type has Hash
+                // Returns a u64 hash value
+                if class_data.has_hash() {
+                    let fn_name = format!("{}_hash", class_ptr_name);
+                    let fn_args = format!("object: &{}", class_ptr_name);
+                    functions_map.insert(fn_name, (fn_args, "u64".to_string()));
+                }
+            }
         }
     }
 
@@ -346,6 +386,82 @@ pub fn build_functions_map_ext(
                         class_name: class_name.clone(),
                     },
                 );
+            }
+
+            // Skip trait functions for generic types and type aliases
+            // Generic types (e.g., CssPropertyValue<T>) don't get trait functions
+            // Type aliases (e.g., LayoutZIndexValue = CssPropertyValue<LayoutZIndex>) don't either
+            // Only concrete instantiations get trait functions
+            let is_generic_type = class_data.generic_params.as_ref().map_or(false, |p| !p.is_empty());
+            let is_type_alias = class_data.type_alias.is_some();
+            
+            if !is_generic_type && !is_type_alias {
+                // Add partialEq function if type has PartialEq
+                if class_data.has_partial_eq() {
+                    let fn_name = format!("{}_partialEq", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(
+                        fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type: "bool".to_string(),
+                            fn_body: None, // Generated specially
+                            is_constructor: false,
+                            class_name: class_name.clone(),
+                        },
+                    );
+                }
+
+                // Add partialCmp function if type has PartialOrd
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater, 255 = None
+                if class_data.has_partial_ord() {
+                    let fn_name = format!("{}_partialCmp", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(
+                        fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type: "u8".to_string(),
+                            fn_body: None, // Generated specially
+                            is_constructor: false,
+                            class_name: class_name.clone(),
+                        },
+                    );
+                }
+
+                // Add cmp function if type has Ord
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater
+                if class_data.has_ord() {
+                    let fn_name = format!("{}_cmp", class_ptr_name);
+                    let fn_args = format!("a: &{}, b: &{}", class_ptr_name, class_ptr_name);
+                    functions_map.insert(
+                        fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type: "u8".to_string(),
+                            fn_body: None, // Generated specially
+                            is_constructor: false,
+                            class_name: class_name.clone(),
+                        },
+                    );
+                }
+
+                // Add hash function if type has Hash
+                // Returns a u64 hash value
+                if class_data.has_hash() {
+                    let fn_name = format!("{}_hash", class_ptr_name);
+                    let fn_args = format!("object: &{}", class_ptr_name);
+                    functions_map.insert(
+                        fn_name,
+                        FunctionInfo {
+                            fn_args,
+                            return_type: "u64".to_string(),
+                            fn_body: None, // Generated specially
+                            is_constructor: false,
+                            class_name: class_name.clone(),
+                        },
+                    );
+                }
             }
         }
     }

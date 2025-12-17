@@ -1048,11 +1048,17 @@ fn main() -> anyhow::Result<()> {
 
             println!("[FIX] Generating all language bindings...\n");
 
-            // NOTE: dll/lib.rs is no longer generated here.
-            // The DLL uses include!() with target/memtest/dll_api.rs instead.
-            // To regenerate the DLL API: cd doc && cargo run --release -- memtest dll
+            // Generate dll_api.rs (static linking - for azul-dll internal use)
+            println!("[DLL] Generating static linking API (dll_api.rs)...");
+            codegen::memtest::generate_dll_api(&api_data, &project_root)
+                .map_err(|e| anyhow::anyhow!(e))?;
+            
+            // Generate dll_api_dynamic.rs (dynamic linking - extern "C" declarations)
+            println!("[DLL] Generating dynamic linking API (dll_api_dynamic.rs)...");
+            codegen::memtest::generate_dll_api_dynamic(&api_data, &project_root)
+                .map_err(|e| anyhow::anyhow!(e))?;
 
-            // Generate azul-rs/azul.rs
+            // Generate azul.rs (public Rust API)
             let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
             let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
             fs::create_dir_all(rust_api_path.parent().unwrap())?;

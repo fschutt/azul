@@ -44,6 +44,9 @@ pub struct GenerateConfig {
     /// (Default, PartialEq, PartialOrd, Ord, Eq, Hash, Debug)
     /// Used for public Rust API that should be standalone without internal crate deps
     pub skip_external_trait_impls: bool,
+    /// If true, generate Clone/Drop that call extern "C" functions (_deepCopy, _delete)
+    /// Used for dynamic linking where we link against a pre-compiled .dylib/.so/.dll
+    pub use_extern_clone_drop: bool,
 }
 
 impl Default for GenerateConfig {
@@ -59,6 +62,7 @@ impl Default for GenerateConfig {
             drop_via_external: false,
             callback_typedef_use_external: false,
             skip_external_trait_impls: false,
+            use_extern_clone_drop: false,
         }
     }
 }
@@ -667,6 +671,11 @@ fn generate_struct_definition(
                 "PartialEq" | "PartialOrd" | "Eq" | "Ord" | "Hash" if config.drop_via_external => {
                     // Skip comparison traits in Python bindings mode
                 }
+                // For use_extern_clone_drop (dynamic linking): All traits go to manual impls
+                // because they will call the extern C functions (_deepCopy, _delete, _partialEq, etc.)
+                other if config.use_extern_clone_drop => {
+                    memtest_manual_impls.push(other);
+                }
                 other => {
                     if config.is_memtest {
                         // For memtest, collect derivable traits for manual impl generation
@@ -894,7 +903,8 @@ fn generate_struct_definition(
     // These cast to the external type, call the trait method, and cast back if needed
     // Skip for memtest - those traits are already implemented in the original source
     // Skip if skip_external_trait_impls is set - for public APIs that shouldn't depend on internal crates
-    if !config.is_memtest && !config.skip_external_trait_impls {
+    // Skip if use_extern_clone_drop is set - those are handled separately (dynamic linking mode)
+    if !config.is_memtest && !config.skip_external_trait_impls && !config.use_extern_clone_drop {
         let external_path = struct_meta.external.as_deref().unwrap_or(struct_name);
         let external_crate = if config.is_for_dll {
             external_path.replace("azul_dll", "crate")
@@ -1140,6 +1150,190 @@ fn generate_struct_definition(
 
         // NOTE: In drop_via_external mode, we skip PartialEq/PartialOrd derives for structs
         // so we don't need to generate them for Vec types either
+    } else if config.use_extern_clone_drop {
+        // For dynamic linking: generate trait impls that call extern "C" functions
+        // These functions are exported by the DLL: _deepCopy, _delete, _partialEq, _partialCmp, _cmp, _hash
+        
+        // Combine custom_impls AND memtest_manual_impls
+        let all_manual_traits: std::collections::HashSet<&str> = struct_meta
+            .custom_impls
+            .iter()
+            .map(|s| s.as_str())
+            .chain(memtest_manual_impls.iter().copied())
+            .collect();
+
+        let is_generic_type = struct_meta
+            .generic_params
+            .as_ref()
+            .map(|p| !p.is_empty())
+            .unwrap_or(false);
+
+        // Type aliases don't get trait impls - they use the underlying type's impl
+        let is_type_alias = struct_meta.type_alias.is_some();
+
+        // Skip trait impls for generic types and type aliases
+        let can_have_trait_impls = !is_generic_type && !is_type_alias;
+
+        // Generate Clone by calling extern "C" {struct_name}_deepCopy
+        let has_custom_clone = struct_meta.custom_impls.contains(&"Clone".to_string());
+        let has_derive_clone = struct_meta.derive.contains(&"Clone".to_string());
+        if (all_manual_traits.contains("Clone") || has_custom_clone || has_derive_clone) && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl Clone for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    fn clone(&self) -> Self {{\n", indent_str));
+            code.push_str(&format!(
+                "{}        unsafe {{ {}_deepCopy(self) }}\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate Drop by calling extern "C" {struct_name}_delete
+        let has_custom_drop = struct_meta.custom_impls.contains(&"Drop".to_string());
+        let has_destructor = struct_meta.has_custom_destructor;
+        if (has_custom_drop || has_destructor) && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl Drop for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    fn drop(&mut self) {{\n", indent_str));
+            code.push_str(&format!(
+                "{}        unsafe {{ {}_delete(self) }}\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate Debug - simple stub (DLL doesn't export _debug function)
+        if all_manual_traits.contains("Debug") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl core::fmt::Debug for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        f.debug_struct(\"{}\").finish()\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate PartialEq calling C-API function
+        if all_manual_traits.contains("PartialEq") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl PartialEq for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn eq(&self, other: &Self) -> bool {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        unsafe {{ {}_partialEq(self, other) }}\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        if all_manual_traits.contains("Eq") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl Eq for {} {{ }}\n\n",
+                indent_str, struct_name
+            ));
+        }
+
+        // Generate PartialOrd calling C-API function
+        if all_manual_traits.contains("PartialOrd") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl PartialOrd for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        match unsafe {{ {}_partialCmp(self, other) }} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}            0 => Some(core::cmp::Ordering::Less),\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}            1 => Some(core::cmp::Ordering::Equal),\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}            2 => Some(core::cmp::Ordering::Greater),\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}            _ => None,\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}        }}\n", indent_str));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate Ord calling C-API function
+        if all_manual_traits.contains("Ord") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl Ord for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn cmp(&self, other: &Self) -> core::cmp::Ordering {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        match unsafe {{ {}_cmp(self, other) }} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}            0 => core::cmp::Ordering::Less,\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}            2 => core::cmp::Ordering::Greater,\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}            _ => core::cmp::Ordering::Equal,\n",
+                indent_str
+            ));
+            code.push_str(&format!("{}        }}\n", indent_str));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
+
+        // Generate Hash calling C-API function
+        if all_manual_traits.contains("Hash") && can_have_trait_impls {
+            code.push_str(&format!(
+                "{}impl core::hash::Hash for {} {{\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!(
+                "{}    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {{\n",
+                indent_str
+            ));
+            code.push_str(&format!(
+                "{}        state.write_u64(unsafe {{ {}_hash(self) }})\n",
+                indent_str, struct_name
+            ));
+            code.push_str(&format!("{}    }}\n", indent_str));
+            code.push_str(&format!("{}}}\n\n", indent_str));
+        }
     } else if config.is_memtest {
         // For memtest: generate manual trait implementations that don't rely on field types
         // This is necessary because Vec types and other custom destructor types don't derive traits
@@ -1429,6 +1623,11 @@ fn generate_enum_definition(
                 // may not derive PartialEq
                 "PartialEq" | "Eq" | "PartialOrd" | "Ord" if config.drop_via_external => {
                     // Skip comparison/equality traits - complex variants may not support them
+                }
+                // For use_extern_clone_drop (dynamic linking): All traits go to manual impls
+                // because they will call the extern C functions (_deepCopy, _delete, _partialEq, etc.)
+                other if config.use_extern_clone_drop => {
+                    memtest_manual_impls.push(other);
                 }
                 other => {
                     if config.is_memtest {

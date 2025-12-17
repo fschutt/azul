@@ -166,6 +166,14 @@ pub struct MemtestConfig {
     /// Whether to generate callback_typedef types as aliases to external types
     /// (e.g., `pub type AzLayoutCallbackType = azul_core::callbacks::LayoutCallbackType;`)
     pub callback_typedef_use_external: bool,
+    /// Whether to generate extern "C" { } declarations instead of function definitions
+    /// When true, functions are declared as `extern "C" { fn AzFoo(...) -> ...; }`
+    /// When false (default), functions are defined with bodies
+    /// Used for dynamic linking mode where the DLL is loaded at runtime
+    pub extern_declarations_only: bool,
+    /// Name of the library to link against (for dynamic linking)
+    /// When set, generates `#[link(name = "...")]` attribute
+    pub link_library_name: Option<String>,
 }
 
 impl Default for MemtestConfig {
@@ -179,6 +187,8 @@ impl Default for MemtestConfig {
             skip_c_abi_functions: false, // Default is to generate C-ABI functions
             drop_via_external: false,  // Default is to call C-ABI functions for Drop/Clone
             callback_typedef_use_external: false, // Default is to re-define callback function signatures
+            extern_declarations_only: false, // Default is to generate function definitions with bodies
+            link_library_name: None,   // No link attribute by default
         }
     }
 }
@@ -229,6 +239,63 @@ pub fn generate_dll_api(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!(
         "  include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/memtest/dll_api.rs\"));"
     );
+
+    Ok(())
+}
+
+/// Generate API definitions for DYNAMIC linking (only declarations, no function bodies)
+/// This is used when the Rust code links against a pre-compiled .dylib/.so/.dll
+/// The generated file contains:
+/// - All struct/enum type definitions (same as static linking)
+/// - extern "C" { } blocks with function declarations (no bodies)
+/// - #[link(name = "azul_dll")] attribute to link against the DLL
+pub fn generate_dll_api_dynamic(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    println!("  [DLL-DYNAMIC] Generating API definitions for dynamic linking...");
+
+    let mut config = MemtestConfig::default();
+    config.is_for_dll = true;
+    config.extern_declarations_only = true; // Generate extern declarations, not definitions
+    config.link_library_name = Some("azul_dll".to_string()); // Link against libazul_dll.dylib
+    config.generate_no_mangle = false; // No need for #[no_mangle] on declarations
+    config.skip_c_abi_functions = false; // We need the function declarations
+    // CRITICAL: For dynamic linking, we cannot use transmute to azul_core types!
+    // Instead, Clone/Drop implementations should call the DLL functions.
+    config.drop_via_external = false; // Don't use transmute to external types
+    // callback_typedef_use_external = false means we define our own callback types
+
+    let output_path = project_root
+        .join("target")
+        .join("codegen")
+        .join("dll_api_dynamic.rs");
+
+    // Get version data
+    let version_name = api_data
+        .0
+        .keys()
+        .next()
+        .ok_or_else(|| "No version name found".to_string())?;
+    let version_data = api_data
+        .get_version(version_name)
+        .ok_or_else(|| "No API version found".to_string())?;
+
+    // Collect type names for replacement
+    let replacements = TypeReplacements::new(version_data)?;
+
+    // Create output directory
+    fs::create_dir_all(output_path.parent().unwrap())
+        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+
+    // Generate the dynamic linking API
+    let dll_content = generate_generated_rs(api_data, &config, &replacements)?;
+
+    println!(
+        "  [SAVE] Writing dll_api_dynamic.rs ({} bytes)...",
+        dll_content.len()
+    );
+    fs::write(&output_path, dll_content)
+        .map_err(|e| format!("Failed to write dll_api_dynamic.rs: {}", e))?;
+
+    println!("[OK] Generated dynamic DLL API at: {}", output_path.display());
 
     Ok(())
 }
@@ -635,7 +702,8 @@ pub fn generate_generated_rs(
          clippy::all)]\n",
     );
     output.push_str("#[deny(improper_ctypes_definitions)]\n");
-    output.push_str("mod __dll_api_inner {\n\n");
+    // Make the inner module public so it can be re-exported from lib.rs
+    output.push_str("pub mod __dll_api_inner {\n\n");
     output.push_str("use core::ffi::c_void;\n\n");
 
     let version_name = api_data
@@ -790,11 +858,14 @@ fn generate_dll_module(
         private_pointers: false,
         no_derive: false,
         wrapper_postfix: String::new(),
-        is_memtest: !config.drop_via_external, // Skip trait impls if not using drop_via_external
+        // For extern_declarations_only (dynamic linking): use_extern_clone_drop=true so Clone/Drop
+        // call the extern "C" _deepCopy/_delete functions. For static linking: use drop_via_external.
+        is_memtest: if config.extern_declarations_only { false } else { !config.drop_via_external },
         is_for_dll: config.is_for_dll,
-        drop_via_external: config.drop_via_external,
+        drop_via_external: if config.extern_declarations_only { false } else { config.drop_via_external },
         callback_typedef_use_external: config.callback_typedef_use_external,
         skip_external_trait_impls: false,
+        use_extern_clone_drop: config.extern_declarations_only, // For dynamic linking
     };
     dll_code.push_str(
         &generate_structs(version_data, &structs_map, &struct_config).map_err(|e| e.to_string())?,
@@ -1165,6 +1236,36 @@ fn generate_dll_module(
     if config.skip_c_abi_functions {
         println!("      [SKIP] Skipping C-ABI functions (skip_c_abi_functions=true)");
         dll_code.push_str("\n    // C-ABI functions skipped (skip_c_abi_functions=true)\n");
+    } else if config.extern_declarations_only {
+        // Generate extern "C" { } block with function declarations (for dynamic linking)
+        println!("      [TARGET] Generating extern function declarations (dynamic linking)...");
+        let functions_map_ext =
+            build_functions_map_ext(version_data, prefix).map_err(|e| e.to_string())?;
+        println!("      [LINK] Found {} functions", functions_map_ext.len());
+        
+        // Add #[link] attribute if library name is specified
+        if let Some(lib_name) = &config.link_library_name {
+            dll_code.push_str(&format!("\n    #[link(name = \"{}\")]\n", lib_name));
+        }
+        
+        dll_code.push_str("    extern \"C\" {\n");
+        
+        for (fn_name, fn_info) in &functions_map_ext {
+            let return_str = if fn_info.return_type.is_empty() {
+                "".to_string()
+            } else {
+                format!(" -> {}", fn_info.return_type)
+            };
+            
+            // Generate function declaration (no body)
+            dll_code.push_str(&format!(
+                "        pub fn {}({}){};\n",
+                fn_name, fn_info.fn_args, return_str
+            ));
+        }
+        
+        dll_code.push_str("    }\n");
+        dll_code.push_str("    // --- End extern \"C\" declarations ---\n\n");
     } else {
         println!("      [TARGET] Generating function bodies...");
         // Generate function implementations from api.json fn_body
@@ -1210,6 +1311,87 @@ fn generate_dll_module(
                 } else {
                     // Fallback: just drop directly
                     "core::ptr::drop_in_place(object)".to_string()
+                }
+            } else if fn_name.ends_with("_partialEq") {
+                // Extract type name from function name: AzTypeName_partialEq -> AzTypeName
+                let type_name = fn_name.strip_suffix("_partialEq").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    // Cast to external type and compare
+                    format!(
+                        "(*(a as *const {local} as *const {ext})) == (*(b as *const {local} as *const {ext}))",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    // Fallback: compare directly
+                    "*a == *b".to_string()
+                }
+            } else if fn_name.ends_with("_partialCmp") {
+                // Extract type name from function name: AzTypeName_partialCmp -> AzTypeName
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater, 255 = None
+                let type_name = fn_name.strip_suffix("_partialCmp").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    format!(
+                        "match (*(a as *const {local} as *const {ext})).partial_cmp(&*(b as *const {local} as *const {ext})) {{\n        \
+                            Some(core::cmp::Ordering::Less) => 0,\n        \
+                            Some(core::cmp::Ordering::Equal) => 1,\n        \
+                            Some(core::cmp::Ordering::Greater) => 2,\n        \
+                            None => 255,\n    \
+                         }}",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    "match a.partial_cmp(b) {\n        \
+                        Some(core::cmp::Ordering::Less) => 0,\n        \
+                        Some(core::cmp::Ordering::Equal) => 1,\n        \
+                        Some(core::cmp::Ordering::Greater) => 2,\n        \
+                        None => 255,\n    \
+                     }".to_string()
+                }
+            } else if fn_name.ends_with("_cmp") {
+                // Extract type name from function name: AzTypeName_cmp -> AzTypeName
+                // Returns: 0 = Less, 1 = Equal, 2 = Greater
+                let type_name = fn_name.strip_suffix("_cmp").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    format!(
+                        "match (*(a as *const {local} as *const {ext})).cmp(&*(b as *const {local} as *const {ext})) {{\n        \
+                            core::cmp::Ordering::Less => 0,\n        \
+                            core::cmp::Ordering::Equal => 1,\n        \
+                            core::cmp::Ordering::Greater => 2,\n    \
+                         }}",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    "match a.cmp(b) {\n        \
+                        core::cmp::Ordering::Less => 0,\n        \
+                        core::cmp::Ordering::Equal => 1,\n        \
+                        core::cmp::Ordering::Greater => 2,\n    \
+                     }".to_string()
+                }
+            } else if fn_name.ends_with("_hash") {
+                // Extract type name from function name: AzTypeName_hash -> AzTypeName
+                // Returns a u64 hash value
+                let type_name = fn_name.strip_suffix("_hash").unwrap_or(fn_name);
+                if let Some(external_path) = type_to_external.get(type_name) {
+                    format!(
+                        "{{\n        \
+                            use core::hash::{{Hash, Hasher}};\n        \
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();\n        \
+                            (*(object as *const {local} as *const {ext})).hash(&mut hasher);\n        \
+                            hasher.finish()\n    \
+                         }}",
+                        ext = external_path,
+                        local = type_name
+                    )
+                } else {
+                    "{\n        \
+                        use core::hash::{Hash, Hasher};\n        \
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();\n        \
+                        object.hash(&mut hasher);\n        \
+                        hasher.finish()\n    \
+                     }".to_string()
                 }
             } else {
                 // Use fn_body from api.json - REQUIRED for all functions

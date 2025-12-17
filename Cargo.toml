@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    # "examples" # compiled in CI: depends on dll / api
-    "api/rust", # generated in CI: Rust bindings to the "dll" module, depends on NOTHING
+    "examples/rust", # Rust examples - depends on azul-dll
+    "examples/rust-dynamic", # Rust examples with dynamic linking against libazul_dll.dylib
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

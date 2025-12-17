@@ -7,6 +7,8 @@ macro_rules! impl_vec {
             len: usize,
             cap: usize,
             destructor: $destructor_name,
+            /// Whether to run the destructor on drop (prevents double-free when cloned to C)
+            pub run_destructor: bool,
         }
 
         #[derive(Debug, Copy, Clone)]
@@ -39,6 +41,7 @@ macro_rules! impl_vec {
                     len: input.len(),
                     cap: input.len(),
                     destructor: $destructor_name::NoDestructor, // because of &'static
+                    run_destructor: false, // static slice, no destructor needed
                 }
             }
 
@@ -55,6 +58,7 @@ macro_rules! impl_vec {
                     len,
                     cap,
                     destructor: $destructor_name::DefaultRust,
+                    run_destructor: true,
                 }
             }
 
@@ -139,6 +143,9 @@ macro_rules! impl_vec {
 
         impl Drop for $struct_name {
             fn drop(&mut self) {
+                if !self.run_destructor {
+                    return;
+                }
                 match self.destructor {
                     $destructor_name::DefaultRust => {
                         let _ = unsafe {
@@ -155,7 +162,7 @@ macro_rules! impl_vec {
                     }
                 }
                 // necessary so that double-frees are avoided
-                self.destructor = $destructor_name::NoDestructor;
+                self.run_destructor = false;
             }
         }
     };
@@ -662,6 +669,7 @@ macro_rules! impl_vec_clone {
                         len: self.len,
                         cap: self.cap,
                         destructor: $destructor_name::NoDestructor,
+                        run_destructor: false,
                     },
                     $destructor_name::External(_) | $destructor_name::DefaultRust => {
                         Self::from_vec(self.as_ref().to_vec())

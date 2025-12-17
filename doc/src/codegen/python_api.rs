@@ -1694,6 +1694,8 @@ pub fn generate_python_api(api_data: &ApiData, version: &str) -> String {
         skip_c_abi_functions: true,     // Skip C-ABI functions - we call Rust directly
         drop_via_external: true,        // Use transmute for Drop/Clone (no C-ABI functions)
         callback_typedef_use_external: true, // Use external types for callbacks (compatible signatures)
+        extern_declarations_only: false, // We generate implementations, not extern decls
+        link_library_name: None,         // No #[link] attribute needed
     };
     let replacements = TypeReplacements::new(version_data).unwrap();
     let dll_api_code = generate_generated_rs(api_data, &config, &replacements)

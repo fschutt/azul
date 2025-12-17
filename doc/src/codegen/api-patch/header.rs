@@ -1,9 +1,5 @@
 // Auto-generated public Rust API for the Azul GUI toolkit
-
-extern crate alloc;
-#[cfg(feature = "serde")]
-extern crate serde;
-#[cfg(feature = "serde")]
-#[macro_use(Serialize, Deserialize)]
-extern crate serde_derive;
+// This file is included by azul-dll/src/lib.rs with:
+//   include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../target/codegen/azul.rs"));
+// The extern crate declarations are already in lib.rs
 

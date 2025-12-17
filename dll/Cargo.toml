@@ -99,7 +99,7 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 [features]
 # NOTE: The `c-api` feature MUST be enabled to export the C API functions!
 # Without it, libazul_dll.dylib will not contain any AzXxx symbols.
-default = ["std", "desktop", "logging", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api"]
+default = ["std", "desktop", "logging", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api", "rust-api"]
 
 # Core features
 std = ["azul-core/std", "azul-layout/std"]
@@ -114,6 +114,11 @@ desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout
 # C-API: Include the auto-generated C API functions from target/memtest/dll_api.rs
 # To regenerate: cd doc && cargo run --release -- memtest dll
 c-api = ["desktop", "azul-css", "azul-layout"]
+
+# Rust-API: Include the auto-generated Rust API from target/codegen/azul.rs
+# To regenerate: cd doc && cargo run --release -- codegen rust
+# Provides public modules (app, dom, css, etc.) with types exported without Az prefix
+rust-api = ["c-api"]
 
 # Image format support
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]

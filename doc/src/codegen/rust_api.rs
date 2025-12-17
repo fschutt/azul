@@ -453,46 +453,16 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
                 code.push_str("    }\r\n\r\n"); // end of class impl
             }
 
-            // Add Clone implementation if type needs FFI-based clone (via deepCopy)
-            // Only generate if:
-            // - custom_impls contains "Clone" (indicates deepCopy exists in DLL)
-            // - type is not Copy (Copy types derive Clone)
-            // - type is not derived Clone (would conflict)
-            let has_custom_clone_impl = class_data
-                .custom_impls
-                .as_ref()
-                .map_or(false, |impls| impls.contains(&"Clone".to_string()));
-            let derives_clone = class_data
-                .derive
-                .as_ref()
-                .map_or(false, |d| d.contains(&"Clone".to_string()));
-            let needs_ffi_clone = has_custom_clone_impl 
-                && !class_can_be_copied 
-                && !derives_clone;
-            
-            if needs_ffi_clone {
-                code.push_str(&format!(
-                    "    impl Clone for {} {{ fn clone(&self) -> Self {{ unsafe {{ \
-                     crate::dll::{}_deepCopy(self) }} }} }}\r\n",
-                    class_name, class_ptr_name
-                ));
-            }
-
-            // Add Drop implementation if needed
-            // Drop is needed when:
-            // - has_custom_drop() returns true (custom_impls has "Drop" or custom_destructor: true)
-            // - OR treat_external_as_ptr (external boxed object)
-            // AND type is not Copy
-            let class_has_custom_drop = class_data.has_custom_drop();
-            let needs_ffi_drop = !class_can_be_copied && (class_has_custom_drop || treat_external_as_ptr);
-            
-            if needs_ffi_drop {
-                code.push_str(&format!(
-                    "    impl Drop for {} {{ fn drop(&mut self) {{ if self.run_destructor {{ \
-                     unsafe {{ crate::dll::{}_delete(self) }} }} }} }}\r\n",
-                    class_name, class_ptr_name
-                ));
-            }
+            // NOTE: We do NOT generate Clone/Drop implementations here!
+            // The types are re-exported from crate::dll (e.g., `pub use crate::dll::AzString as String;`)
+            // and the Clone/Drop implementations are already defined in dll_api.rs.
+            // Adding them here would cause "conflicting implementations" errors.
+            //
+            // The dll_api.rs generates:
+            //   impl Clone for AzString { fn clone(&self) -> Self { AzString_deepCopy(self) } }
+            //   impl Drop for AzString { fn drop(&mut self) { AzString_delete(self) } }
+            //
+            // Since `String` is just an alias for `AzString`, those impls apply automatically.
         }
 
         module_file_map.insert(module_name.to_string(), code);
@@ -507,23 +477,49 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
     // Add Rust header - in a real implementation you'd read this from a file
     final_code.push_str(include_str!("./api-patch/header.rs"));
 
+    // Generate re-exports without Az prefix for each module
+    // This creates a clean public API: `use azul::app::App` instead of `use azul::dll::AzApp`
+    for (module_name, module_data) in &version_data.api {
+        let mut reexports = String::new();
+        reexports.push_str(&format!("/// Re-exports for the `{}` module with clean type names\r\n", module_name));
+        reexports.push_str(&format!("pub mod {} {{\r\n", module_name));
+        
+        for (class_name, _class_data) in &module_data.classes {
+            // Skip primitive types
+            if PRIMITIVE_TYPES.contains(&class_name.as_str()) || is_generic_type_param(class_name) {
+                continue;
+            }
+            let az_name = format!("{}{}", prefix, class_name);
+            reexports.push_str(&format!(
+                "    #[doc(inline)]\r\n    pub use crate::dll::{} as {};\r\n",
+                az_name, class_name
+            ));
+        }
+        
+        reexports.push_str("}\r\n\r\n");
+        final_code.push_str(&reexports);
+    }
+
     // Generate dynamic prelude based on actually generated modules
     final_code.push_str("/// Module to re-export common structs\r\n");
     final_code.push_str("pub mod prelude {\r\n");
-    for module_name in module_file_map.keys() {
-        if module_name != "dll" {
-            final_code.push_str(&format!("    pub use crate::{}::*;\r\n", module_name));
-        }
+    for module_name in version_data.api.keys() {
+        final_code.push_str(&format!("    pub use crate::{}::*;\r\n", module_name));
     }
     final_code.push_str("}\r\n\r\n");
 
-    // Add all modules
+    // NOTE: We do NOT generate a `mod dll { ... }` block here.
+    // The dll module is provided by lib.rs via:
+    //   pub use __ffi_inner::__dll_api_inner::dll;
+    // This way the azul.rs can use `crate::dll::*` to access the types.
+
+    // Add implementation modules (methods, trait impls, etc.)
     for module_name in module_file_map.keys() {
-        if module_name != "dll" {
-            final_code.push_str("pub ");
+        if module_name == "dll" {
+            continue; // Provided by lib.rs, not generated here
         }
 
-        final_code.push_str(&format!("mod {} {{\r\n", module_name));
+        final_code.push_str(&format!("mod {}_impl {{\r\n", module_name));
         final_code.push_str(&module_file_map[module_name]);
         final_code.push_str("}\r\n\r\n");
     }

@@ -201,7 +201,7 @@ impl TypeDefinition {
                 match kind {
                     MacroGeneratedKind::Vec => {
                         // impl_vec!(BaseType, VecType, DestructorType)
-                        // VecType has: ptr, len, cap, destructor
+                        // VecType has: ptr, len, cap, destructor, run_destructor
                         // Destructor is named VecTypeDestructor (e.g. U8Vec -> U8VecDestructor)
                         let destructor_type = format!("{}Destructor", self.type_name);
                         let mut fields = IndexMap::new();
@@ -238,6 +238,15 @@ impl TypeDefinition {
                             FieldDef {
                                 name: "destructor".to_string(),
                                 ty: destructor_type,
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "run_destructor".to_string(),
+                            FieldDef {
+                                name: "run_destructor".to_string(),
+                                ty: "bool".to_string(),
                                 ref_kind: RefKind::Value,
                                 doc: Vec::new(),
                             },
@@ -409,23 +418,23 @@ impl TypeDefinition {
                     }
                     MacroGeneratedKind::CallbackWrapper => {
                         // impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
-                        // CallbackType) CallbackWrapper struct: cb
-                        // (CallbackValue), data (RefAny)
+                        // CallbackType) CallbackWrapper struct: data (RefAny), callback (CallbackValue)
+                        // NOTE: Order matters for repr(C)! data comes first, then callback.
                         let mut fields = IndexMap::new();
-                        fields.insert(
-                            "cb".to_string(),
-                            FieldDef {
-                                name: "cb".to_string(),
-                                ty: base_type.clone(), // CallbackValue
-                                ref_kind: RefKind::Value,
-                                doc: Vec::new(),
-                            },
-                        );
                         fields.insert(
                             "data".to_string(),
                             FieldDef {
                                 name: "data".to_string(),
                                 ty: "RefAny".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "callback".to_string(),
+                            FieldDef {
+                                name: "callback".to_string(),
+                                ty: base_type.clone(), // CallbackValue
                                 ref_kind: RefKind::Value,
                                 doc: Vec::new(),
                             },
@@ -443,13 +452,22 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::CallbackValue => {
-                        // CallbackValue struct: cb (CallbackType - the extern "C" fn)
+                        // CallbackValue struct: cb (CallbackType - the extern "C" fn), callable (OptionRefAny)
                         let mut fields = IndexMap::new();
                         fields.insert(
                             "cb".to_string(),
                             FieldDef {
                                 name: "cb".to_string(),
                                 ty: base_type.clone(), // CallbackType
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "callable".to_string(),
+                            FieldDef {
+                                name: "callable".to_string(),
+                                ty: "OptionRefAny".to_string(), // For FFI: stores foreign callable
                                 ref_kind: RefKind::Value,
                                 doc: Vec::new(),
                             },

@@ -953,7 +953,7 @@ fn is_result_type(type_name: &str) -> bool {
     type_name.ends_with("Result")
 }
 
-/// Generate standard Vec structure: ptr, len, cap, destructor
+/// Generate standard Vec structure: ptr, len, cap, destructor, run_destructor
 /// Each field must be a separate IndexMap element to conform to the API schema
 fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
     use indexmap::IndexMap;
@@ -963,7 +963,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
 
     // IMPORTANT: Each field must be its own IndexMap element to preserve order
-    // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}]
+    // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}, {"run_destructor": {...}}]
     let mut ptr_field = IndexMap::new();
     ptr_field.insert(
         "ptr".to_string(),
@@ -1012,6 +1012,18 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
+    let mut run_destructor_field = IndexMap::new();
+    run_destructor_field.insert(
+        "run_destructor".to_string(),
+        FieldData {
+            r#type: "bool".to_string(),
+            ref_kind: RefKind::Value,
+            arraysize: None,
+            doc: None,
+            derive: None,
+        },
+    );
+
     ClassPatch {
         external: Some(external_path.to_string()),
         doc: Some(vec![format!(
@@ -1022,7 +1034,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         // Empty derive list = don't generate any #[derive(...)] attributes
         // The impl_vec! macro provides Debug, Clone, PartialEq, PartialOrd, Drop
         derive: Some(vec![]),
-        struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field]),
+        struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field, run_destructor_field]),
         vec_element_type: Some(element_type.to_string()),
         ..Default::default()
     }

@@ -110,7 +110,8 @@ mod dynamic_impl {
                 ptr: type_name_bytes.as_ptr() as *const u8,
                 len: type_name_bytes.len(),
                 cap: type_name_bytes.len(),
-                destructor: AzU8VecDestructor::DefaultRust,
+                destructor: AzU8VecDestructor::NoDestructor,
+                run_destructor: false, // Static slice, no destructor needed
             },
         };
 

@@ -16,14 +16,14 @@ edition = "2021"
 publish = false
 
 [dependencies]
-azul = { path = "../../api/rust" }
+azul = { path = "../../dll", package = "azul-dll", default-features = true }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
 default = []
-serde_support = ["azul/serde", "serde", "serde_derive", "serde_json"]
+serde_support = ["serde", "serde_derive", "serde_json"]
 
 [[example]]
 name = "async"

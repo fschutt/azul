@@ -233,6 +233,7 @@ impl AzString {
             len: m.vec.len,
             cap: m.vec.cap,
             destructor: m.vec.destructor,
+            run_destructor: m.vec.run_destructor,
         }
     }
 }
