@@ -261,7 +261,7 @@ impl AutofixMessages {
         // Path corrections (existing types with wrong paths in api.json)
         if !patch_summary.external_path_changes.is_empty() {
             // Deduplicate changes (same class may appear multiple times)
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = std::collections::BTreeSet::new();
             let unique_changes: Vec<_> = patch_summary
                 .external_path_changes
                 .iter()
@@ -379,10 +379,10 @@ impl PatchSummary {
         }
 
         if !self.field_changes.is_empty() {
-            use std::collections::HashMap;
+            use std::collections::BTreeMap;
 
             println!("[FIX] Field Changes ({}):", self.field_changes.len());
-            let mut by_class: HashMap<String, Vec<&FieldChange>> = HashMap::new();
+            let mut by_class: BTreeMap<String, Vec<&FieldChange>> = BTreeMap::new();
             for change in &self.field_changes {
                 by_class
                     .entry(change.class_name.clone())

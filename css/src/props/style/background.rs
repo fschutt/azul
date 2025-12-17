@@ -545,10 +545,20 @@ impl PrintAsCssValue for BackgroundPositionVertical {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleBackgroundSize {
-    ExactSize([PixelValue; 2]),
+    ExactSize(PixelValueSize),
     Contain,
     Cover,
 }
+
+/// Two-dimensional size in PixelValue units (width, height)
+/// Used for background-size and similar properties
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct PixelValueSize {
+    pub width: PixelValue,
+    pub height: PixelValue,
+}
+
 impl_vec!(
     StyleBackgroundSize,
     StyleBackgroundSizeVec,
@@ -574,10 +584,9 @@ impl Default for StyleBackgroundSize {
 impl StyleBackgroundSize {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            StyleBackgroundSize::ExactSize(a) => {
-                for q in a.iter_mut() {
-                    q.scale_for_dpi(scale_factor);
-                }
+            StyleBackgroundSize::ExactSize(size) => {
+                size.width.scale_for_dpi(scale_factor);
+                size.height.scale_for_dpi(scale_factor);
             }
             _ => {}
         }
@@ -589,8 +598,8 @@ impl PrintAsCssValue for StyleBackgroundSize {
         match self {
             Self::Contain => "contain".to_string(),
             Self::Cover => "cover".to_string(),
-            Self::ExactSize([w, h]) => {
-                format!("{} {}", w.print_as_css_value(), h.print_as_css_value())
+            Self::ExactSize(size) => {
+                format!("{} {}", size.width.print_as_css_value(), size.height.print_as_css_value())
             }
         }
     }
@@ -1136,7 +1145,7 @@ mod parser {
                     Some(y_val) => parse_pixel_value(y_val).map_err(|_| InvalidValueErr(input))?,
                     None => x_pos, // If only one value, it applies to both width and height
                 };
-                Ok(StyleBackgroundSize::ExactSize([x_pos, y_pos]))
+                Ok(StyleBackgroundSize::ExactSize(PixelValueSize { width: x_pos, height: y_pos }))
             }
         }
     }
@@ -1796,11 +1805,11 @@ mod tests {
         );
         assert_eq!(
             parse_style_background_size("50%").unwrap(),
-            StyleBackgroundSize::ExactSize([PixelValue::percent(50.0), PixelValue::percent(50.0)])
+            StyleBackgroundSize::ExactSize(PixelValueSize { width: PixelValue::percent(50.0), height: PixelValue::percent(50.0) })
         );
         assert_eq!(
             parse_style_background_size("100px 20em").unwrap(),
-            StyleBackgroundSize::ExactSize([PixelValue::px(100.0), PixelValue::em(20.0)])
+            StyleBackgroundSize::ExactSize(PixelValueSize { width: PixelValue::px(100.0), height: PixelValue::em(20.0) })
         );
         assert!(parse_style_background_size("auto").is_err());
     }

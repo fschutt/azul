@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::api::{ClassData, ModuleData, VersionData};
 
@@ -114,7 +114,7 @@ pub fn get_all_imports(
     module: &ModuleData,
     module_name: &str,
 ) -> String {
-    let mut imports = HashMap::new();
+    let mut imports = BTreeMap::new();
     let mut arg_types_to_search = Vec::new();
 
     // Collect all types from function arguments

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use indexmap::IndexMap;
 use crate::{
     api::{ApiData, ClassData, FunctionData, EnumVariantData, StructFieldData},
@@ -161,8 +161,8 @@ fn map_to_rustler_type(ty: &str) -> String {
     }
 }
 
-pub fn generate_elixir_binding(api_data: &ApiData, version: &str) -> HashMap<String, String> {
-    let mut files = HashMap::new();
+pub fn generate_elixir_binding(api_data: &ApiData, version: &str) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
     let version_data = api_data.get_version(version).unwrap();
 
     // ---------------------------------------------------------

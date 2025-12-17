@@ -1498,7 +1498,7 @@ impl CssStats {
         }
 
         // Count property types
-        let mut property_types = std::collections::HashMap::new();
+        let mut property_types = std::collections::BTreeMap::new();
         for prop in &self.properties {
             let property_type = if let Some(idx) = prop.find('(') {
                 &prop[0..idx]

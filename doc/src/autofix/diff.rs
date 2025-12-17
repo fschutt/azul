@@ -4,7 +4,7 @@
 //! types (from api.json) and generates patches for differences.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
@@ -266,9 +266,9 @@ pub fn resolve_api_types(index: &TypeIndex, api_data: &ApiData) -> ApiTypeResolu
 #[derive(Debug, Default)]
 pub struct ApiTypeResolution {
     /// Types that were found in workspace
-    pub found: HashMap<String, FoundType>,
+    pub found: BTreeMap<String, FoundType>,
     /// Types that could not be found (with their api.json path)
-    pub missing: HashMap<String, MissingType>,
+    pub missing: BTreeMap<String, MissingType>,
     /// Types with path mismatches
     pub path_mismatches: Vec<PathMismatch>,
 }
@@ -468,8 +468,8 @@ pub fn generate_diff(
     index: &TypeIndex,
 ) -> ApiDiff {
     let mut diff = ApiDiff::default();
-    let mut seen_fixes: HashSet<String> = HashSet::new();
-    let mut seen_additions: HashSet<String> = HashSet::new();
+    let mut seen_fixes: BTreeSet<String> = BTreeSet::new();
+    let mut seen_additions: BTreeSet<String> = BTreeSet::new();
 
     // 1. Path fixes from mismatches
     for mismatch in &api_resolution.path_mismatches {
@@ -827,9 +827,9 @@ fn resolve_api_functions_with_workspace_index(
 }
 
 /// Collect all type definitions from api.json (for comparison)
-/// Returns: HashMap<type_name, ApiTypeInfo>
-fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
-    let mut types = HashMap::new();
+/// Returns: BTreeMap<type_name, ApiTypeInfo>
+fn collect_api_json_types(api_data: &ApiData) -> BTreeMap<String, ApiTypeInfo> {
+    let mut types = BTreeMap::new();
 
     for (_version_name, version_data) in &api_data.0 {
         for (module_name, module_data) in &version_data.api {
@@ -896,7 +896,7 @@ fn collect_api_json_types(api_data: &ApiData) -> HashMap<String, ApiTypeInfo> {
                 let generic_params = class_data.generic_params.clone().unwrap_or_default();
 
                 // Extract functions (both regular functions and constructors)
-                let mut functions = std::collections::HashMap::new();
+                let mut functions = std::collections::BTreeMap::new();
 
                 if let Some(ref fns) = class_data.functions {
                     for (fn_name, fn_data) in fns {
@@ -978,7 +978,7 @@ pub struct ApiTypeInfo {
     /// Generic type parameters (e.g., ["T"] for PhysicalSize<T>)
     pub generic_params: Vec<String>,
     /// Functions from api.json: fn_name -> (arg_name, arg_type/ref_kind)
-    pub functions: std::collections::HashMap<String, ApiFunctionInfo>,
+    pub functions: std::collections::BTreeMap<String, ApiFunctionInfo>,
 }
 
 /// Information about a function from api.json
@@ -993,12 +993,12 @@ pub struct ApiFunctionInfo {
 /// Generate diff between expected (workspace-resolved) and current (api.json) types
 fn generate_diff_v2(
     expected: &ResolvedTypeSet,
-    current_api_types: &HashMap<String, ApiTypeInfo>,
+    current_api_types: &BTreeMap<String, ApiTypeInfo>,
     index: &TypeIndex,
 ) -> ApiDiff {
     let mut diff = ApiDiff::default();
-    let mut seen_additions: HashSet<String> = HashSet::new();
-    let mut matched_api_types: HashSet<String> = HashSet::new();
+    let mut seen_additions: BTreeSet<String> = BTreeSet::new();
+    let mut matched_api_types: BTreeSet<String> = BTreeSet::new();
 
     // 1. Types in expected (resolved from workspace) but not in api.json → additions
     // Also check for Az-prefix matches (AzStringPair in workspace = StringPair in api.json)
@@ -1227,8 +1227,8 @@ fn compare_derives_and_impls(
     };
 
     // Compare derives
-    let workspace_derive_set: HashSet<_> = workspace_derives.iter().collect();
-    let api_derive_set: HashSet<_> = api_info.derives.iter().collect();
+    let workspace_derive_set: BTreeSet<_> = workspace_derives.iter().collect();
+    let api_derive_set: BTreeSet<_> = api_info.derives.iter().collect();
 
     // Derives added in workspace (not in api.json)
     for derive in workspace_derive_set.difference(&api_derive_set) {
@@ -1251,8 +1251,8 @@ fn compare_derives_and_impls(
     }
 
     // Compare custom_impls
-    let workspace_impl_set: HashSet<_> = workspace_custom_impls.iter().collect();
-    let api_impl_set: HashSet<_> = api_info.custom_impls.iter().collect();
+    let workspace_impl_set: BTreeSet<_> = workspace_custom_impls.iter().collect();
+    let api_impl_set: BTreeSet<_> = api_info.custom_impls.iter().collect();
 
     // Custom impls added in workspace (not in api.json)
     for impl_name in workspace_impl_set.difference(&api_impl_set) {
@@ -1767,7 +1767,7 @@ mod tests {
 
     #[test]
     fn test_deduplication() {
-        let mut seen: HashSet<String> = HashSet::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
 
         // First insertion succeeds
         assert!(seen.insert("FontCache:azul_core::resources::FontCache".to_string()));
@@ -1832,7 +1832,7 @@ fn compare_functions(
     let mut modifications = Vec::new();
 
     // Get workspace methods (only public ones)
-    let workspace_methods: std::collections::HashMap<String, &super::type_index::MethodDef> =
+    let workspace_methods: std::collections::BTreeMap<String, &super::type_index::MethodDef> =
         workspace_type
             .methods
             .iter()

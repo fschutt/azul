@@ -4,7 +4,7 @@
 //! using rayon for maximum performance.
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},

@@ -3,7 +3,7 @@
 //! This module determines which types are actually used in the API
 //! and which can be removed.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::autofix::types::{ParsedType, TypeParser};
 
@@ -11,11 +11,11 @@ use crate::autofix::types::{ParsedType, TypeParser};
 #[derive(Debug)]
 pub struct ReachabilityAnalysis {
     /// Types that are reachable from public API
-    pub reachable: HashSet<String>,
+    pub reachable: BTreeSet<String>,
     /// Types that are defined but not reachable
-    pub unreachable: HashSet<String>,
+    pub unreachable: BTreeSet<String>,
     /// Entry points (public functions and their types)
-    pub entry_points: HashSet<String>,
+    pub entry_points: BTreeSet<String>,
 }
 
 /// Find all unused types in the API
@@ -31,8 +31,8 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
     let parser = TypeParser::new();
 
     // Step 1: Build type dependency graph
-    let mut type_deps: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut all_types: HashSet<String> = HashSet::new();
+    let mut type_deps: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut all_types: BTreeSet<String> = BTreeSet::new();
 
     if let Some(classes) = api.get("classes").and_then(|v| v.as_object()) {
         for (class_name, class_def) in classes {
@@ -50,7 +50,7 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
     let reachable = bfs_reachability(&entry_points, &type_deps);
 
     // Step 4: Unreachable = All - Reachable
-    let unreachable: HashSet<String> = all_types
+    let unreachable: BTreeSet<String> = all_types
         .difference(&reachable)
         .cloned()
         .collect();
@@ -63,8 +63,8 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
 }
 
 /// Extract type dependencies from a class definition
-fn extract_dependencies(parser: &TypeParser, class_def: &serde_json::Value) -> HashSet<String> {
-    let mut deps = HashSet::new();
+fn extract_dependencies(parser: &TypeParser, class_def: &serde_json::Value) -> BTreeSet<String> {
+    let mut deps = BTreeSet::new();
 
     // From struct fields
     if let Some(fields) = class_def.get("struct_fields").and_then(|v| v.as_object()) {
@@ -104,7 +104,7 @@ fn extract_dependencies(parser: &TypeParser, class_def: &serde_json::Value) -> H
 }
 
 /// Extract types from a function definition (return + args)
-fn extract_fn_types(parser: &TypeParser, fn_def: &serde_json::Value, out: &mut HashSet<String>) {
+fn extract_fn_types(parser: &TypeParser, fn_def: &serde_json::Value, out: &mut BTreeSet<String>) {
     // Return type
     if let Some(ret) = fn_def.get("returns").and_then(|v| v.as_str()) {
         extract_types_from_string(parser, ret, out);
@@ -145,7 +145,7 @@ fn extract_fn_types(parser: &TypeParser, fn_def: &serde_json::Value, out: &mut H
 }
 
 /// Parse a type string and extract user-defined type names
-fn extract_types_from_string(parser: &TypeParser, type_str: &str, out: &mut HashSet<String>) {
+fn extract_types_from_string(parser: &TypeParser, type_str: &str, out: &mut BTreeSet<String>) {
     let parsed = parser.parse(type_str);
     parsed.collect_user_types(out);
 }
@@ -156,8 +156,8 @@ fn extract_types_from_string(parser: &TypeParser, type_str: &str, out: &mut Hash
 /// - Types that are callback types (used by user code)
 /// - Types that are return values of "new" constructors
 /// - Types that appear in functions without "internal_only" flag
-fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<String> {
-    let mut entry_points = HashSet::new();
+fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> BTreeSet<String> {
+    let mut entry_points = BTreeSet::new();
 
     // Add types from public functions
     if let Some(classes) = api.get("classes").and_then(|v| v.as_object()) {
@@ -198,10 +198,10 @@ fn find_entry_points(api: &serde_json::Value, parser: &TypeParser) -> HashSet<St
 
 /// BFS to find all types reachable from entry points
 fn bfs_reachability(
-    entry_points: &HashSet<String>,
-    type_deps: &HashMap<String, HashSet<String>>,
-) -> HashSet<String> {
-    let mut reachable = HashSet::new();
+    entry_points: &BTreeSet<String>,
+    type_deps: &BTreeMap<String, BTreeSet<String>>,
+) -> BTreeSet<String> {
+    let mut reachable = BTreeSet::new();
     let mut queue: VecDeque<String> = entry_points.iter().cloned().collect();
 
     while let Some(type_name) = queue.pop_front() {
@@ -256,12 +256,12 @@ mod tests {
     #[test]
     fn test_transitive_reachability() {
         let parser = TypeParser::new();
-        let mut type_deps = HashMap::new();
+        let mut type_deps = BTreeMap::new();
 
         // A -> B -> C
         type_deps.insert("A".to_string(), ["B".to_string()].into_iter().collect());
         type_deps.insert("B".to_string(), ["C".to_string()].into_iter().collect());
-        type_deps.insert("C".to_string(), HashSet::new());
+        type_deps.insert("C".to_string(), BTreeSet::new());
 
         let entry = ["A".to_string()].into_iter().collect();
         let reachable = bfs_reachability(&entry, &type_deps);

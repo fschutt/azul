@@ -600,7 +600,7 @@ pub fn create_examples(
         .ok_or_else(|| anyhow::anyhow!("Version {} not found in api.json", version))?;
 
     // Track which files we've already added (to avoid duplicates)
-    let mut added_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut added_files: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for example in &version_data.examples {
         // Add C example

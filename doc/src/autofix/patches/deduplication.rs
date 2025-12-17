@@ -3,7 +3,7 @@
 //! This module handles deduplicating patches to avoid multiple
 //! corrections for the same issue.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::path_correction::PathCorrection;
 
@@ -11,9 +11,9 @@ use super::path_correction::PathCorrection;
 #[derive(Debug, Default)]
 pub struct PatchSet {
     /// Path corrections, keyed by type name
-    pub path_corrections: HashMap<String, PathCorrection>,
+    pub path_corrections: BTreeMap<String, PathCorrection>,
     /// Types to remove (unused types)
-    pub types_to_remove: HashSet<String>,
+    pub types_to_remove: BTreeSet<String>,
     /// Duplicate entries that were skipped
     pub duplicates_skipped: usize,
 }

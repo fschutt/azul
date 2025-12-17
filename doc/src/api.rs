@@ -1477,7 +1477,7 @@ pub fn extract_base_type(type_str: &str) -> String {
         if let Some(end) = trimmed.rfind('>') {
             let inner = &trimmed[start + 1..end];
 
-            // If inner contains a comma (e.g., HashMap<K, V>), take only the first type
+            // If inner contains a comma (e.g., BTreeMap<K, V>), take only the first type
             // This avoids creating invalid types like "String, String"
             let first_type = if let Some(comma_pos) = find_top_level_comma(inner) {
                 inner[..comma_pos].trim()

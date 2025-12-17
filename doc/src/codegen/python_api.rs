@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     api::{ApiData, ClassData, EnumVariantData, FieldData, FunctionData, RefKind, VersionData},
@@ -2174,7 +2174,7 @@ fn generate_struct_pymethods(
     class_data: &ClassData,
     prefix: &str,
     version_data: &VersionData,
-    type_to_external: &HashMap<String, String>,
+    type_to_external: &BTreeMap<String, String>,
 ) -> String {
     let mut code = String::new();
     let struct_name = format!("{}{}", prefix, class_name);
@@ -2245,7 +2245,7 @@ fn generate_enum_pymethods(
     class_data: &ClassData,
     prefix: &str,
     version_data: &VersionData,
-    type_to_external: &HashMap<String, String>,
+    type_to_external: &BTreeMap<String, String>,
 ) -> String {
     let mut code = String::new();
     let enum_name = format!("{}{}", prefix, class_name);
@@ -2667,7 +2667,7 @@ fn generate_function(
     prefix: &str,
     version_data: &VersionData,
     is_constructor: bool,
-    type_to_external: &HashMap<String, String>,
+    type_to_external: &BTreeMap<String, String>,
 ) -> String {
     let mut code = String::new();
 
@@ -2718,7 +2718,7 @@ fn generate_function(
     let mut c_api_args = Vec::new();
     
     // First pass: identify arguments that need special conversion and should be skipped in transmute
-    let mut skip_transmute_args: HashSet<String> = HashSet::new();
+    let mut skip_transmute_args: BTreeSet<String> = BTreeSet::new();
     for arg_map in &fn_data.fn_args {
         for (arg_name, arg_type) in arg_map {
             if arg_name == "self" {
@@ -2806,7 +2806,7 @@ fn generate_function(
     // Python wrapper types (AzFoo) need to be converted to FFI types (ffi::AzFoo)
     // via .inner access or transmute
     let mut conversion_code = String::new();
-    let mut converted_arg_names: HashMap<String, String> = HashMap::new();
+    let mut converted_arg_names: BTreeMap<String, String> = BTreeMap::new();
     
     for arg_map in &fn_data.fn_args {
         for (arg_name, arg_type) in arg_map {

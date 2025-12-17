@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
 
@@ -133,7 +133,7 @@ fn convert_type_to_rust_api(type_str: &str, version_data: &VersionData, prefix: 
 
 /// Generate Rust API code from API data
 pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
-    let mut module_file_map = HashMap::new();
+    let mut module_file_map = BTreeMap::new();
 
     // Get the latest version
     let version_data = api_data.get_version(version).unwrap();
@@ -144,7 +144,7 @@ pub fn generate_rust_api(api_data: &ApiData, version: &str) -> String {
         .unwrap_or_else(|| "Az".to_string());
 
     // Build structs map for DLL generation
-    let mut structs_map = std::collections::HashMap::new();
+    let mut structs_map = std::collections::BTreeMap::new();
     for (module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
             // Skip primitive types and generic type parameters

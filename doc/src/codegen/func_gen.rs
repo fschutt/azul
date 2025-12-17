@@ -8,7 +8,7 @@
 //! 2. `static_link` - Wrapper functions with mem::transmute for static linking
 //! 3. `dynamic_link` - extern "C" declarations for dynamic linking
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -28,7 +28,7 @@ pub type FunctionSignature = (String, String);
 
 /// Map of function name to signature
 /// e.g., "AzPoint_new" -> ("x: f32, y: f32", "AzPoint")
-pub type FunctionsMap = HashMap<String, FunctionSignature>;
+pub type FunctionsMap = BTreeMap<String, FunctionSignature>;
 
 /// Extended function info including fn_body for DLL generation
 #[derive(Debug, Clone)]
@@ -46,13 +46,13 @@ pub struct FunctionInfo {
 }
 
 /// Extended map of function name to FunctionInfo
-pub type FunctionsMapExt = HashMap<String, FunctionInfo>;
+pub type FunctionsMapExt = BTreeMap<String, FunctionInfo>;
 
 /// Generate the complete DLL bindings module
 /// Returns the generated Rust code as a string
 pub fn generate_rust_dll_bindings(
     version_data: &VersionData,
-    structs_map: &HashMap<String, StructMetadata>,
+    structs_map: &BTreeMap<String, StructMetadata>,
     functions_map: &FunctionsMap,
     config: &GenerateConfig,
 ) -> Result<String> {
@@ -143,7 +143,7 @@ pub fn generate_rust_dll_bindings(
 /// - delete functions (ClassName_delete)
 /// - deepCopy functions (ClassName_deepCopy)
 pub fn build_functions_map(version_data: &VersionData, prefix: &str) -> Result<FunctionsMap> {
-    let mut functions_map = HashMap::new();
+    let mut functions_map = BTreeMap::new();
 
     for (module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
@@ -273,7 +273,7 @@ pub fn build_functions_map_ext(
     version_data: &VersionData,
     prefix: &str,
 ) -> Result<FunctionsMapExt> {
-    let mut functions_map = HashMap::new();
+    let mut functions_map = BTreeMap::new();
 
     for (_module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use indexmap::IndexMap;
 use crate::{
     api::{ApiData, ClassData, FunctionData},
@@ -167,8 +167,8 @@ fn map_to_r_output_converter(ty: &str, expr: &str) -> String {
     }
 }
 
-pub fn generate_r_api(api_data: &ApiData, version: &str) -> HashMap<String, String> {
-    let mut files = HashMap::new();
+pub fn generate_r_api(api_data: &ApiData, version: &str) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
     let version_data = api_data.get_version(version).unwrap();
 
     // -------------------------------------------------------------------------

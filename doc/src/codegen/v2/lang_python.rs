@@ -26,7 +26,7 @@
 //! Types are now classified via TypeCategory in the IR, not ad-hoc constants here.
 //! See ir.rs TypeCategory enum for the central classification system.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use anyhow::Result;
 
 use super::config::{CodegenConfig, PythonConfig};

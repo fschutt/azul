@@ -3,7 +3,7 @@
 //! This module generates Rust struct/enum definitions from api.json data.
 //! It's a direct port of the `generate_structs` function from oldbuild.py.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use indexmap::IndexMap;
@@ -192,7 +192,7 @@ impl StructMetadata {
 /// Generate Rust struct/enum definitions from a map of structs
 pub fn generate_structs(
     version_data: &VersionData,
-    structs_map: &HashMap<String, StructMetadata>,
+    structs_map: &BTreeMap<String, StructMetadata>,
     config: &GenerateConfig,
 ) -> Result<String> {
     let indent_str = " ".repeat(config.indent);
@@ -200,7 +200,7 @@ pub fn generate_structs(
 
     // First pass: collect all callback_typedef type names (without prefix)
     // These are function pointer types like CallbackType, LayoutCallbackType, etc.
-    let callback_typedef_types: std::collections::HashSet<String> = structs_map
+    let callback_typedef_types: std::collections::BTreeSet<String> = structs_map
         .iter()
         .filter(|(_, meta)| meta.is_callback_typedef)
         .map(|(name, _)| {
@@ -267,7 +267,7 @@ fn generate_single_type(
     struct_meta: &StructMetadata,
     config: &GenerateConfig,
     indent_str: &str,
-    callback_typedef_types: &std::collections::HashSet<String>,
+    callback_typedef_types: &std::collections::BTreeSet<String>,
 ) -> Result<String> {
     let mut code = String::new();
 
@@ -487,7 +487,7 @@ fn generate_single_type(
 /// Returns the field name if it's a callback wrapper, None otherwise
 fn get_callback_wrapper_field(
     struct_fields: &[IndexMap<String, FieldData>],
-    callback_typedef_types: &std::collections::HashSet<String>,
+    callback_typedef_types: &std::collections::BTreeSet<String>,
 ) -> Option<String> {
     // Count total fields
     let total_fields: usize = struct_fields.iter().map(|m| m.len()).sum();
@@ -639,7 +639,7 @@ fn generate_struct_definition(
     struct_fields: &[IndexMap<String, FieldData>],
     config: &GenerateConfig,
     indent_str: &str,
-    callback_typedef_types: &std::collections::HashSet<String>,
+    callback_typedef_types: &std::collections::BTreeSet<String>,
 ) -> Result<String> {
     let mut code = String::new();
 
@@ -1155,7 +1155,7 @@ fn generate_struct_definition(
         // These functions are exported by the DLL: _deepCopy, _delete, _partialEq, _partialCmp, _cmp, _hash
         
         // Combine custom_impls AND memtest_manual_impls
-        let all_manual_traits: std::collections::HashSet<&str> = struct_meta
+        let all_manual_traits: std::collections::BTreeSet<&str> = struct_meta
             .custom_impls
             .iter()
             .map(|s| s.as_str())
@@ -1340,7 +1340,7 @@ fn generate_struct_definition(
 
         // Combine custom_impls AND memtest_manual_impls (traits from derive that need manual impl)
         // This is the key fix: previously we only checked custom_impls, missing all derive traits!
-        let all_manual_traits: std::collections::HashSet<&str> = struct_meta
+        let all_manual_traits: std::collections::BTreeSet<&str> = struct_meta
             .custom_impls
             .iter()
             .map(|s| s.as_str())
@@ -1951,7 +1951,7 @@ fn generate_enum_definition(
     // above)
     if config.is_memtest && !memtest_manual_impls.is_empty() {
         // Combine custom_impls AND memtest_manual_impls, but exclude Default (already generated)
-        let all_manual_traits: std::collections::HashSet<&str> = struct_meta.custom_impls.iter()
+        let all_manual_traits: std::collections::BTreeSet<&str> = struct_meta.custom_impls.iter()
             .map(|s| s.as_str())
             .chain(memtest_manual_impls.iter().copied())
             .filter(|&t| t != "Default") // Default already generated above
@@ -2138,7 +2138,7 @@ fn prefix_types_in_extern_fn_string(
     prefix: &str,
 ) -> String {
     // Collect all known type names from api.json
-    let mut known_types = std::collections::HashSet::new();
+    let mut known_types = std::collections::BTreeSet::new();
     for module_data in version_data.api.values() {
         for class_name in module_data.classes.keys() {
             known_types.insert(class_name.as_str());
@@ -2388,7 +2388,7 @@ mod tests {
             has_explicit_derive: true,
         };
 
-        let mut structs_map = HashMap::new();
+        let mut structs_map = BTreeMap::new();
         structs_map.insert("AzPoint".to_string(), meta);
 
         let version_data = VersionData {
@@ -2478,7 +2478,7 @@ mod tests {
             has_explicit_derive: true,
         };
 
-        let mut structs_map = HashMap::new();
+        let mut structs_map = BTreeMap::new();
         structs_map.insert("AzColor".to_string(), meta);
 
         let version_data = VersionData {
@@ -2559,7 +2559,7 @@ mod tests {
             has_explicit_derive: true,
         };
 
-        let mut structs_map = HashMap::new();
+        let mut structs_map = BTreeMap::new();
         structs_map.insert("AzOption".to_string(), meta);
 
         let version_data = VersionData {

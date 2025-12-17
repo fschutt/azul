@@ -53,9 +53,25 @@ impl LanguageGenerator for CGenerator {
         let types = self.generate_types(ir, config)?;
         builder.raw(&types);
 
+        // Constants (#define macros)
+        self.generate_constants(&mut builder, ir, config);
+
         // Function declarations
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
+
+        // Union match helper functions
+        self.generate_union_match_helpers(&mut builder, ir, config);
+
+        // C-API patch (additional macros)
+        self.generate_capi_patch(&mut builder);
+
+        // Close C++ extern "C" wrapper
+        builder.line("/* End C++ compatibility wrapper */");
+        builder.line("#ifdef __cplusplus");
+        builder.line("}");
+        builder.line("#endif");
+        builder.blank();
 
         // Close include guards
         builder.line("#endif /* AZUL_H */");
@@ -66,43 +82,76 @@ impl LanguageGenerator for CGenerator {
     fn generate_types(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
 
-        // Type aliases
-        builder.line("/* Type aliases */");
-        for type_alias in &ir.type_aliases {
-            if !config.should_include_type(&type_alias.name) {
-                continue;
-            }
-            self.generate_type_alias(&mut builder, type_alias, config);
+        // Merge all types into a single list sorted by sort_order
+        // The IR builder has already computed sort_order for each type
+        // Type aliases with monomorphized_def are treated as real types
+        #[derive(Clone)]
+        enum SortedType<'a> {
+            Struct(&'a StructDef),
+            Enum(&'a EnumDef),
+            Callback(&'a CallbackTypedefDef),
+            TypeAlias(&'a TypeAliasDef),
         }
-        builder.blank();
-
-        // Callback typedefs (function pointers)
-        builder.line("/* Callback function pointers */");
-        for callback in &ir.callback_typedefs {
-            if !config.should_include_type(&callback.name) {
+        
+        let mut all_types: Vec<SortedType> = Vec::new();
+        
+        for s in &ir.structs {
+            // Skip generic types
+            if !s.generic_params.is_empty() {
                 continue;
             }
-            self.generate_callback_typedef(&mut builder, callback, config);
+            if config.should_include_type(&s.name) {
+                all_types.push(SortedType::Struct(s));
+            }
         }
-        builder.blank();
-
-        // Enums first (they may be used by structs)
-        builder.line("/* Enums */");
-        for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
+        
+        for e in &ir.enums {
+            // Skip generic types
+            if !e.generic_params.is_empty() {
                 continue;
             }
-            self.generate_enum(&mut builder, enum_def, config);
+            if config.should_include_type(&e.name) {
+                all_types.push(SortedType::Enum(e));
+            }
         }
-        builder.blank();
-
-        // Structs
-        builder.line("/* Structs */");
-        for struct_def in &ir.structs {
-            if !config.should_include_type(&struct_def.name) {
-                continue;
+        
+        for c in &ir.callback_typedefs {
+            if config.should_include_type(&c.name) {
+                all_types.push(SortedType::Callback(c));
             }
-            self.generate_struct(&mut builder, struct_def, config);
+        }
+        
+        // Add type aliases (both simple and monomorphized)
+        for t in &ir.type_aliases {
+            if config.should_include_type(&t.name) {
+                all_types.push(SortedType::TypeAlias(t));
+            }
+        }
+        
+        // Sort by the sort_order computed in IR builder
+        all_types.sort_by_key(|t| match t {
+            SortedType::Struct(s) => s.sort_order,
+            SortedType::Enum(e) => e.sort_order,
+            SortedType::Callback(c) => c.sort_order,
+            SortedType::TypeAlias(t) => t.sort_order,
+        });
+        
+        builder.line("/* Types (topologically sorted by dependencies) */");
+        for sorted_type in &all_types {
+            match sorted_type {
+                SortedType::Struct(struct_def) => {
+                    self.generate_struct(&mut builder, struct_def, config);
+                }
+                SortedType::Enum(enum_def) => {
+                    self.generate_enum(&mut builder, enum_def, config);
+                }
+                SortedType::Callback(callback) => {
+                    self.generate_callback_typedef(&mut builder, callback, config);
+                }
+                SortedType::TypeAlias(type_alias) => {
+                    self.generate_type_alias(&mut builder, type_alias, config);
+                }
+            }
         }
         builder.blank();
 
@@ -136,8 +185,38 @@ impl LanguageGenerator for CGenerator {
 // ============================================================================
 
 impl CGenerator {
-    fn generate_dll_macros(&self, builder: &mut CodeBuilder) {
-        builder.line("/* DLL import/export macros */");
+    /// Generate the compatibility preamble with all necessary macros
+    /// for cross-platform and cross-compiler support
+    fn generate_preamble(&self, builder: &mut CodeBuilder) {
+        // C89 restrict keyword portability
+        builder.line("/* C89 port for \"restrict\" keyword from C99 */");
+        builder.line("#if __STDC__ != 1");
+        builder.line("#    define restrict __restrict");
+        builder.line("#else");
+        builder.line("#    ifndef __STDC_VERSION__");
+        builder.line("#        define restrict __restrict");
+        builder.line("#    else");
+        builder.line("#        if __STDC_VERSION__ < 199901L");
+        builder.line("#            define restrict __restrict");
+        builder.line("#        endif");
+        builder.line("#    endif");
+        builder.line("#endif");
+        builder.blank();
+
+        // Cross-platform ssize_t definition
+        builder.line("/* cross-platform define for ssize_t (signed size_t) */");
+        builder.line("#ifdef _WIN32");
+        builder.line("    #include <windows.h>");
+        builder.line("    #ifdef _MSC_VER");
+        builder.line("        typedef SSIZE_T ssize_t;");
+        builder.line("    #endif");
+        builder.line("#else");
+        builder.line("    #include <sys/types.h>");
+        builder.line("#endif");
+        builder.blank();
+
+        // DLL import/export macros
+        builder.line("/* cross-platform define for __declspec(dllimport) */");
         builder.line("#ifdef _WIN32");
         builder.line("    #ifdef AZUL_EXPORTS");
         builder.line("        #define DLLIMPORT __declspec(dllexport)");
@@ -148,6 +227,35 @@ impl CGenerator {
         builder.line("    #define DLLIMPORT");
         builder.line("#endif");
         builder.blank();
+
+        // Portable _Alignof macro for pre-C11 compilers
+        builder.line("/* Portable _Alignof macro for pre-C11 compilers */");
+        builder.line("#ifndef AZ_ALIGNOF");
+        builder.line("#  if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L");
+        builder.line("#    define AZ_ALIGNOF(type) _Alignof(type)");
+        builder.line("#  elif defined(__cplusplus) && __cplusplus >= 201103L");
+        builder.line("#    define AZ_ALIGNOF(type) alignof(type)");
+        builder.line("#  elif defined(__GNUC__) || defined(__clang__)");
+        builder.line("#    define AZ_ALIGNOF(type) __alignof__(type)");
+        builder.line("#  elif defined(_MSC_VER)");
+        builder.line("#    define AZ_ALIGNOF(type) __alignof(type)");
+        builder.line("#  else");
+        builder.line("#    define AZ_ALIGNOF(type) offsetof(struct { char c; type t; }, t)");
+        builder.line("#  endif");
+        builder.line("#endif");
+        builder.blank();
+
+        // C++ extern "C" wrapper opening
+        builder.line("/* C++ compatibility wrapper */");
+        builder.line("#ifdef __cplusplus");
+        builder.line("extern \"C\" {");
+        builder.line("#endif");
+        builder.blank();
+    }
+
+    fn generate_dll_macros(&self, builder: &mut CodeBuilder) {
+        // Now just calls generate_preamble which includes DLL macros
+        self.generate_preamble(builder);
     }
 
     fn generate_forward_declarations(
@@ -156,14 +264,56 @@ impl CGenerator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        // TODO: Generate forward declarations for all struct types
+        // Phase 1: Struct forward declarations (valid in both C and C++)
+        builder.line("/* Struct forward declarations */");
         for struct_def in &ir.structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
+            // Skip generic types - they need to be monomorphized
+            if !struct_def.generic_params.is_empty() {
+                continue;
+            }
             let name = config.apply_prefix(&struct_def.name);
+            builder.line(&format!("struct {};", name));
             builder.line(&format!("typedef struct {} {};", name, name));
         }
+        builder.blank();
+
+        // Phase 2: Union forward declarations (for tagged unions)
+        builder.line("/* Union forward declarations (tagged enums) */");
+        for enum_def in &ir.enums {
+            if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            // Skip generic types - they need to be monomorphized
+            if !enum_def.generic_params.is_empty() {
+                continue;
+            }
+            if enum_def.is_union {
+                let name = config.apply_prefix(&enum_def.name);
+                builder.line(&format!("union {};", name));
+                builder.line(&format!("typedef union {} {};", name, name));
+            }
+        }
+        
+        // Phase 3: Forward declarations for monomorphized type aliases (tagged unions)
+        for type_alias in &ir.type_aliases {
+            if !config.should_include_type(&type_alias.name) {
+                continue;
+            }
+            if let Some(ref mono_def) = type_alias.monomorphized_def {
+                if matches!(mono_def.kind, MonomorphizedKind::TaggedUnion { .. }) {
+                    let name = config.apply_prefix(&type_alias.name);
+                    builder.line(&format!("union {};", name));
+                    builder.line(&format!("typedef union {} {};", name, name));
+                }
+            }
+        }
+        builder.blank();
+
+        // Note: Simple enum forward declarations are not valid in C++ without a base type,
+        // so we generate full enum definitions before they're used (in generate_types)
     }
 
     fn generate_type_alias(
@@ -172,10 +322,129 @@ impl CGenerator {
         type_alias: &TypeAliasDef,
         config: &CodegenConfig,
     ) {
-        // TODO: Convert Rust type to C type
         let name = config.apply_prefix(&type_alias.name);
-        let c_type = self.rust_type_to_c(&type_alias.target);
+        
+        // If this type alias has a monomorphized definition, generate it as a full type
+        if let Some(ref mono_def) = type_alias.monomorphized_def {
+            self.generate_monomorphized_type(builder, &name, mono_def, config);
+            return;
+        }
+        
+        let target = &type_alias.target;
+        
+        // Skip generic type aliases without monomorphized def
+        if target.contains('<') || target.contains('>') {
+            return;
+        }
+        
+        // Handle pointer types (*const T, *mut T)
+        if target.starts_with("*const ") {
+            let inner_type = target.strip_prefix("*const ").unwrap().trim();
+            let c_inner = self.rust_type_to_c_with_prefix(inner_type, config);
+            builder.line(&format!("typedef const {}* {};", c_inner, name));
+            return;
+        }
+        if target.starts_with("*mut ") {
+            let inner_type = target.strip_prefix("*mut ").unwrap().trim();
+            let c_inner = self.rust_type_to_c_with_prefix(inner_type, config);
+            builder.line(&format!("typedef {}* {};", c_inner, name));
+            return;
+        }
+        
+        // Regular type alias
+        let c_type = self.rust_type_to_c_with_prefix(target, config);
         builder.line(&format!("typedef {} {};", c_type, name));
+    }
+    
+    /// Generate a monomorphized type definition
+    /// This handles generic type aliases that have been instantiated with concrete types
+    fn generate_monomorphized_type(
+        &self,
+        builder: &mut CodeBuilder,
+        name: &str,
+        mono_def: &MonomorphizedTypeDef,
+        config: &CodegenConfig,
+    ) {
+        match &mono_def.kind {
+            MonomorphizedKind::TaggedUnion { repr, variants } => {
+                let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+                
+                // Generate tag enum
+                builder.line(&format!("enum {}_Tag {{", name));
+                builder.indent();
+                for variant in variants {
+                    builder.line(&format!("{}_Tag_{},", name, variant.name));
+                }
+                if is_u8_repr {
+                    builder.line(&format!("{}_Tag__Force8Bit = 0xFF,", name));
+                }
+                builder.dedent();
+                builder.line("};");
+                builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
+                builder.blank();
+                
+                // Generate variant structs
+                for variant in variants {
+                    builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
+                    builder.indent();
+                    builder.line(&format!("{}_Tag tag;", name));
+                    
+                    if let Some(ref payload_type) = variant.payload_type {
+                        let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
+                        builder.line(&format!("{} payload;", c_type));
+                    }
+                    
+                    builder.dedent();
+                    builder.line("};");
+                    builder.line(&format!(
+                        "typedef struct {}Variant_{} {}Variant_{};",
+                        name, variant.name, name, variant.name
+                    ));
+                    builder.blank();
+                }
+                
+                // Generate union
+                builder.line(&format!("union {} {{", name));
+                builder.indent();
+                for variant in variants {
+                    builder.line(&format!("{}Variant_{} {};", name, variant.name, variant.name));
+                }
+                builder.dedent();
+                builder.line("};");
+                builder.blank();
+            }
+            
+            MonomorphizedKind::SimpleEnum { repr, variants } => {
+                let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
+                
+                builder.line(&format!("enum {} {{", name));
+                builder.indent();
+                for variant in variants {
+                    builder.line(&format!("{}_{},", name, variant));
+                }
+                if is_u8_repr {
+                    builder.line(&format!("{}_Force8Bit = 0xFF,", name));
+                }
+                builder.dedent();
+                builder.line("};");
+                builder.line(&format!("typedef enum {} {};", name, name));
+                builder.blank();
+            }
+            
+            MonomorphizedKind::Struct { fields } => {
+                builder.line(&format!("struct {} {{", name));
+                builder.indent();
+                for field in fields {
+                    let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
+                    let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
+                    builder.line(&format!("{}{}{} {};", ptr_prefix, c_type, ptr_suffix, field.name));
+                }
+                builder.dedent();
+                builder.line("};");
+                builder.line(&format!("typedef struct {} {};", name, name));
+                builder.blank();
+            }
+        }
     }
 
     fn generate_callback_typedef(
@@ -184,16 +453,22 @@ impl CGenerator {
         callback: &CallbackTypedefDef,
         config: &CodegenConfig,
     ) {
-        // TODO: Generate C function pointer typedef
         let name = config.apply_prefix(&callback.name);
         
         let args: Vec<String> = callback.args.iter().map(|arg| {
-            let c_type = self.rust_type_to_c(&arg.type_name);
-            format!("{} {}", c_type, arg.name)
+            let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+            // Apply ref_kind for pointer types
+            let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                ArgRefKind::Owned => ("", ""),
+                ArgRefKind::Ref => ("const ", "*"),
+                ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "* restrict"),
+                ArgRefKind::Ptr => ("const ", "*"),
+            };
+            format!("{}{}{}", ptr_prefix, c_type, ptr_suffix)
         }).collect();
         
         let return_type = callback.return_type.as_ref()
-            .map(|r| self.rust_type_to_c(r))
+            .map(|r| self.rust_type_to_c_with_prefix(r, config))
             .unwrap_or_else(|| "void".to_string());
 
         builder.line(&format!(
@@ -210,7 +485,6 @@ impl CGenerator {
         struct_def: &StructDef,
         config: &CodegenConfig,
     ) {
-        // TODO: Generate C struct with proper field types
         let name = config.apply_prefix(&struct_def.name);
 
         // Doc comment
@@ -232,8 +506,17 @@ impl CGenerator {
             builder.indent();
             
             for field in &struct_def.fields {
-                let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
-                builder.line(&format!("{} {};", c_type, field.name));
+                // Extract array info from type (e.g., "[u8; 4]" -> "u8" + "[4]")
+                let (base_type, array_suffix) = self.extract_array_from_type(&field.type_name);
+                let c_type = self.rust_type_to_c_with_prefix(&base_type, config);
+                
+                // Apply ref_kind for pointer types
+                let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
+                
+                builder.line(&format!(
+                    "{}{}{} {}{};",
+                    ptr_prefix, c_type, ptr_suffix, field.name, array_suffix
+                ));
             }
             
             builder.dedent();
@@ -248,7 +531,6 @@ impl CGenerator {
         enum_def: &EnumDef,
         config: &CodegenConfig,
     ) {
-        // TODO: Generate C enum or tagged union
         let name = config.apply_prefix(&enum_def.name);
 
         // Doc comment
@@ -265,20 +547,29 @@ impl CGenerator {
             self.generate_tagged_union(builder, enum_def, config);
         } else {
             // Simple enum
+            // Check if this enum has a u8 repr (for size enforcement)
+            let is_u8_repr = enum_def.repr.as_ref()
+                .map(|r| r.contains("u8"))
+                .unwrap_or(false);
+
             builder.line(&format!("enum {} {{", name));
             builder.indent();
             
-            for (i, variant) in enum_def.variants.iter().enumerate() {
+            for variant in &enum_def.variants {
                 let variant_name = format!("{}_{}", name, variant.name);
-                if i < enum_def.variants.len() - 1 {
-                    builder.line(&format!("{},", variant_name));
-                } else {
-                    builder.line(&format!("{}", variant_name));
-                }
+                builder.line(&format!("{},", variant_name));
+            }
+            
+            // Add sentinel value to force enum size for u8 repr
+            if is_u8_repr {
+                builder.line(&format!("{}_Force8Bit = 0xFF,", name));
             }
             
             builder.dedent();
             builder.line("};");
+            
+            // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
+            builder.line(&format!("typedef enum {} {};", name, name));
         }
         builder.blank();
     }
@@ -289,81 +580,87 @@ impl CGenerator {
         enum_def: &EnumDef,
         config: &CodegenConfig,
     ) {
-        // TODO: Generate proper tagged union for C
-        // This is complex - need to generate:
-        // 1. Tag enum
-        // 2. Union of variant data
-        // 3. Combined struct
+        // Generate tagged union for C:
+        // 1. Tag enum with _Tag suffix
+        // 2. Variant structs with tag + payload
+        // 3. Main union type
         
         let name = config.apply_prefix(&enum_def.name);
         
-        // Tag enum
+        // Check if this enum has a u8 repr
+        let is_u8_repr = enum_def.repr.as_ref()
+            .map(|r| r.contains("u8"))
+            .unwrap_or(false);
+        
+        // Tag enum with _Tag suffix
         builder.line(&format!("enum {}_Tag {{", name));
         builder.indent();
         for variant in &enum_def.variants {
-            builder.line(&format!("{}_{},", name, variant.name));
+            builder.line(&format!("{}_Tag_{},", name, variant.name));
+        }
+        // Add sentinel value to force enum size for u8 repr
+        if is_u8_repr {
+            builder.line(&format!("{}_Tag__Force8Bit = 0xFF,", name));
         }
         builder.dedent();
         builder.line("};");
+        builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
         builder.blank();
 
-        // Variant structs (for variants with data)
+        // Variant structs (with tag field in each variant)
         for variant in &enum_def.variants {
+            let has_payload = match &variant.kind {
+                EnumVariantKind::Tuple(types) => !types.is_empty(),
+                EnumVariantKind::Struct(fields) => !fields.is_empty(),
+                EnumVariantKind::Unit => false,
+            };
+            
+            builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
+            builder.indent();
+            builder.line(&format!("{}_Tag tag;", name));
+            
             match &variant.kind {
                 EnumVariantKind::Tuple(types) if !types.is_empty() => {
-                    builder.line(&format!("struct {}_Variant_{} {{", name, variant.name));
-                    builder.indent();
+                    // Single payload field (Rust enum tuple variants typically have one element)
                     for (i, type_name) in types.iter().enumerate() {
                         let c_type = self.rust_type_to_c_with_prefix(type_name, config);
-                        builder.line(&format!("{} payload_{};", c_type, i));
+                        if types.len() == 1 {
+                            builder.line(&format!("{} payload;", c_type));
+                        } else {
+                            builder.line(&format!("{} payload_{};", c_type, i));
+                        }
                     }
-                    builder.dedent();
-                    builder.line("};");
-                    builder.blank();
                 }
                 EnumVariantKind::Struct(fields) if !fields.is_empty() => {
-                    builder.line(&format!("struct {}_Variant_{} {{", name, variant.name));
-                    builder.indent();
                     for field in fields {
                         let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
                         builder.line(&format!("{} {};", c_type, field.name));
                     }
-                    builder.dedent();
-                    builder.line("};");
-                    builder.blank();
                 }
                 _ => {}
             }
+            
+            builder.dedent();
+            builder.line("};");
+            builder.line(&format!(
+                "typedef struct {}Variant_{} {}Variant_{};",
+                name, variant.name, name, variant.name
+            ));
+            builder.blank();
         }
 
-        // Main union struct
-        builder.line(&format!("struct {} {{", name));
-        builder.indent();
-        builder.line(&format!("enum {}_Tag tag;", name));
-        builder.line("union {");
+        // Main union type
+        builder.line(&format!("union {} {{", name));
         builder.indent();
         for variant in &enum_def.variants {
-            match &variant.kind {
-                EnumVariantKind::Unit => {}
-                EnumVariantKind::Tuple(types) if !types.is_empty() => {
-                    builder.line(&format!(
-                        "struct {}_Variant_{} {};",
-                        name, variant.name, variant.name
-                    ));
-                }
-                EnumVariantKind::Struct(fields) if !fields.is_empty() => {
-                    builder.line(&format!(
-                        "struct {}_Variant_{} {};",
-                        name, variant.name, variant.name
-                    ));
-                }
-                _ => {}
-            }
+            builder.line(&format!(
+                "{}Variant_{} {};",
+                name, variant.name, variant.name
+            ));
         }
         builder.dedent();
-        builder.line("} payload;");
-        builder.dedent();
         builder.line("};");
+        // Note: typedef for union already done in forward declarations
     }
 
     fn generate_function_declaration(
@@ -399,8 +696,22 @@ impl CGenerator {
 
     /// Convert Rust type to C type
     fn rust_type_to_c(&self, rust_type: &str) -> String {
-        // TODO: Implement full type mapping
-        match rust_type {
+        let trimmed = rust_type.trim();
+        
+        // Handle pointer types first
+        if trimmed.starts_with("*const ") {
+            let inner = trimmed.strip_prefix("*const ").unwrap().trim();
+            let c_inner = self.rust_type_to_c(inner);
+            return format!("const {}*", c_inner);
+        }
+        if trimmed.starts_with("*mut ") {
+            let inner = trimmed.strip_prefix("*mut ").unwrap().trim();
+            let c_inner = self.rust_type_to_c(inner);
+            return format!("{}*", c_inner);
+        }
+        
+        // Handle basic type mappings
+        match trimmed {
             "bool" => "bool".to_string(),
             "u8" => "uint8_t".to_string(),
             "u16" => "uint16_t".to_string(),
@@ -415,7 +726,7 @@ impl CGenerator {
             "f32" => "float".to_string(),
             "f64" => "double".to_string(),
             "c_void" | "()" => "void".to_string(),
-            _ => rust_type.to_string(),
+            _ => trimmed.to_string(),
         }
     }
 
@@ -435,5 +746,216 @@ impl CGenerator {
         } else {
             config.apply_prefix(&c_type)
         }
+    }
+
+    /// Extract array info from a type string for code generation
+    /// Returns (base_type, c_array_suffix) where c_array_suffix is like "[4]" for arrays
+    fn extract_array_from_type(&self, type_str: &str) -> (String, String) {
+        let trimmed = type_str.trim();
+
+        // Check if it's an array type: [T; N]
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let inner = &trimmed[1..trimmed.len() - 1];
+            if let Some(semicolon_pos) = inner.rfind(';') {
+                let base_type = inner[..semicolon_pos].trim().to_string();
+                let size_str = inner[semicolon_pos + 1..].trim();
+                if size_str.parse::<usize>().is_ok() {
+                    return (base_type, format!("[{}]", size_str));
+                }
+            }
+        }
+
+        (trimmed.to_string(), String::new())
+    }
+
+    /// Convert a FieldRefKind to C pointer syntax (prefix, suffix)
+    /// Returns (prefix, suffix) where:
+    /// - prefix: e.g., "const " for const pointers
+    /// - suffix: e.g., "*" for pointers, "* restrict" for restrict pointers
+    fn ref_kind_to_c_syntax(&self, ref_kind: &FieldRefKind) -> (&'static str, &'static str) {
+        match ref_kind {
+            FieldRefKind::Ref => ("const ", "*"),
+            FieldRefKind::RefMut => ("", "* restrict"),
+            FieldRefKind::Ptr => ("const ", "*"),
+            FieldRefKind::PtrMut => ("", "*"),
+            FieldRefKind::Owned => ("", ""),
+            FieldRefKind::Boxed | FieldRefKind::OptionBoxed => ("", "*"),
+        }
+    }
+
+    /// Generate constant definitions as #define macros
+    fn generate_constants(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        if ir.constants.is_empty() {
+            return;
+        }
+
+        builder.line("/* CONSTANTS */");
+        builder.blank();
+
+        for constant in &ir.constants {
+            let name = config.apply_prefix(&constant.name);
+            builder.line(&format!("#define {} {}", name, constant.value));
+        }
+        builder.blank();
+    }
+
+    /// Generate union match helper functions for tagged unions
+    /// These help with pattern matching in C:
+    /// - matchRef: immutable pattern match, returns pointer to payload
+    /// - matchMut: mutable pattern match, returns mutable pointer to payload
+    fn generate_union_match_helpers(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        builder.line("/* Union helpers */");
+        builder.blank();
+
+        for enum_def in &ir.enums {
+            if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            if !enum_def.is_union {
+                continue;
+            }
+
+            let name = config.apply_prefix(&enum_def.name);
+
+            for variant in &enum_def.variants {
+                // Get the payload type(s) for this variant
+                let payload_types: Vec<String> = match &variant.kind {
+                    EnumVariantKind::Tuple(types) => types.clone(),
+                    EnumVariantKind::Struct(_) => continue, // Skip struct variants for now
+                    EnumVariantKind::Unit => continue, // Skip unit variants
+                };
+
+                if payload_types.is_empty() {
+                    continue;
+                }
+
+                // Only handle single-element tuple variants for now
+                if payload_types.len() != 1 {
+                    continue;
+                }
+
+                let payload_type = &payload_types[0];
+                
+                // Skip array types - they require different handling
+                if payload_type.starts_with('[') {
+                    continue;
+                }
+
+                let c_payload_type = self.rust_type_to_c_with_prefix(payload_type, config);
+
+                // Generate matchRef helper (immutable)
+                builder.line(&format!(
+                    "bool {}_matchRef{}(const {}* value, const {}** restrict out) {{",
+                    name, variant.name, name, c_payload_type
+                ));
+                builder.line(&format!(
+                    "    const {}Variant_{}* casted = (const {}Variant_{}*)value;",
+                    name, variant.name, name, variant.name
+                ));
+                builder.line(&format!(
+                    "    bool valid = casted->tag == {}_Tag_{};",
+                    name, variant.name
+                ));
+                builder.line("    if (valid) { *out = &casted->payload; } else { *out = 0; }");
+                builder.line("    return valid;");
+                builder.line("}");
+                builder.blank();
+
+                // Generate matchMut helper (mutable)
+                builder.line(&format!(
+                    "bool {}_matchMut{}({}* restrict value, {}* restrict * restrict out) {{",
+                    name, variant.name, name, c_payload_type
+                ));
+                builder.line(&format!(
+                    "    {}Variant_{}* restrict casted = ({}Variant_{}* restrict)value;",
+                    name, variant.name, name, variant.name
+                ));
+                builder.line(&format!(
+                    "    bool valid = casted->tag == {}_Tag_{};",
+                    name, variant.name
+                ));
+                builder.line("    if (valid) { *out = &casted->payload; } else { *out = 0; }");
+                builder.line("    return valid;");
+                builder.line("}");
+                builder.blank();
+            }
+        }
+    }
+
+    /// Generate the C-API patch (additional macros for convenience)
+    fn generate_capi_patch(&self, builder: &mut CodeBuilder) {
+        builder.line("/* C99 Designated Initializers - only available in C, not C++ */");
+        builder.line("#ifndef __cplusplus");
+        builder.blank();
+
+        // AzString_fromConstStr macro
+        builder.line("/* Macro to turn a compile-time string into a compile-time AzString");
+        builder.line(" *");
+        builder.line(" * static AzString foo = AzString_fromConstStr(\"MyString\");");
+        builder.line(" */");
+        builder.line("#define AzString_fromConstStr(s) { \\");
+        builder.line("    .vec = { \\");
+        builder.line("        .ptr = s, \\");
+        builder.line("        .len = sizeof(s) - 1, \\");
+        builder.line("        .cap = sizeof(s) - 1, \\");
+        builder.line("        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor } }, \\");
+        builder.line("    } \\");
+        builder.line("}");
+        builder.blank();
+
+        // AzNodeData_new macro
+        builder.line("/* Macro to initialize a compile-time AzNodeData struct");
+        builder.line(" *");
+        builder.line(" * static AzNodeData foo = AzNodeData_new(AzNodeType_Div);");
+        builder.line(" */");
+        builder.line("#define AzNodeData_new(nt) { \\");
+        builder.line("    .node_type = nt, \\");
+        builder.line("    .dataset = AzOptionRefAny_None, \\");
+        builder.line("    .ids_and_classes = AzIdOrClassVec_empty, \\");
+        builder.line("    .attributes = AzAttributeVec_empty, \\");
+        builder.line("    .callbacks = AzCoreCallbackDataVec_empty, \\");
+        builder.line("    .inline_css_props = AzNodeDataInlineCssPropertyVec_empty, \\");
+        builder.line("    .tab_index = AzOptionTabIndex_None, \\");
+        builder.line("}");
+        builder.blank();
+
+        // AzDom_new macro (compile-time version)
+        builder.line("/* Macro to initialize a compile-time AzDom struct");
+        builder.line(" *");
+        builder.line(" * static AzDom foo = AzDom_new(AzNodeType_Div);");
+        builder.line(" */");
+        builder.line("#define AzDom_newStatic(nt) { \\");
+        builder.line("    .root = AzNodeData_new(nt),\\");
+        builder.line("    .children = AzDomVec_empty, \\");
+        builder.line("    .estimated_total_children = 0, \\");
+        builder.line("}");
+        builder.blank();
+
+        // AzAppConfig_default macro
+        builder.line("/* Macro to initialize the default AppConfig struct");
+        builder.line(" *");
+        builder.line(" * AzAppConfig foo = AzAppConfig_default();");
+        builder.line(" */");
+        builder.line("#define AzAppConfig_default(...) { \\");
+        builder.line("    .log_level = AzAppLogLevel_Error, \\");
+        builder.line("    .enable_visual_panic_hook = false, \\");
+        builder.line("    .enable_logging_on_panic = true, \\");
+        builder.line("    .enable_tab_navigation = true, \\");
+        builder.line("    .termination_behavior = AzAppTerminationBehavior_EndProcess, \\");
+        builder.line("}");
+        builder.blank();
+
+        builder.line("#endif /* __cplusplus - end of C99 designated initializer macros */");
+        builder.blank();
     }
 }

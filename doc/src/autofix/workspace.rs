@@ -6,7 +6,7 @@
 /// 3. Generates patches for missing/incorrect types
 /// 4. Provides a clean summary of changes
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     path::Path,
 };
@@ -275,10 +275,10 @@ pub fn find_type_in_workspace<T: TypeLookup>(
 /// Returns a map of type name -> origin (where it was found)
 pub fn collect_referenced_types_from_type_info(
     type_info: &ParsedTypeInfo,
-) -> HashMap<String, TypeOrigin> {
+) -> BTreeMap<String, TypeOrigin> {
     use crate::api::extract_base_type_if_not_opaque;
 
-    let mut types = HashMap::new();
+    let mut types = BTreeMap::new();
     let parent_type = type_info.type_name.clone();
 
     match &type_info.kind {
@@ -1654,7 +1654,7 @@ pub fn virtual_patch_application<T: TypeLookup>(
     api_data: &ApiData,
     workspace_index: &T,
     initial_types: Vec<ParsedTypeInfo>,
-    mut known_types: HashMap<String, String>,
+    mut known_types: BTreeMap<String, String>,
     messages: &mut AutofixMessages,
 ) -> Result<(Vec<ParsedTypeInfo>, PatchSummary)> {
     let mut all_discovered_types = initial_types;
@@ -1681,7 +1681,7 @@ pub fn virtual_patch_application<T: TypeLookup>(
         });
 
         // Collect all types referenced by the currently discovered types
-        let mut newly_referenced_types = HashSet::new();
+        let mut newly_referenced_types = BTreeSet::new();
         for type_info in &all_discovered_types {
             let sub_types = collect_referenced_types_from_type_info(type_info);
             for (type_name, _origin) in sub_types {
@@ -1852,7 +1852,7 @@ pub fn has_field_changes(
             }
 
             // Build a set of all field names in the API
-            let api_field_names: std::collections::HashSet<&String> = api_fields
+            let api_field_names: std::collections::BTreeSet<&String> = api_fields
                 .iter()
                 .flat_map(|field_map| field_map.keys())
                 .collect();
@@ -1903,7 +1903,7 @@ pub fn has_field_changes(
             }
 
             // Build a set of all variant names in the API
-            let api_variant_names: std::collections::HashSet<&String> = api_variants
+            let api_variant_names: std::collections::BTreeSet<&String> = api_variants
                 .iter()
                 .flat_map(|variant_map| variant_map.keys())
                 .collect();

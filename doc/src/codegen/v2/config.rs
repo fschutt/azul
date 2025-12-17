@@ -3,7 +3,7 @@
 //! This module defines the configuration structures that control
 //! how code is generated for different targets.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 // ============================================================================
 // Target Language
@@ -169,10 +169,10 @@ pub struct CodegenConfig {
     pub imports: Vec<String>,
 
     /// Filter: only generate these types (None = all)
-    pub type_filter: Option<HashSet<String>>,
+    pub type_filter: Option<BTreeSet<String>>,
 
     /// Filter: skip these types
-    pub type_exclude: HashSet<String>,
+    pub type_exclude: BTreeSet<String>,
 
     /// Indentation string (e.g., "    " for 4 spaces)
     pub indent: String,
@@ -358,7 +358,7 @@ impl CodegenConfig {
                 "use core::mem::transmute;".into(),
             ],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
@@ -388,7 +388,7 @@ impl CodegenConfig {
                 "use core::mem::transmute;".into(),
             ],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: false, // Skip docs for embedded types
             callback_typedef_use_external: false,
@@ -413,7 +413,7 @@ impl CodegenConfig {
             module_wrapper: Some("dll".into()),
             imports: vec!["use core::ffi::c_void;".into()],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
@@ -439,7 +439,7 @@ impl CodegenConfig {
                 "#include <stddef.h>".into(),
             ],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
@@ -465,7 +465,7 @@ impl CodegenConfig {
                 "#include <cstdbool>".into(),
             ],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
@@ -487,7 +487,7 @@ impl CodegenConfig {
             module_wrapper: None,
             imports: vec![],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
@@ -516,7 +516,7 @@ impl CodegenConfig {
                 "use core::mem::transmute;".into(),
             ],
             type_filter: None,
-            type_exclude: HashSet::new(),
+            type_exclude: BTreeSet::new(),
             indent: "    ".into(),
             generate_docs: false, // Skip docs for test code
             callback_typedef_use_external: false,
@@ -554,13 +554,13 @@ pub struct PythonConfig {
     pub generate_pymethods: bool,
 
     /// Types to skip in Python (recursive types, etc.)
-    pub skip_types: HashSet<String>,
+    pub skip_types: BTreeSet<String>,
 
     /// Types that need callback trampolines
-    pub callback_types: HashSet<String>,
+    pub callback_types: BTreeSet<String>,
 
     /// Types that need VecRef→list conversion
-    pub vecref_types: HashSet<String>,
+    pub vecref_types: BTreeSet<String>,
 }
 
 impl Default for PythonConfig {
@@ -581,7 +581,7 @@ impl PythonConfig {
     /// - Python-specific type filtering
     pub fn python_extension() -> Self {
         // Types that cause "infinite size" errors in PyO3
-        let skip_types: HashSet<String> = [
+        let skip_types: BTreeSet<String> = [
             "XmlNode",
             "XmlNodeChild", 
             "XmlNodeChildVec",
@@ -590,7 +590,7 @@ impl PythonConfig {
         ].iter().map(|s| s.to_string()).collect();
 
         // VecRef types that need special handling
-        let vecref_types: HashSet<String> = [
+        let vecref_types: BTreeSet<String> = [
             "GLuintVecRef",
             "GLintVecRef",
             "GLenumVecRef",
@@ -632,7 +632,7 @@ impl PythonConfig {
                     "use core::mem::transmute;".into(),
                 ],
                 type_filter: None,
-                type_exclude: HashSet::new(),
+                type_exclude: BTreeSet::new(),
                 indent: "    ".into(),
                 generate_docs: true,
                 callback_typedef_use_external: true, // Use external callback types
@@ -642,7 +642,7 @@ impl PythonConfig {
             generate_pyclass: true,
             generate_pymethods: true,
             skip_types,
-            callback_types: HashSet::new(), // Populated by IR builder
+            callback_types: BTreeSet::new(), // Populated by IR builder
             vecref_types,
         }
     }

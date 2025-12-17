@@ -6,7 +6,7 @@
 //! - Trait implementations using transmute
 
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use super::config::*;
 use super::generator::{CodeBuilder, LanguageGenerator};
@@ -919,7 +919,7 @@ impl RustGenerator {
                 // and transform it using generate_transmuted_fn_body
                 if let Some(ref body) = func.fn_body {
                     // Build the type_to_external map for this function
-                    let type_to_external: std::collections::HashMap<String, String> = 
+                    let type_to_external: std::collections::BTreeMap<String, String> = 
                         ir.type_to_external.iter()
                             .map(|(k, v)| (config.apply_prefix(k), v.clone()))
                             .collect();
@@ -944,7 +944,7 @@ impl RustGenerator {
                         true, // is_for_dll
                         false, // keep_self_name
                         false, // force_clone_self
-                        &HashSet::new(), // skip_args
+                        &BTreeSet::new(), // skip_args
                     )
                 } else {
                     // No fn_body - generate error or stub

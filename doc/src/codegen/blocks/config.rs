@@ -3,7 +3,7 @@
 //! This module defines the shared configuration types used by all code generation
 //! blocks to ensure consistent output.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Configuration for all code generation operations
 #[derive(Debug, Clone)]
@@ -114,13 +114,13 @@ pub struct ModulePaths {
     pub window_module: String,
     
     /// Prefix for types from external crates (e.g., "azul_core::" -> "crate::ffi::dll::")
-    pub external_crate_replacement: HashMap<String, String>,
+    pub external_crate_replacement: BTreeMap<String, String>,
 }
 
 impl ModulePaths {
     /// Paths for FFI generation (used in dll_api.rs, included in azul-dll crate)
     pub fn ffi() -> Self {
-        let mut external_crate_replacement = HashMap::new();
+        let mut external_crate_replacement = BTreeMap::new();
         external_crate_replacement.insert("azul_dll::".to_string(), "crate::ffi::dll::".to_string());
         external_crate_replacement.insert("azul_core::".to_string(), "crate::ffi::dll::".to_string());
         external_crate_replacement.insert("azul_css::".to_string(), "crate::ffi::dll::".to_string());
@@ -142,7 +142,7 @@ impl ModulePaths {
     
     /// Paths for API generation (uses FFI types via crate::ffi::*)
     pub fn api() -> Self {
-        let mut external_crate_replacement = HashMap::new();
+        let mut external_crate_replacement = BTreeMap::new();
         external_crate_replacement.insert("azul_dll::".to_string(), "crate::ffi::dll::".to_string());
         external_crate_replacement.insert("azul_core::".to_string(), "crate::ffi::dll::".to_string());
         external_crate_replacement.insert("azul_css::".to_string(), "crate::ffi::dll::".to_string());
@@ -164,7 +164,7 @@ impl ModulePaths {
     
     /// Paths for memtest generation (standalone test crate)
     pub fn memtest() -> Self {
-        let mut external_crate_replacement = HashMap::new();
+        let mut external_crate_replacement = BTreeMap::new();
         // In memtest, external crate paths are kept as-is for size/align comparison
         
         Self {
@@ -195,21 +195,21 @@ impl ModulePaths {
 #[derive(Debug)]
 pub struct TypeMetadata {
     /// Set of all type names (unprefixed) that exist in the API
-    pub type_names: HashSet<String>,
+    pub type_names: BTreeSet<String>,
     
     /// Map from prefixed type name to external path
-    pub type_to_external: HashMap<String, String>,
+    pub type_to_external: BTreeMap<String, String>,
     
     /// Map from prefixed type name to module name
-    pub type_to_module: HashMap<String, String>,
+    pub type_to_module: BTreeMap<String, String>,
 }
 
 impl TypeMetadata {
     pub fn new() -> Self {
         Self {
-            type_names: HashSet::new(),
-            type_to_external: HashMap::new(),
-            type_to_module: HashMap::new(),
+            type_names: BTreeSet::new(),
+            type_to_external: BTreeMap::new(),
+            type_to_module: BTreeMap::new(),
         }
     }
 }

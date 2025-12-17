@@ -4,7 +4,7 @@
 //! and building a complete Intermediate Representation (IR) that can
 //! be consumed by language-specific generators.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use anyhow::Result;
 use indexmap::IndexMap;
 
@@ -36,6 +36,9 @@ impl<'a> IRBuilder<'a> {
 
     /// Build the complete IR from api.json
     pub fn build(mut self) -> Result<CodegenIR> {
+        // Phase 0: Validate api.json for disallowed patterns
+        self.validate_api_json()?;
+
         // Phase 1: Build type lookup tables
         self.build_type_lookups()?;
 
@@ -58,7 +61,327 @@ impl<'a> IRBuilder<'a> {
         // Phase 7: Generate trait functions (_deepCopy, _delete, _partialEq, etc.)
         self.build_trait_functions()?;
 
+        // Phase 8: Build constants from api.json
+        self.build_constants()?;
+
+        // Phase 9: Sort types by dependency depth (topological sort)
+        // This ensures types are defined before they are used
+        self.sort_types_by_dependencies();
+
         Ok(self.ir)
+    }
+
+    /// Validate api.json for disallowed patterns
+    /// 
+    /// This checks for:
+    /// 1. Array types like [T; N] - should be replaced with proper structs
+    /// 2. Direct type aliases without generics - should be replaced with actual struct/enum definitions
+    fn validate_api_json(&self) -> Result<()> {
+        let mut errors: Vec<String> = Vec::new();
+        
+        for (module_name, module_data) in &self.version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Check struct fields for array types
+                if let Some(struct_fields) = &class_data.struct_fields {
+                    for field_map in struct_fields {
+                        for (field_name, field_data) in field_map {
+                            if is_array_type(&field_data.r#type) {
+                                errors.push(format!(
+                                    "Array type not allowed: {}.{} has type '{}'. \
+                                     Use a dedicated struct instead (e.g., PixelValueSize).",
+                                    class_name, field_name, field_data.r#type
+                                ));
+                            }
+                        }
+                    }
+                }
+                
+                // Check enum variant payloads for array types
+                if let Some(enum_fields) = &class_data.enum_fields {
+                    for variant_map in enum_fields {
+                        for (variant_name, variant_data) in variant_map {
+                            if let Some(variant_type) = &variant_data.r#type {
+                                if is_array_type(variant_type) {
+                                    errors.push(format!(
+                                        "Array type not allowed: {}::{} has type '{}'. \
+                                         Use a dedicated struct instead.",
+                                        class_name, variant_name, variant_type
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Check for direct type aliases without generics (not pointing to a generic type)
+                if let Some(type_alias) = &class_data.type_alias {
+                    if type_alias.generic_args.is_empty() {
+                        // This is a direct type alias like `type GridAutoTracks = GridTemplate`
+                        // These should be replaced with actual struct definitions
+                        errors.push(format!(
+                            "Direct type alias not allowed: {} = {}. \
+                             Use a dedicated struct/enum definition with struct_fields/enum_fields instead. \
+                             (Module: {})",
+                            class_name, type_alias.target, module_name
+                        ));
+                    }
+                }
+            }
+        }
+        
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "API validation failed with {} error(s):\n  - {}",
+                errors.len(),
+                errors.join("\n  - ")
+            ))
+        }
+    }
+
+    /// Analyze and sort all types by their dependencies (topological sort)
+    /// 
+    /// This populates the dependency tracking fields in the IR:
+    /// - `dependencies`: List of type names this type depends on
+    /// - `sort_order`: Position in topological order (lower = earlier)
+    /// - `needs_forward_decl`: Whether this type needs a forward declaration
+    /// 
+    /// This is critical for C/C++ code generation where types must be defined
+    /// before they are used as field types (not pointers).
+    fn sort_types_by_dependencies(&mut self) {
+        use std::collections::{BTreeMap, BTreeSet};
+        
+        // Build a unified set of all type names (including type aliases with monomorphized defs)
+        let all_type_names: BTreeSet<String> = self.ir.structs.iter().map(|s| s.name.clone())
+            .chain(self.ir.enums.iter().map(|e| e.name.clone()))
+            .chain(self.ir.callback_typedefs.iter().map(|c| c.name.clone()))
+            .chain(self.ir.type_aliases.iter().map(|t| t.name.clone()))
+            .collect();
+        
+        // Collect dependencies for all types into a unified map
+        let mut all_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        
+        // Struct dependencies (from field types)
+        for struct_def in &self.ir.structs {
+            let deps: Vec<String> = struct_def.fields.iter()
+                .filter_map(|field| {
+                    let base = self.extract_base_type(&field.type_name);
+                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                        None
+                    } else {
+                        Some(base)
+                    }
+                })
+                .collect();
+            all_deps.insert(struct_def.name.clone(), deps);
+        }
+        
+        // Enum dependencies (from variant payloads)
+        for enum_def in &self.ir.enums {
+            let deps: Vec<String> = enum_def.variants.iter()
+                .flat_map(|variant| {
+                    match &variant.kind {
+                        EnumVariantKind::Tuple(types) => {
+                            types.iter()
+                                .filter_map(|t| {
+                                    let base = self.extract_base_type(t);
+                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                        None
+                                    } else {
+                                        Some(base)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        }
+                        EnumVariantKind::Struct(fields) => {
+                            fields.iter()
+                                .filter_map(|f| {
+                                    let base = self.extract_base_type(&f.type_name);
+                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                        None
+                                    } else {
+                                        Some(base)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        }
+                        EnumVariantKind::Unit => Vec::new(),
+                    }
+                })
+                .collect();
+            all_deps.insert(enum_def.name.clone(), deps);
+        }
+        
+        // Callback typedef dependencies (from argument types and return type)
+        for callback in &self.ir.callback_typedefs {
+            let mut deps: Vec<String> = callback.args.iter()
+                .filter_map(|arg| {
+                    let base = self.extract_base_type(&arg.type_name);
+                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                        None
+                    } else {
+                        Some(base)
+                    }
+                })
+                .collect();
+            
+            if let Some(ref ret_type) = callback.return_type {
+                let base = self.extract_base_type(ret_type);
+                if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
+                    deps.push(base);
+                }
+            }
+            
+            all_deps.insert(callback.name.clone(), deps);
+        }
+        
+        // Type alias dependencies (from monomorphized variants/fields)
+        for type_alias in &self.ir.type_aliases {
+            let mut deps: Vec<String> = Vec::new();
+            
+            if let Some(ref mono_def) = type_alias.monomorphized_def {
+                match &mono_def.kind {
+                    MonomorphizedKind::TaggedUnion { variants, .. } => {
+                        for variant in variants {
+                            if let Some(ref payload_type) = variant.payload_type {
+                                let base = self.extract_base_type(payload_type);
+                                if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
+                                    deps.push(base);
+                                }
+                            }
+                        }
+                    }
+                    MonomorphizedKind::Struct { fields } => {
+                        for field in fields {
+                            let base = self.extract_base_type(&field.type_name);
+                            if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
+                                deps.push(base);
+                            }
+                        }
+                    }
+                    MonomorphizedKind::SimpleEnum { .. } => {
+                        // Simple enums have no type dependencies
+                    }
+                }
+            }
+            
+            all_deps.insert(type_alias.name.clone(), deps);
+        }
+        
+        // Calculate depths using iterative algorithm
+        let mut depths: BTreeMap<String, usize> = BTreeMap::new();
+        
+        // Initialize: types with no dependencies have depth 0
+        for (name, deps) in &all_deps {
+            if deps.is_empty() {
+                depths.insert(name.clone(), 0);
+            }
+        }
+        
+        // Iteratively resolve depths
+        for _ in 0..500 {
+            let mut changed = false;
+            
+            for (name, deps) in &all_deps {
+                if depths.contains_key(name) {
+                    continue;
+                }
+                
+                // Check if all dependencies are resolved
+                let all_deps_resolved = deps.iter().all(|dep| depths.contains_key(dep));
+                
+                if all_deps_resolved {
+                    let max_dep_depth = deps.iter()
+                        .filter_map(|dep| depths.get(dep).copied())
+                        .max()
+                        .unwrap_or(0);
+                    depths.insert(name.clone(), max_dep_depth + 1);
+                    changed = true;
+                }
+            }
+            
+            if !changed {
+                break;
+            }
+        }
+        
+        // Handle circular dependencies: assign incrementally higher depths
+        let max_depth = depths.values().copied().max().unwrap_or(0);
+        let mut next_depth = max_depth + 1;
+        for name in all_deps.keys() {
+            if !depths.contains_key(name) {
+                depths.insert(name.clone(), next_depth);
+                next_depth += 1;
+            }
+        }
+        
+        // Update struct IR with dependencies and sort order
+        for struct_def in &mut self.ir.structs {
+            struct_def.dependencies = all_deps.get(&struct_def.name).cloned().unwrap_or_default();
+            struct_def.sort_order = depths.get(&struct_def.name).copied().unwrap_or(usize::MAX);
+            // Structs with circular dependencies need forward declarations
+            struct_def.needs_forward_decl = struct_def.sort_order > max_depth;
+        }
+        
+        // Update enum IR with dependencies and sort order
+        for enum_def in &mut self.ir.enums {
+            enum_def.dependencies = all_deps.get(&enum_def.name).cloned().unwrap_or_default();
+            enum_def.sort_order = depths.get(&enum_def.name).copied().unwrap_or(usize::MAX);
+            enum_def.needs_forward_decl = enum_def.sort_order > max_depth;
+        }
+        
+        // Update callback typedef IR with dependencies and sort order
+        for callback in &mut self.ir.callback_typedefs {
+            callback.dependencies = all_deps.get(&callback.name).cloned().unwrap_or_default();
+            callback.sort_order = depths.get(&callback.name).copied().unwrap_or(usize::MAX);
+        }
+        
+        // Update type alias IR with dependencies and sort order
+        for type_alias in &mut self.ir.type_aliases {
+            type_alias.dependencies = all_deps.get(&type_alias.name).cloned().unwrap_or_default();
+            type_alias.sort_order = depths.get(&type_alias.name).copied().unwrap_or(usize::MAX);
+        }
+        
+        // Sort all collections by depth
+        self.ir.structs.sort_by_key(|s| s.sort_order);
+        self.ir.enums.sort_by_key(|e| e.sort_order);
+        self.ir.callback_typedefs.sort_by_key(|c| c.sort_order);
+        self.ir.type_aliases.sort_by_key(|t| t.sort_order);
+    }
+
+    /// Check if a type name is a primitive type
+    fn is_primitive_type(&self, type_name: &str) -> bool {
+        matches!(type_name, 
+            "bool" | "u8" | "u16" | "u32" | "u64" | "usize" |
+            "i8" | "i16" | "i32" | "i64" | "isize" |
+            "f32" | "f64" | "c_void" | "()"
+        )
+    }
+
+    /// Extract base type name from a complex type (removes pointers, generics, arrays)
+    fn extract_base_type(&self, type_name: &str) -> String {
+        let mut s = type_name.trim();
+        
+        // Remove pointer prefixes
+        s = s.strip_prefix("*const ").unwrap_or(s);
+        s = s.strip_prefix("*mut ").unwrap_or(s);
+        s = s.strip_prefix("* const ").unwrap_or(s);
+        s = s.strip_prefix("* mut ").unwrap_or(s);
+        
+        // Remove generic suffix
+        if let Some(idx) = s.find('<') {
+            s = &s[..idx];
+        }
+        
+        // Remove array syntax
+        if s.starts_with('[') && s.contains(';') {
+            if let Some(idx) = s.find(';') {
+                s = s[1..idx].trim();
+            }
+        }
+        
+        s.trim().to_string()
     }
 
     // ========================================================================
@@ -150,6 +473,10 @@ impl<'a> IRBuilder<'a> {
             category,
             // Will be populated in link_callback_wrappers phase
             callback_wrapper_info: None,
+            // Will be populated in analyze_dependencies phase
+            dependencies: Vec::new(),
+            sort_order: 0,
+            needs_forward_decl: false,
         })
     }
 
@@ -218,6 +545,10 @@ impl<'a> IRBuilder<'a> {
             traits,
             generic_params: class_data.generic_params.clone().unwrap_or_default(),
             category,
+            // Will be populated in analyze_dependencies phase
+            dependencies: Vec::new(),
+            sort_order: 0,
+            needs_forward_decl: false,
         })
     }
 
@@ -301,6 +632,9 @@ impl<'a> IRBuilder<'a> {
                         doc: class_data.doc.clone().unwrap_or_default(),
                         module: module_name.clone(),
                         external_path: class_data.external.clone(),
+                        // Will be populated in analyze_dependencies phase
+                        dependencies: Vec::new(),
+                        sort_order: 0,
                     });
                 }
             }
@@ -315,38 +649,153 @@ impl<'a> IRBuilder<'a> {
 
     fn build_type_aliases(&mut self) -> Result<()> {
         // Extract type_alias definitions from api.json
+        // Only handle non-generic type aliases here.
+        // Generic type aliases (like StyleCursorValue = CssPropertyValue<StyleCursor>)
+        // are monomorphized and stored in the monomorphized_def field.
         
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 if let Some(ref type_alias) = class_data.type_alias {
-                    // Build target string with generic arguments
-                    // e.g., "CssPropertyValue" + ["StyleCursor"] -> "CssPropertyValue<StyleCursor>"
-                    let base_target = if type_alias.generic_args.is_empty() {
-                        type_alias.target.clone()
-                    } else {
-                        format!("{}<{}>", type_alias.target, type_alias.generic_args.join(", "))
+                    // Apply ref_kind for pointer types
+                    // e.g., c_void with ref_kind=MutPtr -> *mut c_void
+                    let target = match &type_alias.ref_kind {
+                        crate::api::RefKind::ConstPtr => format!("*const {}", type_alias.target),
+                        crate::api::RefKind::MutPtr => format!("*mut {}", type_alias.target),
+                        _ => type_alias.target.clone(),
                     };
                     
-                    // Apply ref_kind for pointer types
-                    // e.g., c_void with ref_kind=constptr -> *const c_void
-                    let target = match &type_alias.ref_kind {
-                        crate::api::RefKind::ConstPtr => format!("*const {}", base_target),
-                        crate::api::RefKind::MutPtr => format!("*mut {}", base_target),
-                        _ => base_target,
+                    // Build monomorphized definition for generic type aliases
+                    let monomorphized_def = if !type_alias.generic_args.is_empty() {
+                        self.build_monomorphized_def(&type_alias.target, &type_alias.generic_args)
+                    } else {
+                        None
                     };
                     
                     self.ir.type_aliases.push(TypeAliasDef {
                         name: class_name.clone(),
                         target,
+                        generic_args: type_alias.generic_args.clone(),
                         doc: class_data.doc.clone().unwrap_or_default(),
                         module: module_name.clone(),
                         external_path: class_data.external.clone(),
+                        monomorphized_def,
+                        dependencies: Vec::new(),
+                        sort_order: 0,
                     });
                 }
             }
         }
 
         Ok(())
+    }
+    
+    /// Build a monomorphized type definition from a generic type alias
+    /// 
+    /// For example, `CaretColorValue = CssPropertyValue<CaretColor>` becomes
+    /// a concrete enum with variants Auto, None, Inherit, Initial, Exact(CaretColor)
+    fn build_monomorphized_def(
+        &self,
+        target_type: &str,
+        generic_args: &[String],
+    ) -> Option<MonomorphizedTypeDef> {
+        // Find the target class (e.g., CssPropertyValue)
+        let target_class = self.version_data.api.values()
+            .find_map(|module| module.classes.get(target_type))?;
+        
+        // Check if it's an enum
+        if let Some(enum_fields) = &target_class.enum_fields {
+            let is_union = self.enum_is_union(enum_fields);
+            
+            if is_union {
+                // Build tagged union variants
+                let variants: Vec<MonomorphizedVariant> = enum_fields.iter()
+                    .flat_map(|variant_map| variant_map.iter())
+                    .map(|(variant_name, variant_data)| {
+                        let payload_type = variant_data.r#type.as_ref().map(|t| {
+                            // Substitute generic type parameter with concrete type
+                            self.substitute_generic_param(t, generic_args)
+                        });
+                        MonomorphizedVariant {
+                            name: variant_name.clone(),
+                            payload_type,
+                        }
+                    })
+                    .collect();
+                
+                Some(MonomorphizedTypeDef {
+                    kind: MonomorphizedKind::TaggedUnion {
+                        repr: target_class.repr.clone(),
+                        variants,
+                    },
+                })
+            } else {
+                // Simple enum (no data)
+                let variants: Vec<String> = enum_fields.iter()
+                    .flat_map(|variant_map| variant_map.keys())
+                    .cloned()
+                    .collect();
+                
+                Some(MonomorphizedTypeDef {
+                    kind: MonomorphizedKind::SimpleEnum {
+                        repr: target_class.repr.clone(),
+                        variants,
+                    },
+                })
+            }
+        } else if let Some(struct_fields) = &target_class.struct_fields {
+            // Build struct fields with substituted types
+            let fields: Vec<FieldDef> = struct_fields.iter()
+                .flat_map(|field_map| field_map.iter())
+                .map(|(field_name, field_data)| {
+                    let type_name = self.substitute_generic_param(&field_data.r#type, generic_args);
+                    FieldDef {
+                        name: field_name.clone(),
+                        type_name,
+                        ref_kind: match &field_data.ref_kind {
+                            crate::api::RefKind::Ref => FieldRefKind::Ref,
+                            crate::api::RefKind::RefMut => FieldRefKind::RefMut,
+                            crate::api::RefKind::ConstPtr => FieldRefKind::Ptr,
+                            crate::api::RefKind::MutPtr => FieldRefKind::PtrMut,
+                            crate::api::RefKind::Value => FieldRefKind::Owned,
+                            crate::api::RefKind::Boxed => FieldRefKind::Boxed,
+                            crate::api::RefKind::OptionBoxed => FieldRefKind::OptionBoxed,
+                        },
+                        doc: field_data.doc.as_ref().and_then(|d| d.first().cloned()),
+                        is_public: true,
+                    }
+                })
+                .collect();
+            
+            Some(MonomorphizedTypeDef {
+                kind: MonomorphizedKind::Struct { fields },
+            })
+        } else {
+            None
+        }
+    }
+    
+    /// Substitute generic type parameters (like "T") with concrete types
+    fn substitute_generic_param(&self, type_str: &str, generic_args: &[String]) -> String {
+        // Common generic parameter names
+        if type_str == "T" || type_str == "U" || type_str == "V" {
+            // Get the index based on the parameter name
+            let idx = match type_str {
+                "T" => 0,
+                "U" => 1,
+                "V" => 2,
+                _ => 0,
+            };
+            generic_args.get(idx).cloned().unwrap_or_else(|| type_str.to_string())
+        } else {
+            type_str.to_string()
+        }
+    }
+    
+    /// Check if an enum has data in any variant (making it a tagged union)
+    fn enum_is_union(&self, enum_fields: &[IndexMap<String, crate::api::EnumVariantData>]) -> bool {
+        enum_fields.iter()
+            .flat_map(|m| m.values())
+            .any(|v| v.r#type.is_some())
     }
 
     // ========================================================================
@@ -364,7 +813,7 @@ impl<'a> IRBuilder<'a> {
     /// For widget callbacks like "ButtonOnClickCallback", it's "ButtonOnClickCallbackType".
     fn link_callback_wrappers(&mut self) {
         // Build a set of callback typedef names for fast lookup
-        let callback_typedef_names: std::collections::HashSet<String> = self.ir.callback_typedefs
+        let callback_typedef_names: std::collections::BTreeSet<String> = self.ir.callback_typedefs
             .iter()
             .map(|cb| cb.name.clone())
             .collect();
@@ -792,6 +1241,31 @@ impl<'a> IRBuilder<'a> {
             trampoline_name,
         })
     }
+
+    // ========================================================================
+    // Phase 8: Constants
+    // ========================================================================
+
+    fn build_constants(&mut self) -> Result<()> {
+        for (module_name, module_data) in &self.version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                if let Some(constants) = &class_data.constants {
+                    for constant_map in constants {
+                        for (constant_name, constant_data) in constant_map {
+                            self.ir.constants.push(ConstantDef {
+                                name: format!("{}_{}", class_name, constant_name),
+                                type_name: constant_data.r#type.clone(),
+                                value: constant_data.value.clone(),
+                                doc: vec![],
+                                module: module_name.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -1066,4 +1540,13 @@ fn to_snake_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Check if a type string is an array type like [T; N]
+/// 
+/// Array types are not allowed in api.json because they require
+/// special handling in each language binding. Use dedicated structs instead.
+fn is_array_type(type_str: &str) -> bool {
+    let trimmed = type_str.trim();
+    trimmed.starts_with('[') && trimmed.contains(';') && trimmed.ends_with(']')
 }

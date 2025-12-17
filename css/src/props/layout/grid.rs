@@ -146,7 +146,50 @@ impl PrintAsCssValue for GridTemplate {
 
 // --- grid-auto-columns / grid-auto-rows ---
 
-pub type GridAutoTracks = GridTemplate;
+/// Represents `grid-auto-columns` or `grid-auto-rows`
+/// Structurally identical to GridTemplate but semantically different
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GridAutoTracks {
+    pub tracks: GridTrackSizingVec,
+}
+
+impl core::fmt::Debug for GridAutoTracks {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self.print_as_css_value())
+    }
+}
+
+impl Default for GridAutoTracks {
+    fn default() -> Self {
+        GridAutoTracks {
+            tracks: GridTrackSizingVec::from_vec(Vec::new()),
+        }
+    }
+}
+
+impl PrintAsCssValue for GridAutoTracks {
+    fn print_as_css_value(&self) -> String {
+        let tracks_slice = self.tracks.as_ref();
+        if tracks_slice.is_empty() {
+            "auto".to_string()
+        } else {
+            tracks_slice
+                .iter()
+                .map(|t| t.print_as_css_value())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    }
+}
+
+impl From<GridTemplate> for GridAutoTracks {
+    fn from(template: GridTemplate) -> Self {
+        GridAutoTracks {
+            tracks: template.tracks,
+        }
+    }
+}
 
 // --- grid-row / grid-column (grid line placement) ---
 
@@ -741,6 +784,46 @@ impl FormatAsRustCode for LayoutGap {
         // LayoutGap wraps a PixelValue which implements FormatAsRustCode via helpers;
         // print as LayoutGap::Exact(LAYERVALUE) is not required here — use the CSS string
         format!("LayoutGap::Exact({})", self.inner)
+    }
+}
+
+impl FormatAsRustCode for GridTrackSizing {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        use crate::format_rust_code::format_pixel_value;
+        match self {
+            GridTrackSizing::Fixed(pv) => {
+                format!("GridTrackSizing::Fixed({})", format_pixel_value(pv))
+            }
+            GridTrackSizing::Fr(f) => format!("GridTrackSizing::Fr({})", f),
+            GridTrackSizing::MinContent => "GridTrackSizing::MinContent".to_string(),
+            GridTrackSizing::MaxContent => "GridTrackSizing::MaxContent".to_string(),
+            GridTrackSizing::Auto => "GridTrackSizing::Auto".to_string(),
+            GridTrackSizing::MinMax(minmax) => {
+                format!(
+                    "GridTrackSizing::MinMax(GridMinMax {{ min: Box::new({}), max: Box::new({}) }})",
+                    minmax.min.format_as_rust_code(tabs),
+                    minmax.max.format_as_rust_code(tabs)
+                )
+            }
+            GridTrackSizing::FitContent(pv) => {
+                format!("GridTrackSizing::FitContent({})", format_pixel_value(pv))
+            }
+        }
+    }
+}
+
+impl FormatAsRustCode for GridAutoTracks {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let tracks: Vec<String> = self
+            .tracks
+            .as_ref()
+            .iter()
+            .map(|t| t.format_as_rust_code(tabs))
+            .collect();
+        format!(
+            "GridAutoTracks {{ tracks: GridTrackSizingVec::from_vec(vec![{}]) }}",
+            tracks.join(", ")
+        )
     }
 }
 

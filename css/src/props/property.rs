@@ -2305,7 +2305,8 @@ pub fn parse_css_property<'a>(
                 CssProperty::GridTemplateRows(parse_grid_template(value)?.into())
             }
             CssPropertyType::GridAutoColumns => {
-                CssProperty::GridAutoColumns(parse_grid_template(value)?.into())
+                let template = parse_grid_template(value)?;
+                CssProperty::GridAutoColumns(CssPropertyValue::Exact(GridAutoTracks::from(template)))
             }
             CssPropertyType::GridAutoFlow => {
                 CssProperty::GridAutoFlow(parse_layout_grid_auto_flow(value)?.into())
@@ -2330,7 +2331,8 @@ pub fn parse_css_property<'a>(
                 CssProperty::Font(fam.into())
             }
             CssPropertyType::GridAutoRows => {
-                CssProperty::GridAutoRows(parse_grid_template(value)?.into())
+                let template = parse_grid_template(value)?;
+                CssProperty::GridAutoRows(CssPropertyValue::Exact(GridAutoTracks::from(template)))
             }
             CssPropertyType::GridColumn => {
                 CssProperty::GridColumn(parse_grid_placement(value)?.into())

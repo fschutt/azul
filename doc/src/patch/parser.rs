@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -16,7 +16,7 @@ pub struct SymbolCollector {
     crate_name: String,
     base_path: PathBuf,
     current_path: Vec<String>,
-    symbols: HashMap<String, SymbolInfo>,
+    symbols: BTreeMap<String, SymbolInfo>,
     current_file: PathBuf,
 }
 
@@ -26,12 +26,12 @@ impl SymbolCollector {
             crate_name: crate_name.to_string(),
             base_path: base_path.to_path_buf(),
             current_path: Vec::new(),
-            symbols: HashMap::new(),
+            symbols: BTreeMap::new(),
             current_file: PathBuf::new(),
         }
     }
 
-    pub fn get_symbols(&self) -> &HashMap<String, SymbolInfo> {
+    pub fn get_symbols(&self) -> &BTreeMap<String, SymbolInfo> {
         &self.symbols
     }
 
@@ -748,7 +748,7 @@ impl SymbolHierarchy {
         }
     }
 
-    pub fn from_symbol_map(symbols: &HashMap<String, SymbolInfo>) -> Self {
+    pub fn from_symbol_map(symbols: &BTreeMap<String, SymbolInfo>) -> Self {
         let mut hierarchy = Self::new();
 
         // First pass: add all base symbols
@@ -879,7 +879,7 @@ fn parse_file(path: &Path, collector: &mut SymbolCollector) -> Result<(), String
 }
 
 /// Walk through a directory and parse all Rust files
-pub fn parse_directory(dir_path: &Path) -> Result<HashMap<String, SymbolInfo>, String> {
+pub fn parse_directory(dir_path: &Path) -> Result<BTreeMap<String, SymbolInfo>, String> {
     let crate_name = get_crate_name(dir_path);
     let mut collector = SymbolCollector::new(&crate_name, dir_path);
 
@@ -916,7 +916,7 @@ pub fn gather_project_symbols(project_root: &Path) -> Result<SymbolHierarchy, St
 }
 
 /// Format symbols in a human-readable way
-pub fn format_symbols(symbols: &HashMap<String, SymbolInfo>) -> String {
+pub fn format_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
     organize_symbols(symbols)
 }
 
@@ -927,9 +927,9 @@ pub fn get_project_symbols_string(project_root: &Path) -> Result<String, String>
 }
 
 /// Creates a better organized symbol hierarchy
-pub fn organize_symbols(symbols: &HashMap<String, SymbolInfo>) -> String {
+pub fn organize_symbols(symbols: &BTreeMap<String, SymbolInfo>) -> String {
     // Normalize symbol types
-    let mut normalized_symbols: HashMap<String, SymbolInfo> = HashMap::new();
+    let mut normalized_symbols: BTreeMap<String, SymbolInfo> = BTreeMap::new();
     for (path, info) in symbols {
         let mut normalized_info = info.clone();
         normalized_info.symbol_type = normalize_symbol_type(info);
@@ -937,8 +937,8 @@ pub fn organize_symbols(symbols: &HashMap<String, SymbolInfo>) -> String {
     }
 
     // Map enum variants to parent enums
-    let mut enum_variants: HashMap<String, Vec<String>> = HashMap::new();
-    let mut parent_enums: HashSet<String> = HashSet::new();
+    let mut enum_variants: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut parent_enums: BTreeSet<String> = BTreeSet::new();
 
     for (path, info) in &normalized_symbols {
         if path.matches("::").count() == 2 {
@@ -959,8 +959,8 @@ pub fn organize_symbols(symbols: &HashMap<String, SymbolInfo>) -> String {
     }
 
     // Map fields to parent structs
-    let mut struct_fields: HashMap<String, Vec<String>> = HashMap::new();
-    let mut parent_structs: HashSet<String> = HashSet::new();
+    let mut struct_fields: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut parent_structs: BTreeSet<String> = BTreeSet::new();
 
     for (path, info) in &normalized_symbols {
         if path.matches("::").count() == 2 && info.symbol_type == SymbolType::Field {

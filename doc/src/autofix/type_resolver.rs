@@ -11,7 +11,7 @@
 //! NOTE: Type extraction is done on syn::Type AST nodes, not string manipulation.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
@@ -27,9 +27,9 @@ use super::type_index::{TypeDefKind, TypeDefinition, TypeIndex};
 #[derive(Debug, Default)]
 pub struct ResolvedTypeSet {
     /// Types successfully resolved with their full paths
-    pub resolved: HashMap<String, ResolvedType>,
+    pub resolved: BTreeMap<String, ResolvedType>,
     /// Types that could not be resolved (with context)
-    pub unresolved: HashMap<String, UnresolvedInfo>,
+    pub unresolved: BTreeMap<String, UnresolvedInfo>,
     /// Warnings about non-C-compatible types
     pub warnings: Vec<TypeWarning>,
 }
@@ -80,7 +80,7 @@ pub struct ResolutionContext {
     /// The crate we're currently resolving from
     pub current_crate: Option<String>,
     /// Types we've already visited (cycle detection)
-    pub visited: HashSet<String>,
+    pub visited: BTreeSet<String>,
     /// The chain of types that led us here
     pub chain: Vec<String>,
 }
@@ -89,7 +89,7 @@ impl ResolutionContext {
     pub fn new() -> Self {
         Self {
             current_crate: None,
-            visited: HashSet::new(),
+            visited: BTreeSet::new(),
             chain: Vec::new(),
         }
     }
@@ -97,7 +97,7 @@ impl ResolutionContext {
     pub fn with_crate(crate_name: &str) -> Self {
         Self {
             current_crate: Some(crate_name.to_string()),
-            visited: HashSet::new(),
+            visited: BTreeSet::new(),
             chain: Vec::new(),
         }
     }
@@ -380,7 +380,7 @@ impl<'a> TypeResolver<'a> {
     /// but it maps to `AzString` in the workspace, which IS C-compatible.
     ///
     /// We only warn about types that:
-    /// 1. Are known std types (Vec, String, HashMap, etc.) AND
+    /// 1. Are known std types (Vec, String, BTreeMap, etc.) AND
     /// 2. Are NOT found in the workspace index (meaning they're actual std types, not wrappers)
     fn should_warn_about_type(&self, type_name: &str) -> Option<String> {
         // Try to parse as syn::Type to extract the base type name
@@ -443,9 +443,9 @@ impl<'a> TypeResolver<'a> {
                                 "String is not C-compatible. Use AzString instead.".to_string(),
                             );
                         }
-                        "HashMap" | "BTreeMap" => {
+                        "BTreeMap" | "HashMap" => {
                             return Some(
-                                "HashMap/BTreeMap are not C-compatible. Use a custom map type."
+                                "BTreeMap/HashMap are not C-compatible. Use a custom map type."
                                     .to_string(),
                             );
                         }
@@ -456,9 +456,9 @@ impl<'a> TypeResolver<'a> {
                                     .to_string(),
                             );
                         }
-                        "HashSet" | "BTreeSet" => {
+                        "BTreeSet" | "HashSet" => {
                             return Some(
-                                "HashSet/BTreeSet are not C-compatible. Use a custom set type."
+                                "BTreeSet/HashSet are not C-compatible. Use a custom set type."
                                     .to_string(),
                             );
                         }
@@ -755,9 +755,9 @@ fn check_type_c_compatibility(ty: &Type) -> Option<String> {
                             "String is not C-compatible. Use AzString instead.".to_string(),
                         )
                     }
-                    "HashMap" | "BTreeMap" => {
+                    "BTreeMap" | "HashMap" => {
                         return Some(
-                            "HashMap/BTreeMap are not C-compatible. Use a custom map type."
+                            "BTreeMap/HashMap are not C-compatible. Use a custom map type."
                                 .to_string(),
                         )
                     }
@@ -768,9 +768,9 @@ fn check_type_c_compatibility(ty: &Type) -> Option<String> {
                                 .to_string(),
                         )
                     }
-                    "HashSet" | "BTreeSet" => {
+                    "BTreeSet" | "HashSet" => {
                         return Some(
-                            "HashSet/BTreeSet are not C-compatible. Use a custom set type."
+                            "BTreeSet/HashSet are not C-compatible. Use a custom set type."
                                 .to_string(),
                         )
                     }
@@ -1281,13 +1281,13 @@ mod tests {
         // They become *const c_void in the C API
         assert!(check_c_compatibility("*const String").is_none());
         assert!(check_c_compatibility("*mut Vec<i32>").is_none());
-        assert!(check_c_compatibility("*const HashMap<String, i32>").is_none());
+        assert!(check_c_compatibility("*const BTreeMap<String, i32>").is_none());
 
         // Non-C-compatible types (when NOT behind a pointer)
         assert!(check_c_compatibility("Vec<FontCache>").is_some());
         assert!(check_c_compatibility("String").is_some());
         assert!(check_c_compatibility("&FontCache").is_some());
-        assert!(check_c_compatibility("HashMap<String, i32>").is_some());
+        assert!(check_c_compatibility("BTreeMap<String, i32>").is_some());
     }
 
     #[test]

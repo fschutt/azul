@@ -3,7 +3,7 @@
 //! This module defines the mapping from type names to api.json modules.
 //! The mapping is based on semantic grouping rather than source file location.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Canonical module names in api.json
 pub const MODULES: &[&str] = &[
@@ -30,8 +30,8 @@ pub const MODULES: &[&str] = &[
 
 /// Keywords that map to specific modules
 /// If a type name contains any of these keywords (case-insensitive), it goes to that module
-pub fn get_module_keywords() -> HashMap<&'static str, Vec<&'static str>> {
-    let mut map = HashMap::new();
+pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
+    let mut map = BTreeMap::new();
 
     // Vec module - all vector types and their destructors
     map.insert(

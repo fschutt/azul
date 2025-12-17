@@ -645,10 +645,10 @@ fn format_style_background_size(c: &StyleBackgroundSize) -> String {
     match c {
         StyleBackgroundSize::Contain => String::from("StyleBackgroundSize::Contain"),
         StyleBackgroundSize::Cover => String::from("StyleBackgroundSize::Cover"),
-        StyleBackgroundSize::ExactSize([w, h]) => format!(
-            "StyleBackgroundSize::ExactSize([{}, {}])",
-            format_pixel_value(w),
-            format_pixel_value(h)
+        StyleBackgroundSize::ExactSize(size) => format!(
+            "StyleBackgroundSize::ExactSize(PixelValueSize {{ width: {}, height: {} }})",
+            format_pixel_value(&size.width),
+            format_pixel_value(&size.height)
         ),
     }
 }

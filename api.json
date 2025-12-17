@@ -1937,6 +1937,16 @@
               "C-ABI wrapper over an `IFrameCallbackType`"
             ],
             "external": "azul_core::callbacks::IFrameCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -2556,7 +2566,15 @@
             ],
             "external": "azul_core::callbacks::LayoutCallback",
             "custom_impls": [
-              "Default"
+              "Clone",
+              "Debug",
+              "Default",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -5680,8 +5698,23 @@
           },
           "ListViewOnColumnClickCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClickCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -5818,8 +5851,23 @@
           },
           "ListViewOnRowClickCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnRowClickCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -5919,8 +5967,23 @@
           },
           "CheckBoxOnToggleCallback": {
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggleCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -5936,8 +5999,23 @@
           },
           "TabOnClickCallback": {
             "external": "azul_layout::widgets::tabs::TabOnClickCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -5981,8 +6059,23 @@
           },
           "ListViewOnLazyLoadScrollCallback": {
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScrollCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -6189,8 +6282,23 @@
           },
           "ButtonOnClickCallback": {
             "external": "azul_layout::widgets::button::ButtonOnClickCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -6479,6 +6587,15 @@
           },
           "Callback": {
             "external": "azul_layout::callbacks::Callback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -6495,6 +6612,15 @@
           },
           "RenderImageCallback": {
             "external": "azul_layout::callbacks::RenderImageCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -8485,6 +8611,36 @@
             ],
             "repr": "C"
           },
+          "PixelValueSize": {
+            "doc": [
+              "Two-dimensional size in PixelValue units (width, height)",
+              "Used for background-size and similar properties"
+            ],
+            "external": "azul_css::props::style::background::PixelValueSize",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "width": {
+                  "type": "PixelValue"
+                }
+              },
+              {
+                "height": {
+                  "type": "PixelValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
           "PixelValueNoPercent": {
             "doc": [
               "Same as PixelValue, but doesn't allow a \"%\" sign"
@@ -10439,7 +10595,7 @@
             "enum_fields": [
               {
                 "ExactSize": {
-                  "type": "[PixelValue;2]"
+                  "type": "PixelValueSize"
                 }
               },
               {
@@ -14520,12 +14676,31 @@
           },
           "GridAutoTracks": {
             "doc": [
-              "Type alias for GridTemplate"
+              "Represents grid-auto-columns or grid-auto-rows",
+              "Structurally identical to GridTemplate but semantically different"
             ],
             "external": "azul_css::props::layout::grid::GridAutoTracks",
-            "type_alias": {
-              "target": "GridTemplate"
-            }
+            "custom_impls": [
+              "Debug",
+              "Default",
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "tracks": {
+                  "type": "GridTrackSizingVec"
+                }
+              }
+            ],
+            "repr": "C"
           },
           "PageBreak": {
             "doc": [
@@ -17319,8 +17494,23 @@
           },
           "ButtonOnClick": {
             "external": "azul_layout::widgets::button::ButtonOnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -17527,8 +17717,23 @@
           },
           "FileInputOnPathChange": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -17544,8 +17749,23 @@
           },
           "FileInputOnPathChangeCallback": {
             "external": "azul_layout::widgets::file_input::FileInputOnPathChangeCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -17678,8 +17898,23 @@
           },
           "CheckBoxOnToggle": {
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggle",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -17841,8 +18076,23 @@
           },
           "ColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -17858,8 +18108,23 @@
           },
           "ColorInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::color_input::ColorInputOnValueChangeCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18283,8 +18548,23 @@
           },
           "TextInputOnTextInput": {
             "external": "azul_layout::widgets::text_input::TextInputOnTextInput",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18300,8 +18580,23 @@
           },
           "TextInputOnTextInputCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnTextInputCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18317,8 +18612,23 @@
           },
           "TextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDown",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18334,8 +18644,23 @@
           },
           "TextInputOnVirtualKeyDownCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnVirtualKeyDownCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18351,8 +18676,23 @@
           },
           "TextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLost",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18368,8 +18708,23 @@
           },
           "TextInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::text_input::TextInputOnFocusLostCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18730,8 +19085,23 @@
           },
           "NumberInputOnValueChange": {
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18747,8 +19117,23 @@
           },
           "NumberInputOnValueChangeCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnValueChangeCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18764,8 +19149,23 @@
           },
           "NumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLost",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -18781,8 +19181,23 @@
           },
           "NumberInputOnFocusLostCallback": {
             "external": "azul_layout::widgets::number_input::NumberInputOnFocusLostCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -19053,8 +19468,23 @@
           },
           "TabOnClick": {
             "external": "azul_layout::widgets::tabs::TabOnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -19300,8 +19730,23 @@
           },
           "ListViewOnLazyLoadScroll": {
             "external": "azul_layout::widgets::list_view::ListViewOnLazyLoadScroll",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -19317,8 +19762,23 @@
           },
           "ListViewOnColumnClick": {
             "external": "azul_layout::widgets::list_view::ListViewOnColumnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -19334,8 +19794,23 @@
           },
           "ListViewOnRowClick": {
             "external": "azul_layout::widgets::list_view::ListViewOnRowClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
-              "Debug"
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -40149,9 +40624,23 @@
           },
           "OptionListViewOnRowClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnRowClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40167,9 +40656,23 @@
           },
           "OptionListViewOnColumnClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnColumnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40185,9 +40688,23 @@
           },
           "OptionListViewOnLazyLoadScroll": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnLazyLoadScroll",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40250,9 +40767,23 @@
           },
           "OptionColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::OptionColorInputOnValueChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40268,9 +40799,23 @@
           },
           "OptionButtonOnClick": {
             "external": "azul_layout::widgets::button::OptionButtonOnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40286,9 +40831,23 @@
           },
           "OptionTabOnClick": {
             "external": "azul_layout::widgets::tabs::OptionTabOnClick",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40304,9 +40863,23 @@
           },
           "OptionFileInputOnPathChange": {
             "external": "azul_layout::widgets::file_input::OptionFileInputOnPathChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40322,9 +40895,23 @@
           },
           "OptionCheckBoxOnToggle": {
             "external": "azul_layout::widgets::check_box::OptionCheckBoxOnToggle",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40340,9 +40927,23 @@
           },
           "OptionTextInputOnTextInput": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnTextInput",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40358,9 +40959,23 @@
           },
           "OptionTextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnVirtualKeyDown",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40376,9 +40991,23 @@
           },
           "OptionTextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnFocusLost",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40415,9 +41044,23 @@
           },
           "OptionNumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnFocusLost",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
-              "Clone"
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -40433,9 +41076,23 @@
           },
           "OptionNumberInputOnValueChange": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnValueChange",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "derive": [
               "Clone",
-              "Debug"
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "enum_fields": [
               {

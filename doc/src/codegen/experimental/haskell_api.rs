@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use indexmap::IndexMap;
 use crate::{
     api::{ApiData, ClassData, FunctionData, EnumVariantData, StructFieldData},
@@ -20,8 +20,8 @@ const PREFIX: &str = "Az";
 /// Returns a map of Filename -> Content
 /// Generates:
 /// 1. `Azul/Raw.hsc` - Low-level FFI bindings (safe/unsafe pointers, Storable instances)
-pub fn generate_haskell_bindings(api_data: &ApiData, version: &str) -> HashMap<String, String> {
-    let mut files = HashMap::new();
+pub fn generate_haskell_bindings(api_data: &ApiData, version: &str) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
     let version_data = api_data.get_version(version).unwrap();
     let mut hsc = String::new();
 

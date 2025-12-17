@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use crate::{
     api::{ApiData, ClassData, EnumVariantData, StructFieldData},
     utils::analyze::{analyze_type, is_primitive_arg},

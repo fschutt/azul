@@ -3,7 +3,7 @@
 //! This module defines which crates should be used for type resolution
 //! and their priority order.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Priority level for a crate
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

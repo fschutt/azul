@@ -539,7 +539,7 @@ pub fn explain_patches(dir_path: &Path) -> Result<()> {
 /// Uses determine_module to figure out where each type should be
 /// Returns the number of duplicates removed
 pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use crate::autofix::module_map::determine_module;
 
@@ -547,7 +547,7 @@ pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
 
     for (_version_name, version_data) in &mut api_data.0 {
         // First pass: collect all locations for each type name
-        let mut type_locations: HashMap<String, Vec<String>> = HashMap::new();
+        let mut type_locations: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
         for (module_name, module_data) in &version_data.api {
             for class_name in module_data.classes.keys() {

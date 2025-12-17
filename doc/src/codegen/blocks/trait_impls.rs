@@ -6,7 +6,7 @@
 
 use super::config::CodegenConfig;
 use crate::codegen::struct_gen::StructMetadata;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Generate trait implementations for VecDestructor types
 /// (Debug, PartialEq, PartialOrd, Eq, Ord, Hash)

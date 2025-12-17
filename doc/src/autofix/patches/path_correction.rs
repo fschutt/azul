@@ -3,7 +3,7 @@
 //! This module generates patches to correct type paths in api.json
 //! to match the actual locations in the workspace.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::autofix::discovery::{crates::is_path_blacklisted, TypeLocation, WorkspaceIndex};
 

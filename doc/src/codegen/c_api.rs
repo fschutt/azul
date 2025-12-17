@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use anyhow::{bail, Result};
 use indexmap::IndexMap;
@@ -905,8 +905,8 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
     // Phase 2.5: Simple enum definitions BEFORE callbacks
     // This is needed because callbacks may use enum types as return values
     code.push_str("/* SIMPLE ENUM DEFINITIONS (needed before callbacks) */\r\n\r\n");
-    let mut enums_already_generated: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut enums_already_generated: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
 
     for (struct_name, class_data) in &structs {
         if class_data.callback_typedef.is_some() {
@@ -1610,7 +1610,7 @@ pub struct SortedStructs<'a> {
     /// Structs in dependency order (types with no dependencies first)
     pub structs: IndexMap<String, &'a crate::api::ClassData>,
     /// Types that need forward declarations (recursive types like DomVec → Dom)
-    pub forward_declarations: HashMap<String, String>,
+    pub forward_declarations: BTreeMap<String, String>,
 }
 
 /// Helper function to check if a type name is a generic type parameter (single uppercase letter)
@@ -1679,9 +1679,9 @@ fn calculate_dependency_depths(
     all_structs: &IndexMap<String, &crate::api::ClassData>,
     version_data: &crate::api::VersionData,
     prefix: &str,
-    forward_declarations: &HashMap<String, String>,
-) -> HashMap<String, usize> {
-    let mut depths: HashMap<String, usize> = HashMap::new();
+    forward_declarations: &BTreeMap<String, String>,
+) -> BTreeMap<String, usize> {
+    let mut depths: BTreeMap<String, usize> = BTreeMap::new();
     let mut changed = true;
 
     // Initialize: callbacks and types with only primitives have depth 0
@@ -1797,7 +1797,7 @@ pub fn sort_structs_by_dependencies<'a>(
     // Forward declarations for recursive types
     // Automatically add all Vec types from the "vec" module - they contain their element type
     // which may create circular dependencies
-    let mut forward_declarations = HashMap::new();
+    let mut forward_declarations = BTreeMap::new();
 
     // Find Vec types and add forward declarations for their element types
     for (_module_name, module) in &version_data.api {

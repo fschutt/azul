@@ -3,7 +3,7 @@
 //! This module compares the methods from source code with functions in api.json
 //! and provides tools to list, add, and remove functions.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use indexmap::IndexMap;
 
@@ -119,7 +119,7 @@ pub fn compare_type_functions(
     let api_class = find_api_class(&type_def.type_name, version_data)?;
 
     // Get source methods (only public ones)
-    let source_methods: HashMap<String, &MethodDef> = type_def
+    let source_methods: BTreeMap<String, &MethodDef> = type_def
         .methods
         .iter()
         .filter(|m| m.is_public)
@@ -127,7 +127,7 @@ pub fn compare_type_functions(
         .collect();
 
     // Get api.json functions (both constructors and regular functions)
-    let mut api_functions: HashSet<String> = HashSet::new();
+    let mut api_functions: BTreeSet<String> = BTreeSet::new();
     if let Some(ref fns) = api_class.functions {
         api_functions.extend(fns.keys().cloned());
     }
@@ -135,7 +135,7 @@ pub fn compare_type_functions(
         api_functions.extend(ctors.keys().cloned());
     }
 
-    let source_names: HashSet<String> = source_methods.keys().cloned().collect();
+    let source_names: BTreeSet<String> = source_methods.keys().cloned().collect();
 
     // Missing in API (in source but not in api.json)
     let missing_in_api: Vec<FunctionInfo> = source_names
@@ -164,7 +164,7 @@ pub fn compare_type_functions(
 /// Find differences between source methods and api.json functions
 fn find_function_differences(
     matching: &[String],
-    source_methods: &HashMap<String, &MethodDef>,
+    source_methods: &BTreeMap<String, &MethodDef>,
     api_class: &ClassData,
 ) -> Vec<FunctionDiff> {
     let mut differences = Vec::new();
@@ -1032,11 +1032,11 @@ pub fn generate_add_type_patches(
     };
 
     // Track which types we've already processed to avoid infinite loops
-    let mut processed: HashSet<String> = HashSet::new();
+    let mut processed: BTreeSet<String> = BTreeSet::new();
     let mut to_process: Vec<String> = vec![type_name.to_string()];
 
     // Primitives that don't need to be added
-    let primitives: HashSet<&str> = [
+    let primitives: BTreeSet<&str> = [
         "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
         "f32", "f64", "bool", "char", "c_void", "String", "()", "Self",
     ]

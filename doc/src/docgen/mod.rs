@@ -3,7 +3,7 @@ pub mod blog;
 pub mod donate;
 mod guide;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     path::Path,
 };
 
@@ -23,8 +23,8 @@ pub fn generate_docs(
     imageoutput_path: &Path,
     imageoutput_url: &str,
     inline_css: bool,
-) -> anyhow::Result<HashMap<String, String>> {
-    let mut docs = HashMap::new();
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut docs = BTreeMap::new();
 
     // Generate main index.html
     docs.insert(

@@ -9,7 +9,7 @@
 //! original core types (e.g., `dom.set_children(children)`), but the generated
 //! C-ABI functions receive Az-prefixed types (e.g., `AzDom`, `AzDomVec`).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Information about a function argument
 #[derive(Debug, Clone, PartialEq)]
@@ -167,7 +167,7 @@ pub fn parse_type_info(type_str: &str) -> (bool, bool, String) {
 }
 
 /// Convert an Az-prefixed type to its core type path
-pub fn az_type_to_core_type(az_type: &str, type_map: &HashMap<String, String>) -> String {
+pub fn az_type_to_core_type(az_type: &str, type_map: &BTreeMap<String, String>) -> String {
     // Check if we have a mapping
     if let Some(core_path) = type_map.get(az_type) {
         return core_path.clone();
@@ -221,8 +221,8 @@ fn is_primitive_type(t: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn make_type_map() -> HashMap<String, String> {
-        let mut map = HashMap::new();
+    fn make_type_map() -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
         map.insert("AzDom".to_string(), "azul_core::dom::Dom".to_string());
         map.insert("AzDomVec".to_string(), "azul_core::dom::DomVec".to_string());
         map.insert(

@@ -576,8 +576,8 @@ pub fn autofix_api(
     let mut patch_count = 0;
 
     // Group modifications by type name
-    let mut mods_by_type: std::collections::HashMap<String, Vec<&diff::TypeModification>> =
-        std::collections::HashMap::new();
+    let mut mods_by_type: std::collections::BTreeMap<String, Vec<&diff::TypeModification>> =
+        std::collections::BTreeMap::new();
     for modification in &diff.modifications {
         mods_by_type
             .entry(modification.type_name.clone())
@@ -586,14 +586,14 @@ pub fn autofix_api(
     }
 
     // Find path fixes for types that also have modifications
-    let mut path_fixes_by_type: std::collections::HashMap<String, &diff::PathFix> =
-        std::collections::HashMap::new();
+    let mut path_fixes_by_type: std::collections::BTreeMap<String, &diff::PathFix> =
+        std::collections::BTreeMap::new();
     for fix in &diff.path_fixes {
         path_fixes_by_type.insert(fix.type_name.clone(), fix);
     }
 
     // Generate combined patches for types with both path fixes and modifications
-    let mut handled_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut handled_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for (type_name, mods) in &mods_by_type {
         let path_fix = path_fixes_by_type.get(type_name);
@@ -1166,10 +1166,10 @@ pub fn check_ffi_safety(
     index: &type_index::TypeIndex,
     api_data: &ApiData,
 ) -> Vec<FfiSafetyWarning> {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, BTreeSet};
 
     // Build a set of type names that exist in api.json
-    let api_types: HashSet<String> = api_data
+    let api_types: BTreeSet<String> = api_data
         .0
         .values()
         .flat_map(|version| version.api.values())
@@ -1181,7 +1181,7 @@ pub fn check_ffi_safety(
 
     // Check for duplicate type names first
     // Build a map of type_name -> list of (file path, is_generic)
-    let mut type_locations: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+    let mut type_locations: BTreeMap<String, Vec<(String, bool)>> = BTreeMap::new();
     for (type_name, defs) in index.iter_all() {
         if !api_types.contains(type_name) {
             continue;

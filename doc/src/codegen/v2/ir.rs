@@ -4,7 +4,7 @@
 //! API surface in a language-agnostic way. The IR is built from api.json
 //! and then consumed by language-specific generators.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use indexmap::IndexMap;
 
 // ============================================================================
@@ -36,10 +36,10 @@ pub struct CodegenIR {
     pub callback_typedefs: Vec<CallbackTypedefDef>,
 
     /// Lookup table: type name → module name
-    pub type_to_module: HashMap<String, String>,
+    pub type_to_module: BTreeMap<String, String>,
 
     /// Lookup table: type name → external path (e.g., "azul_core::dom::Dom")
-    pub type_to_external: HashMap<String, String>,
+    pub type_to_external: BTreeMap<String, String>,
 }
 
 impl CodegenIR {
@@ -52,8 +52,8 @@ impl CodegenIR {
             type_aliases: Vec::new(),
             constants: Vec::new(),
             callback_typedefs: Vec::new(),
-            type_to_module: HashMap::new(),
-            type_to_external: HashMap::new(),
+            type_to_module: BTreeMap::new(),
+            type_to_external: BTreeMap::new(),
         }
     }
 
@@ -179,6 +179,20 @@ pub struct StructDef {
     /// Determines how this type is handled by language generators
     pub category: TypeCategory,
 
+    // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
+    
+    /// Types this struct depends on (field types, excluding primitives)
+    /// Used by C/C++ backends for topological sorting
+    pub dependencies: Vec<String>,
+    
+    /// Sort order for C/C++ output (lower = earlier)
+    /// Computed by topological sort of dependencies
+    pub sort_order: usize,
+    
+    /// Whether this type needs a forward declaration in C/C++
+    /// True if the type is referenced before its definition
+    pub needs_forward_decl: bool,
+
     /// If this is a callback wrapper struct, contains info about the wrapped callback
     /// A callback wrapper has:
     /// - A field with a callback_typedef type (the function pointer)
@@ -288,6 +302,20 @@ pub struct EnumDef {
     /// Type category for code generation
     /// Determines how this type is handled by language generators
     pub category: TypeCategory,
+
+    // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
+    
+    /// Types this enum depends on (variant payload types, excluding primitives)
+    /// Used by C/C++ backends for topological sorting
+    pub dependencies: Vec<String>,
+    
+    /// Sort order for C/C++ output (lower = earlier)
+    /// Computed by topological sort of dependencies
+    pub sort_order: usize,
+    
+    /// Whether this type needs a forward declaration in C/C++
+    /// True if the type is referenced before its definition
+    pub needs_forward_decl: bool,
 }
 
 /// Enum variant definition
@@ -503,13 +531,19 @@ pub enum ArgRefKind {
 // ============================================================================
 
 /// Type alias definition (e.g., `type GLenum = u32;`)
+/// 
+/// For generic type aliases like `CaretColorValue = CssPropertyValue<CaretColor>`,
+/// the `monomorphized_def` field contains the instantiated enum/struct definition.
 #[derive(Debug, Clone)]
 pub struct TypeAliasDef {
     /// Alias name
     pub name: String,
 
-    /// Target type
+    /// Target type (e.g., "u32" or "CssPropertyValue")
     pub target: String,
+
+    /// Generic arguments for the target type (e.g., ["CaretColor"] for CssPropertyValue<CaretColor>)
+    pub generic_args: Vec<String>,
 
     /// Documentation
     pub doc: Vec<String>,
@@ -519,6 +553,60 @@ pub struct TypeAliasDef {
     
     /// External path (from api.json "external" field)
     pub external_path: Option<String>,
+
+    // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
+    
+    /// If this is a generic type alias, this contains the monomorphized enum definition
+    /// For example, `CaretColorValue = CssPropertyValue<CaretColor>` becomes a concrete enum
+    /// with variants like Auto, None, Inherit, Initial, Exact(CaretColor)
+    pub monomorphized_def: Option<MonomorphizedTypeDef>,
+    
+    /// Types this alias depends on
+    pub dependencies: Vec<String>,
+    
+    /// Sort order for C/C++ output
+    pub sort_order: usize,
+}
+
+/// A monomorphized type definition created from a generic type alias
+/// 
+/// When a type alias points to a generic type (e.g., CssPropertyValue<T>),
+/// we need to instantiate it with concrete types for C/C++ code generation.
+#[derive(Debug, Clone)]
+pub struct MonomorphizedTypeDef {
+    /// The kind of monomorphized type (enum union, simple enum, or struct)
+    pub kind: MonomorphizedKind,
+}
+
+/// The kind of monomorphized type
+#[derive(Debug, Clone)]
+pub enum MonomorphizedKind {
+    /// A tagged union (enum with data in variants)
+    /// Contains the tag enum name and the variants
+    TaggedUnion {
+        /// The repr attribute (e.g., "C, u8")
+        repr: Option<String>,
+        /// The variants of the enum
+        variants: Vec<MonomorphizedVariant>,
+    },
+    /// A simple enum (no data in variants)
+    SimpleEnum {
+        repr: Option<String>,
+        variants: Vec<String>,
+    },
+    /// A struct
+    Struct {
+        fields: Vec<FieldDef>,
+    },
+}
+
+/// A variant in a monomorphized tagged union
+#[derive(Debug, Clone)]
+pub struct MonomorphizedVariant {
+    /// Variant name (e.g., "Auto", "Exact")
+    pub name: String,
+    /// Payload type if any (already substituted with concrete types)
+    pub payload_type: Option<String>,
 }
 
 // ============================================================================
@@ -570,6 +658,16 @@ pub struct CallbackTypedefDef {
 
     /// External path (e.g., "azul_core::callbacks::LayoutCallbackType")
     pub external_path: Option<String>,
+
+    // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
+    
+    /// Types this callback depends on (argument types and return type, excluding primitives)
+    /// Used by C/C++ backends for topological sorting
+    pub dependencies: Vec<String>,
+    
+    /// Sort order for C/C++ output (lower = earlier)
+    /// Computed by topological sort of dependencies
+    pub sort_order: usize,
 }
 
 // ============================================================================

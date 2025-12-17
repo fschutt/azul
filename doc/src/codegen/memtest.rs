@@ -2,7 +2,7 @@
 // This module generates a complete test crate that validates memory layouts
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::Path,
 };
@@ -21,7 +21,7 @@ pub type Result<T> = std::result::Result<T, String>;
 #[derive(Debug)]
 pub struct TypeReplacements {
     /// Set of all type names that need prefixing
-    pub type_names: HashSet<String>,
+    pub type_names: BTreeSet<String>,
 }
 
 impl TypeReplacements {
@@ -29,7 +29,7 @@ impl TypeReplacements {
         println!("      [BUILD] Collecting type names for replacement...");
 
         // Collect all type names from api.json
-        let mut type_names = HashSet::new();
+        let mut type_names = BTreeSet::new();
         for module_data in version_data.api.values() {
             for class_name in module_data.classes.keys() {
                 // Skip special cases and primitive types
@@ -665,9 +665,9 @@ pub fn build_type_to_external_map(
     version_data: &VersionData,
     prefix: &str,
     is_for_dll: bool,
-) -> std::collections::HashMap<String, String> {
-    let mut type_to_external: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+) -> std::collections::BTreeMap<String, String> {
+    let mut type_to_external: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for module_data in version_data.api.values() {
         for (class_name, class_data) in &module_data.classes {
             if let Some(external) = &class_data.external {
@@ -813,7 +813,7 @@ fn generate_dll_module(
     // Collect all structs for this version
     // Use entry API to prefer versions with struct_fields/enum_fields over empty external
     // references
-    let mut structs_map: HashMap<String, StructMetadata> = HashMap::new();
+    let mut structs_map: BTreeMap<String, StructMetadata> = BTreeMap::new();
     for (_module_name, module_data) in &version_data.api {
         for (class_name, class_data) in &module_data.classes {
             // Skip primitive types and generic type parameters
@@ -1213,8 +1213,8 @@ fn generate_dll_module(
     // when a struct has exactly one field whose type is a callback_typedef
 
     // Build a map from prefixed type name to external path for custom_impl types
-    let mut type_to_external: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut type_to_external: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for module_data in version_data.api.values() {
         for (class_name, class_data) in &module_data.classes {
             if let Some(external) = &class_data.external {
@@ -1410,7 +1410,7 @@ fn generate_dll_module(
                         config.is_for_dll,
                         false, // C-API uses class_name for self variable, not "self"
                         false, // No force_clone_self for C-API
-                        &std::collections::HashSet::new(), // No pre-converted args for C-API
+                        &std::collections::BTreeSet::new(), // No pre-converted args for C-API
                     )
                 } else {
                     // No fn_body in api.json - ERROR! All functions must have fn_body defined
@@ -1580,12 +1580,12 @@ pub fn generate_transmuted_fn_body(
     is_constructor: bool,
     return_type: &str,
     prefix: &str,
-    type_to_external: &std::collections::HashMap<String, String>,
+    type_to_external: &std::collections::BTreeMap<String, String>,
     fn_args: &str,
     is_for_dll: bool,
     keep_self_name: bool, // If true, use "_self" for self parameter (for PyO3 bindings)
     force_clone_self: bool, // If true, always clone self (for PyO3 methods where API says self by-value)
-    skip_args: &std::collections::HashSet<String>, // Arguments to skip (already converted with _ffi suffix)
+    skip_args: &std::collections::BTreeSet<String>, // Arguments to skip (already converted with _ffi suffix)
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
@@ -1991,7 +1991,7 @@ fn process_patch_content(
 fn generate_class_definition(
     class_name: &str,
     class_data: &ClassData,
-    class_map: &std::collections::HashMap<String, ClassData>,
+    class_map: &std::collections::BTreeMap<String, ClassData>,
 ) -> Result<String> {
     // This function is no longer used - kept for compatibility
     // All generation is now handled by struct_gen module

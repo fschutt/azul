@@ -5,7 +5,7 @@
 //! and other types that may not be found through cargo metadata.
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use syn::{File, Item};
 
 /// Cache for Cargo.toml crate names mapped to their directories
-type CrateNameCache = HashMap<PathBuf, String>;
+type CrateNameCache = BTreeMap<PathBuf, String>;
 
 /// Search the entire workspace for a type definition by walking all .rs files
 ///
@@ -60,7 +60,7 @@ pub fn find_type_in_workspace(project_root: &Path, type_name: &str) -> Result<(S
 
 /// Build a cache mapping crate directories to their crate names
 fn build_crate_name_cache(project_root: &Path) -> Result<CrateNameCache> {
-    let mut cache = HashMap::new();
+    let mut cache = BTreeMap::new();
 
     // Find all Cargo.toml files
     let cargo_tomls = find_cargo_tomls(project_root)?;
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_crate_name_normalization() {
-        let cache = HashMap::from([(PathBuf::from("/test/azul-core"), "azul_core".to_string())]);
+        let cache = BTreeMap::from([(PathBuf::from("/test/azul-core"), "azul_core".to_string())]);
         assert_eq!(
             cache.get(&PathBuf::from("/test/azul-core")).unwrap(),
             "azul_core"

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use indexmap::IndexMap;
 use crate::{
     api::{ApiData, ClassData, FunctionData, EnumVariantData, StructFieldData},
@@ -167,8 +167,8 @@ fn to_snake_case(s: &str) -> String {
     res
 }
 
-pub fn generate_erlang_binding(api_data: &ApiData, version: &str) -> HashMap<String, String> {
-    let mut files = HashMap::new();
+pub fn generate_erlang_binding(api_data: &ApiData, version: &str) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
     let version_data = api_data.get_version(version).unwrap();
 
     // ---------------------------------------------------------

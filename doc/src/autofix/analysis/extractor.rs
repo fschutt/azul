@@ -3,7 +3,7 @@
 //! This module extracts type references from api.json data structures,
 //! properly handling the special cases like "self" in fn_args.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use crate::autofix::types::{
     borrow::{BorrowMode, ParsedFnArgs},
@@ -14,7 +14,7 @@ use crate::autofix::types::{
 pub struct ApiTypeExtractor {
     parser: TypeParser,
     /// Collected valid type names
-    pub types: HashSet<String>,
+    pub types: BTreeSet<String>,
     /// Invalid type strings found (for diagnostics)
     pub invalid: Vec<String>,
 }
@@ -29,7 +29,7 @@ impl ApiTypeExtractor {
     pub fn new() -> Self {
         Self {
             parser: TypeParser::new(),
-            types: HashSet::new(),
+            types: BTreeSet::new(),
             invalid: Vec::new(),
         }
     }
@@ -167,7 +167,7 @@ impl ApiTypeExtractor {
     }
 
     /// Get all valid extracted types
-    pub fn get_types(&self) -> &HashSet<String> {
+    pub fn get_types(&self) -> &BTreeSet<String> {
         &self.types
     }
 }

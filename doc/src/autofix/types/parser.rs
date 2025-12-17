@@ -7,7 +7,7 @@
 //! - User-defined types (structs, enums from the workspace)
 //! - Invalid/bogus type strings ("ref", "value", etc.)
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use super::borrow::BorrowMode;
 
@@ -46,7 +46,7 @@ pub enum ParsedType {
 
 impl ParsedType {
     /// Returns all user-defined type names referenced by this type
-    pub fn collect_user_types(&self, out: &mut HashSet<String>) {
+    pub fn collect_user_types(&self, out: &mut BTreeSet<String>) {
         match self {
             ParsedType::Primitive(_) => {}
             ParsedType::Pointer { inner, .. } => inner.collect_user_types(out),
@@ -101,9 +101,9 @@ pub struct ParseError {
 /// Type parser with validation
 pub struct TypeParser {
     /// Known primitive type names
-    primitives: HashSet<String>,
+    primitives: BTreeSet<String>,
     /// Known built-in generic type names
-    builtin_generics: HashSet<String>,
+    builtin_generics: BTreeSet<String>,
 }
 
 impl Default for TypeParser {
@@ -114,7 +114,7 @@ impl Default for TypeParser {
 
 impl TypeParser {
     pub fn new() -> Self {
-        let primitives: HashSet<String> = [
+        let primitives: BTreeSet<String> = [
             "bool", "char", "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64",
             "i128", "isize", "f32", "f64", "()", "c_void",
         ]
@@ -122,7 +122,7 @@ impl TypeParser {
         .map(|s| s.to_string())
         .collect();
 
-        let builtin_generics: HashSet<String> = [
+        let builtin_generics: BTreeSet<String> = [
             "Option",
             "Vec",
             "Result",
@@ -133,8 +133,8 @@ impl TypeParser {
             "Cell",
             "Mutex",
             "RwLock",
-            "HashMap",
-            "HashSet",
+            "BTreeMap",
+            "BTreeSet",
             "BTreeMap",
             "BTreeSet",
             "Cow",
@@ -340,8 +340,8 @@ fn is_builtin_generic(name: &str) -> bool {
             | "Cell"
             | "Mutex"
             | "RwLock"
-            | "HashMap"
-            | "HashSet"
+            | "BTreeMap"
+            | "BTreeSet"
             | "BTreeMap"
             | "BTreeSet"
             | "Cow"
@@ -435,7 +435,7 @@ mod tests {
     fn test_collect_user_types() {
         let parser = TypeParser::new();
         let ty = parser.parse("Option<Vec<CssProperty>>");
-        let mut types = HashSet::new();
+        let mut types = BTreeSet::new();
         ty.collect_user_types(&mut types);
         assert!(types.contains("CssProperty"));
         assert!(!types.contains("Option"));

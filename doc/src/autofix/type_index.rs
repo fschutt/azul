@@ -7,7 +7,7 @@
 //! - Build a fast lookup index
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -671,9 +671,9 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
 #[derive(Debug, Default)]
 pub struct TypeIndex {
     /// Map from simple type name to all definitions with that name
-    by_name: HashMap<String, Vec<Arc<TypeDefinition>>>,
+    by_name: BTreeMap<String, Vec<Arc<TypeDefinition>>>,
     /// Map from full path to definition
-    by_path: HashMap<String, Arc<TypeDefinition>>,
+    by_path: BTreeMap<String, Arc<TypeDefinition>>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -2219,8 +2219,8 @@ fn extract_derives(attrs: &[syn::Attribute]) -> Vec<String> {
 
 /// Extract custom trait implementations from `impl Trait for Type` blocks.
 /// Returns a map from type name to list of implemented traits.
-fn extract_custom_impls_from_items(items: &[Item]) -> HashMap<String, Vec<String>> {
-    let mut custom_impls: HashMap<String, Vec<String>> = HashMap::new();
+fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<String>> {
+    let mut custom_impls: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for item in items {
         if let Item::Impl(impl_item) = item {
@@ -2372,8 +2372,8 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
 
 /// Extract inherent methods from impl blocks (not trait impls)
 /// Returns a map from type name to list of methods
-fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<MethodDef>> {
-    let mut methods_map: HashMap<String, Vec<MethodDef>> = HashMap::new();
+fn extract_inherent_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec<MethodDef>> {
+    let mut methods_map: BTreeMap<String, Vec<MethodDef>> = BTreeMap::new();
 
     for item in items {
         if let Item::Impl(impl_item) = item {
@@ -2429,8 +2429,8 @@ fn extract_inherent_methods_from_items(items: &[Item]) -> HashMap<String, Vec<Me
 /// 
 /// For example, `fn foo<C: Into<Callback>>(callback: C)` would return {"C" -> "Callback"}
 /// This allows us to "desugar" generic callback parameters back to concrete types for api.json.
-fn extract_into_bounds(sig: &syn::Signature) -> HashMap<String, String> {
-    let mut into_map = HashMap::new();
+fn extract_into_bounds(sig: &syn::Signature) -> BTreeMap<String, String> {
+    let mut into_map = BTreeMap::new();
     
     for param in &sig.generics.params {
         if let syn::GenericParam::Type(type_param) = param {
@@ -3167,7 +3167,7 @@ pub struct OnTextInputReturn {
         let types = extract_types_from_source(source);
 
         // Build a lookup map by type name for easier assertions
-        let type_map: std::collections::HashMap<&str, &TypeDefinition> =
+        let type_map: std::collections::BTreeMap<&str, &TypeDefinition> =
             types.iter().map(|t| (t.type_name.as_str(), t)).collect();
 
         // // verify struct extractions

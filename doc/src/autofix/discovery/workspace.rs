@@ -4,7 +4,7 @@
 //! and their locations.
 
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -33,9 +33,9 @@ pub struct TypeLocation {
 pub struct WorkspaceIndex {
     /// Map from type name to all locations where it's defined
     /// (Some types might be defined in multiple crates)
-    pub types: HashMap<String, Vec<TypeLocation>>,
+    pub types: BTreeMap<String, Vec<TypeLocation>>,
     /// Map from full path to type name
-    pub path_to_name: HashMap<String, String>,
+    pub path_to_name: BTreeMap<String, String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
