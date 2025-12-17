@@ -25,7 +25,7 @@ macro_rules! impl_callback {
         $callback_value:ident,
         $callback_ty:ident
     ) => {
-        #[derive(Debug, Clone, PartialEq, PartialOrd)]
+        #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
         #[repr(C)]
         pub struct $callback_wrapper {
             pub data: RefAny,
@@ -44,7 +44,7 @@ macro_rules! impl_callback {
             $callback_wrapper,
             $option_callback_wrapper,
             copy = false,
-            [Debug, Clone, PartialEq, PartialOrd]
+            [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
         );
 
         impl $callback_value {

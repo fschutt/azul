@@ -126,6 +126,25 @@ impl<'a> IRBuilder<'a> {
                         ));
                     }
                 }
+                
+                // Check for reserved function names that conflict with auto-generated trait functions
+                const RESERVED_FN_NAMES: &[&str] = &[
+                    "hash", "partialEq", "partialCmp", "cmp", "deepCopy", "delete",
+                    "eq", "clone", "default", "debug", "display"
+                ];
+                
+                if let Some(functions) = &class_data.functions {
+                    for (fn_name, _fn_data) in functions {
+                        if RESERVED_FN_NAMES.contains(&fn_name.as_str()) {
+                            errors.push(format!(
+                                "Reserved function name not allowed: {}.{}(). \
+                                 This name conflicts with auto-generated trait functions. \
+                                 Please rename the function (e.g., 'hash' -> 'nodeDataHash').",
+                                class_name, fn_name
+                            ));
+                        }
+                    }
+                }
             }
         }
         

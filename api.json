@@ -3431,7 +3431,7 @@
                 },
                 "fn_body": "dom.with_context_menu(context_menu)"
               },
-              "hash": {
+              "nodeDataHash": {
                 "doc": [
                   "Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID)."
                 ],
@@ -3952,7 +3952,7 @@
                 ],
                 "fn_body": "nodedata.set_context_menu(context_menu)"
               },
-              "hash": {
+              "nodeDataHash": {
                 "doc": [
                   "Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID)."
                 ],
