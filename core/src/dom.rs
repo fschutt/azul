@@ -2462,9 +2462,9 @@ impl NodeData {
     }
 
     #[inline(always)]
-    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
+    pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
         Self::new(NodeType::IFrame(IFrameNode {
-            callback: IFrameCallback::new(callback),
+            callback: callback.into(),
             data,
         }))
     }
@@ -3223,9 +3223,9 @@ impl Dom {
         Self::new(NodeType::Image(image))
     }
     #[inline(always)]
-    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
+    pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
         Self::new(NodeType::IFrame(IFrameNode {
-            callback: IFrameCallback::new(callback),
+            callback: callback.into(),
             data,
         }))
     }

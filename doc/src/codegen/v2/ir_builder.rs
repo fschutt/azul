@@ -48,10 +48,14 @@ impl<'a> IRBuilder<'a> {
         // Phase 4: Build type aliases
         self.build_type_aliases()?;
 
-        // Phase 5: Build functions from api.json (constructors, methods)
+        // Phase 5: Link callback wrapper structs to their callback_typedefs
+        // Must happen after both structs and callback_typedefs are built
+        self.link_callback_wrappers();
+
+        // Phase 6: Build functions from api.json (constructors, methods)
         self.build_api_functions()?;
 
-        // Phase 6: Generate trait functions (_deepCopy, _delete, _partialEq, etc.)
+        // Phase 7: Generate trait functions (_deepCopy, _delete, _partialEq, etc.)
         self.build_trait_functions()?;
 
         Ok(self.ir)
@@ -139,9 +143,13 @@ impl<'a> IRBuilder<'a> {
             custom_impls: class_data.custom_impls.clone().unwrap_or_default(),
             is_boxed: class_data.is_boxed_object,
             repr: class_data.repr.clone(),
+            // Vec module types are semantically Send+Sync safe (like Rust's Vec<T>)
+            is_send_safe: module == "vec",
             generic_params: class_data.generic_params.clone().unwrap_or_default(),
             traits,
             category,
+            // Will be populated in link_callback_wrappers phase
+            callback_wrapper_info: None,
         })
     }
 
@@ -205,6 +213,8 @@ impl<'a> IRBuilder<'a> {
             has_explicit_derive,
             is_union,
             repr: class_data.repr.clone(),
+            // Vec module types are semantically Send+Sync safe
+            is_send_safe: module == "vec",
             traits,
             generic_params: class_data.generic_params.clone().unwrap_or_default(),
             category,
@@ -278,6 +288,7 @@ impl<'a> IRBuilder<'a> {
                                 _ => ArgRefKind::Owned,
                             },
                             doc: arg_data.doc.as_ref().and_then(|d| d.first().cloned()),
+                            callback_info: None, // Callback typedef args don't have nested callbacks
                         }
                     }).collect();
 
@@ -329,6 +340,7 @@ impl<'a> IRBuilder<'a> {
                         target,
                         doc: class_data.doc.clone().unwrap_or_default(),
                         module: module_name.clone(),
+                        external_path: class_data.external.clone(),
                     });
                 }
             }
@@ -338,7 +350,65 @@ impl<'a> IRBuilder<'a> {
     }
 
     // ========================================================================
-    // Phase 5: API Functions
+    // Phase 5: Link Callback Wrappers
+    // ========================================================================
+
+    /// Links callback wrapper structs to their callback_typedefs.
+    /// 
+    /// A callback wrapper struct is identified by:
+    /// 1. Name ends with "Callback" (but not "CallbackType" or "CallbackInfo")
+    /// 2. Has a field with a callback_typedef type (usually named "cb")
+    /// 3. Has a "callable" field with type "OptionRefAny"
+    /// 
+    /// For "Core" callbacks like "Callback", the associated typedef is "CallbackType".
+    /// For widget callbacks like "ButtonOnClickCallback", it's "ButtonOnClickCallbackType".
+    fn link_callback_wrappers(&mut self) {
+        // Build a set of callback typedef names for fast lookup
+        let callback_typedef_names: std::collections::HashSet<String> = self.ir.callback_typedefs
+            .iter()
+            .map(|cb| cb.name.clone())
+            .collect();
+        
+        // Iterate through all structs and find callback wrappers
+        for struct_def in &mut self.ir.structs {
+            // Quick reject: must end with "Callback" but not "CallbackType" or "CallbackInfo"
+            if !struct_def.name.ends_with("Callback") {
+                continue;
+            }
+            if struct_def.name.ends_with("CallbackType") || struct_def.name.ends_with("CallbackInfo") {
+                continue;
+            }
+            
+            // Find the callback typedef field and the callable field
+            let mut callback_field: Option<(String, String)> = None; // (field_name, typedef_name)
+            let mut has_callable_field = false;
+            
+            for field in &struct_def.fields {
+                // Check if field type is a callback_typedef
+                if callback_typedef_names.contains(&field.type_name) {
+                    callback_field = Some((field.name.clone(), field.type_name.clone()));
+                }
+                
+                // Check for "callable" field with type "OptionRefAny"
+                if field.name == "callable" && field.type_name == "OptionRefAny" {
+                    has_callable_field = true;
+                }
+            }
+            
+            // If we found both, this is a callback wrapper
+            if let Some((field_name, typedef_name)) = callback_field {
+                if has_callable_field {
+                    struct_def.callback_wrapper_info = Some(CallbackWrapperInfo {
+                        callback_typedef_name: typedef_name,
+                        callback_field_name: field_name,
+                    });
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // Phase 6: API Functions
     // ========================================================================
 
     fn build_api_functions(&mut self) -> Result<()> {
@@ -415,16 +485,22 @@ impl<'a> IRBuilder<'a> {
                         type_name: actual_type,
                         ref_kind,
                         doc: None,
+                        callback_info: None,
                     };
                 }
                 
                 // For regular arguments, parse the ref_kind from type string
                 let (ref_kind, actual_type) = parse_type_ref_kind(type_name);
+                
+                // Check if this is a callback typedef type
+                let callback_info = self.detect_callback_arg_info(&actual_type);
+                
                 FunctionArg {
                     name: name.clone(),
                     type_name: actual_type,
                     ref_kind,
                     doc: None,
+                    callback_info,
                 }
             })
         }).collect();
@@ -533,6 +609,7 @@ impl<'a> IRBuilder<'a> {
                     type_name: type_name.to_string(),
                     ref_kind: ArgRefKind::PtrMut,
                     doc: None,
+                    callback_info: None,
                 }],
                 return_type: None,
                 fn_body: None, // Generated based on config
@@ -554,6 +631,7 @@ impl<'a> IRBuilder<'a> {
                     type_name: type_name.to_string(),
                     ref_kind: ArgRefKind::Ptr,
                     doc: None,
+                    callback_info: None,
                 }],
                 return_type: Some(type_name.to_string()),
                 fn_body: None,
@@ -576,12 +654,14 @@ impl<'a> IRBuilder<'a> {
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                     FunctionArg {
                         name: "b".to_string(),
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                 ],
                 return_type: Some("bool".to_string()),
@@ -604,6 +684,7 @@ impl<'a> IRBuilder<'a> {
                     type_name: type_name.to_string(),
                     ref_kind: ArgRefKind::Ptr,
                     doc: None,
+                    callback_info: None,
                 }],
                 return_type: Some("u64".to_string()),
                 fn_body: None,
@@ -626,12 +707,14 @@ impl<'a> IRBuilder<'a> {
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                     FunctionArg {
                         name: "b".to_string(),
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                 ],
                 return_type: Some("u8".to_string()), // Ordering as u8
@@ -655,12 +738,14 @@ impl<'a> IRBuilder<'a> {
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                     FunctionArg {
                         name: "b".to_string(),
                         type_name: type_name.to_string(),
                         ref_kind: ArgRefKind::Ptr,
                         doc: None,
+                        callback_info: None,
                     },
                 ],
                 return_type: Some("u8".to_string()), // Ordering as u8
@@ -670,6 +755,42 @@ impl<'a> IRBuilder<'a> {
                 is_unsafe: false,
             });
         }
+    }
+    
+    /// Detect if an argument type is a callback typedef and return info for code generation
+    /// 
+    /// A callback typedef type:
+    /// - Ends with "CallbackType" (e.g., "CallbackType", "ButtonOnClickCallbackType")
+    /// - Is registered in api.json with callback_typedef
+    /// 
+    /// Returns CallbackArgInfo with:
+    /// - callback_typedef_name: The typedef name (e.g., "CallbackType")
+    /// - callback_wrapper_name: The wrapper struct name (e.g., "Callback", "ButtonOnClickCallback")
+    /// - trampoline_name: The name of the Python trampoline function
+    fn detect_callback_arg_info(&self, type_name: &str) -> Option<CallbackArgInfo> {
+        // Check if type ends with "CallbackType"
+        if !type_name.ends_with("CallbackType") {
+            return None;
+        }
+        
+        // Skip destructor and clone callback types - these are internal
+        if type_name.ends_with("DestructorType") || type_name.ends_with("CloneCallbackType") {
+            return None;
+        }
+        
+        // The wrapper name is the typedef name with "Type" stripped
+        // e.g., "ButtonOnClickCallbackType" -> "ButtonOnClickCallback"
+        // e.g., "CallbackType" -> "Callback"
+        let wrapper_name = type_name.strip_suffix("Type").unwrap_or(type_name);
+        
+        // Build trampoline name: invoke_py_{snake_case_of_wrapper}
+        let trampoline_name = format!("invoke_py_{}", to_snake_case(wrapper_name));
+        
+        Some(CallbackArgInfo {
+            callback_typedef_name: type_name.to_string(),
+            callback_wrapper_name: wrapper_name.to_string(),
+            trampoline_name,
+        })
     }
 }
 
@@ -925,4 +1046,24 @@ fn get_class<'a>(
         .api
         .get(module_name)
         .and_then(|m| m.classes.get(class_name))
+}
+
+/// Convert CamelCase to snake_case
+/// 
+/// Examples:
+/// - "ButtonOnClickCallback" -> "button_on_click_callback"
+/// - "CallbackType" -> "callback_type"
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }

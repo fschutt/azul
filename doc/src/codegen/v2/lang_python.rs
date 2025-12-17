@@ -78,6 +78,9 @@ impl PythonGenerator {
 
         // Generate inner DLL API module (C-API types for transmute)
         self.generate_inner_dll_module(&mut builder, ir, config)?;
+        
+        // Generate unsafe Send + Sync impls for Vec-like types
+        self.generate_send_sync_impls(&mut builder, ir, config);
 
         // PyO3 imports
         self.generate_imports(&mut builder);
@@ -103,9 +106,6 @@ impl PythonGenerator {
         // Module registration
         self.generate_module_registration(&mut builder, ir, config)?;
 
-        // App class (generated after wrapper types)
-        self.generate_app_class(&mut builder, &config.base.type_prefix);
-
         Ok(builder.finish())
     }
 
@@ -127,6 +127,65 @@ impl PythonGenerator {
         builder.line("use pyo3::gc::{PyVisit, PyTraverseError};");
         builder.line("use pyo3::conversion::IntoPyObject;");
         builder.line("use pyo3::Borrowed;");
+        builder.blank();
+    }
+    
+    /// Generate unsafe Send + Sync implementations for Vec-like types
+    /// 
+    /// Vec types (U8Vec, StringVec, etc.) use internal pointers (*const T)
+    /// but are semantically safe like Rust's Vec<T>. PyO3 requires Send
+    /// for types used in pyclass, so we implement it manually.
+    fn generate_send_sync_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) {
+        let prefix = &config.base.type_prefix;
+        
+        builder.line("// ============================================================================");
+        builder.line("// SEND + SYNC IMPLEMENTATIONS FOR SEND-SAFE TYPES");
+        builder.line("// ============================================================================");
+        builder.line("// These types use internal pointers but are semantically safe to Send");
+        builder.blank();
+        
+        // Python-specific: Types that wrap & or Box<> and are semantically Send
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+            "CssPropertyCachePtr",
+            "IFrameCallbackInfo",
+            "IFrameCallbackReturn",
+            "StyledDom",
+            "LayoutCallbackInfo",
+            "CallbackInfo",
+            "RenderImageCallbackInfo",
+            "RefCount",
+            "OptionRefAny",
+            "GlVoidPtrMut",
+            "ParsedSvg",
+            "ResultParsedSvgSvgParseError",
+            "GridMinMax",
+            "GridTrackSizing",
+        ];
+        
+        // Generate for Python-specific send-safe types
+        for type_name in PYTHON_SEND_SAFE_TYPES {
+            let full_type = format!("__dll_api_inner::dll::{}{}", prefix, type_name);
+            builder.line(&format!("unsafe impl Send for {} {{}}", full_type));
+            builder.line(&format!("unsafe impl Sync for {} {{}}", full_type));
+        }
+        
+        // Generate for IR-marked send-safe types (vec module)
+        for struct_def in &ir.structs {
+            if struct_def.is_send_safe {
+                let type_name = format!("__dll_api_inner::dll::{}{}", prefix, struct_def.name);
+                builder.line(&format!("unsafe impl Send for {} {{}}", type_name));
+                builder.line(&format!("unsafe impl Sync for {} {{}}", type_name));
+            }
+        }
+        
+        for enum_def in &ir.enums {
+            if enum_def.is_send_safe {
+                let type_name = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
+                builder.line(&format!("unsafe impl Send for {} {{}}", type_name));
+                builder.line(&format!("unsafe impl Sync for {} {{}}", type_name));
+            }
+        }
+        
         builder.blank();
     }
 
@@ -658,7 +717,7 @@ extern "C" fn invoke_py_layout_callback(
             if !self.should_include_struct(struct_def, config) {
                 continue;
             }
-            self.generate_struct_wrapper(builder, struct_def, prefix);
+            self.generate_struct_wrapper(builder, struct_def, prefix, ir);
         }
 
         builder.line("// ============================================================================");
@@ -670,13 +729,13 @@ extern "C" fn invoke_py_layout_callback(
             if !self.should_include_enum(enum_def, config) {
                 continue;
             }
-            self.generate_enum_wrapper(builder, enum_def, prefix);
+            self.generate_enum_wrapper(builder, enum_def, prefix, ir);
         }
 
         Ok(())
     }
 
-    fn generate_struct_wrapper(&self, builder: &mut CodeBuilder, struct_def: &StructDef, prefix: &str) {
+    fn generate_struct_wrapper(&self, builder: &mut CodeBuilder, struct_def: &StructDef, prefix: &str, ir: &CodegenIR) {
         let name = format!("{}{}", prefix, struct_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, struct_def.name);
 
@@ -684,7 +743,15 @@ extern "C" fn invoke_py_layout_callback(
             builder.line(&format!("/// {}", doc));
         }
 
-        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\", unsendable)]", struct_def.name));
+        // Determine if this type needs unsendable marker
+        // Most types are sendable! Only types with raw pointers need unsendable
+        let unsendable = if self.type_needs_unsendable(struct_def, ir) {
+            ", unsendable"
+        } else {
+            ""
+        };
+
+        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\"{})]", struct_def.name, unsendable));
         builder.line("#[repr(transparent)]");
         builder.line(&format!("pub struct {} {{", name));
         builder.line(&format!("    pub inner: {},", c_api_type));
@@ -702,7 +769,7 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
     }
 
-    fn generate_enum_wrapper(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, prefix: &str) {
+    fn generate_enum_wrapper(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, prefix: &str, ir: &CodegenIR) {
         let name = format!("{}{}", prefix, enum_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
 
@@ -710,7 +777,15 @@ extern "C" fn invoke_py_layout_callback(
             builder.line(&format!("/// {}", doc));
         }
 
-        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\", unsendable)]", enum_def.name));
+        // Determine if this enum needs unsendable marker
+        // Most enums are sendable! Only enums with variants containing raw pointers need unsendable
+        let unsendable = if self.enum_needs_unsendable(enum_def, ir) {
+            ", unsendable"
+        } else {
+            ""
+        };
+
+        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\"{})]", enum_def.name, unsendable));
         builder.line("#[repr(transparent)]");
         builder.line(&format!("pub struct {} {{", name));
         builder.line(&format!("    pub inner: {},", c_api_type));
@@ -874,8 +949,15 @@ extern "C" fn invoke_py_layout_callback(
             .filter(|f| !f.kind.is_trait_function())
             .collect();
 
+        // Check if this struct is a callback wrapper type
+        let is_callback_type = is_callback_wrapper_type(&struct_def.name, ir);
+
         for func in class_functions {
-            if self.function_has_unsupported_args(func) {
+            if self.function_has_unsupported_args(func, ir) {
+                continue;
+            }
+            // Skip constructors for callback types - Python uses PyAny + trampoline instead
+            if is_callback_type && func.kind == FunctionKind::Constructor {
                 continue;
             }
             self.generate_pymethod(builder, func, ir, prefix);
@@ -920,10 +1002,10 @@ extern "C" fn invoke_py_layout_callback(
                 }
                 EnumVariantKind::Tuple(types) => {
                     if let Some(ty) = types.first() {
-                        if !self.is_python_compatible_type(ty) {
+                        if !self.is_python_compatible_type(ty, ir) {
                             continue;
                         }
-                        let py_type = self.rust_type_to_python(ty, prefix);
+                        let py_type = self.rust_type_to_python(ty, prefix, ir);
                         builder.line("#[staticmethod]");
                         builder.line(&format!("fn {}(v: {}) -> Self {{", variant.name, py_type));
                         if is_primitive_type(ty) {
@@ -931,7 +1013,7 @@ extern "C" fn invoke_py_layout_callback(
                         } else if ty == "String" {
                             // String needs to be converted to AzString and transmuted
                             builder.line(&format!("    unsafe {{ Self {{ inner: {}::{}(core::mem::transmute(azul_css::corety::AzString::from(v))) }} }}", c_api_type, variant.name));
-                        } else if is_callback_wrapper_type(ty) {
+                        } else if is_callback_wrapper_type(ty, ir) {
                             // Callback types use Py<PyAny> which has no .inner field
                             // For now, skip these - callbacks in Option<Callback> require more complex handling
                             builder.line("    // TODO: callback type conversion");
@@ -983,13 +1065,18 @@ extern "C" fn invoke_py_layout_callback(
             .or_else(|| ir.enums.iter()
                 .find(|e| e.name == func.class_name)
                 .and_then(|e| e.external_path.clone()))
-            .unwrap_or_else(|| format!("crate::{}", func.class_name));
+            .unwrap_or_else(|| format!("crate::{}", func.class_name))
+            .replace("azul_dll::", "crate::");
 
         let ffi_type = format!("__dll_api_inner::dll::{}{}", prefix, func.class_name);
 
         let is_constructor = func.kind == FunctionKind::Constructor;
         let is_static = func.kind == FunctionKind::StaticMethod;
         let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
+        
+        // Check if this function has a callback pattern (RefAny + CallbackType)
+        // This needs to be early because we need it for function signature
+        let has_callback_pattern = self.has_callback_pattern(func);
 
         if is_constructor && func.method_name == "new" {
             builder.line("#[new]");
@@ -1003,28 +1090,49 @@ extern "C" fn invoke_py_layout_callback(
 
         let args_str: String = args.iter()
             .map(|a| {
-                let py_type = self.rust_type_to_python(&a.type_name, prefix);
+                let py_type = self.rust_type_to_python(&a.type_name, prefix, ir);
                 format!("{}: {}", a.name, py_type)
             })
             .collect::<Vec<_>>()
             .join(", ");
 
         let return_type = func.return_type.as_ref()
-            .map(|t| self.rust_type_to_python(t, prefix))
+            .map(|t| self.rust_type_to_python(t, prefix, ir))
             .unwrap_or_else(|| "()".to_string());
 
+        // Functions with RefAny or Callback args need access to Python GIL for clone_ref
+        let has_refany_arg = args.iter().any(|a| a.type_name == "RefAny");
+        let has_callback_arg = args.iter().any(|a| a.callback_info.is_some());
+        let needs_py_param = has_refany_arg || has_callback_arg;
+        
         // Generate function signature
         if takes_self {
             if args.is_empty() {
-                builder.line(&format!("fn {}(&self) -> {} {{", func.method_name, return_type));
+                if needs_py_param {
+                    builder.line(&format!("fn {}(&self, py: Python<'_>) -> {} {{", func.method_name, return_type));
+                } else {
+                    builder.line(&format!("fn {}(&self) -> {} {{", func.method_name, return_type));
+                }
             } else {
-                builder.line(&format!("fn {}(&self, {}) -> {} {{", func.method_name, args_str, return_type));
+                if needs_py_param {
+                    builder.line(&format!("fn {}(&self, py: Python<'_>, {}) -> {} {{", func.method_name, args_str, return_type));
+                } else {
+                    builder.line(&format!("fn {}(&self, {}) -> {} {{", func.method_name, args_str, return_type));
+                }
             }
         } else {
             if args.is_empty() {
-                builder.line(&format!("fn {}() -> {} {{", func.method_name, return_type));
+                if needs_py_param {
+                    builder.line(&format!("fn {}(py: Python<'_>) -> {} {{", func.method_name, return_type));
+                } else {
+                    builder.line(&format!("fn {}() -> {} {{", func.method_name, return_type));
+                }
             } else {
-                builder.line(&format!("fn {}({}) -> {} {{", func.method_name, args_str, return_type));
+                if needs_py_param {
+                    builder.line(&format!("fn {}(py: Python<'_>, {}) -> {} {{", func.method_name, args_str, return_type));
+                } else {
+                    builder.line(&format!("fn {}({}) -> {} {{", func.method_name, args_str, return_type));
+                }
             }
         }
 
@@ -1042,13 +1150,14 @@ extern "C" fn invoke_py_layout_callback(
 
         // Convert self to external type if needed
         let self_var = func.class_name.to_lowercase();
+        let is_method_mut = func.kind == FunctionKind::MethodMut;
         if takes_self {
             builder.line(&format!(
                 "let _self: &{} = core::mem::transmute(&self.inner);",
                 external_path
             ));
-            // Clone self so methods can consume it
-            builder.line("let __cloned = _self.clone();");
+            // Clone self so methods can consume it (mut for methods that mutate)
+            builder.line("let mut __cloned = _self.clone();");
             
             // Replace self references in fn_body
             // First replace method calls (with dot)
@@ -1059,12 +1168,12 @@ extern "C" fn invoke_py_layout_callback(
             
             // Then replace standalone variable references (as function arguments)
             // Handle various contexts: (var, ...), (var), var, ..., etc.
-            // IMPORTANT: Use &__cloned when the variable appears at function arg position
-            // because external functions often expect references
+            // For MethodMut, use &mut __cloned; for Method, use &__cloned
+            let self_ref = if is_method_mut { "&mut __cloned" } else { "&__cloned" };
             transformed_body = transformed_body
-                .replace(&format!("({},", self_var), "(&__cloned,")
-                .replace(&format!("({}, ", self_var), "(&__cloned, ")
-                .replace(&format!("({})", self_var), "(&__cloned)")
+                .replace(&format!("({},", self_var), &format!("({},", self_ref))
+                .replace(&format!("({}, ", self_var), &format!("({}, ", self_ref))
+                .replace(&format!("({})", self_var), &format!("({})", self_ref))
                 .replace(&format!(", {},", self_var), ", __cloned,")
                 .replace(&format!(", {}, ", self_var), ", __cloned, ")
                 .replace(&format!(", {})", self_var), ", __cloned)")
@@ -1076,6 +1185,71 @@ extern "C" fn invoke_py_layout_callback(
 
         // Convert arguments to external types
         for arg in &args {
+            // RefAny is ALWAYS converted from Py<PyAny> to RefAny
+            if arg.type_name == "RefAny" {
+                // Wrap Python data in RefAny via PyDataWrapper
+                builder.line(&format!(
+                    "let __py_{}_wrapper = PyDataWrapper {{ _py_data: Some({}.clone_ref(py)) }};",
+                    arg.name, arg.name
+                ));
+                builder.line(&format!(
+                    "let {}_ext: azul_core::refany::RefAny = azul_core::refany::RefAny::new(__py_{}_wrapper);",
+                    arg.name, arg.name
+                ));
+                // Replace arg references in fn_body
+                transformed_body = transformed_body
+                    .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
+                    .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
+                    .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
+                    .replace(&format!(" {})", arg.name), &format!(" {}_ext)", arg.name))
+                    .replace(&format!("({})", arg.name), &format!("({}_ext)", arg.name))
+                    .replace(&format!(", {})", arg.name), &format!(", {}_ext)", arg.name));
+                continue;
+            }
+            
+            // Callback types with callback_info are converted from Py<PyAny> to Callback struct
+            if let Some(ref cb_info) = arg.callback_info {
+                // Wrap Python callable in the callback wrapper struct with trampoline
+                builder.line(&format!(
+                    "let __py_{}_wrapper = PyCallableWrapper {{ _py_callable: Some({}.clone_ref(py)) }};",
+                    arg.name, arg.name
+                ));
+                builder.line(&format!(
+                    "let __py_{}_refany = azul_core::refany::RefAny::new(__py_{}_wrapper);",
+                    arg.name, arg.name
+                ));
+                
+                // Find the external path for the callback wrapper (the internal Rust type)
+                let wrapper_external = self.find_external_path(&cb_info.callback_wrapper_name, ir)
+                    .unwrap_or_else(|| format!("crate::{}", cb_info.callback_wrapper_name));
+                
+                // Create the callback wrapper with trampoline + callable using the INTERNAL type
+                // We transmute the trampoline and refany to match the internal types
+                builder.line(&format!(
+                    "let {}_ext: {} = {} {{",
+                    arg.name, wrapper_external, wrapper_external
+                ));
+                builder.line(&format!(
+                    "    cb: core::mem::transmute({} as usize),",
+                    cb_info.trampoline_name
+                ));
+                builder.line(&format!(
+                    "    callable: azul_core::refany::OptionRefAny::Some(__py_{}_refany),",
+                    arg.name
+                ));
+                builder.line("};");
+                // Replace arg references in fn_body
+                transformed_body = transformed_body
+                    .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
+                    .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
+                    .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
+                    .replace(&format!(" {})", arg.name), &format!(" {}_ext)", arg.name))
+                    .replace(&format!("({})", arg.name), &format!("({}_ext)", arg.name))
+                    .replace(&format!(", {})", arg.name), &format!(", {}_ext)", arg.name));
+                continue;
+            }
+            
+            // Normal argument handling
             let arg_external = self.find_external_path(&arg.type_name, ir)
                 .unwrap_or_else(|| {
                     if is_primitive_type(&arg.type_name) {
@@ -1115,19 +1289,38 @@ extern "C" fn invoke_py_layout_callback(
             }
             
             // Replace arg references in fn_body
-            // Sort by length descending to avoid partial replacements
-            transformed_body = transformed_body
-                .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
-                .replace(&format!(" {})", arg.name), &format!(" {}_ext)", arg.name))
-                .replace(&format!("({})", arg.name), &format!("({}_ext)", arg.name))
-                .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
-                .replace(&format!(", {})", arg.name), &format!(", {}_ext)", arg.name))
-                .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
-                .replace(&format!("{}.into()", arg.name), &format!("{}_ext.into()", arg.name))
-                .replace(&format!("&mut {},", arg.name), &format!("&mut {}_ext,", arg.name))
-                .replace(&format!("&mut {})", arg.name), &format!("&mut {}_ext)", arg.name))
-                .replace(&format!("&{},", arg.name), &format!("&{}_ext,", arg.name))
-                .replace(&format!("&{})", arg.name), &format!("&{}_ext)", arg.name));
+            // IMPORTANT: Be careful not to replace already-replaced `_ext` names
+            // We use a placeholder approach: first mark all places that need replacement,
+            // then do the actual replacement at the end
+            let arg_name = &arg.name;
+            
+            // Check if this is a shadow pattern: "let mut X = X" - in this case
+            // we only replace the RHS X, the local var X should stay as is
+            let shadow_pattern = format!("let mut {} = {}", arg_name, arg_name);
+            if transformed_body.contains(&shadow_pattern) {
+                // Replace only the parameter assignment, keep local var uses
+                transformed_body = transformed_body.replace(
+                    &shadow_pattern,
+                    &format!("let mut {} = {}_ext", arg_name, arg_name)
+                );
+                // Don't replace other occurrences - they refer to the local var
+            } else {
+                // No shadow - replace all occurrences
+                transformed_body = transformed_body
+                    .replace(&format!(" {}, ", arg_name), &format!(" {}_ext, ", arg_name))
+                    .replace(&format!(" {})", arg_name), &format!(" {}_ext)", arg_name))
+                    .replace(&format!("({})", arg_name), &format!("({}_ext)", arg_name))
+                    .replace(&format!("({},", arg_name), &format!("({}_ext,", arg_name))
+                    .replace(&format!(", {})", arg_name), &format!(", {}_ext)", arg_name))
+                    .replace(&format!("({}, ", arg_name), &format!("({}_ext, ", arg_name))
+                    .replace(&format!("{}.into()", arg_name), &format!("{}_ext.into()", arg_name))
+                    .replace(&format!("&mut {},", arg_name), &format!("&mut {}_ext,", arg_name))
+                    .replace(&format!("&mut {})", arg_name), &format!("&mut {}_ext)", arg_name))
+                    .replace(&format!("&{},", arg_name), &format!("&{}_ext,", arg_name))
+                    .replace(&format!("&{})", arg_name), &format!("&{}_ext)", arg_name))
+                    // Assignment patterns: = X; (with semicolon as boundary)
+                    .replace(&format!("= {};", arg_name), &format!("= {}_ext;", arg_name));
+            }
         }
 
         // Check if fn_body contains statements (has `;` which means multiple statements)
@@ -1254,96 +1447,6 @@ extern "C" fn invoke_py_layout_callback(
         Ok(())
     }
 
-    fn generate_app_class(&self, builder: &mut CodeBuilder, prefix: &str) {
-        builder.raw(&format!(r#"// --- App implementation ---
-
-/// The main application - runs the event loop
-#[pyclass(name = "App", module = "azul", unsendable)]
-pub struct AzApp {{
-    pub ptr: *const c_void,
-    pub run_destructor: bool,
-}}
-
-#[pymethods]
-impl AzApp {{
-    #[new]
-    fn new(data: Py<PyAny>, layout_callback: Py<PyAny>) -> PyResult<Self> {{
-        Python::attach(|py| {{
-            if !layout_callback.bind(py).is_callable() {{
-                return Err(PyException::new_err("layout_callback must be callable"));
-            }}
-            Ok(())
-        }})?;
-
-        let app_data = AppDataTy {{
-            _py_app_data: Some(data),
-            _py_layout_callback: Some(layout_callback),
-        }};
-
-        let refany = azul_core::refany::RefAny::new(app_data);
-        let app_config: azul_core::resources::AppConfig = Default::default();
-        let app: crate::desktop::app::App = crate::desktop::app::App::new(refany, app_config);
-
-        Ok(unsafe {{ core::mem::transmute(app) }})
-    }}
-
-    fn run(&mut self, window: &{prefix}WindowCreateOptions) {{
-        let mut window_inner = window.inner.clone();
-        window_inner.state.layout_callback = __dll_api_inner::dll::AzLayoutCallback {{
-            cb: invoke_py_layout_callback,
-            callable: __dll_api_inner::dll::AzOptionRefAny::None,
-        }};
-        
-        let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
-        let root_window: azul_layout::window_state::WindowCreateOptions = unsafe {{ core::mem::transmute(window_inner) }};
-        _self.run(root_window);
-    }}
-
-    fn add_window(&mut self, window: &{prefix}WindowCreateOptions) {{
-        let mut window_inner = window.inner.clone();
-        window_inner.state.layout_callback = __dll_api_inner::dll::AzLayoutCallback {{
-            cb: invoke_py_layout_callback,
-            callable: __dll_api_inner::dll::AzOptionRefAny::None,
-        }};
-        
-        let _self: &mut crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
-        let create_options: azul_layout::window_state::WindowCreateOptions = unsafe {{ core::mem::transmute(window_inner) }};
-        _self.add_window(create_options);
-    }}
-
-    fn get_monitors(&self) -> {prefix}MonitorVec {{
-        let _self: &crate::desktop::app::App = unsafe {{ core::mem::transmute(self) }};
-        {prefix}MonitorVec {{ inner: unsafe {{ core::mem::transmute(_self.get_monitors()) }} }}
-    }}
-
-    fn __traverse__(&self, _visit: PyVisit<'_>) -> Result<(), PyTraverseError> {{
-        Ok(())
-    }}
-
-    fn __clear__(&mut self) {{
-    }}
-
-    fn __str__(&self) -> String {{
-        "App {{ ... }}".to_string()
-    }}
-
-    fn __repr__(&self) -> String {{
-        self.__str__()
-    }}
-}}
-
-impl Drop for AzApp {{
-    fn drop(&mut self) {{
-        if self.run_destructor {{
-            unsafe {{
-                core::ptr::drop_in_place(self as *mut AzApp as *mut crate::desktop::app::App);
-            }}
-        }}
-    }}
-}}
-"#, prefix = prefix));
-    }
-
     // Helper methods
 
     /// Check if a struct should be included in Python bindings
@@ -1356,11 +1459,6 @@ impl Drop for AzApp {{
         
         // Types that use C-API directly don't get wrapper structs
         if struct_def.category.uses_capi_directly() {
-            return false;
-        }
-        
-        // App is completely custom (manual implementation)
-        if struct_def.name == "App" {
             return false;
         }
         
@@ -1390,137 +1488,325 @@ impl Drop for AzApp {{
 
     /// Check if a struct can be cloned (has Clone derive or all fields are clonable)
     /// Callback types and types containing callbacks cannot be cloned
-    fn struct_supports_clone(&self, struct_def: &StructDef) -> bool {
-        // CallbackDataPair types contain function pointers that can't be cloned
-        if struct_def.category == TypeCategory::CallbackDataPair {
-            return false;
-        }
-        
-        // Check if any field is a callback type or contains non-clonable types
-        for field in &struct_def.fields {
-            let base_type = field.type_name.trim();
-            // Callback types typically have "Callback" in their name
-            if base_type.contains("Callback") {
-                return false;
-            }
-            // Also skip types with "Info" suffix that commonly contain non-Clone fields
-            if base_type.ends_with("Info") && base_type.contains("Callback") {
-                return false;
-            }
-        }
-        // Check struct name patterns that indicate non-clonable types
-        if struct_def.name.ends_with("Callback") || struct_def.name.ends_with("CallbackInfo") {
-            return false;
-        }
-        // NodeData contains callbacks indirectly
-        if struct_def.name == "NodeData" {
-            return false;
-        }
+    fn struct_supports_clone(&self, _struct_def: &StructDef) -> bool {
+        // All structs support Clone - callbacks have Clone impl
         true
     }
 
     /// Check if an enum can be cloned
-    fn enum_supports_clone(&self, enum_def: &EnumDef) -> bool {
-        // Check variant payload types for callback types
+    fn enum_supports_clone(&self, _enum_def: &EnumDef) -> bool {
+        // All enums support Clone - callbacks have Clone impl
+        true
+    }
+
+    /// Check if a struct type needs the `unsendable` marker in PyO3
+    /// 
+    /// A type is sendable if:
+    /// - It has `is_send_safe: true` in the IR (vec module types), OR
+    /// - It's in the PYTHON_SEND_SAFE_TYPES list (types that wrap & or Box), OR
+    /// - All its fields are transitively sendable
+    /// 
+    /// A type needs unsendable if it contains:
+    /// - Raw pointers (*const, *mut) that are NOT in a send_safe type
+    /// - Function pointers (extern "C" fn)
+    /// - Boxed types
+    /// - Callback wrappers
+    fn type_needs_unsendable(&self, struct_def: &StructDef, ir: &CodegenIR) -> bool {
+        // Types marked as send_safe in the IR don't need unsendable
+        if struct_def.is_send_safe {
+            return false;
+        }
+        
+        // Python-specific: These types use *const/*mut c_void but are semantically Send
+        // because they wrap references (&) or Box<> which are Send
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+            "CssPropertyCachePtr",   // wraps Box<CssPropertyCache>
+            "IFrameCallbackInfo",    // wraps &IFrameCallbackInfoInternal
+            "IFrameCallbackReturn",  // contains OptionStyledDom which contains CssPropertyCachePtr
+            "StyledDom",             // contains CssPropertyCachePtr
+            "LayoutCallbackInfo",    // wraps & to internal data
+            "CallbackInfo",          // wraps & to internal data
+            "RenderImageCallbackInfo", // wraps & to internal data
+            "RefCount",              // refcounted pointer, semantically Send
+            "OptionRefAny",          // Option<RefAny>
+            "GlVoidPtrMut",          // GL pointer wrapper
+            "ParsedSvg",             // SVG data structure
+            "ResultParsedSvgSvgParseError", // Result type containing ParsedSvg
+            "GridMinMax",            // CSS grid layout type
+            "GridTrackSizing",       // CSS grid layout type
+        ];
+        if PYTHON_SEND_SAFE_TYPES.contains(&struct_def.name.as_str()) {
+            return false;
+        }
+        
+        // Boxed types definitely need unsendable
+        if struct_def.is_boxed {
+            return true;
+        }
+        
+        // Types with callback wrappers contain function pointers
+        if struct_def.callback_wrapper_info.is_some() {
+            return true;
+        }
+        
+        // Check all fields for unsendable types
+        for field in &struct_def.fields {
+            // Fields with pointer ref_kind are not sendable
+            if matches!(field.ref_kind, crate::codegen::v2::ir::FieldRefKind::Ptr | crate::codegen::v2::ir::FieldRefKind::PtrMut) {
+                return true;
+            }
+            if self.field_type_needs_unsendable(&field.type_name, ir) {
+                return true;
+            }
+        }
+        
+        false
+    }
+    
+    /// Check if an enum type needs the `unsendable` marker
+    /// 
+    /// An enum is sendable if:
+    /// - It has `is_send_safe: true` in the IR, OR
+    /// - All its variant payloads are transitively sendable
+    fn enum_needs_unsendable(&self, enum_def: &EnumDef, ir: &CodegenIR) -> bool {
+        // Types marked as send_safe in the IR don't need unsendable
+        if enum_def.is_send_safe {
+            return false;
+        }
+        
+        // Check all variant payload types
         for variant in &enum_def.variants {
             match &variant.kind {
                 EnumVariantKind::Tuple(types) => {
                     for ty in types {
-                        if ty.contains("Callback") {
-                            return false;
+                        if self.field_type_needs_unsendable(ty, ir) {
+                            return true;
                         }
                     }
                 }
                 EnumVariantKind::Struct(fields) => {
                     for field in fields {
-                        if field.type_name.contains("Callback") {
-                            return false;
+                        if self.field_type_needs_unsendable(&field.type_name, ir) {
+                            return true;
                         }
                     }
                 }
                 EnumVariantKind::Unit => {}
             }
         }
-        // Check enum name patterns
-        if enum_def.name.ends_with("Callback") {
+        
+        false
+    }
+    
+    /// Check if a field type (by name) requires unsendable
+    /// 
+    /// This checks whether a type is NOT sendable.
+    /// A type is sendable if:
+    /// - It's a primitive
+    /// - It has `is_send_safe: true` in the IR
+    /// - It's in the PYTHON_SEND_SAFE_TYPES list
+    /// - All its fields are transitively sendable
+    fn field_type_needs_unsendable(&self, type_name: &str, ir: &CodegenIR) -> bool {
+        // Primitives are always sendable
+        if is_primitive_type(type_name) {
             return false;
         }
+        
+        // Python-specific: These types use *const/*mut c_void but are semantically Send
+        const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
+            "CssPropertyCachePtr",
+            "IFrameCallbackInfo",
+            "IFrameCallbackReturn",
+            "StyledDom",
+            "LayoutCallbackInfo",
+            "CallbackInfo",
+            "RenderImageCallbackInfo",
+            "RefCount",
+            "OptionRefAny",
+            "GlVoidPtrMut",
+            "ParsedSvg",
+            "ResultParsedSvgSvgParseError",
+            "GridMinMax",
+            "GridTrackSizing",
+        ];
+        if PYTHON_SEND_SAFE_TYPES.contains(&type_name) {
+            return false;
+        }
+        
+        // Raw pointers in the type name itself - NOT sendable
+        if type_name.contains("*const") || type_name.contains("*mut") {
+            return true;
+        }
+        
+        // Function pointers - NOT sendable
+        if type_name.contains("extern") || type_name.contains("fn(") {
+            return true;
+        }
+        
+        // Box types - NOT sendable
+        if type_name.starts_with("Box<") {
+            return true;
+        }
+        
+        // Types ending with "Callback" contain function pointers - NOT sendable
+        if type_name.ends_with("Callback") || type_name.ends_with("CallbackType") {
+            return true;
+        }
+        
+        // Check if this is a type alias to a pointer type
+        if let Some(type_alias) = ir.find_type_alias(type_name) {
+            if type_alias.target.contains("*const") || type_alias.target.contains("*mut") {
+                return true;
+            }
+        }
+        
+        // Check if it's a struct - use is_send_safe flag
+        if let Some(struct_def) = ir.find_struct(type_name) {
+            // If struct is marked send_safe, it's sendable
+            if struct_def.is_send_safe {
+                return false;
+            }
+            // Boxed types and callback wrappers are not sendable
+            if struct_def.is_boxed || struct_def.callback_wrapper_info.is_some() {
+                return true;
+            }
+            // Recursively check fields
+            for field in &struct_def.fields {
+                if self.field_type_needs_unsendable(&field.type_name, ir) {
+                    return true;
+                }
+            }
+            // All fields are sendable, so this struct is sendable
+            return false;
+        }
+        
+        // Check if it's an enum - use is_send_safe flag
+        if let Some(enum_def) = ir.find_enum(type_name) {
+            // If enum is marked send_safe, it's sendable
+            if enum_def.is_send_safe {
+                return false;
+            }
+            // Recursively check variant payloads
+            for variant in &enum_def.variants {
+                match &variant.kind {
+                    crate::codegen::v2::ir::EnumVariantKind::Tuple(types) => {
+                        for ty in types {
+                            if self.field_type_needs_unsendable(ty, ir) {
+                                return true;
+                            }
+                        }
+                    }
+                    crate::codegen::v2::ir::EnumVariantKind::Struct(fields) => {
+                        for field in fields {
+                            if self.field_type_needs_unsendable(&field.type_name, ir) {
+                                return true;
+                            }
+                        }
+                    }
+                    crate::codegen::v2::ir::EnumVariantKind::Unit => {}
+                }
+            }
+            // All variants are sendable
+            return false;
+        }
+        
+        // Unknown types - assume sendable (will fail at compile time if wrong)
+        false
+    }
+    
+    /// Check if a class (by name) needs unsendable
+    /// Used for determining if &mut self methods should be skipped
+    fn class_needs_unsendable(&self, class_name: &str, ir: &CodegenIR) -> bool {
+        // Check struct
+        if let Some(struct_def) = ir.find_struct(class_name) {
+            return self.type_needs_unsendable(struct_def, ir);
+        }
+        // Check enum
+        if let Some(enum_def) = ir.find_enum(class_name) {
+            return self.enum_needs_unsendable(enum_def, ir);
+        }
+        // Unknown types default to unsendable for safety
         true
     }
 
-    fn function_has_unsupported_args(&self, func: &FunctionDef) -> bool {
-        // Skip mutable methods (PyO3 unsendable classes are frozen)
-        if func.kind == FunctionKind::MethodMut { return true; }
-        
-        // Types that can't be converted to/from Python easily
-        const SKIP_TYPES: &[&str] = &[
-            "extern", "fn(", "*const", "*mut", "c_void",
-            "VecRef", "Refstr",
-        ];
-        
-        // Boxed object types - these use raw pointers internally and can't be passed from Python
-        const BOXED_TYPES: &[&str] = &[
-            "ImageRef", "FontRef", "Svg", "SvgXmlNode", "ParsedSvgXmlNode",
-            "IFrameNode", // Contains callback, can't Clone
-        ];
+    fn function_has_unsupported_args(&self, func: &FunctionDef, ir: &CodegenIR) -> bool {
+        // For &mut self methods, only skip if the class is unsendable
+        // Sendable classes can have mutable methods!
+        if func.kind == FunctionKind::MethodMut {
+            if self.class_needs_unsendable(&func.class_name, ir) {
+                return true;
+            }
+            // Sendable class - &mut self is allowed, continue checking args
+        }
         
         for arg in &func.args {
-            // Skip pointer types
-            if arg.type_name.contains('*') { return true; }
-            // Skip VecRef types (check by name pattern)
-            if arg.type_name.contains("VecRef") || arg.type_name == "Refstr" { return true; }
-            // Skip callback and complex types
-            if SKIP_TYPES.iter().any(|s| arg.type_name.contains(s)) { return true; }
-            // Skip boxed object types 
-            if BOXED_TYPES.contains(&arg.type_name.as_str()) { return true; }
+            // Skip raw pointer types
+            if arg.type_name.contains("*const") || arg.type_name.contains("*mut") { 
+                return true; 
+            }
+            // Skip VecRef types
+            if arg.type_name.contains("VecRef") || arg.type_name == "Refstr" { 
+                return true; 
+            }
             // Skip generic instantiations (e.g., CssPropertyValue<StyleBoxShadow>)
-            if arg.type_name.contains('<') && arg.type_name.contains('>') { return true; }
+            if arg.type_name.contains('<') && arg.type_name.contains('>') { 
+                return true; 
+            }
             // Skip array types
-            if arg.type_name.starts_with('[') && arg.type_name.contains(';') { return true; }
-            // Skip RefAny (requires special handling)
-            if arg.type_name == "RefAny" { return true; }
-            // Skip ALL callback types (until we implement callback trampoline support)
-            if arg.type_name.contains("Callback") { return true; }
-            // Skip types that contain callbacks or event handlers (widget callback types)
-            // These are like "ButtonOnClick", "TextInputOnFocusLost", etc.
-            if arg.type_name.contains("OnClick") ||
-               arg.type_name.contains("OnToggle") ||
-               arg.type_name.contains("OnChange") ||
-               arg.type_name.contains("OnInput") ||
-               arg.type_name.contains("OnFocus") ||
-               arg.type_name.contains("OnScroll") ||
-               arg.type_name.contains("OnKey") ||
-               arg.type_name.contains("OnRow") ||
-               arg.type_name.contains("OnColumn") ||
-               arg.type_name.contains("OnPath") ||
-               arg.type_name.contains("OnValue") ||
-               arg.type_name.contains("OnLazy") ||
-               arg.type_name.contains("OnText") { return true; }
-            // Skip IFrame types
-            if arg.type_name.contains("IFrame") { return true; }
-            // Skip WindowCreateOptions (contains callbacks)
-            if arg.type_name == "WindowCreateOptions" { return true; }
-            // Skip CoreMenu types (contain callbacks)
-            if arg.type_name.contains("Menu") && arg.type_name.contains("Callback") { return true; }
-            if arg.type_name == "CoreMenuCallback" { return true; }
+            if arg.type_name.starts_with('[') && arg.type_name.contains(';') { 
+                return true; 
+            }
+            
+            // Skip type aliases to generic types
+            if !self.is_python_compatible_type(&arg.type_name, ir) {
+                return true;
+            }
+            
+            // RefAny is ALWAYS allowed - becomes Py<PyAny>
+            if arg.type_name == "RefAny" {
+                continue;
+            }
+            
+            // Callback types with callback_info are ALWAYS allowed - become Py<PyAny>
+            if arg.callback_info.is_some() {
+                continue;
+            }
+            
+            // Unrecognized CallbackType (no callback_info) - skip
+            if arg.type_name.ends_with("CallbackType") { 
+                return true; 
+            }
         }
         
         if let Some(ret) = &func.return_type {
-            if ret.contains('*') { return true; }
+            if ret.contains("*const") || ret.contains("*mut") { return true; }
             if ret.contains("VecRef") || ret == "Refstr" { return true; }
-            if SKIP_TYPES.iter().any(|s| ret.contains(s)) { return true; }
-            // Skip boxed object return types
-            if BOXED_TYPES.contains(&ret.as_str()) { return true; }
             // Skip generic instantiations in return types
             if ret.contains('<') && ret.contains('>') { return true; }
+            // Skip incompatible return types
+            if !self.is_python_compatible_type(ret, ir) { return true; }
         }
         
         false
     }
+    
+    /// Check if a function has a recognized callback pattern:
+    /// - Has an argument named "data" with type "RefAny"
+    /// - Has an argument named "callback" with a recognized CallbackType (has callback_info)
+    /// - Or has any argument that is a callback type (Py<PyAny>)
+    fn has_callback_pattern(&self, func: &FunctionDef) -> bool {
+        let has_refany = func.args.iter().any(|a| a.name == "data" && a.type_name == "RefAny");
+        let has_callback = func.args.iter().any(|a| a.name == "callback" && a.callback_info.is_some());
+        
+        // Also check for any argument that has callback_info (for cases like layout_callback)
+        let has_any_callback = func.args.iter().any(|a| a.callback_info.is_some());
+        
+        (has_refany && has_callback) || has_any_callback
+    }
 
     /// Check if a type is compatible with Python bindings
     /// Uses structural analysis rather than hardcoded lists
-    fn is_python_compatible_type(&self, type_name: &str) -> bool {
+    fn is_python_compatible_type(&self, type_name: &str, ir: &CodegenIR) -> bool {
         if is_primitive_type(type_name) { return true; }
         
         // Skip pointer types
@@ -1544,6 +1830,11 @@ impl Drop for AzApp {{
         
         // Skip generic instantiations like PhysicalPosition<i32>
         if type_name.contains('<') && type_name.contains('>') {
+            return false;
+        }
+        
+        // Skip callback wrapper types - these need special Py<PyAny> handling
+        if is_callback_wrapper_type(type_name, ir) {
             return false;
         }
         
@@ -1577,15 +1868,6 @@ impl Drop for AzApp {{
             "LogicalSizeI32", "LogicalSizeF32",
         ];
         if GENERIC_TYPE_ALIASES.contains(&type_name) {
-            return false;
-        }
-        
-        // Skip boxed types
-        const BOXED: &[&str] = &[
-            "ImageRef", "FontRef", "Svg", "SvgXmlNode", "ParsedSvgXmlNode",
-            "IFrameNode", // Contains callback, can't Clone
-        ];
-        if BOXED.contains(&type_name) {
             return false;
         }
         
@@ -1632,7 +1914,7 @@ impl Drop for AzApp {{
         TypeCategory::Regular
     }
 
-    fn rust_type_to_python(&self, rust_type: &str, prefix: &str) -> String {
+    fn rust_type_to_python(&self, rust_type: &str, prefix: &str, ir: &CodegenIR) -> String {
         // Handle primitives directly
         if is_primitive_type(rust_type) { return rust_type.to_string(); }
         if rust_type == "String" { return "String".to_string(); }
@@ -1645,9 +1927,16 @@ impl Drop for AzApp {{
             return "Py<PyAny>".to_string();
         }
         
-        // Callback types (Callback, IFrameCallback, etc.) → Py<PyAny>
+        // Callback typedef types (e.g., CallbackType, ButtonOnClickCallbackType) → Py<PyAny>
+        // These are raw function pointer types that Python can't use directly
+        // We accept a Python callable and use a trampoline to invoke it
+        if base_type.ends_with("CallbackType") {
+            return "Py<PyAny>".to_string();
+        }
+        
+        // Callback wrapper types (Callback, IFrameCallback, etc.) → Py<PyAny>
         // These get converted to a callback struct with a trampoline in the function body
-        if is_callback_wrapper_type(&base_type) {
+        if is_callback_wrapper_type(&base_type, ir) {
             return "Py<PyAny>".to_string();
         }
         
@@ -1666,10 +1955,20 @@ impl Drop for AzApp {{
     }
 
     fn find_external_path(&self, type_name: &str, ir: &CodegenIR) -> Option<String> {
-        if let Some(s) = ir.find_struct(type_name) { return s.external_path.clone(); }
-        if let Some(e) = ir.find_enum(type_name) { return e.external_path.clone(); }
-        for cb in &ir.callback_typedefs { if cb.name == type_name { return cb.external_path.clone(); } }
-        None
+        let path = if let Some(s) = ir.find_struct(type_name) { s.external_path.clone() }
+        else if let Some(e) = ir.find_enum(type_name) { e.external_path.clone() }
+        else if let Some(ta) = ir.type_aliases.iter().find(|ta| ta.name == type_name) { 
+            ta.external_path.clone()
+        }
+        else {
+            for cb in &ir.callback_typedefs { 
+                if cb.name == type_name { 
+                    return cb.external_path.clone().map(|p| p.replace("azul_dll::", "crate::")); 
+                } 
+            }
+            return None;
+        };
+        path.map(|p| p.replace("azul_dll::", "crate::"))
     }
 }
 
@@ -1684,29 +1983,25 @@ fn is_primitive_type(name: &str) -> bool {
 /// Check if a type is a callback wrapper struct (contains a function pointer + RefAny data)
 /// These types need special handling: Python receives Py<PyAny>, and we construct
 /// the callback with a trampoline function that invokes the Python callable.
-fn is_callback_wrapper_type(type_name: &str) -> bool {
-    // Callback wrapper types are structs that pair a callback function pointer with RefAny data
-    // They typically end with "Callback" but NOT "CallbackType" (which is the raw function pointer)
-    // Also NOT "CallbackInfo" (which is the info struct passed to callbacks)
-    if type_name.ends_with("CallbackType") || type_name.ends_with("CallbackInfo") {
-        return false;
+///
+/// Detection criteria (all must be true):
+/// 1. Type is a struct (not enum, not type_alias)
+/// 2. Type name ends with "Callback" but NOT "CallbackType" or "CallbackInfo"
+/// 3. Type contains a field with a callback_typedef type as direct child
+/// 4. Type has a "callable" field with type "OptionRefAny"
+///
+/// This information is pre-computed in the IR during the link_callback_wrappers phase.
+fn is_callback_wrapper_type(type_name: &str, ir: &CodegenIR) -> bool {
+    // Use the pre-computed callback_wrapper_info from the IR
+    if let Some(struct_def) = ir.find_struct(type_name) {
+        return struct_def.callback_wrapper_info.is_some();
     }
-    
-    // Known callback wrapper types
-    const CALLBACK_WRAPPERS: &[&str] = &[
-        "Callback", "IFrameCallback", "RenderImageCallback", "TimerCallback",
-        "ThreadCallback", "TaskCallback", "WriteBackCallback",
-        // Widget callback wrappers
-        "ButtonOnClick", "CheckBoxOnToggle", "ColorInputOnValueChange",
-        "TextInputOnTextInput", "TextInputOnVirtualKeyDown", "TextInputOnFocusLost",
-        "NumberInputOnValueChange", "NumberInputOnFocusLost",
-        "TabOnClick", "FileInputOnPathChange", "ListViewOnRowClick",
-        "ListViewOnColumnClick", "ListViewOnLazyLoadScroll",
-        "DropDownOnChoiceChange", "ProgressBarOnUpdate",
-        "CoreMenuCallback",
-    ];
-    
-    CALLBACK_WRAPPERS.contains(&type_name) || type_name.ends_with("Callback")
+    false
+}
+
+/// Get the callback wrapper info for a type, if it is a callback wrapper
+fn get_callback_wrapper_info<'a>(type_name: &str, ir: &'a CodegenIR) -> Option<&'a crate::codegen::v2::ir::CallbackWrapperInfo> {
+    ir.find_struct(type_name).and_then(|s| s.callback_wrapper_info.as_ref())
 }
 
 /// Check if a type is a direct FFI type (not wrapped in a struct with .inner)

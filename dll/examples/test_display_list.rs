@@ -81,7 +81,7 @@ fn main() {
 
     let config = AppConfig::new();
     let app = App::new(RefAny::new(data), config);
-    let window = WindowCreateOptions::new(layout_callback);
+    let window = WindowCreateOptions::new(layout_callback as azul_core::callbacks::LayoutCallbackType);
 
     eprintln!("\nOpening window...\n");
 

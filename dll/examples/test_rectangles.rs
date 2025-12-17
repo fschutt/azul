@@ -126,7 +126,7 @@ fn main() {
     };
     let config = AppConfig::new();
     let app = App::new(RefAny::new(data), config);
-    let mut window = WindowCreateOptions::new(layout_xhtml);
+    let mut window = WindowCreateOptions::new(layout_xhtml as azul_core::callbacks::LayoutCallbackType);
 
     // Set the close callback
     window.state.close_callback =

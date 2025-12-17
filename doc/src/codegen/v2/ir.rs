@@ -74,6 +74,11 @@ impl CodegenIR {
         self.enums.iter().find(|e| e.name == name)
     }
 
+    /// Find a type alias by name
+    pub fn find_type_alias(&self, name: &str) -> Option<&TypeAliasDef> {
+        self.type_aliases.iter().find(|t| t.name == name)
+    }
+
     /// Find functions for a specific class
     pub fn functions_for_class<'a>(&'a self, class_name: &'a str) -> impl Iterator<Item = &'a FunctionDef> + 'a {
         self.functions.iter().filter(move |f| f.class_name == class_name)
@@ -159,6 +164,11 @@ pub struct StructDef {
     /// Repr attribute (e.g., "C", "transparent")
     pub repr: Option<String>,
 
+    /// Whether this type is safe to implement Send + Sync
+    /// True for Vec-like types that use internal pointers but are semantically safe
+    /// (like Rust's Vec<T> which is Send+Sync when T is)
+    pub is_send_safe: bool,
+
     /// Generic type parameters (e.g., ["T"] for Option<T>)
     pub generic_params: Vec<String>,
 
@@ -168,6 +178,27 @@ pub struct StructDef {
     /// Type category for code generation
     /// Determines how this type is handled by language generators
     pub category: TypeCategory,
+
+    /// If this is a callback wrapper struct, contains info about the wrapped callback
+    /// A callback wrapper has:
+    /// - A field with a callback_typedef type (the function pointer)
+    /// - A "callable" field with type "OptionRefAny" (storage for the callable)
+    pub callback_wrapper_info: Option<CallbackWrapperInfo>,
+}
+
+/// Information about a callback wrapper struct
+/// 
+/// Callback wrappers pair a function pointer (callback_typedef) with
+/// optional data (OptionRefAny). In Python, the user passes a Py<PyAny>
+/// callable, which gets stored in `callable` and invoked via a trampoline.
+#[derive(Debug, Clone)]
+pub struct CallbackWrapperInfo {
+    /// The name of the callback_typedef this wrapper contains
+    /// e.g., "IFrameCallbackType", "ButtonOnClickCallbackType"
+    pub callback_typedef_name: String,
+    
+    /// The field name that holds the callback (usually "cb")
+    pub callback_field_name: String,
 }
 
 /// Struct field definition
@@ -243,6 +274,10 @@ pub struct EnumDef {
 
     /// Repr attribute
     pub repr: Option<String>,
+
+    /// Whether this type is safe to implement Send + Sync
+    /// True for Vec-like types that use internal pointers but are semantically safe
+    pub is_send_safe: bool,
 
     /// Trait capabilities
     pub traits: TypeTraits,
@@ -414,6 +449,38 @@ pub struct FunctionArg {
 
     /// Documentation
     pub doc: Option<String>,
+
+    /// If this argument is a callback typedef type (e.g., CallbackType, ButtonOnClickCallbackType),
+    /// this contains information about the callback for language generators.
+    /// 
+    /// This is set when:
+    /// - The argument type ends with "CallbackType" 
+    /// - The type is registered as a callback_typedef in api.json
+    /// 
+    /// Python generator uses this to:
+    /// 1. Accept `Py<PyAny>` callable instead of the function pointer
+    /// 2. Generate trampoline code to invoke the Python callable
+    /// 3. Wrap the callable in the callback wrapper struct (e.g., ButtonOnClickCallback)
+    pub callback_info: Option<CallbackArgInfo>,
+}
+
+/// Information about a callback argument
+/// 
+/// When a function takes a callback typedef type (e.g., `callback: CallbackType`),
+/// this struct contains the information needed for language generators to
+/// properly handle the callback.
+#[derive(Debug, Clone)]
+pub struct CallbackArgInfo {
+    /// The name of the callback typedef type (e.g., "CallbackType", "ButtonOnClickCallbackType")
+    pub callback_typedef_name: String,
+    
+    /// The name of the callback wrapper struct (e.g., "Callback", "ButtonOnClickCallback")
+    /// This is typically the typedef name with "Type" stripped: "ButtonOnClickCallbackType" → "ButtonOnClickCallback"
+    /// Some wrappers use different conventions (e.g., "Callback" for "CallbackType" becomes "CoreCallback")
+    pub callback_wrapper_name: String,
+    
+    /// The name of the trampoline function to use (e.g., "invoke_py_callback", "invoke_py_button_on_click_callback")
+    pub trampoline_name: String,
 }
 
 /// Reference kind for function arguments
@@ -449,6 +516,9 @@ pub struct TypeAliasDef {
 
     /// Module
     pub module: String,
+    
+    /// External path (from api.json "external" field)
+    pub external_path: Option<String>,
 }
 
 // ============================================================================
@@ -596,7 +666,6 @@ impl TypeCategory {
         matches!(self,
             TypeCategory::Recursive |
             TypeCategory::VecRef |
-            TypeCategory::Boxed |
             TypeCategory::GenericTemplate |
             TypeCategory::DestructorOrClone |
             TypeCategory::CallbackTypedef

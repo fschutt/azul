@@ -119,6 +119,12 @@ impl LayoutCallback {
     }
 }
 
+impl From<LayoutCallbackType> for LayoutCallback {
+    fn from(cb: LayoutCallbackType) -> Self {
+        Self::new(cb)
+    }
+}
+
 impl Default for LayoutCallback {
     fn default() -> Self {
         Self {
@@ -146,6 +152,12 @@ impl_callback!(IFrameCallback);
 impl IFrameCallback {
     pub fn new(cb: IFrameCallbackType) -> Self {
         Self { cb, callable: OptionRefAny::None }
+    }
+}
+
+impl From<IFrameCallbackType> for IFrameCallback {
+    fn from(cb: IFrameCallbackType) -> Self {
+        Self::new(cb)
     }
 }
 
