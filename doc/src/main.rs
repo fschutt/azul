@@ -860,6 +860,32 @@ fn main() -> anyhow::Result<()> {
             codegen::v2::generate_memtest_v2(&api_data, &project_root)?;
             return Ok(());
         }
+        ["v2", "c"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2 C] Generating C header using codegen v2...\n");
+            let code = codegen::v2::generate_c_header(&api_data)?;
+            let output_path = project_root.join("target").join("codegen").join("v2").join("azul.h");
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output_path, &code)?;
+            println!("[OK] C header v2 generated successfully!");
+            println!("     Output: {} ({} bytes)", output_path.display(), code.len());
+            return Ok(());
+        }
+        ["v2", "cpp"] => {
+            let api_data = load_api_json(&api_path)?;
+            println!("[V2 C++] Generating C++ header using codegen v2...\n");
+            let code = codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
+            let output_path = project_root.join("target").join("codegen").join("v2").join("azul.hpp");
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output_path, &code)?;
+            println!("[OK] C++ header v2 generated successfully!");
+            println!("     Output: {} ({} bytes)", output_path.display(), code.len());
+            return Ok(());
+        }
         ["v2", "all"] => {
             let api_data = load_api_json(&api_path)?;
             println!("[V2] Generating all output files using codegen v2...\n");
