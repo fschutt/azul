@@ -503,6 +503,37 @@ impl CodegenConfig {
             external_crate_replacement: None,
         }
     }
+
+    /// Memtest configuration (for testing the generated API)
+    /// 
+    /// Output: target/memtest/lib.rs
+    /// 
+    /// Similar to dll_static but without #[no_mangle] to avoid symbol conflicts.
+    /// Used for compiling as a separate test crate.
+    pub fn memtest() -> Self {
+        Self {
+            output_name: "memtest_lib.rs".into(),
+            target_lang: TargetLang::Rust,
+            cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: false },
+            struct_mode: StructMode::Prefixed,
+            trait_impl_mode: TraitImplMode::UsingTransmute {
+                external_crate: "azul_core".into(),
+            },
+            type_prefix: "Az".into(),
+            module_wrapper: Some("dll".into()),
+            imports: vec![
+                "use core::ffi::c_void;".into(),
+                "use core::mem::transmute;".into(),
+            ],
+            type_filter: None,
+            type_exclude: HashSet::new(),
+            indent: "    ".into(),
+            generate_docs: false, // Skip docs for test crate
+            callback_typedef_use_external: false,
+            // Keep azul_dll:: as is (memtest uses azul_dll as dependency)
+            external_crate_replacement: None,
+        }
+    }
 }
 
 // ============================================================================

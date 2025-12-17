@@ -76,20 +76,91 @@ use std::path::Path;
 use anyhow::Result;
 use crate::api::ApiData;
 
-/// Generate DLL API using codegen v2
-/// 
-/// This generates the static DLL API (equivalent to `memtest dll` command)
-/// Output is written to `target/codegen/v2/dll_api.rs`
-pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
-    // Get the latest version data
+// ============================================================================
+// Helper: Build IR from ApiData
+// ============================================================================
+
+fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
     let version_str = api_data.get_latest_version_str()
         .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
     let version_data = api_data.get_version(&version_str)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
-    println!("[V2] Building IR from api.json...");
     let ir_builder = IRBuilder::new(version_data);
-    let ir = ir_builder.build()?;
+    ir_builder.build()
+}
+
+// ============================================================================
+// String-returning generators (all configs return String, caller writes to file)
+// ============================================================================
+
+/// Generate DLL static API code as String
+pub fn generate_dll_static(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::dll_static();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate DLL dynamic API code as String
+pub fn generate_dll_dynamic(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::dll_dynamic();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate DLL types only (no functions) as String
+pub fn generate_dll_types_only(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::dll_types_only();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate C header as String
+pub fn generate_c_header(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate C++ header as String
+pub fn generate_cpp_header(api_data: &ApiData, standard: CppStandard) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::cpp_header(standard);
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate public Rust API as String
+pub fn generate_rust_public_api(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::rust_public_api();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate memtest code as String
+pub fn generate_memtest(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::memtest();
+    CodeGenerator::generate(&ir, &config)
+}
+
+/// Generate Python extension as String
+pub fn generate_python(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let python_config = PythonConfig::python_extension();
+    lang_python::PythonGenerator.generate_python(&ir, &python_config)
+}
+
+// ============================================================================
+// Legacy file-writing functions (for backwards compatibility)
+// ============================================================================
+
+/// Generate DLL API using codegen v2 (writes to file)
+/// 
+/// This generates the static DLL API (equivalent to `memtest dll` command)
+/// Output is written to `target/codegen/v2/dll_api.rs`
+pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    println!("[V2] Building IR from api.json...");
+    let ir = build_ir_from_api(api_data)?;
 
     println!("[V2] IR built: {} structs, {} enums, {} functions", 
         ir.structs.len(), ir.enums.len(), ir.functions.len());
@@ -113,7 +184,7 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
     Ok(())
 }
 
-/// Generate all output files using codegen v2
+/// Generate all output files using codegen v2 (writes to files)
 /// 
 /// This generates all standard code generation targets:
 /// - DLL static API
@@ -123,14 +194,8 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 /// - Public Rust API
 /// - Python extension
 pub fn generate_all_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
-    let version_str = api_data.get_latest_version_str()
-        .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
-    let version_data = api_data.get_version(&version_str)
-        .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
-
     println!("[V2] Building IR from api.json...");
-    let ir_builder = IRBuilder::new(version_data);
-    let ir = ir_builder.build()?;
+    let ir = build_ir_from_api(api_data)?;
 
     println!("[V2] IR built: {} structs, {} enums, {} functions", 
         ir.structs.len(), ir.enums.len(), ir.functions.len());
@@ -143,25 +208,14 @@ pub fn generate_all_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Generate Python extension using codegen v2
+/// Generate Python extension using codegen v2 (writes to file)
 /// 
 /// This generates the Python extension module with PyO3 bindings.
 /// Output is written to `target/codegen/v2/python_api.rs`
 pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
-    let version_str = api_data.get_latest_version_str()
-        .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
-    let version_data = api_data.get_version(&version_str)
-        .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
-
-    println!("[V2] Building IR from api.json...");
-    let ir_builder = IRBuilder::new(version_data);
-    let ir = ir_builder.build()?;
-
-    println!("[V2] IR built: {} structs, {} enums, {} functions", 
-        ir.structs.len(), ir.enums.len(), ir.functions.len());
-
-    // Generate using Python config
-    let python_config = PythonConfig::python_extension();
+    println!("[V2] Generating Python extension...");
+    
+    let code = generate_python(api_data)?;
     
     let output_path = project_root
         .join("target")
@@ -169,10 +223,6 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
         .join("v2")
         .join("python_api.rs");
 
-    println!("[V2] Generating Python extension to {}...", output_path.display());
-    
-    let code = lang_python::PythonGenerator.generate_python(&ir, &python_config)?;
-    
     // Create parent directory if needed
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -183,6 +233,32 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
     println!("     Output: {} ({} bytes)", output_path.display(), code.len());
     println!("     To use this, update dll/src/lib.rs include!() path to:");
     println!("     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/v2/python_api.rs\"));");
+
+    Ok(())
+}
+
+/// Generate memtest using codegen v2 (writes to file)
+/// 
+/// This generates a test crate for validating the generated API.
+/// Output is written to `target/memtest/memtest_lib.rs`
+pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
+    println!("[V2] Generating memtest code...");
+    
+    let code = generate_memtest(api_data)?;
+    
+    let output_path = project_root
+        .join("target")
+        .join("memtest")
+        .join("memtest_lib.rs");
+
+    // Create parent directory if needed
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&output_path, &code)?;
+
+    println!("\n[OK] Memtest v2 generated successfully!");
+    println!("     Output: {} ({} bytes)", output_path.display(), code.len());
 
     Ok(())
 }

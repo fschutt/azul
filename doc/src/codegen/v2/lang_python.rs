@@ -40,14 +40,8 @@ use super::generator::LanguageGenerator;
 use crate::utils::analyze::analyze_type;
 
 // ============================================================================
-// Constants - Types that need special handling (LEGACY - use TypeCategory instead)
+// Constants
 // ============================================================================
-
-/// Types that are completely manually implemented (not auto-generated)
-/// Only includes types that have completely custom Python implementations
-const MANUAL_TYPES: &[&str] = &[
-    "App",    // Has custom App class with special run() method
-];
 
 /// Types that are C-API type aliases (not structs with .inner field)
 /// These types use `type AzFoo = dll::AzFoo;` not `struct AzFoo { inner: ... }`
@@ -1438,7 +1432,6 @@ extern "C" fn invoke_py_layout_callback(
             builder.line(&format!("m.add_class::<{}{}>()?;", prefix, enum_def.name));
         }
 
-        builder.line("m.add_class::<AzApp>()?;");
         builder.line("Ok(())");
         builder.dedent();
         builder.line("}");
