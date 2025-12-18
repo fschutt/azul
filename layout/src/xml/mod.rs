@@ -220,7 +220,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
                     current_parent.children.push(XmlNodeChild::Element(XmlNode {
                         node_type: tag_name.into(),
-                        attributes: StringPairVec::new(),
+                        attributes: StringPairVec::new().into(),
                         children: Vec::new().into(),
                     }));
 

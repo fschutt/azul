@@ -5961,9 +5961,28 @@
               "Tag of an XML node, such as the \"button\" in `<button>Hello</button>`."
             ],
             "external": "azul_core::xml::XmlTagName",
-            "type_alias": {
-              "target": "String"
-            }
+            "custom_impls": [
+              "Deref",
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug",
+              "Default",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
           },
           "CheckBoxOnToggleCallback": {
             "external": "azul_layout::widgets::check_box::CheckBoxOnToggleCallback",
@@ -6368,9 +6387,29 @@
               "Attributes of an XML node, such as `[\"color\" => \"blue\"]` in `<button color=\"blue\" />`."
             ],
             "external": "azul_core::xml::XmlAttributeMap",
-            "type_alias": {
-              "target": "StringPairVec"
-            }
+            "custom_impls": [
+              "Deref",
+              "DerefMut",
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug",
+              "Default",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "StringPairVec"
+                }
+              }
+            ],
+            "repr": "C"
           },
           "NodeTypeTag": {
             "external": "azul_css::css::NodeTypeTag",

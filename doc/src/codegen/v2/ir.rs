@@ -553,6 +553,9 @@ pub struct TypeAliasDef {
     
     /// External path (from api.json "external" field)
     pub external_path: Option<String>,
+    
+    /// Trait capabilities (inherited from target type or explicit in api.json)
+    pub traits: TypeTraits,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
     

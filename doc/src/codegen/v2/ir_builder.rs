@@ -193,12 +193,28 @@ impl<'a> IRBuilder<'a> {
             .collect();
         
         // Collect dependencies for all types into a unified map
+        // IMPORTANT: Only direct field references are dependencies!
+        // Pointer references (*, &, Box, etc.) only need forward declarations
         let mut all_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
         
-        // Struct dependencies (from field types)
+        // Struct dependencies (from field types - only direct, not pointer)
         for struct_def in &self.ir.structs {
             let deps: Vec<String> = struct_def.fields.iter()
                 .filter_map(|field| {
+                    // Skip if it's a pointer reference (forward decl is enough)
+                    // Check both the type string AND the ref_kind
+                    if self.is_pointer_type(&field.type_name) {
+                        return None;
+                    }
+                    // Also skip if ref_kind indicates pointer/reference indirection
+                    match field.ref_kind {
+                        FieldRefKind::Ptr | FieldRefKind::PtrMut | 
+                        FieldRefKind::Ref | FieldRefKind::RefMut |
+                        FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                            return None;
+                        }
+                        FieldRefKind::Owned => {}
+                    }
                     let base = self.extract_base_type(&field.type_name);
                     if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                         None
@@ -210,7 +226,7 @@ impl<'a> IRBuilder<'a> {
             all_deps.insert(struct_def.name.clone(), deps);
         }
         
-        // Enum dependencies (from variant payloads)
+        // Enum dependencies (from variant payloads - only direct, not pointer)
         for enum_def in &self.ir.enums {
             let deps: Vec<String> = enum_def.variants.iter()
                 .flat_map(|variant| {
@@ -218,6 +234,10 @@ impl<'a> IRBuilder<'a> {
                         EnumVariantKind::Tuple(types) => {
                             types.iter()
                                 .filter_map(|t| {
+                                    // Skip if it's a pointer reference
+                                    if self.is_pointer_type(t) {
+                                        return None;
+                                    }
                                     let base = self.extract_base_type(t);
                                     if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                         None
@@ -230,6 +250,19 @@ impl<'a> IRBuilder<'a> {
                         EnumVariantKind::Struct(fields) => {
                             fields.iter()
                                 .filter_map(|f| {
+                                    // Skip if it's a pointer reference (type string)
+                                    if self.is_pointer_type(&f.type_name) {
+                                        return None;
+                                    }
+                                    // Also skip if ref_kind indicates pointer/reference indirection
+                                    match f.ref_kind {
+                                        FieldRefKind::Ptr | FieldRefKind::PtrMut | 
+                                        FieldRefKind::Ref | FieldRefKind::RefMut |
+                                        FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                                            return None;
+                                        }
+                                        FieldRefKind::Owned => {}
+                                    }
                                     let base = self.extract_base_type(&f.type_name);
                                     if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                         None
@@ -247,26 +280,11 @@ impl<'a> IRBuilder<'a> {
         }
         
         // Callback typedef dependencies (from argument types and return type)
+        // Note: Callback args are always passed by pointer in C, so no dependencies needed
         for callback in &self.ir.callback_typedefs {
-            let mut deps: Vec<String> = callback.args.iter()
-                .filter_map(|arg| {
-                    let base = self.extract_base_type(&arg.type_name);
-                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
-                        None
-                    } else {
-                        Some(base)
-                    }
-                })
-                .collect();
-            
-            if let Some(ref ret_type) = callback.return_type {
-                let base = self.extract_base_type(ret_type);
-                if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
-                    deps.push(base);
-                }
-            }
-            
-            all_deps.insert(callback.name.clone(), deps);
+            // Callbacks only need forward declarations for their argument types
+            // because arguments are always pointers or primitives in C ABI
+            all_deps.insert(callback.name.clone(), Vec::new());
         }
         
         // Type alias dependencies (from monomorphized variants/fields)
@@ -278,6 +296,10 @@ impl<'a> IRBuilder<'a> {
                     MonomorphizedKind::TaggedUnion { variants, .. } => {
                         for variant in variants {
                             if let Some(ref payload_type) = variant.payload_type {
+                                // Skip if it's a pointer reference
+                                if self.is_pointer_type(payload_type) {
+                                    continue;
+                                }
                                 let base = self.extract_base_type(payload_type);
                                 if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
                                     deps.push(base);
@@ -287,6 +309,19 @@ impl<'a> IRBuilder<'a> {
                     }
                     MonomorphizedKind::Struct { fields } => {
                         for field in fields {
+                            // Skip if it's a pointer reference (type string)
+                            if self.is_pointer_type(&field.type_name) {
+                                continue;
+                            }
+                            // Also skip if ref_kind indicates pointer/reference indirection
+                            match field.ref_kind {
+                                FieldRefKind::Ptr | FieldRefKind::PtrMut | 
+                                FieldRefKind::Ref | FieldRefKind::RefMut |
+                                FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                                    continue;
+                                }
+                                FieldRefKind::Owned => {}
+                            }
                             let base = self.extract_base_type(&field.type_name);
                             if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
                                 deps.push(base);
@@ -390,6 +425,19 @@ impl<'a> IRBuilder<'a> {
             "i8" | "i16" | "i32" | "i64" | "isize" |
             "f32" | "f64" | "c_void" | "()"
         )
+    }
+
+    /// Check if a type is accessed through a pointer (only needs forward declaration in C)
+    /// Pointer types include: *const T, *mut T, Box<T>, &T, &mut T
+    fn is_pointer_type(&self, type_name: &str) -> bool {
+        let s = type_name.trim();
+        s.starts_with("*const ") ||
+        s.starts_with("*mut ") ||
+        s.starts_with("* const ") ||
+        s.starts_with("* mut ") ||
+        s.starts_with("Box<") ||
+        s.starts_with("&mut ") ||
+        s.starts_with("&")
     }
 
     /// Extract base type name from a complex type (removes pointers, generics, arrays)
@@ -704,6 +752,13 @@ impl<'a> IRBuilder<'a> {
                         None
                     };
                     
+                    // Build traits from derive/custom_impls (same logic as structs/enums)
+                    // For type aliases, inherit traits from the target type if not explicitly set
+                    let derives = class_data.derive.clone().unwrap_or_default();
+                    let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
+                    let has_custom_drop = class_data.has_custom_drop();
+                    let traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
+                    
                     self.ir.type_aliases.push(TypeAliasDef {
                         name: class_name.clone(),
                         target,
@@ -711,6 +766,7 @@ impl<'a> IRBuilder<'a> {
                         doc: class_data.doc.clone().unwrap_or_default(),
                         module: module_name.clone(),
                         external_path: class_data.external.clone(),
+                        traits,
                         monomorphized_def,
                         dependencies: Vec::new(),
                         sort_order: 0,
@@ -1057,13 +1113,17 @@ impl<'a> IRBuilder<'a> {
         //   - _hash if Hash
         
         // Collect type info first to avoid borrow issues
-        let struct_infos: Vec<_> = self.ir.structs.iter().map(|s| {
-            (s.name.clone(), s.traits.clone())
-        }).collect();
+        // IMPORTANT: Skip generic types - they need to be monomorphized first
+        // Only their monomorphized versions (type aliases) should get trait functions
+        let struct_infos: Vec<_> = self.ir.structs.iter()
+            .filter(|s| s.generic_params.is_empty())
+            .map(|s| (s.name.clone(), s.traits.clone()))
+            .collect();
 
-        let enum_infos: Vec<_> = self.ir.enums.iter().map(|e| {
-            (e.name.clone(), e.traits.clone())
-        }).collect();
+        let enum_infos: Vec<_> = self.ir.enums.iter()
+            .filter(|e| e.generic_params.is_empty())
+            .map(|e| (e.name.clone(), e.traits.clone()))
+            .collect();
 
         // Generate trait functions for structs
         for (name, traits) in struct_infos {
@@ -1072,6 +1132,17 @@ impl<'a> IRBuilder<'a> {
 
         // Generate trait functions for enums
         for (name, traits) in enum_infos {
+            self.generate_trait_functions_for_type(&name, &traits);
+        }
+        
+        // Generate trait functions for monomorphized type aliases
+        // These are the concrete instantiations of generic types
+        let type_alias_infos: Vec<_> = self.ir.type_aliases.iter()
+            .filter(|t| t.monomorphized_def.is_some())
+            .map(|t| (t.name.clone(), t.traits.clone()))
+            .collect();
+        
+        for (name, traits) in type_alias_infos {
             self.generate_trait_functions_for_type(&name, &traits);
         }
 

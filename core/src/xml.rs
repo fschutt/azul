@@ -55,12 +55,67 @@ use crate::{
 ///
 /// Stringified for error reporting; not part of the public API.
 pub type SyntaxError = String;
+
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
-pub type XmlTagName = AzString;
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct XmlTagName {
+    pub inner: AzString,
+}
+
+impl From<AzString> for XmlTagName {
+    fn from(s: AzString) -> Self {
+        Self { inner: s }
+    }
+}
+
+impl From<String> for XmlTagName {
+    fn from(s: String) -> Self {
+        Self { inner: s.into() }
+    }
+}
+
+impl From<&str> for XmlTagName {
+    fn from(s: &str) -> Self {
+        Self { inner: s.into() }
+    }
+}
+
+impl core::ops::Deref for XmlTagName {
+    type Target = AzString;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 /// (Unparsed) text content of an XML node, such as the "Hello" in `<button>Hello</button>`.
 pub type XmlTextContent = OptionString;
+
 /// Attributes of an XML node, such as `["color" => "blue"]` in `<button color="blue" />`.
-pub type XmlAttributeMap = StringPairVec;
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct XmlAttributeMap {
+    pub inner: StringPairVec,
+}
+
+impl From<StringPairVec> for XmlAttributeMap {
+    fn from(v: StringPairVec) -> Self {
+        Self { inner: v }
+    }
+}
+
+impl core::ops::Deref for XmlAttributeMap {
+    type Target = StringPairVec;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl core::ops::DerefMut for XmlAttributeMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
 
 pub type ComponentArgumentName = String;
 pub type ComponentArgumentType = String;

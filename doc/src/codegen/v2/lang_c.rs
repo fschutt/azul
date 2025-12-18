@@ -732,16 +732,31 @@ impl CGenerator {
 
     /// Convert Rust type to C type with prefix
     fn rust_type_to_c_with_prefix(&self, rust_type: &str, config: &CodegenConfig) -> String {
+        let trimmed = rust_type.trim();
+        
+        // Handle pointer types - only add prefix to the base type
+        if trimmed.starts_with("*const ") {
+            let inner = trimmed.strip_prefix("*const ").unwrap().trim();
+            let c_inner = self.rust_type_to_c_with_prefix(inner, config);
+            return format!("const {}*", c_inner);
+        }
+        if trimmed.starts_with("*mut ") {
+            let inner = trimmed.strip_prefix("*mut ").unwrap().trim();
+            let c_inner = self.rust_type_to_c_with_prefix(inner, config);
+            return format!("{}*", c_inner);
+        }
+        
         let c_type = self.rust_type_to_c(rust_type);
         
         // If it's a primitive, don't add prefix
         let primitives = [
             "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
             "int8_t", "int16_t", "int32_t", "int64_t",
-            "size_t", "ssize_t", "float", "double", "void"
+            "size_t", "ssize_t", "float", "double", "void",
+            "c_void",  // Also check original Rust name
         ];
         
-        if primitives.contains(&c_type.as_str()) {
+        if primitives.contains(&c_type.as_str()) || primitives.contains(&trimmed) {
             c_type
         } else {
             config.apply_prefix(&c_type)
@@ -822,6 +837,10 @@ impl CGenerator {
                 continue;
             }
             if !enum_def.is_union {
+                continue;
+            }
+            // Skip generic enums - they need to be monomorphized first
+            if !enum_def.generic_params.is_empty() {
                 continue;
             }
 
