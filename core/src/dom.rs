@@ -979,7 +979,7 @@ impl IdOrClass {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AttributeNameValue {
-    pub name: AzString,
+    pub attr_name: AzString,
     pub value: AzString,
 }
 
@@ -2360,7 +2360,7 @@ impl Default for TabIndex {
 
 impl Default for NodeData {
     fn default() -> Self {
-        NodeData::new(NodeType::Div)
+        NodeData::new_node(NodeType::Div)
     }
 }
 
@@ -2418,7 +2418,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 impl NodeData {
     /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
-    pub const fn new(node_type: NodeType) -> Self {
+    pub const fn new_node(node_type: NodeType) -> Self {
         Self {
             node_type,
             dataset: OptionRefAny::None,
@@ -2431,31 +2431,31 @@ impl NodeData {
         }
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Body)`.
+    /// Shorthand for `NodeData::new_node(NodeType::Body)`.
     #[inline(always)]
-    pub const fn body() -> Self {
-        Self::new(NodeType::Body)
+    pub const fn new_body() -> Self {
+        Self::new_node(NodeType::Body)
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Div)`.
+    /// Shorthand for `NodeData::new_node(NodeType::Div)`.
     #[inline(always)]
-    pub const fn div() -> Self {
-        Self::new(NodeType::Div)
+    pub const fn new_div() -> Self {
+        Self::new_node(NodeType::Div)
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Br)`.
+    /// Shorthand for `NodeData::new_node(NodeType::Br)`.
     #[inline(always)]
     pub const fn br() -> Self {
-        Self::new(NodeType::Br)
+        Self::new_node(NodeType::Br)
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`.
+    /// Shorthand for `NodeData::new_node(NodeType::Text(value.into()))`.
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
         Self::new(NodeType::Text(value.into()))
     }
 
-    /// Shorthand for `NodeData::new(NodeType::Image(image_id))`.
+    /// Shorthand for `NodeData::new_node(NodeType::Image(image_id))`.
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
         Self::new(NodeType::Image(image))
@@ -2805,7 +2805,7 @@ impl NodeData {
 
     #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = NodeData::div();
+        let mut s = NodeData::new_div();
         mem::swap(&mut s, self);
         s
     }
@@ -2974,9 +2974,9 @@ impl Dom {
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline(always)]
-    pub fn new(node_type: NodeType) -> Self {
+    pub fn new_node(node_type: NodeType) -> Self {
         Self {
-            root: NodeData::new(node_type),
+            root: NodeData::new_node(node_type),
             children: Vec::new().into(),
             estimated_total_children: 0,
         }
@@ -2999,7 +2999,7 @@ impl Dom {
     #[inline(always)]
     pub const fn html() -> Self {
         Self {
-            root: NodeData::new(NodeType::Html),
+            root: NodeData::new_node(NodeType::Html),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3011,16 +3011,16 @@ impl Dom {
     #[inline(always)]
     pub const fn head() -> Self {
         Self {
-            root: NodeData::new(NodeType::Head),
+            root: NodeData::new_node(NodeType::Head),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
 
     #[inline(always)]
-    pub const fn body() -> Self {
+    pub const fn new_body() -> Self {
         Self {
-            root: NodeData::new(NodeType::Body),
+            root: NodeData::new_node(NodeType::Body),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3031,9 +3031,9 @@ impl Dom {
     /// **Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when
     /// applicable.
     #[inline(always)]
-    pub const fn div() -> Self {
+    pub const fn new_div() -> Self {
         Self {
-            root: NodeData::new(NodeType::Div),
+            root: NodeData::new_node(NodeType::Div),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3049,7 +3049,7 @@ impl Dom {
     #[inline(always)]
     pub const fn article() -> Self {
         Self {
-            root: NodeData::new(NodeType::Article),
+            root: NodeData::new_node(NodeType::Article),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3062,7 +3062,7 @@ impl Dom {
     #[inline(always)]
     pub const fn section() -> Self {
         Self {
-            root: NodeData::new(NodeType::Section),
+            root: NodeData::new_node(NodeType::Section),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3076,7 +3076,7 @@ impl Dom {
     #[inline(always)]
     pub const fn nav() -> Self {
         Self {
-            root: NodeData::new(NodeType::Nav),
+            root: NodeData::new_node(NodeType::Nav),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3089,7 +3089,7 @@ impl Dom {
     #[inline(always)]
     pub const fn aside() -> Self {
         Self {
-            root: NodeData::new(NodeType::Aside),
+            root: NodeData::new_node(NodeType::Aside),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3102,7 +3102,7 @@ impl Dom {
     #[inline(always)]
     pub const fn header() -> Self {
         Self {
-            root: NodeData::new(NodeType::Header),
+            root: NodeData::new_node(NodeType::Header),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3115,7 +3115,7 @@ impl Dom {
     #[inline(always)]
     pub const fn footer() -> Self {
         Self {
-            root: NodeData::new(NodeType::Footer),
+            root: NodeData::new_node(NodeType::Footer),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3129,7 +3129,7 @@ impl Dom {
     #[inline(always)]
     pub const fn main() -> Self {
         Self {
-            root: NodeData::new(NodeType::Main),
+            root: NodeData::new_node(NodeType::Main),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3142,7 +3142,7 @@ impl Dom {
     #[inline(always)]
     pub const fn figure() -> Self {
         Self {
-            root: NodeData::new(NodeType::Figure),
+            root: NodeData::new_node(NodeType::Figure),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3155,7 +3155,7 @@ impl Dom {
     #[inline(always)]
     pub const fn figcaption() -> Self {
         Self {
-            root: NodeData::new(NodeType::FigCaption),
+            root: NodeData::new_node(NodeType::FigCaption),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3170,7 +3170,7 @@ impl Dom {
     #[inline(always)]
     pub const fn details() -> Self {
         Self {
-            root: NodeData::new(NodeType::Details),
+            root: NodeData::new_node(NodeType::Details),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3183,7 +3183,7 @@ impl Dom {
     #[inline]
     pub fn summary<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::Summary),
+            root: NodeData::new_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3198,7 +3198,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dialog() -> Self {
         Self {
-            root: NodeData::new(NodeType::Dialog),
+            root: NodeData::new_node(NodeType::Dialog),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3209,7 +3209,7 @@ impl Dom {
     #[inline(always)]
     pub const fn br() -> Self {
         Self {
-            root: NodeData::new(NodeType::Br),
+            root: NodeData::new_node(NodeType::Br),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3238,7 +3238,7 @@ impl Dom {
     #[inline(always)]
     pub const fn p() -> Self {
         Self {
-            root: NodeData::new(NodeType::P),
+            root: NodeData::new_node(NodeType::P),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3254,7 +3254,7 @@ impl Dom {
     #[inline]
     pub fn h1<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H1),
+            root: NodeData::new_node(NodeType::H1),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3270,7 +3270,7 @@ impl Dom {
     #[inline]
     pub fn h2<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H2),
+            root: NodeData::new_node(NodeType::H2),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3286,7 +3286,7 @@ impl Dom {
     #[inline]
     pub fn h3<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H3),
+            root: NodeData::new_node(NodeType::H3),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3300,7 +3300,7 @@ impl Dom {
     #[inline]
     pub fn h4<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H4),
+            root: NodeData::new_node(NodeType::H4),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3314,7 +3314,7 @@ impl Dom {
     #[inline]
     pub fn h5<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H5),
+            root: NodeData::new_node(NodeType::H5),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3328,7 +3328,7 @@ impl Dom {
     #[inline]
     pub fn h6<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::H6),
+            root: NodeData::new_node(NodeType::H6),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3345,7 +3345,7 @@ impl Dom {
     #[inline]
     pub fn span<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::Span),
+            root: NodeData::new_node(NodeType::Span),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3362,7 +3362,7 @@ impl Dom {
     #[inline]
     pub fn strong<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::Strong),
+            root: NodeData::new_node(NodeType::Strong),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3379,7 +3379,7 @@ impl Dom {
     #[inline]
     pub fn em<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new(NodeType::Em),
+            root: NodeData::new_node(NodeType::Em),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3827,7 +3827,7 @@ impl Dom {
     #[inline(always)]
     pub const fn address() -> Self {
         Self {
-            root: NodeData::new(NodeType::Address),
+            root: NodeData::new_node(NodeType::Address),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3839,7 +3839,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dl() -> Self {
         Self {
-            root: NodeData::new(NodeType::Dl),
+            root: NodeData::new_node(NodeType::Dl),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3851,7 +3851,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dt() -> Self {
         Self {
-            root: NodeData::new(NodeType::Dt),
+            root: NodeData::new_node(NodeType::Dt),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3863,7 +3863,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dd() -> Self {
         Self {
-            root: NodeData::new(NodeType::Dd),
+            root: NodeData::new_node(NodeType::Dd),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3873,7 +3873,7 @@ impl Dom {
     #[inline(always)]
     pub const fn colgroup() -> Self {
         Self {
-            root: NodeData::new(NodeType::ColGroup),
+            root: NodeData::new_node(NodeType::ColGroup),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3900,7 +3900,7 @@ impl Dom {
     #[inline(always)]
     pub const fn q() -> Self {
         Self {
-            root: NodeData::new(NodeType::Q),
+            root: NodeData::new_node(NodeType::Q),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3912,7 +3912,7 @@ impl Dom {
     #[inline(always)]
     pub const fn acronym() -> Self {
         Self {
-            root: NodeData::new(NodeType::Acronym),
+            root: NodeData::new_node(NodeType::Acronym),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3925,7 +3925,7 @@ impl Dom {
     #[inline(always)]
     pub const fn menu() -> Self {
         Self {
-            root: NodeData::new(NodeType::Menu),
+            root: NodeData::new_node(NodeType::Menu),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3938,7 +3938,7 @@ impl Dom {
     #[inline(always)]
     pub const fn menuitem() -> Self {
         Self {
-            root: NodeData::new(NodeType::MenuItem),
+            root: NodeData::new_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3951,7 +3951,7 @@ impl Dom {
     #[inline(always)]
     pub const fn output() -> Self {
         Self {
-            root: NodeData::new(NodeType::Output),
+            root: NodeData::new_node(NodeType::Output),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4003,7 +4003,7 @@ impl Dom {
     #[inline(always)]
     pub const fn datalist() -> Self {
         Self {
-            root: NodeData::new(NodeType::DataList),
+            root: NodeData::new_node(NodeType::DataList),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4019,7 +4019,7 @@ impl Dom {
     #[inline(always)]
     pub const fn canvas() -> Self {
         Self {
-            root: NodeData::new(NodeType::Canvas),
+            root: NodeData::new_node(NodeType::Canvas),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4031,7 +4031,7 @@ impl Dom {
     #[inline(always)]
     pub const fn object() -> Self {
         Self {
-            root: NodeData::new(NodeType::Object),
+            root: NodeData::new_node(NodeType::Object),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4056,7 +4056,7 @@ impl Dom {
     #[inline(always)]
     pub const fn embed() -> Self {
         Self {
-            root: NodeData::new(NodeType::Embed),
+            root: NodeData::new_node(NodeType::Embed),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4069,7 +4069,7 @@ impl Dom {
     #[inline(always)]
     pub const fn audio() -> Self {
         Self {
-            root: NodeData::new(NodeType::Audio),
+            root: NodeData::new_node(NodeType::Audio),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4082,7 +4082,7 @@ impl Dom {
     #[inline(always)]
     pub const fn video() -> Self {
         Self {
-            root: NodeData::new(NodeType::Video),
+            root: NodeData::new_node(NodeType::Video),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4127,7 +4127,7 @@ impl Dom {
     #[inline(always)]
     pub const fn map() -> Self {
         Self {
-            root: NodeData::new(NodeType::Map),
+            root: NodeData::new_node(NodeType::Map),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4140,7 +4140,7 @@ impl Dom {
     #[inline(always)]
     pub const fn area() -> Self {
         Self {
-            root: NodeData::new(NodeType::Area),
+            root: NodeData::new_node(NodeType::Area),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4163,7 +4163,7 @@ impl Dom {
     #[inline(always)]
     pub const fn meta() -> Self {
         Self {
-            root: NodeData::new(NodeType::Meta),
+            root: NodeData::new_node(NodeType::Meta),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4176,7 +4176,7 @@ impl Dom {
     #[inline(always)]
     pub const fn link() -> Self {
         Self {
-            root: NodeData::new(NodeType::Link),
+            root: NodeData::new_node(NodeType::Link),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4189,7 +4189,7 @@ impl Dom {
     #[inline(always)]
     pub const fn script() -> Self {
         Self {
-            root: NodeData::new(NodeType::Script),
+            root: NodeData::new_node(NodeType::Script),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4202,7 +4202,7 @@ impl Dom {
     #[inline(always)]
     pub const fn style_element() -> Self {
         Self {
-            root: NodeData::new(NodeType::Style),
+            root: NodeData::new_node(NodeType::Style),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4471,7 +4471,7 @@ impl Dom {
     #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self {
-            root: NodeData::div(),
+            root: NodeData::new_div(),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         };
@@ -4511,7 +4511,7 @@ impl Dom {
     }
 
     pub fn style(&mut self, css: azul_css::parser2::CssApiWrapper) -> StyledDom {
-        StyledDom::new(self, css)
+        StyledDom::new_node(self, css)
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {
@@ -4588,7 +4588,7 @@ impl Dom {
     ///
     /// **Example:**
     /// ```ignore
-    /// Dom::div()
+    /// Dom::new_div()
     ///     .with_attribute(AttributeType::Id("main".into()))
     ///     .with_attribute(AttributeType::AriaLabel("Main content".into()))
     /// ```ignore
@@ -4739,7 +4739,7 @@ impl core::iter::FromIterator<Dom> for Dom {
             .collect::<Vec<Dom>>();
 
         Dom {
-            root: NodeData::div(),
+            root: NodeData::new_div(),
             children: children.into(),
             estimated_total_children,
         }

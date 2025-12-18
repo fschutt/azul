@@ -66,7 +66,7 @@ pub fn get_displays() -> Vec<DisplayInfo> {
 /// for monitor in monitors.as_ref() {
 ///     println!(
 ///         "Monitor {}: {}x{} @ {:?}",
-///         monitor.id.id, monitor.size.width, monitor.size.height, monitor.position
+///         monitor.monitor_id.id, monitor.size.width, monitor.size.height, monitor.position
 ///     );
 /// }
 /// ```

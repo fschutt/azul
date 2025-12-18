@@ -25,11 +25,11 @@ fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     };
 
     // Build the calculator DOM using CSS Grid
-    let display = Dom::div()
+    let display = Dom::new_div()
         .with_inline_style(DISPLAY_STYLE)
         .with_child(Dom::text(display_text));
 
-    let buttons = Dom::div()
+    let buttons = Dom::new_div()
         .with_inline_style(BUTTONS_STYLE)
         // Row 1: C, +/-, %, ÷
         .with_child(calc_button(data, "C", CalcEvent::Clear, BUTTON_STYLE))
@@ -56,7 +56,7 @@ fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
         .with_child(calc_button(data, ".", CalcEvent::Digit('.'), BUTTON_STYLE))
         .with_child(calc_button(data, "=", CalcEvent::Equals, OPERATOR_STYLE));
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(CALCULATOR_STYLE)
         .with_child(display)
         .with_child(buttons)
@@ -279,7 +279,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, class: &str) -> Dom
         event,
     });
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(class)
         .with_child(Dom::text(label))
         .with_dataset(Some(button_data))

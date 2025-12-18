@@ -28,22 +28,22 @@ extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDo
     let _ = std::io::stderr().flush();
 
     // Create a simple DOM with ONLY colored rectangles - NO TEXT!
-    let mut dom = Dom::body()
+    let mut dom = Dom::new_body()
         .with_inline_style("padding: 20px; width: 640px; height: 480px; background: #f0f0f0;")
         .with_children(
             vec![
                 // Red rectangle with border
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 200px; height: 100px; background: #FF0000; border: 2px solid #990000; \
                      margin-bottom: 20px;",
                 ),
                 // Green rectangle with border
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 300px; height: 80px; background: #00FF00; border: 2px solid #009900; \
                      margin-bottom: 20px;",
                 ),
                 // Blue rectangle with border
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 250px; height: 120px; background: #0000FF; border: 2px solid #000099;",
                 ),
             ]

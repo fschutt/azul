@@ -13,7 +13,7 @@ fn test_fixed_element_static_position() {
     let mut styled_dom = create_test_dom(); // Helper function to create a test DOM
 
     // Add a fixed positioned div inside a parent div
-    let parent_div = Dom::from_data(NodeData::div())
+    let parent_div = Dom::from_data(NodeData::new_div())
         .with_inline_css_props(
             vec![
                 NodeDataInlineCssProperty::Normal(CssProperty::Position(
@@ -26,7 +26,7 @@ fn test_fixed_element_static_position() {
             .into(),
         )
         .with_child(
-            Dom::from_data(NodeData::div()).with_inline_css_props(
+            Dom::from_data(NodeData::new_div()).with_inline_css_props(
                 vec![
                     NodeDataInlineCssProperty::Normal(CssProperty::Position(
                         CssPropertyValue::Exact(LayoutPosition::Fixed),
@@ -1705,13 +1705,13 @@ mod context {
     #[test]
     fn test_node_default_formatting_contexts() {
         // Create a DOM with different types of nodes
-        let styled_dom = Dom::new(NodeType::Body)
+        let styled_dom = Dom::new_node(NodeType::Body)
             .with_children(
                 vec![
                     // Text node - should be inline by default
                     Dom::from_data(NodeData::text("Hello world")),
                     // Div node - should be block by default
-                    Dom::from_data(NodeData::div()),
+                    Dom::from_data(NodeData::new_div()),
                     // Image node - should be inline by default
                     Dom::from_data(NodeData::image(ImageRef::null_image(
                         10,
@@ -1760,7 +1760,7 @@ mod context {
     #[test]
     fn test_css_overrides_default_formatting() {
         // Create a DOM with CSS overrides
-        let styled_dom = Dom::new(NodeType::Body)
+        let styled_dom = Dom::new_node(NodeType::Body)
             .with_children(
                 vec![
                     // Make text display as block
@@ -1770,7 +1770,7 @@ mod context {
                         ))]
                         .into(),
                     ),
-                    Dom::from_data(NodeData::div()).with_inline_css_props(
+                    Dom::from_data(NodeData::new_div()).with_inline_css_props(
                         vec![NodeDataInlineCssProperty::Normal(CssProperty::Display(
                             CssPropertyValue::Exact(LayoutDisplay::Inline),
                         ))]
@@ -1842,11 +1842,11 @@ mod caching {
 
     // Helper function to create test DOM
     fn create_test_dom() -> StyledDom {
-        Dom::new(NodeType::Body)
+        Dom::new_node(NodeType::Body)
             .with_children(
                 vec![
                     Dom::from_data(NodeData::text("Hello")),
-                    Dom::from_data(NodeData::div())
+                    Dom::from_data(NodeData::new_div())
                         .with_children(vec![Dom::from_data(NodeData::text("World"))].into()),
                 ]
                 .into(),

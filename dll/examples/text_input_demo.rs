@@ -29,10 +29,10 @@ impl Default for TextInputDemo {
 
 impl azul_dll::Layout for TextInputDemo {
     fn layout(&self, _info: LayoutInfo) -> Dom {
-        Dom::div()
+        Dom::new_div()
             .with_class("container")
             .with_child(
-                Dom::div()
+                Dom::new_div()
                     .with_class("text-input")
                     .with_attribute("contenteditable", "true")
                     .with_attribute("tabindex", "0")
@@ -47,7 +47,7 @@ impl azul_dll::Layout for TextInputDemo {
                     .with_child(Dom::text(&self.text))
             )
             .with_child(
-                Dom::div()
+                Dom::new_div()
                     .with_class("instructions")
                     .with_inline_style("margin-top: 20px")
                     .with_inline_style("color: #666")

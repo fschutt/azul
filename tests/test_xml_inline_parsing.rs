@@ -24,7 +24,7 @@ fn test_manual_dom_structure() {
     
     let dom = Dom::p().with_children(vec![
         Dom::text("Before "),
-        Dom::new(NodeType::Span).with_children(vec![
+        Dom::new_node(NodeType::Span).with_children(vec![
             Dom::text("inline")
         ].into()),
         Dom::text(" after")

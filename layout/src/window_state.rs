@@ -25,7 +25,7 @@ use crate::callbacks::OptionCallback;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowCreateOptions {
-    pub state: FullWindowState,
+    pub window_state: FullWindowState,
     pub size_to_content: bool,
     pub renderer: azul_core::window::OptionRendererOptions,
     pub theme: azul_core::window::OptionWindowTheme,
@@ -36,7 +36,7 @@ pub struct WindowCreateOptions {
 impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
-            state: FullWindowState::default(),
+            window_state: FullWindowState::default(),
             size_to_content: false,
             renderer: azul_core::window::OptionRendererOptions::None,
             theme: azul_core::window::OptionWindowTheme::None,
@@ -48,9 +48,9 @@ impl Default for WindowCreateOptions {
 
 impl WindowCreateOptions {
     /// Create a new WindowCreateOptions with a layout callback
-    pub fn new(layout_callback: impl Into<azul_core::callbacks::LayoutCallback>) -> Self {
+    pub fn create(layout_callback: impl Into<azul_core::callbacks::LayoutCallback>) -> Self {
         let mut options = Self::default();
-        options.state.layout_callback = layout_callback.into();
+        options.window_state.layout_callback = layout_callback.into();
         options
     }
 }

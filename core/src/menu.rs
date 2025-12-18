@@ -54,7 +54,7 @@ impl Menu {
     /// Creates a new menu with the given items.
     ///
     /// Uses default position (AutoCursor) and right mouse button for context menus.
-    pub fn new(items: MenuItemVec) -> Self {
+    pub fn create(items: MenuItemVec) -> Self {
         Self {
             items,
             position: MenuPopupPosition::AutoCursor,

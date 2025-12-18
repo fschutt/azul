@@ -109,13 +109,13 @@ pub struct LayoutCallback {
     pub cb: LayoutCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 impl_callback!(LayoutCallback);
 
 impl LayoutCallback {
     pub fn new(cb: LayoutCallbackType) -> Self {
-        Self { cb, callable: OptionRefAny::None }
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -145,13 +145,13 @@ pub struct IFrameCallback {
     pub cb: IFrameCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 impl_callback!(IFrameCallback);
 
 impl IFrameCallback {
     pub fn new(cb: IFrameCallbackType) -> Self {
-        Self { cb, callable: OptionRefAny::None }
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -767,7 +767,7 @@ impl_option!(
 pub struct CoreCallbackData {
     pub event: EventFilter,
     pub callback: CoreCallback,
-    pub data: RefAny,
+    pub refany: RefAny,
 }
 
 impl_vec!(

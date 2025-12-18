@@ -221,7 +221,7 @@ impl CheckBox {
             dom::{Dom, EventFilter, HoverEventFilter},
         };
 
-        Dom::div()
+        Dom::new_div()
             .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
             .with_inline_css_props(self.container_style)
             .with_callbacks(
@@ -237,7 +237,7 @@ impl CheckBox {
             )
             .with_tab_index(TabIndex::Auto)
             .with_children(
-                vec![Dom::div()
+                vec![Dom::new_div()
                     .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
                     .with_inline_css_props(self.content_style)]
                 .into(),

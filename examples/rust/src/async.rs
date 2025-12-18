@@ -56,7 +56,7 @@ extern "C"
 fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::body()
+    let mut body = Dom::new_body()
     .with_inline_style(
         "font-family: sans-serif;
         align-items: center;
@@ -71,7 +71,7 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     };
 
     body.add_child(
-        Dom::div()
+        Dom::new_div()
             .with_inline_style(
                 "flex-direction: column; 
                 align-items: center; 
@@ -91,7 +91,7 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 impl ConnectionStatus {
     pub fn dom(&self) -> Dom {
         match self {
-            NotConnected { database } => Dom::div().with_children(vec![
+            NotConnected { database } => Dom::new_div().with_children(vec![
                 Dom::text("Enter database to connect to:"),
                 TextInput::new()
                     .with_text(database.clone())
@@ -114,7 +114,7 @@ impl ConnectionStatus {
                     ConnectionEstablished => {
                         Dom::text("Connection established! Waiting for data...")
                     }
-                    LoadingData { percent_done } => Dom::div().with_children(vec![
+                    LoadingData { percent_done } => Dom::new_div().with_children(vec![
                         Dom::text("Loading data..."),
                         ProgressBar::new(*percent_done).dom(),
                     ]),
@@ -130,7 +130,7 @@ impl ConnectionStatus {
                     .with_on_click(data_clone.clone(), stop_background_thread)
                     .dom();
 
-                Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
+                Dom::new_div().with_children(vec![progress_div, data_rendered_div, stop_btn])
             }
             DataLoaded { data: data_loaded } => {
                 let data_rendered_div = data_loaded
@@ -142,7 +142,7 @@ impl ConnectionStatus {
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::div().with_children(vec![data_rendered_div, reset_btn])
+                Dom::new_div().with_children(vec![data_rendered_div, reset_btn])
             }
             Error { error } => {
                 let error_div = Dom::text(format!("{}", error));
@@ -151,7 +151,7 @@ impl ConnectionStatus {
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::div().with_children(vec![error_div, reset_btn])
+                Dom::new_div().with_children(vec![error_div, reset_btn])
             }
         }
     }

@@ -79,7 +79,7 @@ pub fn parse_arg_type(ty: &str) -> (bool, bool, String) {
 
 /// Generate a function body that transmutes between local (Az-prefixed) and external types
 ///
-/// The fn_body in api.json uses unprefixed types like "Dom::new(node_type)"
+/// The fn_body in api.json uses unprefixed types like "Dom::new_node(node_type)"
 /// We need to:
 /// 1. Convert the self parameter from Az-prefixed local type to external type (transmute in)
 /// 2. Convert ALL arguments from Az-prefixed local types to external types (transmute in)

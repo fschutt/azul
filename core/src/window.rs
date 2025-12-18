@@ -73,13 +73,13 @@ static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct IconKey {
-    id: usize,
+    icon_id: usize,
 }
 
 impl IconKey {
     pub fn new() -> Self {
         Self {
-            id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst),
+            icon_id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
 }
@@ -758,8 +758,8 @@ impl core::hash::Hash for Monitor {
 impl Default for Monitor {
     fn default() -> Self {
         Monitor {
-            id: MonitorId::PRIMARY,
-            name: OptionString::None,
+            monitor_id: MonitorId::PRIMARY,
+            monitor_name: OptionString::None,
             size: LayoutSize::zero(),
             position: LayoutPoint::zero(),
             scale_factor: 1.0,

@@ -27,7 +27,7 @@ use azul_css::{
 macro_rules! setup_test {
     ($dom:expr) => {{
         let mut dom = $dom;
-        let styled_dom = StyledDom::new(&mut dom, CssApiWrapper::empty());
+        let styled_dom = StyledDom::new_node(&mut dom, CssApiWrapper::empty());
 
         let cache = styled_dom.css_property_cache.ptr.clone();
 
@@ -42,14 +42,14 @@ fn test_font_size_inheritance_single_level() {
     //   <p>Text</p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(24.0),
             ))]
             .into(),
         )
-        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
+        .with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
 
@@ -96,7 +96,7 @@ fn test_font_size_override_not_inherited() {
     //   <p style="font-size: 12px">Text</p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(24.0),
@@ -104,7 +104,7 @@ fn test_font_size_override_not_inherited() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::px(12.0),
@@ -156,7 +156,7 @@ fn test_font_weight_inheritance_multi_level() {
     //   </p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
                 StyleFontWeight::Bold,
@@ -164,8 +164,8 @@ fn test_font_weight_inheritance_multi_level() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
-                .with_child(Dom::new(NodeType::Span).with_child(Dom::text("Text"))),
+            Dom::new_node(NodeType::P)
+                .with_child(Dom::new_node(NodeType::Span).with_child(Dom::text("Text"))),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
@@ -218,7 +218,7 @@ fn test_mixed_inherited_and_explicit_properties() {
     //   </p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![
                 NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0))),
@@ -227,7 +227,7 @@ fn test_mixed_inherited_and_explicit_properties() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::px(16.0),
@@ -290,14 +290,14 @@ fn test_non_inheritable_property_not_inherited() {
         props::{basic::pixel::PixelValue, layout::dimensions::LayoutWidth},
     };
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::Width(
                 CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(200.0))),
             ))]
             .into(),
         )
-        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
+        .with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];
@@ -330,7 +330,7 @@ fn test_update_invalidation() {
     //   <p>Child 2</p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -339,8 +339,8 @@ fn test_update_invalidation() {
         )
         .with_children(
             vec![
-                Dom::new(NodeType::P).with_child(Dom::text("Child 1")),
-                Dom::new(NodeType::P).with_child(Dom::text("Child 2")),
+                Dom::new_node(NodeType::P).with_child(Dom::text("Child 1")),
+                Dom::new_node(NodeType::P).with_child(Dom::text("Child 2")),
             ]
             .into(),
         );
@@ -388,7 +388,7 @@ fn test_deeply_nested_inheritance() {
     //   </section>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
                 StyleFontWeight::Bold,
@@ -396,10 +396,10 @@ fn test_deeply_nested_inheritance() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::Section).with_child(
-                Dom::new(NodeType::Article).with_child(
-                    Dom::new(NodeType::P)
-                        .with_child(Dom::new(NodeType::Span).with_child(Dom::text("Deep text"))),
+            Dom::new_node(NodeType::Section).with_child(
+                Dom::new_node(NodeType::Article).with_child(
+                    Dom::new_node(NodeType::P)
+                        .with_child(Dom::new_node(NodeType::Span).with_child(Dom::text("Deep text"))),
                 ),
             ),
         );
@@ -448,7 +448,7 @@ fn test_em_unit_inheritance_basic() {
 
     use azul_css::props::basic::pixel::PixelValue;
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(16.0),
@@ -456,7 +456,7 @@ fn test_em_unit_inheritance_basic() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::em(2.0),
@@ -509,7 +509,7 @@ fn test_em_unit_cascading_multiplication() {
     //   </p>
     // </div>
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(10.0),
@@ -517,7 +517,7 @@ fn test_em_unit_cascading_multiplication() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::em(2.0),
@@ -525,7 +525,7 @@ fn test_em_unit_cascading_multiplication() {
                     .into(),
                 )
                 .with_child(
-                    Dom::new(NodeType::Span)
+                    Dom::new_node(NodeType::Span)
                         .with_inline_css_props(
                             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                                 StyleFontSize::em(1.5),
@@ -606,7 +606,7 @@ fn test_em_on_font_size_refers_to_parent() {
         },
     };
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -614,7 +614,7 @@ fn test_em_on_font_size_refers_to_parent() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::em(1.5),
@@ -622,7 +622,7 @@ fn test_em_on_font_size_refers_to_parent() {
                     .into(),
                 )
                 .with_child(
-                    Dom::new(NodeType::Span)
+                    Dom::new_node(NodeType::Span)
                         .with_inline_css_props(
                             vec![NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(
                                 CssPropertyValue::Exact(LayoutPaddingLeft {
@@ -746,14 +746,14 @@ fn test_em_without_ancestor_absolute_unit() {
 
     use azul_css::props::basic::length::SizeMetric;
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::em(2.0),
             ))]
             .into(),
         )
-        .with_child(Dom::new(NodeType::P).with_child(Dom::text("Text")));
+        .with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
     let (styled_dom, cache) = setup_test!(dom);
@@ -830,7 +830,7 @@ fn test_percentage_font_size_inheritance() {
 
     use azul_css::props::basic::pixel::PixelValue;
 
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -838,7 +838,7 @@ fn test_percentage_font_size_inheritance() {
             .into(),
         )
         .with_child(
-            Dom::new(NodeType::P)
+            Dom::new_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::percent(150.0),
@@ -846,7 +846,7 @@ fn test_percentage_font_size_inheritance() {
                     .into(),
                 )
                 .with_child(
-                    Dom::new(NodeType::Span)
+                    Dom::new_node(NodeType::Span)
                         .with_inline_css_props(
                             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                                 StyleFontSize::percent(80.0),

@@ -23,12 +23,112 @@ pub enum TargetLang {
 }
 
 /// C++ language standard version
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CppStandard {
+    Cpp03,
     Cpp11,
     Cpp14,
     Cpp17,
     Cpp20,
+    Cpp23,
+}
+
+impl CppStandard {
+    /// Get all supported C++ versions
+    pub fn all() -> &'static [CppStandard] {
+        &[
+            CppStandard::Cpp03,
+            CppStandard::Cpp11,
+            CppStandard::Cpp14,
+            CppStandard::Cpp17,
+            CppStandard::Cpp20,
+            CppStandard::Cpp23,
+        ]
+    }
+
+    /// Get the version number as a string (e.g., "03", "11")
+    pub fn version_number(&self) -> &'static str {
+        match self {
+            CppStandard::Cpp03 => "03",
+            CppStandard::Cpp11 => "11",
+            CppStandard::Cpp14 => "14",
+            CppStandard::Cpp17 => "17",
+            CppStandard::Cpp20 => "20",
+            CppStandard::Cpp23 => "23",
+        }
+    }
+
+    /// Get the standard flag for the compiler (e.g., "-std=c++11")
+    pub fn standard_flag(&self) -> &'static str {
+        match self {
+            CppStandard::Cpp03 => "-std=c++03",
+            CppStandard::Cpp11 => "-std=c++11",
+            CppStandard::Cpp14 => "-std=c++14",
+            CppStandard::Cpp17 => "-std=c++17",
+            CppStandard::Cpp20 => "-std=c++20",
+            CppStandard::Cpp23 => "-std=c++23",
+        }
+    }
+
+    /// Get the header filename for this version
+    pub fn header_filename(&self) -> String {
+        format!("azul{}.hpp", self.version_number())
+    }
+
+    /// Check if this version supports move semantics (C++11+)
+    pub fn has_move_semantics(&self) -> bool {
+        *self >= CppStandard::Cpp11
+    }
+
+    /// Check if this version supports noexcept (C++11+)
+    pub fn has_noexcept(&self) -> bool {
+        *self >= CppStandard::Cpp11
+    }
+
+    /// Check if this version supports std::optional (C++17+)
+    pub fn has_optional(&self) -> bool {
+        *self >= CppStandard::Cpp17
+    }
+
+    /// Check if this version supports std::variant (C++17+)
+    pub fn has_variant(&self) -> bool {
+        *self >= CppStandard::Cpp17
+    }
+
+    /// Check if this version supports std::span (C++20+)
+    pub fn has_span(&self) -> bool {
+        *self >= CppStandard::Cpp20
+    }
+
+    /// Check if this version supports [[nodiscard]] (C++17+)
+    pub fn has_nodiscard(&self) -> bool {
+        *self >= CppStandard::Cpp17
+    }
+
+    /// Check if this version supports std::string_view (C++17+)
+    pub fn has_string_view(&self) -> bool {
+        *self >= CppStandard::Cpp17
+    }
+
+    /// Check if this version supports std::expected (C++23)
+    pub fn has_expected(&self) -> bool {
+        *self >= CppStandard::Cpp23
+    }
+
+    /// Check if this version supports enum class (C++11+)
+    pub fn has_enum_class(&self) -> bool {
+        *self >= CppStandard::Cpp11
+    }
+
+    /// Check if this version supports std::function (C++11+)
+    pub fn has_std_function(&self) -> bool {
+        *self >= CppStandard::Cpp11
+    }
+
+    /// Check if this version supports constexpr (C++11+)
+    pub fn has_constexpr(&self) -> bool {
+        *self >= CppStandard::Cpp11
+    }
 }
 
 // ============================================================================
@@ -43,7 +143,7 @@ pub enum CAbiFunctionMode {
     /// ```rust,ignore
     /// #[no_mangle] 
     /// pub extern "C" fn AzDom_new() -> AzDom { 
-    ///     unsafe { transmute(Dom::new()) } 
+    ///     unsafe { transmute(Dom::new_node()) } 
     /// }
     /// ```
     InternalBindings {

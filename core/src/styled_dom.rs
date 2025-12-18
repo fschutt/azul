@@ -210,13 +210,13 @@ fn test_it() {
     ";
 
     let css = azul_css::parser2::new_from_str(s);
-    let _styled_dom = Dom::body()
+    let _styled_dom = Dom::new_body()
         .with_children(
-            vec![Dom::div()
+            vec![Dom::new_div()
                 .with_ids_and_classes(
                     vec![crate::dom::IdOrClass::Id("div1".to_string().into())].into(),
                 )
-                .with_children(vec![Dom::div()].into())]
+                .with_children(vec![Dom::new_div()].into())]
             .into(),
         )
         .style(CssApiWrapper { css: css.0 });
@@ -529,7 +529,7 @@ impl Default for StyledDom {
         Self {
             root: root_node_id,
             node_hierarchy: vec![root_node].into(),
-            node_data: vec![NodeData::body()].into(),
+            node_data: vec![NodeData::new_body()].into(),
             styled_nodes: vec![StyledNode::default()].into(),
             cascade_info: vec![CascadeInfo {
                 index_in_parent: 0,
@@ -563,7 +563,7 @@ impl StyledDom {
 
         use crate::dom::EventFilter;
 
-        let mut swap_dom = Dom::body();
+        let mut swap_dom = Dom::new_body();
 
         mem::swap(dom, &mut swap_dom);
 
@@ -1468,8 +1468,8 @@ impl StyledDom {
     /// Returns a HTML-formatted version of the DOM for easier debugging, i.e.
     ///
     /// ```rust,no_run,ignore
-    /// Dom::div().with_id("hello")
-    ///     .with_child(Dom::div().with_id("test"))
+    /// Dom::new_div().with_id("hello")
+    ///     .with_child(Dom::new_div().with_id("test"))
     /// ```
     ///
     /// will return:
@@ -1764,12 +1764,12 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     }
 
     // Pre-allocate all nodes (+ 1 root node)
-    const DEFAULT_NODE_DATA: NodeData = NodeData::div();
+    const DEFAULT_NODE_DATA: NodeData = NodeData::new_div();
 
     let sum_nodes = dom.fixup_children_estimated();
 
     let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
-    let mut node_data = vec![NodeData::div(); sum_nodes + 1];
+    let mut node_data = vec![NodeData::new_div(); sum_nodes + 1];
     let mut cur_node_id = 0;
 
     let root_node_id = NodeId::ZERO;

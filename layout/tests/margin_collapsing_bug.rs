@@ -13,7 +13,7 @@ use rust_fontconfig::FcFontCache;
 #[test]
 fn test_margin_collapsing() {
     // 1. Create DOM
-    let dom = Dom::div()
+    let dom = Dom::new_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
         .with_child(
             Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
@@ -47,7 +47,7 @@ fn test_margin_collapsing() {
 
     // 3. Create StyledDom
     let mut dom = dom; // needs to be mutable for StyledDom::new
-    let styled_dom = StyledDom::new(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
 
     // 4. Initialize LayoutWindow
     let font_cache = FcFontCache::build();

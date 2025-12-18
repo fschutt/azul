@@ -73,8 +73,8 @@ fn get_testing_hierarchy() -> NodeHierarchy {
 
 #[test]
 fn test_hash() {
-    let a = NodeData::div();
-    let b = NodeData::div();
+    let a = NodeData::new_div();
+    let b = NodeData::new_div();
     assert_eq!(a.calculate_node_data_hash(), b.calculate_node_data_hash())
 }
 
@@ -94,7 +94,7 @@ extern "C" fn render_iframe(_: &mut RefAny, _: &mut IFrameCallbackInfo) -> IFram
 fn test_full_dom() {
     let mut app_resources = RendererResources::default();
 
-    let styled_dom = StyledDom::new(&mut Dom::body(), CssApiWrapper::empty());
+    let styled_dom = StyledDom::new_node(&mut Dom::new_body(), CssApiWrapper::empty());
 
     let layout_result = azul_layout::solver2::do_the_layout_internal(
         DomId::ROOT_ID,

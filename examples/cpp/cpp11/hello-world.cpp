@@ -1,3 +1,5 @@
+#include "azul11.hpp"
+using namespace azul;
 
 struct MyDataModel {
     uint32_t counter;
@@ -7,16 +9,16 @@ AZ_REFLECT(MyDataModel);
 Update on_click(RefAny& data, CallbackInfo& info);
 
 StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto d = MyDataModel::downcast_ref(data);
-    if (!d) return StyledDom::default();
+    auto d = MyDataModel_downcast_ref(data);
+    if (!d) return StyledDom::default_();
     
-    Dom label = Dom::text(std::to_string(d->counter))
-        .with_inline_style("font-size: 50px;");
+    Dom label = Dom::text(String(std::to_string(d->counter).c_str()))
+        .with_inline_style(String("font-size: 50px;"));
     
     Dom button = Dom::div()
-        .with_inline_style("flex-grow: 1;")
-        .with_child(Dom::text("Increase counter"))
-        .with_callback(On::MouseUp, data.clone(), on_click);
+        .with_inline_style(String("flex-grow: 1;"))
+        .with_child(Dom::text(String("Increase counter")))
+        .with_callback(On_MouseUp, data.clone(), on_click);
     
     Dom body = Dom::body()
         .with_child(label)
@@ -26,20 +28,20 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
 }
 
 Update on_click(RefAny& data, CallbackInfo& info) {
-    auto d = MyDataModel::downcast_mut(data);
-    if (!d) return Update::DoNothing;
+    auto d = MyDataModel_downcast_mut(data);
+    if (!d) return Update_DoNothing;
     d->counter += 1;
-    return Update::RefreshDom;
+    return Update_RefreshDom;
 }
 
 int main() {
-    MyDataModel model{5};
-    RefAny data = RefAny::new(model);
+    MyDataModel model = {5};
+    RefAny data = MyDataModel_upcast(model);
     
-    WindowCreateOptions window = WindowCreateOptions::new(layout);
-    window.set_title("Hello World");
-    window.set_size(LogicalSize(400, 300));
+    WindowCreateOptions window = WindowCreateOptions::new_(LayoutCallback::new_(layout));
+    window.set_title(String("Hello World"));
+    window.set_size(LogicalSize::new_(400, 300));
     
-    App app = App::new(data, AppConfig::default());
+    App app = App::new_(data, AppConfig::default_());
     app.run(window);
 }

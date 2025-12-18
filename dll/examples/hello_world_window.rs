@@ -37,7 +37,7 @@ mod static_impl {
 
         // Create a simple red rectangle
         let mut dom =
-            Dom::div().with_inline_style("width: 200px; height: 200px; background-color: red;");
+            Dom::new_div().with_inline_style("width: 200px; height: 200px; background-color: red;");
 
         eprintln!("[my_layout_func] Created DOM with red rectangle");
         let styled = dom.style(CssApiWrapper { css: Css::empty() });

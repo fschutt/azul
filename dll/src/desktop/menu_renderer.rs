@@ -214,7 +214,7 @@ pub fn create_menu_styled_dom(
 fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
     // Container for all menu items
     let mut container =
-        Dom::div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+        Dom::new_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
             "menu-container".into(),
         )]));
 
@@ -245,7 +245,7 @@ fn create_menu_item_dom(item: &MenuItem, idx: usize, menu_window_data: &RefAny) 
         MenuItem::BreakLine => {
             // Break lines are only used in horizontal menus (menu bars)
             // For popup menus, we ignore them
-            Dom::div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            Dom::new_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-breakline".into(),
             )]))
         }
@@ -297,7 +297,7 @@ fn create_string_menu_item_dom(
     classes.push(IdOrClass::Id(format!("menu-item-{}", idx).into()));
 
     // Create container with classes
-    let mut item_dom = Dom::div().with_ids_and_classes(IdOrClassVec::from_vec(classes));
+    let mut item_dom = Dom::new_div().with_ids_and_classes(IdOrClassVec::from_vec(classes));
 
     // Icon section (checkbox, image, or empty space)
     let icon_dom = create_icon_dom(&item.icon);
@@ -381,7 +381,7 @@ fn create_string_menu_item_dom(
 /// Create icon DOM element
 fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
     let mut icon_dom =
-        Dom::div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+        Dom::new_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
             "menu-item-icon".into(),
         )]));
 
@@ -419,7 +419,7 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
 
 /// Create separator DOM element
 fn create_separator_dom() -> Dom {
-    Dom::div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+    Dom::new_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
         "menu-separator".into(),
     )]))
 }

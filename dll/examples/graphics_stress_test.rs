@@ -32,7 +32,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
     }
 
     // Build the DOM structure using inline styles
-    let mut dom = Dom::div()
+    let mut dom = Dom::new_div()
         .with_inline_style("
             display: flex;
             flex-direction: column;
@@ -43,11 +43,11 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
         ")
         // row 1: gradients with rounded corners and box shadows
         .with_child(
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
                 // Linear Gradient
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 200px;
                             height: 120px;
@@ -58,7 +58,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Radial Gradient
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 200px;
                             height: 120px;
@@ -69,7 +69,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Conic Gradient
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 200px;
                             height: 120px;
@@ -81,11 +81,11 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
         )
         // row 2: filter effect boxes
         .with_child(
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
                 // Grayscale filter
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -96,7 +96,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Backdrop blur (semi-transparent)
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -108,7 +108,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Opacity
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -120,11 +120,11 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
         )
         // row 3: bordered boxes with text
         .with_child(
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style("display: flex; flex-direction: row; margin-bottom: 20px; gap: 20px;")
                 // Red bordered box
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -141,7 +141,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Green bordered box
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -158,7 +158,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
                 )
                 // Blue bordered box
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 180px;
                             height: 100px;
@@ -176,10 +176,10 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
         )
         // row 4: shadow cascade
         .with_child(
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style("display: flex; flex-direction: row; gap: 20px;")
                 .with_child(
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("
                             width: 150px;
                             height: 150px;

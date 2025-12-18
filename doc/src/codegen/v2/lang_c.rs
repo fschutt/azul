@@ -11,6 +11,34 @@ use super::config::*;
 use super::generator::{CodeBuilder, LanguageGenerator};
 use super::ir::*;
 
+/// C++ reserved keywords that need to be escaped in C headers for C++ compatibility
+const CPP_RESERVED_KEYWORDS: &[&str] = &[
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
+    "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+    "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
+    "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
+    "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
+    "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private",
+    "protected", "public", "reflexpr", "register", "reinterpret_cast",
+    "requires", "return", "short", "signed", "sizeof", "static",
+    "static_assert", "static_cast", "struct", "switch", "synchronized",
+    "template", "this", "thread_local", "throw", "true", "try", "typedef",
+    "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+    "volatile", "wchar_t", "while", "xor", "xor_eq",
+];
+
+/// Escape C++ reserved keywords by appending an underscore
+/// This ensures C headers can be included from C++ code
+fn escape_cpp_keyword_for_c(name: &str) -> String {
+    if CPP_RESERVED_KEYWORDS.contains(&name) {
+        format!("{}_", name)
+    } else {
+        name.to_string()
+    }
+}
+
 // ============================================================================
 // C Generator
 // ============================================================================
@@ -679,7 +707,9 @@ impl CGenerator {
                 ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
                 ArgRefKind::Ptr => ("const ", "*"),
             };
-            format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, arg.name)
+            // Escape C++ keywords in parameter names
+            let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+            format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
         }).collect();
 
         let return_type = func.return_type.as_ref()

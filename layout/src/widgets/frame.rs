@@ -256,7 +256,7 @@ impl Frame {
     }
 
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(AzString::from_const_str(""), Dom::div());
+        let mut s = Self::new(AzString::from_const_str(""), Dom::new_div());
         core::mem::swap(&mut s, self);
         s
     }
@@ -271,7 +271,7 @@ impl Frame {
     }
 
     pub fn dom(self) -> Dom {
-        Dom::div()
+        Dom::new_div()
             .with_inline_css_props(CSS_MATCH_8602559445190067154)
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_14615537625743340639: &[IdOrClass] =
@@ -279,7 +279,7 @@ impl Frame {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_14615537625743340639)
             })
             .with_children(DomVec::from_vec(vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(CSS_MATCH_16739370686243728873)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_17776797146874875377: &[IdOrClass] = &[Class(
@@ -288,7 +288,7 @@ impl Frame {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17776797146874875377)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_15775557796860201720)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_15264202958442287530: &[IdOrClass] =
@@ -297,9 +297,9 @@ impl Frame {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15264202958442287530)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::div()])),
+                            .with_children(DomVec::from_vec(vec![Dom::new_div()])),
                         Dom::text(self.title).with_inline_css_props(CSS_MATCH_4236783900531286611),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_9156589477016488419)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5689091102265932280: &[IdOrClass] = &[Class(
@@ -307,9 +307,9 @@ impl Frame {
                                 )];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5689091102265932280)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::div()])),
+                            .with_children(DomVec::from_vec(vec![Dom::new_div()])),
                     ])),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                         // .__azul-native-frame .__azul-native-frame-content
                         NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(

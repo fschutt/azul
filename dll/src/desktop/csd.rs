@@ -227,7 +227,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
 
             let submenu = Menu::new(string_item.children.clone());
 
-            let dom_item = Dom::div()
+            let dom_item = Dom::new_div()
                 .with_ids_and_classes(item_classes)
                 .with_child(Dom::text(string_item.label.as_str()))
                 .with_callbacks(
@@ -247,7 +247,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
     }
 
     let menubar_classes = IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-menubar".into())]);
-    let mut dom = Dom::div()
+    let mut dom = Dom::new_div()
         .with_ids_and_classes(menubar_classes)
         .with_children(DomVec::from_vec(menu_items));
 
@@ -288,7 +288,7 @@ fn create_titlebar_dom(
             IdOrClass::Class("csd-button".into()),
             IdOrClass::Class("csd-minimize".into()),
         ]);
-        let minimize_btn = Dom::div()
+        let minimize_btn = Dom::new_div()
             .with_ids_and_classes(classes)
             .with_child(Dom::text("−"))
             .with_callbacks(
@@ -312,7 +312,7 @@ fn create_titlebar_dom(
             IdOrClass::Class("csd-button".into()),
             IdOrClass::Class("csd-maximize".into()),
         ]);
-        let maximize_btn = Dom::div()
+        let maximize_btn = Dom::new_div()
             .with_ids_and_classes(classes)
             .with_child(Dom::text("□"))
             .with_callbacks(
@@ -336,7 +336,7 @@ fn create_titlebar_dom(
             IdOrClass::Class("csd-button".into()),
             IdOrClass::Class("csd-close".into()),
         ]);
-        let close_btn = Dom::div()
+        let close_btn = Dom::new_div()
             .with_ids_and_classes(classes)
             .with_child(Dom::text("×"))
             .with_callbacks(
@@ -355,7 +355,7 @@ fn create_titlebar_dom(
 
     // Title text (centered) - with drag callback
     let title_classes = IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-title".into())]);
-    let title_text = Dom::div()
+    let title_text = Dom::new_div()
         .with_ids_and_classes(title_classes)
         .with_child(Dom::text(title))
         .with_callbacks(
@@ -383,14 +383,14 @@ fn create_titlebar_dom(
     // Button container
     let button_classes = IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-buttons".into())]);
     let button_vec = DomVec::from_vec(buttons);
-    let button_container = Dom::div()
+    let button_container = Dom::new_div()
         .with_ids_and_classes(button_classes)
         .with_children(button_vec);
 
     // Main titlebar container
     let titlebar_classes = IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-titlebar".into())]);
 
-    Dom::div()
+    Dom::new_div()
         .with_ids_and_classes(titlebar_classes)
         .with_child(title_text)
         .with_child(button_container)

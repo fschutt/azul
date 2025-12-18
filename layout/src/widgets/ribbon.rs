@@ -2328,7 +2328,7 @@ impl_callback!(
 
 impl Ribbon {
     pub fn dom(&self, callback: RibbonOnTabClickedCallback, data: RefAny) -> Dom {
-        Dom::div()
+        Dom::new_div()
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_9612282517634156717: &[IdOrClass] = &[Class(
                     AzString::from_const_str("__azul_native-ribbon-container"),
@@ -2336,7 +2336,7 @@ impl Ribbon {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9612282517634156717)
             })
             .with_children(DomVec::from_vec(vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(CSS_MATCH_2258738109329535793)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_9041457122899952067: &[IdOrClass] =
@@ -2351,7 +2351,7 @@ impl Ribbon {
                                     &[Class(AzString::from_const_str("home"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4826288409200248071)
                             }),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_9926913261609802002)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_9410866575549354381: &[IdOrClass] =
@@ -2389,7 +2389,7 @@ impl Ribbon {
                             data.clone(),
                         ),
                         render_tab_element("VIEW", self.tab_active == 6, 6, callback, data.clone()),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_11184921220530473733)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_16912306910777040419: &[IdOrClass] =
@@ -2398,7 +2398,7 @@ impl Ribbon {
                             }),
                     ])),
                 // tab content
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(CSS_MATCH_3221151331850347044)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_2825694991725398553: &[IdOrClass] =
@@ -2406,7 +2406,7 @@ impl Ribbon {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2825694991725398553)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_12860013474863056225)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_10025392060247617630: &[IdOrClass] = &[
@@ -2416,7 +2416,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10025392060247617630)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_9123706516995286623)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2427,7 +2427,7 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::div()
+                                    .with_children(DomVec::from_vec(vec![Dom::new_div()
                                         .with_inline_css_props(CSS_MATCH_7952568575592251546)
                                         .with_ids_and_classes({
                                             const IDS_AND_CLASSES_6126546624613363847:
@@ -2439,7 +2439,7 @@ impl Ribbon {
                                             )
                                         })
                                         .with_children(DomVec::from_vec(vec![
-                                            Dom::div()
+                                            Dom::new_div()
                                                 .with_inline_css_props(
                                                     CSS_MATCH_14701061083766788292,
                                                 )
@@ -2452,7 +2452,7 @@ impl Ribbon {
                                                         IDS_AND_CLASSES_4343297541786025485,
                                                     )
                                                 })
-                                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                                .with_children(DomVec::from_vec(vec![Dom::new_div()
                                                     .with_inline_css_props(
                                                         CSS_MATCH_15716718910432952660,
                                                     )
@@ -2469,7 +2469,7 @@ impl Ribbon {
                                                 .with_inline_css_props(
                                                     CSS_MATCH_6756514148882865175,
                                                 ),
-                                            Dom::div()
+                                            Dom::new_div()
                                                 .with_inline_css_props(
                                                     CSS_MATCH_1934381104964361563,
                                                 )
@@ -2482,7 +2482,7 @@ impl Ribbon {
                                                         IDS_AND_CLASSES_17000242124219500924,
                                                     )
                                                 })
-                                                .with_children(DomVec::from_vec(vec![Dom::div()
+                                                .with_children(DomVec::from_vec(vec![Dom::new_div()
                                                     .with_inline_css_props(
                                                         CSS_MATCH_491594124841839797,
                                                     )
@@ -2508,7 +2508,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_11324334306954975636)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_16234433965518568113: &[IdOrClass] = &[
@@ -2518,7 +2518,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16234433965518568113)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_4538658364223133674)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2544,7 +2544,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_970131228357345953)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_8769206706192203364: &[IdOrClass] = &[
@@ -2554,7 +2554,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8769206706192203364)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_8561962837455305444)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2580,7 +2580,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_6736299128913213977)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_8980483043948686304: &[IdOrClass] = &[
@@ -2590,7 +2590,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8980483043948686304)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_9206206203058145671)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2616,7 +2616,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_3888401522023951407)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_6781594546968350058: &[IdOrClass] = &[
@@ -2626,7 +2626,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6781594546968350058)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_14738982339524920711)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2652,7 +2652,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_4060245836920688376)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_11618651107626783359: &[IdOrClass] = &[
@@ -2662,7 +2662,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11618651107626783359)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_11894410514907408907)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =
@@ -2688,7 +2688,7 @@ impl Ribbon {
                                         )
                                     }),
                             ])),
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_css_props(CSS_MATCH_17089226259487272686)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_4188199152450384868: &[IdOrClass] = &[
@@ -2698,7 +2698,7 @@ impl Ribbon {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4188199152450384868)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_css_props(CSS_MATCH_14707506486468900090)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_2004408468416758999: &[IdOrClass] =

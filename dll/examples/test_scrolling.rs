@@ -29,23 +29,23 @@ extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDo
 
     // Create a simple DOM with text and a colored rectangle
     // Body should automatically grow to fit its children (no explicit size needed)
-    let mut dom = Dom::body()
+    let mut dom = Dom::new_body()
         .with_inline_style("padding: 20px; width: 640px; height: 480px;")
         .with_children(
             vec![
                 // Text node - wrapped in a div with explicit size
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; \
                          height: 30px;",
                     )
                     .with_children(vec![Dom::text("Azul Display List Test")].into()),
                 // Red rectangle
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 200px; height: 100px; background: #FF0000; margin: 10px;",
                 ),
                 // Text with inline style
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 16px; color: #000000; width: 600px; height: 25px;",
                     )

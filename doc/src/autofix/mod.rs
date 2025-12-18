@@ -98,6 +98,10 @@ pub fn autofix_api(
     let doc_warnings = check_doc_characters(api_data);
     ffi_warnings.extend(doc_warnings);
 
+    // Check for reserved keywords across all target languages
+    let keyword_warnings = check_reserved_keywords(api_data);
+    ffi_warnings.extend(keyword_warnings);
+
     print_ffi_safety_warnings(&ffi_warnings);
 
     // Count only critical errors (not informational warnings)
@@ -1139,11 +1143,19 @@ pub enum FfiSafetyWarningKind {
         char_code: u32,
         context: String,
     },
+    /// Name conflicts with a reserved keyword in one or more target languages
+    /// This is a warning, not an error - codegen will escape the name
+    ReservedKeyword {
+        name_kind: String, // "type", "field", "function", "enum_variant"
+        name: String,
+        languages: Vec<String>,
+    },
 }
 
 impl FfiSafetyWarningKind {
     /// Returns true if this is a critical error that should fail the build
     /// ArrayTypeField is just informational - it's now handled correctly by codegen
+    /// ReservedKeyword is a warning - codegen will escape the name
     pub fn is_critical(&self) -> bool {
         match self {
             // Critical errors that must be fixed
@@ -1157,6 +1169,8 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::InvalidDocCharacter { .. } => true,
             // Informational only - array types are now handled correctly
             FfiSafetyWarningKind::ArrayTypeField { .. } => false,
+            // Warning only - codegen will escape these names
+            FfiSafetyWarningKind::ReservedKeyword { .. } => false,
         }
     }
 }
@@ -1555,6 +1569,28 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 );
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
+            FfiSafetyWarningKind::ReservedKeyword {
+                name_kind,
+                name,
+                languages,
+            } => {
+                let lang_list = languages.join(", ");
+                println!("  {} {}", "[ INFO ]".blue(), warning.type_name.white());
+                println!(
+                    "    {} {} '{}' is a reserved keyword in: {}",
+                    "→".dimmed(),
+                    name_kind.cyan(),
+                    name.yellow(),
+                    lang_list.red()
+                );
+                println!(
+                    "    {} Language bindings will use alternative naming (e.g., '{}', '{}_').",
+                    "NOTE:".magenta(),
+                    format!("new_{}", name),
+                    name
+                );
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
         }
         println!();
     }
@@ -1725,5 +1761,442 @@ pub fn check_doc_characters(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
         }
     }
 
+    warnings
+}
+
+/// Reserved keywords for all target languages
+/// These are words that cannot be used as identifiers in the respective language
+/// Organized by language for easy maintenance
+pub mod reserved_keywords {
+    use std::collections::HashMap;
+
+    /// Get all reserved keywords organized by language
+    pub fn get_all_keywords() -> HashMap<&'static str, &'static [&'static str]> {
+        let mut map = HashMap::new();
+        
+        // C keywords
+        map.insert("c", &[
+            "auto", "break", "case", "char", "const", "continue", "default", "do",
+            "double", "else", "enum", "extern", "float", "for", "goto", "if",
+            "inline", "int", "long", "register", "restrict", "return", "short",
+            "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+            "unsigned", "void", "volatile", "while", "_Alignas", "_Alignof", "_Atomic",
+            "_Bool", "_Complex", "_Generic", "_Imaginary", "_Noreturn", "_Static_assert",
+            "_Thread_local", "bool", "true", "false", "alignas", "alignof", "noreturn",
+            "static_assert", "thread_local",
+        ][..]);
+        
+        // C++ keywords (superset of C, plus these)
+        map.insert("cpp", &[
+            // C++ specific
+            "asm", "catch", "class", "const_cast", "delete", "dynamic_cast",
+            "explicit", "export", "friend", "mutable", "namespace", "new",
+            "operator", "private", "protected", "public", "reinterpret_cast",
+            "static_cast", "template", "this", "throw", "try", "typeid",
+            "typename", "using", "virtual", "wchar_t",
+            // C++11
+            "alignas", "alignof", "char16_t", "char32_t", "constexpr", "decltype",
+            "noexcept", "nullptr", "static_assert", "thread_local",
+            // C++14
+            // C++17
+            // C++20
+            "char8_t", "concept", "consteval", "constinit", "co_await", "co_return",
+            "co_yield", "requires",
+            // C++23
+            // Also include C keywords
+            "auto", "break", "case", "char", "const", "continue", "default", "do",
+            "double", "else", "enum", "extern", "float", "for", "goto", "if",
+            "inline", "int", "long", "register", "return", "short", "signed",
+            "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned",
+            "void", "volatile", "while", "bool", "true", "false",
+        ][..]);
+        
+        // Python keywords
+        map.insert("python", &[
+            "False", "None", "True", "and", "as", "assert", "async", "await",
+            "break", "class", "continue", "def", "del", "elif", "else", "except",
+            "finally", "for", "from", "global", "if", "import", "in", "is",
+            "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
+            "while", "with", "yield",
+            // Also commonly problematic builtins
+            "type", "id", "list", "dict", "set", "str", "int", "float", "bool",
+            "object", "property", "staticmethod", "classmethod", "super", "self",
+        ][..]);
+        
+        // Java keywords
+        map.insert("java", &[
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+            "char", "class", "const", "continue", "default", "do", "double",
+            "else", "enum", "extends", "final", "finally", "float", "for", "goto",
+            "if", "implements", "import", "instanceof", "int", "interface", "long",
+            "native", "new", "null", "package", "private", "protected", "public",
+            "return", "short", "static", "strictfp", "super", "switch", "synchronized",
+            "this", "throw", "throws", "transient", "try", "void", "volatile", "while",
+            // Reserved for future
+            "true", "false",
+        ][..]);
+        
+        // Kotlin keywords
+        map.insert("kotlin", &[
+            "as", "break", "class", "continue", "do", "else", "false", "for", "fun",
+            "if", "in", "interface", "is", "null", "object", "package", "return",
+            "super", "this", "throw", "true", "try", "typealias", "typeof", "val",
+            "var", "when", "while",
+            // Soft keywords
+            "by", "catch", "constructor", "delegate", "dynamic", "field", "file",
+            "finally", "get", "import", "init", "param", "property", "receiver",
+            "set", "setparam", "value", "where",
+        ][..]);
+        
+        // C# keywords
+        map.insert("csharp", &[
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
+            "char", "checked", "class", "const", "continue", "decimal", "default",
+            "delegate", "do", "double", "else", "enum", "event", "explicit", "extern",
+            "false", "finally", "fixed", "float", "for", "foreach", "goto", "if",
+            "implicit", "in", "int", "interface", "internal", "is", "lock", "long",
+            "namespace", "new", "null", "object", "operator", "out", "override",
+            "params", "private", "protected", "public", "readonly", "ref", "return",
+            "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string",
+            "struct", "switch", "this", "throw", "true", "try", "typeof", "uint",
+            "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
+            "volatile", "while",
+        ][..]);
+        
+        // Go keywords
+        map.insert("go", &[
+            "break", "case", "chan", "const", "continue", "default", "defer", "else",
+            "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+            "map", "package", "range", "return", "select", "struct", "switch", "type",
+            "var",
+            // Predeclared identifiers
+            "bool", "byte", "complex64", "complex128", "error", "float32", "float64",
+            "int", "int8", "int16", "int32", "int64", "rune", "string", "uint",
+            "uint8", "uint16", "uint32", "uint64", "uintptr", "true", "false", "iota",
+            "nil", "append", "cap", "close", "complex", "copy", "delete", "imag",
+            "len", "make", "new", "panic", "print", "println", "real", "recover",
+        ][..]);
+        
+        // Ruby keywords
+        map.insert("ruby", &[
+            "BEGIN", "END", "alias", "and", "begin", "break", "case", "class",
+            "def", "defined?", "do", "else", "elsif", "end", "ensure", "false",
+            "for", "if", "in", "module", "next", "nil", "not", "or", "redo",
+            "rescue", "retry", "return", "self", "super", "then", "true", "undef",
+            "unless", "until", "when", "while", "yield", "__FILE__", "__LINE__",
+            "__ENCODING__",
+        ][..]);
+        
+        // Lua keywords
+        map.insert("lua", &[
+            "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+            "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return",
+            "then", "true", "until", "while",
+        ][..]);
+        
+        // PHP keywords
+        map.insert("php", &[
+            "abstract", "and", "array", "as", "break", "callable", "case", "catch",
+            "class", "clone", "const", "continue", "declare", "default", "die", "do",
+            "echo", "else", "elseif", "empty", "enddeclare", "endfor", "endforeach",
+            "endif", "endswitch", "endwhile", "eval", "exit", "extends", "final",
+            "finally", "fn", "for", "foreach", "function", "global", "goto", "if",
+            "implements", "include", "include_once", "instanceof", "insteadof",
+            "interface", "isset", "list", "match", "namespace", "new", "or", "print",
+            "private", "protected", "public", "readonly", "require", "require_once",
+            "return", "static", "switch", "throw", "trait", "try", "unset", "use",
+            "var", "while", "xor", "yield", "yield from",
+            "true", "false", "null",
+        ][..]);
+        
+        // Perl keywords
+        map.insert("perl", &[
+            "AUTOLOAD", "BEGIN", "CHECK", "CORE", "DESTROY", "END", "INIT", "UNITCHECK",
+            "__DATA__", "__END__", "__FILE__", "__LINE__", "__PACKAGE__", "and", "cmp",
+            "continue", "do", "else", "elsif", "eq", "for", "foreach", "ge", "goto",
+            "gt", "if", "last", "le", "local", "lt", "my", "ne", "next", "no", "not",
+            "or", "our", "package", "redo", "require", "return", "state", "sub", "tie",
+            "unless", "until", "use", "wantarray", "while", "xor",
+        ][..]);
+        
+        // Scala keywords
+        map.insert("scala", &[
+            "abstract", "case", "catch", "class", "def", "do", "else", "extends",
+            "false", "final", "finally", "for", "forSome", "if", "implicit", "import",
+            "lazy", "match", "new", "null", "object", "override", "package", "private",
+            "protected", "return", "sealed", "super", "this", "throw", "trait", "try",
+            "true", "type", "val", "var", "while", "with", "yield",
+        ][..]);
+        
+        // Haskell keywords
+        map.insert("haskell", &[
+            "as", "case", "class", "data", "default", "deriving", "do", "else",
+            "family", "forall", "foreign", "hiding", "if", "import", "in", "infix",
+            "infixl", "infixr", "instance", "let", "mdo", "module", "newtype", "of",
+            "proc", "qualified", "rec", "then", "type", "where",
+        ][..]);
+        
+        // OCaml keywords
+        map.insert("ocaml", &[
+            "and", "as", "assert", "asr", "begin", "class", "constraint", "do",
+            "done", "downto", "else", "end", "exception", "external", "false", "for",
+            "fun", "function", "functor", "if", "in", "include", "inherit",
+            "initializer", "land", "lazy", "let", "lor", "lsl", "lsr", "lxor",
+            "match", "method", "mod", "module", "mutable", "new", "nonrec", "object",
+            "of", "open", "or", "private", "rec", "sig", "struct", "then", "to",
+            "true", "try", "type", "val", "virtual", "when", "while", "with",
+        ][..]);
+        
+        // Zig keywords
+        map.insert("zig", &[
+            "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm",
+            "async", "await", "break", "callconv", "catch", "comptime", "const",
+            "continue", "defer", "else", "enum", "errdefer", "error", "export",
+            "extern", "false", "fn", "for", "if", "inline", "linksection", "noalias",
+            "nosuspend", "null", "opaque", "or", "orelse", "packed", "pub", "resume",
+            "return", "struct", "suspend", "switch", "test", "threadlocal", "true",
+            "try", "undefined", "union", "unreachable", "usingnamespace", "var",
+            "volatile", "while",
+        ][..]);
+        
+        // Pascal / Delphi keywords  
+        map.insert("pascal", &[
+            "absolute", "and", "array", "asm", "begin", "case", "const", "constructor",
+            "destructor", "div", "do", "downto", "else", "end", "file", "for",
+            "function", "goto", "if", "implementation", "in", "inherited", "inline",
+            "interface", "label", "mod", "nil", "not", "object", "of", "on", "operator",
+            "or", "packed", "procedure", "program", "record", "reintroduce", "repeat",
+            "self", "set", "shl", "shr", "string", "then", "to", "type", "unit",
+            "until", "uses", "var", "while", "with", "xor",
+        ][..]);
+        
+        // FORTRAN keywords
+        map.insert("fortran", &[
+            "allocatable", "allocate", "assign", "associate", "asynchronous", "backspace",
+            "bind", "block", "block data", "call", "case", "character", "class", "close",
+            "codimension", "common", "complex", "concurrent", "contains", "contiguous",
+            "continue", "critical", "cycle", "data", "deallocate", "default", "deferred",
+            "dimension", "do", "double precision", "elemental", "else", "elsewhere", "end",
+            "endfile", "endif", "entry", "enum", "enumerator", "equivalence", "error",
+            "exit", "extends", "external", "final", "flush", "forall", "format", "function",
+            "generic", "go to", "goto", "if", "images", "implicit", "import", "impure",
+            "in", "include", "inout", "inquire", "integer", "intent", "interface",
+            "intrinsic", "kind", "len", "lock", "logical", "module", "name", "namelist",
+            "non_overridable", "none", "nopass", "nullify", "only", "open", "operator",
+            "optional", "out", "parameter", "pass", "pause", "pointer", "print", "private",
+            "procedure", "program", "protected", "public", "pure", "read", "real",
+            "recursive", "result", "return", "rewind", "save", "select", "sequence",
+            "stop", "submodule", "subroutine", "sync", "target", "then", "to", "type",
+            "unlock", "use", "value", "volatile", "wait", "where", "while", "write",
+        ][..]);
+        
+        // COBOL keywords (major ones)
+        map.insert("cobol", &[
+            "accept", "add", "advancing", "after", "all", "alphabetic", "also", "alter",
+            "alternate", "and", "are", "area", "ascending", "assign", "at", "before",
+            "blank", "block", "bottom", "by", "call", "cancel", "cd", "cf", "ch",
+            "character", "characters", "class", "clock-units", "close", "cobol", "code",
+            "collating", "column", "comma", "communication", "comp", "computational",
+            "compute", "configuration", "contains", "content", "continue", "control",
+            "copy", "corresponding", "count", "currency", "data", "date", "day", "de",
+            "debugging", "decimal-point", "declaratives", "delete", "delimited",
+            "delimiter", "depending", "descending", "destination", "detail", "disable",
+            "display", "divide", "division", "down", "duplicates", "dynamic",
+        ][..]);
+        
+        // Ada keywords
+        map.insert("ada", &[
+            "abort", "abs", "abstract", "accept", "access", "aliased", "all", "and",
+            "array", "at", "begin", "body", "case", "constant", "declare", "delay",
+            "delta", "digits", "do", "else", "elsif", "end", "entry", "exception",
+            "exit", "for", "function", "generic", "goto", "if", "in", "interface",
+            "is", "limited", "loop", "mod", "new", "not", "null", "of", "or", "others",
+            "out", "overriding", "package", "parallel", "pragma", "private", "procedure",
+            "protected", "raise", "range", "record", "rem", "renames", "requeue",
+            "return", "reverse", "select", "separate", "some", "subtype", "synchronized",
+            "tagged", "task", "terminate", "then", "type", "until", "use", "when",
+            "while", "with", "xor",
+        ][..]);
+        
+        // Visual Basic keywords
+        map.insert("vb", &[
+            "AddHandler", "AddressOf", "Alias", "And", "AndAlso", "As", "Boolean",
+            "ByRef", "Byte", "ByVal", "Call", "Case", "Catch", "CBool", "CByte", "CChar",
+            "CDate", "CDbl", "CDec", "Char", "CInt", "Class", "CLng", "CObj", "Const",
+            "Continue", "CSByte", "CShort", "CSng", "CStr", "CType", "CUInt", "CULng",
+            "CUShort", "Date", "Decimal", "Declare", "Default", "Delegate", "Dim",
+            "DirectCast", "Do", "Double", "Each", "Else", "ElseIf", "End", "EndIf",
+            "Enum", "Erase", "Error", "Event", "Exit", "False", "Finally", "For",
+            "Friend", "Function", "Get", "GetType", "GetXMLNamespace", "Global", "GoSub",
+            "GoTo", "Handles", "If", "Implements", "Imports", "In", "Inherits",
+            "Integer", "Interface", "Is", "IsNot", "Let", "Lib", "Like", "Long", "Loop",
+            "Me", "Mod", "Module", "MustInherit", "MustOverride", "MyBase", "MyClass",
+            "Namespace", "Narrowing", "New", "Next", "Not", "Nothing", "NotInheritable",
+            "NotOverridable", "Object", "Of", "On", "Operator", "Option", "Optional",
+            "Or", "OrElse", "Overloads", "Overridable", "Overrides", "ParamArray",
+            "Partial", "Private", "Property", "Protected", "Public", "RaiseEvent",
+            "ReadOnly", "ReDim", "REM", "RemoveHandler", "Resume", "Return", "SByte",
+            "Select", "Set", "Shadows", "Shared", "Short", "Single", "Static", "Step",
+            "Stop", "String", "Structure", "Sub", "SyncLock", "Then", "Throw", "To",
+            "True", "Try", "TryCast", "TypeOf", "UInteger", "ULong", "UShort", "Using",
+            "Variant", "Wend", "When", "While", "Widening", "With", "WithEvents",
+            "WriteOnly", "Xor",
+        ][..]);
+        
+        // R keywords
+        map.insert("r", &[
+            "break", "else", "for", "function", "if", "in", "next", "repeat", "return",
+            "while", "TRUE", "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_",
+            "NA_real_", "NA_complex_", "NA_character_",
+        ][..]);
+        
+        // Erlang keywords
+        map.insert("erlang", &[
+            "after", "and", "andalso", "band", "begin", "bnot", "bor", "bsl", "bsr",
+            "bxor", "case", "catch", "cond", "div", "end", "fun", "if", "let", "not",
+            "of", "or", "orelse", "receive", "rem", "try", "when", "xor",
+        ][..]);
+        
+        // Elixir keywords
+        map.insert("elixir", &[
+            "after", "and", "catch", "do", "else", "end", "false", "fn", "for", "if",
+            "import", "in", "nil", "not", "or", "quote", "raise", "receive", "rescue",
+            "true", "try", "unless", "unquote", "when", "with",
+        ][..]);
+        
+        // Node.js / JavaScript keywords
+        map.insert("javascript", &[
+            "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+            "default", "delete", "do", "else", "enum", "export", "extends", "false",
+            "finally", "for", "function", "if", "implements", "import", "in",
+            "instanceof", "interface", "let", "new", "null", "package", "private",
+            "protected", "public", "return", "static", "super", "switch", "this",
+            "throw", "true", "try", "typeof", "undefined", "var", "void", "while",
+            "with", "yield",
+        ][..]);
+        
+        // PowerShell keywords
+        map.insert("powershell", &[
+            "begin", "break", "catch", "class", "continue", "data", "define", "do",
+            "dynamicparam", "else", "elseif", "end", "enum", "exit", "filter", "finally",
+            "for", "foreach", "from", "function", "hidden", "if", "in", "param",
+            "process", "return", "static", "switch", "throw", "trap", "try", "until",
+            "using", "var", "while",
+        ][..]);
+        
+        map
+    }
+
+    /// Check if a name is a reserved keyword in any target language
+    /// Returns a list of languages where this name is reserved
+    pub fn check_reserved(name: &str) -> Vec<&'static str> {
+        let keywords = get_all_keywords();
+        let mut conflicts = Vec::new();
+        
+        let name_lower = name.to_lowercase();
+        
+        for (lang, reserved) in keywords {
+            for kw in reserved.iter() {
+                // Case-insensitive comparison for most languages
+                // Some languages are case-sensitive, but for safety we check lowercase
+                if kw.to_lowercase() == name_lower {
+                    conflicts.push(lang);
+                    break;
+                }
+            }
+        }
+        
+        conflicts.sort();
+        conflicts.dedup();
+        conflicts
+    }
+}
+
+/// Check all names in api.json for reserved keyword conflicts
+pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
+    use reserved_keywords::check_reserved;
+    
+    let mut warnings = Vec::new();
+    
+    for (_version_name, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                // Check type name
+                let conflicts = check_reserved(class_name);
+                if !conflicts.is_empty() {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: class_name.clone(),
+                        file_path: format!("api.json - {}.{}", module_name, class_name),
+                        kind: FfiSafetyWarningKind::ReservedKeyword {
+                            name_kind: "type".to_string(),
+                            name: class_name.clone(),
+                            languages: conflicts.into_iter().map(|s| s.to_string()).collect(),
+                        },
+                    });
+                }
+                
+                // Check struct fields
+                if let Some(struct_fields) = &class_data.struct_fields {
+                    for field_map in struct_fields {
+                        for (field_name, _field_data) in field_map {
+                            let conflicts = check_reserved(field_name);
+                            if !conflicts.is_empty() {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: class_name.clone(),
+                                    file_path: format!("api.json - {}.{}.{}", module_name, class_name, field_name),
+                                    kind: FfiSafetyWarningKind::ReservedKeyword {
+                                        name_kind: "field".to_string(),
+                                        name: field_name.to_string(),
+                                        languages: conflicts.into_iter().map(|s| s.to_string()).collect(),
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                // NOTE: We skip enum variants because they always have a type prefix
+                // (e.g., MouseCursorType::Default becomes MouseCursorType_Default in C)
+                // so reserved keywords are not problematic there.
+                
+                // Check constructor names
+                if let Some(constructors) = &class_data.constructors {
+                    for (ctor_name, _ctor_data) in constructors {
+                        let conflicts = check_reserved(ctor_name);
+                        if !conflicts.is_empty() {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!("api.json - {}.{}::{}", module_name, class_name, ctor_name),
+                                kind: FfiSafetyWarningKind::ReservedKeyword {
+                                    name_kind: "constructor".to_string(),
+                                    name: ctor_name.clone(),
+                                    languages: conflicts.into_iter().map(|s| s.to_string()).collect(),
+                                },
+                            });
+                        }
+                    }
+                }
+                
+                // Check function names
+                if let Some(functions) = &class_data.functions {
+                    for (fn_name, _fn_data) in functions {
+                        let conflicts = check_reserved(fn_name);
+                        if !conflicts.is_empty() {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!("api.json - {}.{}::{}", module_name, class_name, fn_name),
+                                kind: FfiSafetyWarningKind::ReservedKeyword {
+                                    name_kind: "function".to_string(),
+                                    name: fn_name.clone(),
+                                    languages: conflicts.into_iter().map(|s| s.to_string()).collect(),
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     warnings
 }

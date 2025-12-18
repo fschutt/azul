@@ -124,35 +124,39 @@ impl GenerationTargets {
         Self::generate_reexports_file(ir, &codegen_v2_dir.join("reexports.rs"))?;
 
         // 5. C header
-        println!("[5/9] Generating C header...");
+        println!("[5/14] Generating C header...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::c_header(),
             &codegen_v2_dir.join("azul.h"),
         )?;
 
-        // 6. C++ header
-        println!("[6/9] Generating C++ header...");
-        CodeGenerator::generate_to_file(
-            ir,
-            &CodegenConfig::cpp_header(CppStandard::Cpp11),
-            &codegen_v2_dir.join("azul.hpp"),
-        )?;
+        // 6-11. C++ headers for all versions
+        println!("[6-11/14] Generating C++ headers for all versions...");
+        for cpp_std in CppStandard::all() {
+            let filename = cpp_std.header_filename();
+            println!("  Generating {}...", filename);
+            CodeGenerator::generate_to_file(
+                ir,
+                &CodegenConfig::cpp_header(*cpp_std),
+                &codegen_v2_dir.join(&filename),
+            )?;
+        }
 
-        // 7. Public Rust API (legacy, may be removed)
-        println!("[7/9] Generating public Rust API...");
+        // 12. Public Rust API (legacy, may be removed)
+        println!("[12/14] Generating public Rust API...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::rust_public_api(),
             &codegen_v2_dir.join("azul.rs"),
         )?;
 
-        // 8. Python extension (separate from C-API!) - goes to target/codegen/v2/ for include!() in dll
-        println!("[8/9] Generating Python extension...");
+        // 13. Python extension (separate from C-API!) - goes to target/codegen/v2/ for include!() in dll
+        println!("[13/14] Generating Python extension...");
         Self::generate_python(ir, &codegen_v2_dir.join("python_api.rs"))?;
 
-        // 9. Memtest (memory layout tests) - goes to target/codegen/v2/ for include!() in dll
-        println!("[9/9] Generating memtest...");
+        // 14. Memtest (memory layout tests) - goes to target/codegen/v2/ for include!() in dll
+        println!("[14/14] Generating memtest...");
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::memtest(),

@@ -561,7 +561,7 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
 
     // Tab bar
     eprintln!("[KITCHEN_SINK] Creating tab bar...");
-    let tab_bar = Dom::div()
+    let tab_bar = Dom::new_div()
         .with_inline_style(
             "display: flex; gap: 5px; padding: 10px; background: #f5f5f5; border-bottom: 2px \
              solid #ccc;",
@@ -584,7 +584,7 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
         "[KITCHEN_SINK] Creating content area for tab {}...",
         app_data.active_tab
     );
-    let content = Dom::div()
+    let content = Dom::new_div()
         .with_inline_style(
             "display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: \
              20px; padding: 20px; height: calc(100% - 60px);",
@@ -607,7 +607,7 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
                 ],
                 2 => vec![
                     // Tab 2: Scrolling demo (full width)
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("grid-column: 1 / -1; grid-row: 1 / -1;")
                         .with_child(create_scrolling_demo()),
                 ],
@@ -620,23 +620,23 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
                 ],
                 4 => vec![
                     // Tab 4: Slider demo (full width)
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("grid-column: 1 / -1; grid-row: 1 / -1;")
                         .with_child(create_slider_demo(&*app_data)),
                 ],
                 5 => vec![
                     // Tab 5: Code Editor (full width)
-                    Dom::div()
+                    Dom::new_div()
                         .with_inline_style("grid-column: 1 / -1; grid-row: 1 / -1;")
                         .with_child(create_code_editor(&*app_data, data_clone.clone())),
                 ],
-                _ => vec![Dom::div().with_child(Dom::text("Unknown tab"))],
+                _ => vec![Dom::new_div().with_child(Dom::text("Unknown tab"))],
             }
             .into(),
         );
 
     eprintln!("[KITCHEN_SINK] Creating body DOM...");
-    let styled = Dom::body()
+    let styled = Dom::new_body()
         .with_inline_style(
             "margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, \
              BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; \
@@ -673,7 +673,7 @@ fn create_tab_button(text: &str, tab_id: usize, is_active: bool) -> Dom {
          pointer; user-select: none; box-sizing: border-box;"
     };
 
-    let mut button = Dom::div()
+    let mut button = Dom::new_div()
         .with_inline_style(base_style)
         .with_dataset(OptionRefAny::Some(RefAny::new(TabButtonData { tab_id })))
         .with_child(Dom::text(text));
@@ -711,49 +711,49 @@ fn create_tab_button(text: &str, tab_id: usize, is_active: bool) -> Dom {
 // Text & font showcase
 
 fn create_text_showcase() -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              overflow: auto; box-sizing: border-box; height: 100%;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Text & Font Showcase")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin: 8px 0;")
                     .with_child(Dom::text("Default text (16px, regular weight)")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 24px; margin: 8px 0;")
                     .with_child(Dom::text("Large Text (24px)")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 14px; margin: 8px 0;")
                     .with_child(Dom::text("Small Text (14px)")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-weight: bold; margin: 8px 0;")
                     .with_child(Dom::text("Bold Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-style: italic; margin: 8px 0;")
                     .with_child(Dom::text("Italic Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("text-decoration: underline; margin: 8px 0;")
                     .with_child(Dom::text("Underlined Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("text-decoration: line-through; margin: 8px 0;")
                     .with_child(Dom::text("Strikethrough Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("color: #4a90e2; margin: 8px 0;")
                     .with_child(Dom::text("Blue Colored Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("color: #4caf50; margin: 8px 0;")
                     .with_child(Dom::text("Green Colored Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("color: #f44336; margin: 8px 0;")
                     .with_child(Dom::text("Red Colored Text")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-family: monospace; background: #f0f0f0; padding: 8px; \
                          border-radius: 4px; margin: 8px 0;",
@@ -767,20 +767,20 @@ fn create_text_showcase() -> Dom {
 // Color & shape showcase
 
 fn create_color_showcase() -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              overflow: auto; box-sizing: border-box; height: 100%;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Colors & Shapes")),
                 // Color grid
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; \
                          margin-bottom: 20px;",
@@ -799,22 +799,22 @@ fn create_color_showcase() -> Dom {
                         .into(),
                     ),
                 // Shapes with borders
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 16px; font-weight: bold; margin: 15px 0 10px 0;")
                     .with_child(Dom::text("Shapes & Borders")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("display: flex; gap: 15px; flex-wrap: wrap;")
                     .with_children(
                         vec![
-                            Dom::div().with_inline_style(
+                            Dom::new_div().with_inline_style(
                                 "width: 80px; height: 80px; background: #4a90e2; border: 3px \
                                  solid #2171b5; border-radius: 8px;",
                             ),
-                            Dom::div().with_inline_style(
+                            Dom::new_div().with_inline_style(
                                 "width: 80px; height: 80px; background: #4caf50; border-radius: \
                                  50%;",
                             ),
-                            Dom::div().with_inline_style(
+                            Dom::new_div().with_inline_style(
                                 "width: 0; height: 0; border-left: 40px solid transparent; \
                                  border-right: 40px solid transparent; border-bottom: 80px solid \
                                  #ff9800;",
@@ -823,14 +823,14 @@ fn create_color_showcase() -> Dom {
                         .into(),
                     ),
                 // Gradient boxes
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 16px; font-weight: bold; margin: 15px 0 10px 0;")
                     .with_child(Dom::text("Gradients")),
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 100%; height: 60px; background: linear-gradient(to right, #4a90e2, \
                      #2196f3); border-radius: 8px; margin-bottom: 10px;",
                 ),
-                Dom::div().with_inline_style(
+                Dom::new_div().with_inline_style(
                     "width: 100%; height: 60px; background: linear-gradient(to bottom, #ff9800, \
                      #f44336); border-radius: 8px;",
                 ),
@@ -840,16 +840,16 @@ fn create_color_showcase() -> Dom {
 }
 
 fn create_color_box(color: &str, label: &str) -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style("display: flex; flex-direction: column; align-items: center; gap: 5px;")
         .with_children(
             vec![
-                Dom::div().with_inline_style(&format!(
+                Dom::new_div().with_inline_style(&format!(
                     "width: 60px; height: 60px; background: {}; border-radius: 8px; border: 2px \
                      solid #333;",
                     color
                 )),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 12px; color: #666;")
                     .with_child(Dom::text(label)),
             ]
@@ -860,35 +860,35 @@ fn create_color_box(color: &str, label: &str) -> Dom {
 // Contenteditable demo
 
 fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              overflow: auto; box-sizing: border-box; height: 100%;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Text Input (Interactive)")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 15px; color: #666; font-size: 14px;")
                     .with_child(Dom::text(
                         "Click in the boxes below to edit text - now with working callbacks!",
                     )),
                 // Single line input 1
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 15px;")
                     .with_children(
                         vec![
-                            Dom::div()
+                            Dom::new_div()
                                 .with_inline_style(
                                     "font-size: 14px; font-weight: bold; margin-bottom: 5px;",
                                 )
                                 .with_child(Dom::text("Single Line Input 1:")),
                             {
-                                let mut input = Dom::div()
+                                let mut input = Dom::new_div()
                                     .with_attribute(AttributeType::ContentEditable(true))
                                     .with_attribute(AttributeType::TabIndex(0.into()))
                                     .with_attribute(AttributeType::AriaLabel(
@@ -916,17 +916,17 @@ fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
                         .into(),
                     ),
                 // Single line input 2
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 15px;")
                     .with_children(
                         vec![
-                            Dom::div()
+                            Dom::new_div()
                                 .with_inline_style(
                                     "font-size: 14px; font-weight: bold; margin-bottom: 5px;",
                                 )
                                 .with_child(Dom::text("Single Line Input 2:")),
                             {
-                                let mut input = Dom::div()
+                                let mut input = Dom::new_div()
                                     .with_attribute(AttributeType::ContentEditable(true))
                                     .with_attribute(AttributeType::TabIndex(1.into()))
                                     .with_attribute(AttributeType::AriaLabel(
@@ -951,15 +951,15 @@ fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
                         .into(),
                     ),
                 // Multi-line text area
-                Dom::div().with_children(
+                Dom::new_div().with_children(
                     vec![
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_style(
                                 "font-size: 14px; font-weight: bold; margin-bottom: 5px;",
                             )
                             .with_child(Dom::text("Multi-line Text Area:")),
                         {
-                            let mut textarea = Dom::div()
+                            let mut textarea = Dom::new_div()
                                 .with_attribute(AttributeType::ContentEditable(true))
                                 .with_attribute(AttributeType::TabIndex(2.into()))
                                 .with_attribute(AttributeType::AriaLabel(
@@ -991,19 +991,19 @@ fn create_contenteditable_demo(app_data: &KitchenSinkApp) -> Dom {
 // Widget demos (Tab 1)
 
 fn create_button_demo(app_data: &KitchenSinkApp) -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Button Demo")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 10px; color: #666; font-size: 14px;")
                     .with_child(Dom::text(
                         format!("Button clicked {} times", app_data.button_counter).as_str(),
@@ -1024,7 +1024,7 @@ fn create_button_demo(app_data: &KitchenSinkApp) -> Dom {
                             a: 255,
                         })];
 
-                    let mut button = Dom::div()
+                    let mut button = Dom::new_div()
                         .with_inline_style(
                             "padding: 10px 20px; background: #4a90e2; color: white; \
                              border-radius: 4px; cursor: pointer; user-select: none; display: \
@@ -1056,14 +1056,14 @@ fn create_button_demo(app_data: &KitchenSinkApp) -> Dom {
 }
 
 fn create_checkbox_demo(app_data: &KitchenSinkApp) -> Dom {
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
@@ -1091,7 +1091,7 @@ fn create_checkbox_demo(app_data: &KitchenSinkApp) -> Dom {
                         "white"
                     };
 
-                    let mut checkbox = Dom::div()
+                    let mut checkbox = Dom::new_div()
                         .with_inline_style(
                             "display: flex; align-items: center; gap: 10px; cursor: pointer; \
                              user-select: none;",
@@ -1099,7 +1099,7 @@ fn create_checkbox_demo(app_data: &KitchenSinkApp) -> Dom {
                         .with_children(
                             vec![
                                 {
-                                    let mut box_div = Dom::div()
+                                    let mut box_div = Dom::new_div()
                                         .with_inline_style(
                                             format!(
                                                 "width: 20px; height: 20px; border: 2px solid \
@@ -1128,7 +1128,7 @@ fn create_checkbox_demo(app_data: &KitchenSinkApp) -> Dom {
 
                                     box_div
                                 },
-                                Dom::div()
+                                Dom::new_div()
                                     .with_inline_style("font-size: 14px;")
                                     .with_child(Dom::text("Enable feature")),
                             ]
@@ -1167,23 +1167,23 @@ fn create_dropdown_demo(app_data: &KitchenSinkApp) -> Dom {
         .get(app_data.dropdown_selection)
         .unwrap_or(&"Select...");
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Dropdown Demo")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 10px; color: #666; font-size: 14px;")
                     .with_child(Dom::text(format!("Selected: {}", selected).as_str())),
                 {
-                    let mut button = Dom::div()
+                    let mut button = Dom::new_div()
                         .with_inline_style(
                             "padding: 8px 12px; background: white; border: 2px solid #4a90e2; \
                              border-radius: 4px; cursor: pointer; user-select: none; display: \
@@ -1217,32 +1217,32 @@ fn create_dropdown_demo(app_data: &KitchenSinkApp) -> Dom {
 fn create_progress_demo(app_data: &KitchenSinkApp) -> Dom {
     let progress_width = format!("{}%", app_data.progress_value);
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333;",
                     )
                     .with_child(Dom::text("Progress Bar Demo")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-bottom: 10px; color: #666; font-size: 14px;")
                     .with_child(Dom::text(
                         format!("Progress: {:.0}%", app_data.progress_value).as_str(),
                     )),
                 // Progress bar track
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; \
                          overflow: hidden; position: relative;",
                     )
                     .with_child(
                         // Progress bar fill
-                        Dom::div().with_inline_style(
+                        Dom::new_div().with_inline_style(
                             format!(
                                 "width: {}; height: 100%; background: #4a90e2; transition: width \
                                  0.3s ease;",
@@ -1262,7 +1262,7 @@ fn create_scrolling_demo() -> Dom {
     // Generate 50 items to demonstrate scrolling
     let items: Vec<Dom> = (0..50)
         .map(|i| {
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style(
                     "padding: 10px; border-bottom: 1px solid #e0e0e0; font-size: 14px;",
                 )
@@ -1272,27 +1272,27 @@ fn create_scrolling_demo() -> Dom {
         })
         .collect();
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 15px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box; display: flex; flex-direction: column; height: 100%;",
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #333; \
                          flex-shrink: 0;",
                     )
                     .with_child(Dom::text("Scrolling Demo")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "margin-bottom: 10px; color: #666; font-size: 14px; flex-shrink: 0;",
                     )
                     .with_child(Dom::text(
                         "This container has overflow:auto and shows 50 items",
                     )),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "flex: 1; overflow: auto; border: 2px solid #ccc; border-radius: 4px; \
                          background: white; min-height: 0;",
@@ -1329,7 +1329,7 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
     let slider_percentage = app_data.slider_value;
     let thumb_position = format!("calc({}% - 10px)", slider_percentage); // 10px = half thumb width
 
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "border: 1px solid #ccc; padding: 30px; border-radius: 8px; background: #f9f9f9; \
              box-sizing: border-box; height: 100%; display: flex; flex-direction: column; \
@@ -1337,24 +1337,24 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
         )
         .with_children(
             vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #333;",
                     )
                     .with_child(Dom::text("Slider Demo")),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("font-size: 18px; margin-bottom: 30px; color: #666;")
                     .with_child(Dom::text(
                         format!("Value: {:.1}", slider_percentage).as_str(),
                     )),
                 // Slider container
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("width: 80%; max-width: 600px; position: relative;")
                     .with_children(
                         vec![
                             // Track
                             {
-                                let mut track = Dom::div().with_inline_style(
+                                let mut track = Dom::new_div().with_inline_style(
                                     "width: 100%; height: 8px; background: #e0e0e0; \
                                      border-radius: 4px; position: relative; cursor: pointer;",
                                 );
@@ -1369,7 +1369,7 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
                                 track
                             },
                             // Filled portion
-                            Dom::div().with_inline_style(
+                            Dom::new_div().with_inline_style(
                                 format!(
                                     "position: absolute; top: 0; left: 0; width: {}%; height: \
                                      8px; background: #4a90e2; border-radius: 4px; \
@@ -1379,7 +1379,7 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
                                 .as_str(),
                             ),
                             // Thumb
-                            Dom::div().with_inline_style(
+                            Dom::new_div().with_inline_style(
                                 format!(
                                     "position: absolute; top: -6px; left: {}; width: 20px; \
                                      height: 20px; background: white; border: 3px solid #4a90e2; \
@@ -1393,7 +1393,7 @@ fn create_slider_demo(app_data: &KitchenSinkApp) -> Dom {
                         .into(),
                     ),
                 // Instructions
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style("margin-top: 30px; color: #888; font-size: 14px;")
                     .with_child(Dom::text(
                         "Click anywhere on the slider track to set the value",
@@ -1496,7 +1496,7 @@ fn render_visible_code_lines(
     let total_lines = lines.len();
 
     if total_lines == 0 {
-        return vec![Dom::div().with_child(Dom::text(""))];
+        return vec![Dom::new_div().with_child(Dom::text(""))];
     }
 
     // Calculate visible range: render 2x window height for smooth scrolling
@@ -1511,7 +1511,7 @@ fn render_visible_code_lines(
         .map(|(idx, line_text)| {
             let actual_line_num = start_line + idx + 1; // 1-indexed
 
-            Dom::div()
+            Dom::new_div()
                 .with_dataset(OptionRefAny::Some(RefAny::new(CodeLineData {
                     line_number: actual_line_num,
                 })))
@@ -1522,14 +1522,14 @@ fn render_visible_code_lines(
                 .with_children(
                     vec![
                         // Line number gutter
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_style(
                                 "min-width: 50px; padding-right: 10px; color: #5c6370; \
                                  text-align: right; user-select: none; flex-shrink: 0;",
                             )
                             .with_child(Dom::text(format!("{}", actual_line_num).as_str())),
                         // Line content
-                        Dom::div()
+                        Dom::new_div()
                             .with_inline_style("flex: 1; white-space: pre;")
                             .with_child(Dom::text(*line_text)),
                     ]
@@ -1541,14 +1541,14 @@ fn render_visible_code_lines(
 
 fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
     // Split layout: Preview (left) | Editor (right)
-    Dom::div()
+    Dom::new_div()
         .with_inline_style(
             "display: flex; flex-direction: column; height: 100%; box-sizing: border-box;",
         )
         .with_children(
             vec![
                 // Top: Split panes (preview + editor)
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; \
                          padding: 10px; min-height: 0; overflow: hidden;",
@@ -1556,7 +1556,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                     .with_children(
                         vec![
                             // Left: Preview pane (IFrame)
-                            Dom::div()
+                            Dom::new_div()
                                 .with_inline_style(
                                     "border: 2px solid #4a90e2; border-radius: 8px; background: \
                                      white; overflow: auto; padding: 10px; box-sizing: \
@@ -1564,7 +1564,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                 )
                                 .with_children(
                                     vec![
-                                        Dom::div()
+                                        Dom::new_div()
                                             .with_inline_style(
                                                 "font-size: 14px; font-weight: bold; color: \
                                                  #4a90e2; margin-bottom: 10px; border-bottom: 1px \
@@ -1586,7 +1586,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                     .into(),
                                 ),
                             // Right: Code editor pane with iframe scrolling
-                            Dom::div()
+                            Dom::new_div()
                                 .with_inline_style(
                                     "border: 2px solid #4caf50; border-radius: 8px; background: \
                                      #282c34; overflow: hidden; display: flex; flex-direction: \
@@ -1594,7 +1594,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                 )
                                 .with_children(
                                     vec![
-                                        Dom::div()
+                                        Dom::new_div()
                                             .with_inline_style(
                                                 "font-size: 14px; font-weight: bold; color: \
                                                  #4caf50; padding: 10px; background: #21252b; \
@@ -1603,8 +1603,8 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                             )
                                             .with_children(
                                                 vec![
-                                                    Dom::div().with_child(Dom::text("Editor")),
-                                                    Dom::div()
+                                                    Dom::new_div().with_child(Dom::text("Editor")),
+                                                    Dom::new_div()
                                                         .with_inline_style(
                                                             "color: #5c6370; font-size: 12px; \
                                                              font-weight: normal;",
@@ -1634,7 +1634,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                                     app_data.code_line_height,
                                                 );
 
-                                                Dom::div()
+                                                Dom::new_div()
                                                     .with_inline_style(
                                                         "flex: 1; font-family: 'Monaco', 'Menlo', \
                                                          'Courier New', monospace; color: \
@@ -1644,7 +1644,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                                     .with_children(visible_lines.into())
                                             } else {
                                                 // Original: render full content as contenteditable
-                                                Dom::div()
+                                                Dom::new_div()
                                                     .with_attribute(AttributeType::ContentEditable(
                                                         true,
                                                     ))
@@ -1691,7 +1691,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                         .into(),
                     ),
                 // Bottom: Toolbar with Zoom buttons
-                Dom::div()
+                Dom::new_div()
                     .with_inline_style(
                         "padding: 10px; background: #f5f5f5; border-top: 2px solid #ccc; display: \
                          flex; gap: 10px; justify-content: center; flex-shrink: 0;",
@@ -1700,7 +1700,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                         vec![
                             // Zoom out button
                             {
-                                let mut zoom_out_btn = Dom::div()
+                                let mut zoom_out_btn = Dom::new_div()
                                     .with_inline_style(
                                         "padding: 10px 20px; background: #ff9800; color: white; \
                                          border-radius: 4px; cursor: pointer; user-select: none; \
@@ -1717,7 +1717,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                 zoom_out_btn
                             },
                             // Font size display
-                            Dom::div()
+                            Dom::new_div()
                                 .with_inline_style(
                                     "padding: 10px 20px; background: #e0e0e0; color: #333; \
                                      border-radius: 4px; user-select: none; font-weight: bold;",
@@ -1727,7 +1727,7 @@ fn create_code_editor(app_data: &KitchenSinkApp, data_refany: RefAny) -> Dom {
                                 )),
                             // Zoom in button
                             {
-                                let mut zoom_in_btn = Dom::div()
+                                let mut zoom_in_btn = Dom::new_div()
                                     .with_inline_style(
                                         "padding: 10px 20px; background: #4caf50; color: white; \
                                          border-radius: 4px; cursor: pointer; user-select: none; \
@@ -1765,10 +1765,10 @@ extern "C" fn preview_iframe_callback(
         Some(d) => d,
         None => {
             // Return empty DOM if data type is wrong
-            let mut empty_dom = Dom::body();
+            let mut empty_dom = Dom::new_body();
             empty_dom.add_child(Dom::text("Error: Invalid data type"));
             let css = CssApiWrapper::empty();
-            let styled_dom = StyledDom::new(&mut empty_dom, css);
+            let styled_dom = StyledDom::new_node(&mut empty_dom, css);
             return IFrameCallbackReturn {
                 dom: OptionStyledDom::Some(styled_dom),
                 scroll_size: info.bounds.get_logical_size(),
@@ -1781,9 +1781,9 @@ extern "C" fn preview_iframe_callback(
 
     // Parse the XHTML code
     let styled_dom = if app_data.code_content.is_empty() {
-        let mut preview_dom = Dom::body();
+        let mut preview_dom = Dom::new_body();
         preview_dom.add_child(
-            Dom::div()
+            Dom::new_div()
                 .with_inline_style(
                     "padding: 10px; background: #f9f9f9; border-radius: 4px; color: #666; \
                      font-style: italic;",
@@ -1791,7 +1791,7 @@ extern "C" fn preview_iframe_callback(
                 .with_child(Dom::text("Enter XHTML code in the editor to see preview")),
         );
         let css = CssApiWrapper::empty();
-        StyledDom::new(&mut preview_dom, css)
+        StyledDom::new_node(&mut preview_dom, css)
     } else {
         // Parse XML directly to StyledDom using DomXmlExt trait
         Dom::from_xml_string(&app_data.code_content)

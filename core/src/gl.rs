@@ -2925,7 +2925,7 @@ impl VertexLayout {
 #[repr(C)]
 pub struct VertexAttribute {
     /// Attribute name of the vertex attribute in the vertex shader, i.e. `"vAttrXY"`
-    pub name: AzString,
+    pub va_name: AzString,
     /// If the vertex shader has a specific location, (like `layout(location = 2) vAttrXY`),
     /// use this instead of the name to look up the uniform location.
     pub layout_location: OptionUsize,

@@ -261,7 +261,7 @@ impl ProgressBar {
         let flex_grow_bar = 10000000.0 / 100.0 * percent_done;
         let flex_grow_remaining = 10000000.0 / 100.0 * (100.0 - percent_done);
 
-        Dom::div()
+        Dom::new_div()
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                 // .__azul-native-progress-bar-container
                 NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
@@ -473,7 +473,7 @@ impl ProgressBar {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10874511710181900075)
             })
             .with_children(DomVec::from_vec(vec![
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                         // .__azul-native-progress-bar-bar
                         NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(
@@ -605,7 +605,7 @@ impl ProgressBar {
                         )];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16512648314570682783)
                     }),
-                Dom::div()
+                Dom::new_div()
                     .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
                         // .__azul-native-progress-bar-remaining
                         NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(

@@ -21,7 +21,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(On::Scroll.into_event_filter(), data.clone(), on_scroll);
     
-    Dom::body()
+    Dom::new_body()
         .with_inline_style(
             "padding: 20px; font-family: sans-serif;"
         )
@@ -37,13 +37,13 @@ fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackRe
         None => return IFrameCallbackReturn::default(),
     };
     
-    let mut container = Dom::div()
+    let mut container = Dom::new_div()
         .with_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
     
     let end = (d.visible_start + d.visible_count).min(d.file_paths.len());
     for i in d.visible_start..end {
 
-        let item = Dom::div()
+        let item = Dom::new_div()
             .with_inline_style("
                 width: 150px; 
                 height: 150px; 

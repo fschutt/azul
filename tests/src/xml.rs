@@ -52,7 +52,7 @@ fn test_compile_dom_1() {
     "#;
     let s1_expected = r#"
         fn test() -> StyledDom {
-            Dom::div().with_id("a").with_class("b")
+            Dom::new_div().with_id("a").with_class("b")
         }
     "#;
 
