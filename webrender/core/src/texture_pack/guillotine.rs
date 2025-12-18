@@ -228,8 +228,8 @@ fn random_fill(count: usize, texture_size: i32) -> f32 {
     // fill up the allocator
     for _ in 0..count {
         let size = DeviceIntSize::new(
-            rng.gen_range(1, texture_size),
-            rng.gen_range(1, texture_size),
+            rng.gen_range(1..texture_size),
+            rng.gen_range(1..texture_size),
         );
         requested_area += size.area() as f32;
 
