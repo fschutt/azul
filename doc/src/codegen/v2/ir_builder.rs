@@ -114,30 +114,69 @@ impl<'a> IRBuilder<'a> {
                 }
                 
                 // Check for direct type aliases without generics (not pointing to a generic type)
-                // Some direct aliases are allowed:
+                // These are problematic for codegen because:
+                // 1. They cause type ordering issues (the alias may appear before its target)
+                // 2. They don't add semantic meaning (just renaming)
+                // 3. They complicate FFI binding generation
+                //
+                // Allowed exceptions:
                 // - Primitive type aliases like `type GLuint = u32` (for C-API compatibility)
-                // - Opaque pointers like `type X11Visual = c_void`
-                // - String aliases like `type XmlTagName = String`
+                // - Opaque pointers like `type X11Visual = *const c_void` (with ref_kind)
+                //
+                // NOT allowed (must use newtype struct instead):
+                // - `type XmlTagName = String` -> struct XmlTagName { inner: String }
+                // - `type XmlAttributeMap = StringPairVec` -> struct XmlAttributeMap { inner: StringPairVec }
                 if let Some(type_alias) = &class_data.type_alias {
                     if type_alias.generic_args.is_empty() {
                         let target = &type_alias.target;
+                        
+                        // Primitives are OK (C-API naming like GLuint, GLint, etc.)
                         let is_primitive_alias = matches!(target.as_str(), 
                             "u8" | "u16" | "u32" | "u64" | "usize" |
                             "i8" | "i16" | "i32" | "i64" | "isize" |
-                            "f32" | "f64" | "bool" | "char" |
-                            "c_void" | "String"
+                            "f32" | "f64" | "bool" | "char" | "c_void"
                         );
                         
-                        // Also allow aliases to other types that will be resolved later
-                        // e.g. `type XmlAttributeMap = StringPairVec`
-                        let is_known_type_alias = !is_primitive_alias && 
-                            !target.starts_with('[') && // Not an array
-                            !target.contains('<');      // Not a generic instantiation
+                        // Pointer types are OK (opaque handles like X11Visual, HwndHandle)
+                        let is_pointer_alias = matches!(type_alias.ref_kind,
+                            crate::api::RefKind::ConstPtr | crate::api::RefKind::MutPtr
+                        );
                         
-                        // For now, allow all direct type aliases. 
-                        // The IR builder will handle them appropriately.
-                        // This validation was too strict.
-                        let _ = (is_primitive_alias, is_known_type_alias);
+                        if !is_primitive_alias && !is_pointer_alias {
+                            errors.push(format!(
+                                "Simple type alias not allowed: {} = {}. \n\
+                                 Simple type aliases cause codegen issues (type ordering, FFI complexity).\n\
+                                 Please convert to a newtype struct instead:\n\
+                                 \n\
+                                 In Rust source:\n\
+                                 ```rust\n\
+                                 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]\n\
+                                 #[repr(C)]\n\
+                                 pub struct {} {{\n\
+                                     pub inner: {},\n\
+                                 }}\n\
+                                 \n\
+                                 impl From<{}> for {} {{\n\
+                                     fn from(v: {}) -> Self {{ Self {{ inner: v }} }}\n\
+                                 }}\n\
+                                 ```\n\
+                                 \n\
+                                 In api.json, change from:\n\
+                                 ```json\n\
+                                 \"{}\": {{ \"type_alias\": {{ \"target\": \"{}\" }} }}\n\
+                                 ```\n\
+                                 \n\
+                                 To:\n\
+                                 ```json\n\
+                                 \"{}\": {{ \"struct_fields\": [{{ \"inner\": {{ \"type\": \"{}\" }} }}], \"derive\": [...] }}\n\
+                                 ```",
+                                class_name, target,
+                                class_name, target,
+                                target, class_name, target,
+                                class_name, target,
+                                class_name, target
+                            ));
+                        }
                     }
                 }
                 
