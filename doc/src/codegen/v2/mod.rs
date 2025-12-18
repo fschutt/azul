@@ -67,6 +67,7 @@ pub mod lang_cpp;
 pub mod lang_rust;
 pub mod lang_python;
 pub mod lang_reexports;
+pub mod transmute_helpers;
 pub mod rust;  // New Rust generators (static/dynamic binding)
 
 pub use config::*;

@@ -2,16 +2,16 @@
 //!
 //! This example can run in two modes:
 //! - Static linking (default): Uses internal types directly, better for debugging
-//! - Dynamic linking (c-api feature): Uses FFI types, same code path as C
+//! - Dynamic linking (link-dynamic feature): Uses FFI types, same code path as C
 //!
 //! Run statically linked (for debugging):
-//!   cargo run --bin hello_world_window --package azul-dll --features "desktop"
+//!   cargo run --bin hello_world_window --package azul-dll --features "link-static"
 //!
 //! Run dynamically linked (same as C):
-//!   cargo run --bin hello_world_window --package azul-dll --features "c-api desktop"
+//!   cargo run --bin hello_world_window --package azul-dll --features "link-dynamic"
 
-// static linking (internal types)
-#[cfg(not(feature = "c-api"))]
+// static linking (internal types) - default mode
+#[cfg(not(feature = "link-dynamic"))]
 mod static_impl {
     use azul_core::{
         callbacks::{LayoutCallbackInfo, LayoutCallbackType},
@@ -73,7 +73,7 @@ mod static_impl {
 }
 
 // dynamic linking (ffi types, same as c)
-#[cfg(feature = "c-api")]
+#[cfg(feature = "link-dynamic")]
 mod dynamic_impl {
     use core::ffi::c_void;
 
@@ -148,9 +148,9 @@ mod dynamic_impl {
 }
 
 fn main() {
-    #[cfg(not(feature = "c-api"))]
+    #[cfg(not(feature = "link-dynamic"))]
     static_impl::run();
 
-    #[cfg(feature = "c-api")]
+    #[cfg(feature = "link-dynamic")]
     dynamic_impl::run();
 }

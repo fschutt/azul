@@ -1807,7 +1807,7 @@ extern "C" fn preview_iframe_callback(
 }
 
 // main entry point
-#[cfg(feature = "desktop")]
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     eprintln!("[KITCHEN_SINK] Starting application...");
 
@@ -1834,9 +1834,7 @@ fn main() {
     eprintln!("[KITCHEN_SINK] app.run() returned (should not happen - app.run is blocking)");
 }
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(target_arch = "wasm32")]
 fn main() {
-    eprintln!("This example requires the 'desktop' feature to be enabled.");
-    eprintln!("Run with: cargo run --bin kitchen_sink --features desktop");
-    std::process::exit(1);
+    eprintln!("This example is not supported on wasm32.");
 }

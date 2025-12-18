@@ -1,15 +1,9 @@
+// Legacy C and C++ generators - kept for regression testing during V2 migration
+// The C header generation has been ported to v2, but cpp_api still depends on c_api helpers
 pub mod c_api;
 pub mod cpp_api;
-pub mod fn_body_gen;
-pub mod func_gen;
-pub mod memtest;
-pub mod python_api;
-pub mod rust_api;
-pub mod rust_dll;
-pub mod struct_gen;
-pub mod tests;
 
 // Codegen v2: Unified, configuration-driven code generation
-// This is the new architecture that will eventually replace the above modules.
+// This is the new architecture that replaces the old rust_api, python_api modules.
 // See scripts/CODEGEN_REFACTOR_PROPOSAL.md for details.
 pub mod v2;

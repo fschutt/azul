@@ -11,9 +11,7 @@ use std::collections::BTreeSet;
 use super::config::*;
 use super::generator::{CodeBuilder, LanguageGenerator};
 use super::ir::*;
-
-// Re-use the existing transmute fn_body generation logic from memtest
-use crate::codegen::memtest::{generate_transmuted_fn_body, parse_arg_type};
+use super::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
 
 // ============================================================================
 // Rust Generator

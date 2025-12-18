@@ -122,7 +122,7 @@ extern "C" fn on_window_close(_data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // Load XHTML content using include_bytes!
     let data = XhtmlData {
@@ -142,9 +142,7 @@ fn main() {
     app.run(window);
 }
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(target_arch = "wasm32")]
 fn main() {
-    eprintln!("This example requires the 'desktop' feature to be enabled.");
-    eprintln!("Run with: cargo run --bin test_scrolling --features desktop");
-    std::process::exit(1);
+    eprintln!("This example is not supported on wasm32.");
 }

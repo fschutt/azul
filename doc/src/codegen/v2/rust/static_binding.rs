@@ -17,9 +17,7 @@ use crate::codegen::v2::generator::{CodeBuilder, LanguageGenerator};
 use crate::codegen::v2::ir::*;
 
 use super::shared;
-
-// Re-use the existing transmute fn_body generation logic
-use crate::codegen::memtest::{generate_transmuted_fn_body, parse_arg_type};
+use crate::codegen::v2::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
 
 // ============================================================================
 // Static Binding Generator

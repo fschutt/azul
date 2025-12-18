@@ -128,7 +128,7 @@ impl GenerationTargets {
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::c_header(),
-            &codegen_dir.join("azul.h"),
+            &codegen_v2_dir.join("azul.h"),
         )?;
 
         // 6. C++ header
@@ -136,7 +136,7 @@ impl GenerationTargets {
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::cpp_header(CppStandard::Cpp11),
-            &codegen_dir.join("azul.hpp"),
+            &codegen_v2_dir.join("azul.hpp"),
         )?;
 
         // 7. Public Rust API (legacy, may be removed)
@@ -144,7 +144,7 @@ impl GenerationTargets {
         CodeGenerator::generate_to_file(
             ir,
             &CodegenConfig::rust_public_api(),
-            &codegen_dir.join("azul.rs"),
+            &codegen_v2_dir.join("azul.rs"),
         )?;
 
         // 8. Python extension (separate from C-API!) - goes to target/codegen/v2/ for include!() in dll

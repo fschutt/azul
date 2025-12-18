@@ -70,7 +70,7 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
     styled
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     use azul_dll::desktop::{app::App, resources::AppConfig};
     use azul_layout::window_state::WindowCreateOptions;
@@ -88,9 +88,7 @@ fn main() {
     app.run(window);
 }
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(target_arch = "wasm32")]
 fn main() {
-    eprintln!("This example requires the 'desktop' feature to be enabled.");
-    eprintln!("Run with: cargo run --bin test_display_list --features desktop");
-    std::process::exit(1);
+    eprintln!("This example is not supported on wasm32.");
 }
