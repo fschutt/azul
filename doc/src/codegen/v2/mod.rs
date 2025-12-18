@@ -66,11 +66,15 @@ pub mod lang_c;
 pub mod lang_cpp;
 pub mod lang_rust;
 pub mod lang_python;
+pub mod lang_reexports;
+pub mod rust;  // New Rust generators (static/dynamic binding)
 
 pub use config::*;
 pub use generator::*;
 pub use ir::*;
 pub use ir_builder::*;
+pub use lang_reexports::generate_reexports;
+pub use rust::{RustStaticGenerator, RustDynamicGenerator};
 
 use std::path::Path;
 use anyhow::Result;

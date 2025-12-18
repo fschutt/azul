@@ -29,7 +29,7 @@ mod static_impl {
         pub counter: u32,
     }
 
-    pub extern "C" fn my_layout_func(data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+    pub extern "C" fn my_layout_func(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
         eprintln!("[my_layout_func] Called!");
         if let Some(model) = data.downcast_ref::<MyDataModel>() {
             eprintln!("[my_layout_func] counter = {}", model.counter);

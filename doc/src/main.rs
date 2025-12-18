@@ -772,123 +772,14 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["memtest", "run"] => {
+        // Legacy memtest commands removed - use "codegen all" instead
+        // Memory layout tests are now included in dll/src/lib.rs via include!()
+        // Run them with: cd dll && cargo test
+        // V2 commands are now the default - use "codegen <target>" instead
+        ["v2", "dll"] | ["v2", "python"] | ["v2", "memtest"] | ["v2", "c"] | ["v2", "cpp"] | ["v2", "all"] => {
+            println!("Note: 'v2' prefix is deprecated - v2 is now the default.\n");
+            println!("Use 'codegen all' or 'codegen <target>' instead.\n");
             let api_data = load_api_json(&api_path)?;
-
-            // Run FFI safety checks first
-            println!("[CHECK] Running FFI safety checks...\n");
-            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
-            ffi_warnings.extend(autofix::check_doc_characters(&api_data));
-            if !ffi_warnings.is_empty() {
-                autofix::print_ffi_safety_warnings(&ffi_warnings);
-                eprintln!(
-                    "\nError: Found {} FFI safety issues. Fix them before running memtest.",
-                    ffi_warnings.len()
-                );
-                std::process::exit(1);
-            }
-            println!("[OK] FFI safety checks passed.\n");
-
-            println!("[TEST] Generating memory layout test crate...\n");
-            codegen::memtest::generate_memtest_crate(&api_data, &project_root)
-                .map_err(|e| anyhow::anyhow!(e))?;
-
-            println!("\n[RUN] Running memory layout tests...\n");
-            let memtest_dir = project_root.join("target").join("memtest");
-            let status = std::process::Command::new("cargo")
-                .arg("test")
-                .arg("--")
-                .arg("--nocapture")
-                .current_dir(&memtest_dir)
-                .status()?;
-
-            if !status.success() {
-                eprintln!("\nMemory layout tests failed!");
-                std::process::exit(1);
-            } else {
-                println!("\n[OK] All memory layout tests passed!");
-            }
-
-            return Ok(());
-        }
-        ["memtest"] => {
-            let api_data = load_api_json(&api_path)?;
-
-            // Run FFI safety checks first
-            println!("[CHECK] Running FFI safety checks...\n");
-            let type_index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            let mut ffi_warnings = autofix::check_ffi_safety(&type_index, &api_data);
-            ffi_warnings.extend(autofix::check_doc_characters(&api_data));
-            if !ffi_warnings.is_empty() {
-                autofix::print_ffi_safety_warnings(&ffi_warnings);
-                eprintln!(
-                    "\nError: Found {} FFI safety issues. Fix them before running memtest.",
-                    ffi_warnings.len()
-                );
-                std::process::exit(1);
-            }
-            println!("[OK] FFI safety checks passed.\n");
-
-            println!("[TEST] Generating memory layout test crate...\n");
-            codegen::memtest::generate_memtest_crate(&api_data, &project_root)
-                .map_err(|e| anyhow::anyhow!(e))?;
-            return Ok(());
-        }
-        ["memtest", "dll"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[DLL] Generating DLL API definitions...\n");
-            codegen::memtest::generate_dll_api(&api_data, &project_root)
-                .map_err(|e| anyhow::anyhow!(e))?;
-            return Ok(());
-        }
-        ["v2", "dll"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2 DLL] Generating DLL API using codegen v2...\n");
-            codegen::v2::generate_dll_api_v2(&api_data, &project_root)?;
-            return Ok(());
-        }
-        ["v2", "python"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2 PYTHON] Generating Python extension using codegen v2...\n");
-            codegen::v2::generate_python_v2(&api_data, &project_root)?;
-            return Ok(());
-        }
-        ["v2", "memtest"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2 MEMTEST] Generating memtest using codegen v2...\n");
-            codegen::v2::generate_memtest_v2(&api_data, &project_root)?;
-            return Ok(());
-        }
-        ["v2", "c"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2 C] Generating C header using codegen v2...\n");
-            let code = codegen::v2::generate_c_header(&api_data)?;
-            let output_path = project_root.join("target").join("codegen").join("v2").join("azul.h");
-            if let Some(parent) = output_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&output_path, &code)?;
-            println!("[OK] C header v2 generated successfully!");
-            println!("     Output: {} ({} bytes)", output_path.display(), code.len());
-            return Ok(());
-        }
-        ["v2", "cpp"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2 C++] Generating C++ header using codegen v2...\n");
-            let code = codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
-            let output_path = project_root.join("target").join("codegen").join("v2").join("azul.hpp");
-            if let Some(parent) = output_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&output_path, &code)?;
-            println!("[OK] C++ header v2 generated successfully!");
-            println!("     Output: {} ({} bytes)", output_path.display(), code.len());
-            return Ok(());
-        }
-        ["v2", "all"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[V2] Generating all output files using codegen v2...\n");
             codegen::v2::generate_all_v2(&api_data, &project_root)?;
             return Ok(());
         }
@@ -1019,122 +910,61 @@ fn main() -> anyhow::Result<()> {
         }
         ["codegen"] | ["codegen", "rust"] => {
             let api_data = load_api_json(&api_path)?;
-            let version = api_data.0.keys().next().expect("No version in api.json");
+            println!("[CODEGEN] Generating Rust library code...\n");
 
-            println!("[FIX] Generating Rust library code...\n");
-
-            // NOTE: dll/lib.rs is no longer generated here.
-            // The DLL uses include!() with target/memtest/dll_api.rs instead.
-            // To regenerate the DLL API: cd doc && cargo run --release -- memtest dll
-
-            // Generate azul-rs/azul.rs
-            let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
-            let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
-            fs::create_dir_all(rust_api_path.parent().unwrap())?;
-            fs::write(&rust_api_path, rust_api_code)?;
-            println!("[OK] Generated: {}", rust_api_path.display());
-
+            // Generate azul.rs using the v2 generator  
+            let code = codegen::v2::generate_rust_public_api(&api_data)?;
+            let output_path = project_root.join("target").join("codegen").join("azul.rs");
+            fs::create_dir_all(output_path.parent().unwrap())?;
+            fs::write(&output_path, &code)?;
+            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
+            
             println!("\nRust code generation complete.");
             return Ok(());
         }
         ["codegen", "c"] => {
             let api_data = load_api_json(&api_path)?;
-            let version = api_data.0.keys().next().expect("No version in api.json");
+            println!("[CODEGEN] Generating C header file...\n");
 
-            println!("[FIX] Generating C header file...\n");
-
-            let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
-            let c_api_path = project_root.join("target").join("codegen").join("azul.h");
-            fs::create_dir_all(c_api_path.parent().unwrap())?;
-            fs::write(&c_api_path, c_api_code)?;
-            println!("[OK] Generated: {}", c_api_path.display());
+            let code = codegen::v2::generate_c_header(&api_data)?;
+            let output_path = project_root.join("target").join("codegen").join("azul.h");
+            fs::create_dir_all(output_path.parent().unwrap())?;
+            fs::write(&output_path, &code)?;
+            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
 
             println!("\nC header generation complete.");
             return Ok(());
         }
         ["codegen", "cpp"] => {
             let api_data = load_api_json(&api_path)?;
-            let version = api_data.0.keys().next().expect("No version in api.json");
+            println!("[CODEGEN] Generating C++ header files...\n");
 
-            println!("[FIX] Generating C++ header files for all standards...\n");
-
-            let cpp_dir = project_root.join("target").join("codegen").join("cpp");
+            let cpp_dir = project_root.join("target").join("codegen");
             fs::create_dir_all(&cpp_dir)?;
 
-            // Generate all versioned headers
-            let all_headers = codegen::cpp_api::generate_all_cpp_apis(&api_data, version);
-            for (filename, code) in &all_headers {
-                let path = cpp_dir.join(filename);
-                fs::write(&path, code)?;
-                println!("[OK] Generated: {}", path.display());
-            }
+            // Generate C++11 header (main header)
+            let code = codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
+            let output_path = cpp_dir.join("azul.hpp");
+            fs::write(&output_path, &code)?;
+            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
 
-            println!(
-                "\nC++ header generation complete. {} headers generated.",
-                all_headers.len()
-            );
+            println!("\nC++ header generation complete.");
             return Ok(());
         }
         ["codegen", "python"] => {
             let api_data = load_api_json(&api_path)?;
-            let version = api_data.0.keys().next().expect("No version in api.json");
+            println!("[CODEGEN] Generating Python bindings...\n");
 
-            println!("[FIX] Generating Python bindings...\n");
-
-            let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root
-                .join("target")
-                .join("codegen")
-                .join("python_capi.rs");
-            fs::write(&python_api_path, python_api_code)?;
-            println!("[OK] Generated: {}", python_api_path.display());
+            codegen::v2::generate_python_v2(&api_data, &project_root)?;
 
             println!("\nPython bindings generation complete.");
             return Ok(());
         }
         ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
-            let version = api_data.0.keys().next().expect("No version in api.json");
+            println!("[CODEGEN] Generating all language bindings using v2...\n");
 
-            println!("[FIX] Generating all language bindings...\n");
-
-            // Generate dll_api.rs (static linking - for azul-dll internal use)
-            println!("[DLL] Generating static linking API (dll_api.rs)...");
-            codegen::memtest::generate_dll_api(&api_data, &project_root)
-                .map_err(|e| anyhow::anyhow!(e))?;
-            
-            // Generate dll_api_dynamic.rs (dynamic linking - extern "C" declarations)
-            println!("[DLL] Generating dynamic linking API (dll_api_dynamic.rs)...");
-            codegen::memtest::generate_dll_api_dynamic(&api_data, &project_root)
-                .map_err(|e| anyhow::anyhow!(e))?;
-
-            // Generate azul.rs (public Rust API)
-            let rust_api_code = codegen::rust_api::generate_rust_api(&api_data, version);
-            let rust_api_path = project_root.join("target").join("codegen").join("azul.rs");
-            fs::create_dir_all(rust_api_path.parent().unwrap())?;
-            fs::write(&rust_api_path, rust_api_code)?;
-            println!("[OK] Generated: {}", rust_api_path.display());
-
-            // Generate C header
-            let c_api_code = codegen::c_api::generate_c_api(&api_data, version);
-            let c_api_path = project_root.join("target").join("codegen").join("azul.h");
-            fs::write(&c_api_path, c_api_code)?;
-            println!("[OK] Generated: {}", c_api_path.display());
-
-            // Generate C++ header
-            let cpp_api_code = codegen::cpp_api::generate_cpp_api(&api_data, version);
-            let cpp_api_path = project_root.join("target").join("codegen").join("azul.hpp");
-            fs::write(&cpp_api_path, cpp_api_code)?;
-            println!("[OK] Generated: {}", cpp_api_path.display());
-
-            // Generate Python bindings
-            let python_api_code = codegen::python_api::generate_python_api(&api_data, version);
-            let python_api_path = project_root
-                .join("target")
-                .join("codegen")
-                .join("python_capi.rs");
-            fs::write(&python_api_path, python_api_code)?;
-            println!("[OK] Generated: {}", python_api_path.display());
+            codegen::v2::generate_all_v2(&api_data, &project_root)?;
 
             println!("\nAll language bindings generated successfully.");
             return Ok(());
@@ -1514,6 +1344,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix                       - Analyze and generate patches for api.json");
     println!("    autofix run                   - Same as 'autofix'");
     println!("    autofix explain               - Explain what generated patches will do");
+    println!("    autofix list <Type>           - List functions for a type (source vs api.json)");
+    println!("    autofix add <Type.method>     - Add function(s) to api.json");
+    println!("    autofix add <Type.*>          - Add all public methods of a type");
+    println!("    autofix remove <Type.method>  - Remove function from api.json");
     println!();
     println!("  AUTOFIX DEBUG (inspect type resolution):");
     println!("    autofix debug type <name>     - Show type definition in workspace index");
@@ -1528,15 +1362,21 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!();
     println!("  API MANAGEMENT:");
     println!("    normalize                     - Normalize/reformat api.json");
+    println!("    dedup                         - Remove duplicate types from api.json");
     println!("    print [options]               - Print API information");
     println!("    unused                        - Find unused types in api.json");
     println!("    unused patch                  - Generate patches to remove unused types");
     println!();
     println!("  CODE GENERATION:");
-    println!("    codegen [rust|c|cpp|python|all] - Generate language bindings");
-    println!("    memtest [run]                 - Generate and optionally run memory layout tests");
-    println!("    memtest dll                   - Generate DLL API definitions for include!()");
-    println!("    nfpm [version]                - Generate NFPM config for Linux packages");
+    println!("    codegen                       - Generate Rust library code");
+    println!("    codegen rust                  - Generate Rust library code");
+    println!("    codegen c                     - Generate C header (azul.h)");
+    println!("    codegen cpp                   - Generate C++ header (azul.hpp)");
+    println!("    codegen python                - Generate Python bindings");
+    println!("    codegen all                   - Generate all bindings + DLL API + memtest");
+    println!();
+    println!("  Note: Memory layout tests are integrated into 'codegen all' output.");
+    println!("        Run them with: cd dll && cargo test");
     println!();
     println!("  TESTING:");
     println!("    reftest                       - Run all reftests");
@@ -1546,9 +1386,13 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    debug <test_name>             - Debug test with Gemini LLM analysis");
     println!("    debug <test_name> <question>  - Debug test with specific question for LLM");
     println!();
+    println!("  PACKAGING:");
+    println!("    nfpm                          - Generate NFPM config (latest version)");
+    println!("    nfpm <version>                - Generate NFPM config for specific version");
+    println!();
     println!("  DEPLOYMENT:");
-    println!("    deploy                        - Build and deploy the Azul library");
-    println!("    fast-deploy-with-reftests     - Deploy with reftest generation");
+    println!("    deploy                        - Build and deploy (production, inline CSS)");
+    println!("    deploy debug                  - Deploy in debug mode (external CSS)");
     println!();
     Ok(())
 }

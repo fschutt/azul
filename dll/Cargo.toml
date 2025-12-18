@@ -19,26 +19,35 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 azul-core = { path = "../core", version = "0.0.5", default-features = false }
 azul-css = { path = "../css", version = "0.0.5", default-features = false, optional = true }
 azul-layout = { path = "../layout", version = "0.0.5", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
+
+# Logging
+log = { version = "0.4.17", default-features = false, optional = true }
+fern = { version = "0.7.1", default-features = false, optional = true }
+backtrace = { version = "0.3.66", optional = true }
+
+# Python bindings
 pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
-log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.13.2", default-features = false, optional = true }
-tfd         = { version = "0.1.0",  default-features = false, optional = true }
-clipboard2              = { version = "0.1.1",  default-features = false, optional = true }
-raw-window-handle       = { version = "0.6.2", default-features = false, optional = true }
-fern                    = { version = "0.7.1",  default-features = false, optional = true }
-backtrace               = { version = "0.3.66", optional = true }
-rust-fontconfig         = { version = "1.2.1", default-features = false, features = ["std", "parsing"], optional = true }
-strfmt                  = { version = "0.2.5", default-features = false, optional = true }
-libm                    = { version = "0.2.2", default-features = false, optional = true }
-gl-context-loader       = { version ="0.1.8", default-features = false, optional = true }
-webrender               = { path = "../webrender/core", default-features = false, optional = true }
+
+# Desktop windowing dependencies
+tfd = { version = "0.1.0", default-features = false, optional = true }
+rust-fontconfig = { version = "1.2.1", default-features = false, features = ["std", "parsing"], optional = true }
+gl-context-loader = { version ="0.1.8", default-features = false, optional = true }
+webrender = { path = "../webrender/core", default-features = false, optional = true }
 once_cell = { version = "1.17.1", optional = true }
 bitflags = { version = "2.8.0", optional = true }
-cfg-if = "1.0"
 regex = { version = "1", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+
+# Accessibility
 accesskit = { version = "0.21.1", default-features = false, optional = true }
+
+# Windows-only: libm for math functions
+libm = { version = "0.2.2", default-features = false, optional = true }
+
+# Always required
+cfg-if = "1.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
@@ -96,31 +105,88 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
     "NSOpenGLView",
 ] }
 
-[features]
-# NOTE: The `c-api` feature MUST be enabled to export the C API functions!
-# Without it, libazul_dll.dylib will not contain any AzXxx symbols.
-default = ["std", "desktop", "logging", "font_loading_multithreaded", "text_layout", "svg", "xml", "all_img_formats", "link-static", "a11y", "c-api", "rust-api"]
+# =============================================================================
+# Features
+# =============================================================================
 
-# Core features
+[features]
+# Default: Build the full desktop library with static linking
+default = [
+    "std",
+    "build-dll",
+    "link-static",
+    "logging",
+    "a11y",
+    "all_img_formats",
+]
+
+# -----------------------------------------------------------------------------
+# Build Modes
+# -----------------------------------------------------------------------------
+
+# Build the full desktop DLL with windowing, OpenGL, fonts, etc.
+# This compiles all the platform-specific code in src/desktop/
+build-dll = [
+    "std",
+    "azul-css",
+    "azul-layout",
+    "tfd",
+    "rust-fontconfig",
+    "gl-context-loader",
+    "webrender",
+    "once_cell",
+    "bitflags",
+    "regex",
+    "serde",
+    "serde_json",
+    "backtrace",
+    "font_loading",
+    "text_layout",
+    "svg",
+    "xml",
+    # Platform-specific clipboard
+    "x11-clipboard",
+    "clipboard-win",
+    # Windows needs libm
+    "libm",
+]
+
+# -----------------------------------------------------------------------------
+# Link Modes (for consumers of the library)
+# -----------------------------------------------------------------------------
+
+# Static linking: Include transmute-based implementations
+# Uses: target/codegen/v2/dll_api_static.rs
+link-static = []
+
+# Dynamic linking: Include extern "C" declarations
+# Uses: target/codegen/v2/dll_api_dynamic.rs
+# Requires libazul.dylib/so/dll to be available at runtime
+link-dynamic = []
+
+# -----------------------------------------------------------------------------
+# Core Features
+# -----------------------------------------------------------------------------
+
 std = ["azul-core/std", "azul-layout/std"]
 logging = ["log"]
 
-# Accessibility support
-a11y = ["accesskit", "azul-layout/a11y", "accesskit_windows", "accesskit_macos", "accesskit_unix"]
+# -----------------------------------------------------------------------------
+# Accessibility
+# -----------------------------------------------------------------------------
 
-# Desktop application support (windowing, OpenGL, clipboard, etc.)
-desktop = ["std", "tfd", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "x11-clipboard", "clipboard-win", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "bitflags", "regex", "serde", "serde_json"]
+a11y = [
+    "accesskit",
+    "azul-layout/a11y",
+    "accesskit_windows",
+    "accesskit_macos",
+    "accesskit_unix",
+]
 
-# C-API: Include the auto-generated C API functions from target/memtest/dll_api.rs
-# To regenerate: cd doc && cargo run --release -- memtest dll
-c-api = ["desktop", "azul-css", "azul-layout"]
+# -----------------------------------------------------------------------------
+# Image Formats
+# -----------------------------------------------------------------------------
 
-# Rust-API: Include the auto-generated Rust API from target/codegen/azul.rs
-# To regenerate: cd doc && cargo run --release -- codegen rust
-# Provides public modules (app, dom, css, etc.) with types exported without Az prefix
-rust-api = ["c-api"]
-
-# Image format support
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "png", "tiff", "bmp"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
@@ -133,84 +199,82 @@ hdr = ["azul-layout", "azul-layout/hdr"]
 webp = ["azul-layout", "azul-layout/webp"]
 pnm = ["azul-layout", "azul-layout/pnm"]
 
-# SVG and XML support
+# -----------------------------------------------------------------------------
+# Layout Features
+# -----------------------------------------------------------------------------
+
 svg = ["azul-layout", "azul-layout/svg"]
 xml = ["azul-layout", "azul-layout/xml"]
-
-# Font loading
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
-
-# Text layout
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 
-# GNOME menu support (Linux only, requires dbus)
-gnome-menus = []
+# -----------------------------------------------------------------------------
+# Logging Backends
+# -----------------------------------------------------------------------------
 
-# Logging backends
 use_fern_logger = ["logging", "fern"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 
-# Link type markers (used by build scripts)
-cdylib = []
-rlib = []
-staticlib = []
-link-static = ["rlib"]
-link-dynamic = ["cdylib", "staticlib"]
+# -----------------------------------------------------------------------------
+# Predefined Configurations
+# -----------------------------------------------------------------------------
 
-# Dynamic linking for Rust API
-dynamic = ["desktop", "cdylib", "all_img_formats", "svg", "xml", "c-api"]
+# Python extension module
+python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
 
-# Predefined target configurations
-desktop-cdylib = ["desktop", "cdylib", "all_img_formats", "svg", "xml"]
-desktop-staticlib = ["desktop", "staticlib", "all_img_formats", "svg", "xml"]
-rust-static = ["desktop", "rlib", "use_fern_logger"]
-python-extension = ["desktop", "cdylib", "pyo3", "use_pyo3_logger"]
+# -----------------------------------------------------------------------------
+# Binary Examples
+# -----------------------------------------------------------------------------
 
 [[bin]]
 name = "test_scrolling"
 path = "examples/test_scrolling.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "test_display_list"
 path = "examples/test_display_list.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "test_cpurender"
 path = "examples/test_cpurender.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "test_rectangles"
 path = "examples/test_rectangles.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "menu_rendering_demo"
 path = "examples/menu_rendering_demo.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "kitchen_sink"
 path = "examples/kitchen_sink.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "hello_world_test"
 path = "examples/hello_world_test.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "hello_world_window"
 path = "examples/hello_world_window.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
 
 [[bin]]
 name = "graphics_stress_test"
 path = "examples/graphics_stress_test.rs"
-required-features = ["desktop"]
+required-features = ["build-dll"]
+
+# -----------------------------------------------------------------------------
+# Package Metadata
+# -----------------------------------------------------------------------------
 
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
@@ -229,9 +293,12 @@ assets = [
 [package.metadata.docs.rs]
 no-default-features = true
 features = [
-    "std", "logging", "css_parser", "image_loading", "ico", "tga",
-    "hdr", "jpeg", "webp", "pnm", "font_loading",
-    "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp",
-    "rlib", "use_fern_logger"
+    "std",
+    "logging",
+    "all_img_formats",
+    "font_loading",
+    "text_layout",
+    "svg",
+    "xml",
+    "use_fern_logger",
 ]
-# rustdoc-args = ["--cfg", "docsrs"]

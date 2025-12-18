@@ -124,51 +124,119 @@ fn check_ios_deploy() {
 fn check_generated_files() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
+    let codegen_v2_dir = workspace_root.join("target/codegen/v2");
+    
+    // Check for build-dll feature (needs dll_api_build.rs)
+    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok() {
+        let dll_api_build_path = codegen_v2_dir.join("dll_api_build.rs");
+        if !dll_api_build_path.exists() {
+            panic!(
+                "\n\
+                ╔══════════════════════════════════════════════════════════════════════════════╗\n\
+                ║                 MISSING GENERATED FILE: dll_api_build.rs                     ║\n\
+                ╠══════════════════════════════════════════════════════════════════════════════╣\n\
+                ║ The build-dll feature requires generated bindings that don't exist yet.     ║\n\
+                ║                                                                              ║\n\
+                ║ To generate all bindings, run:                                               ║\n\
+                ║                                                                              ║\n\
+                ║   cd doc && cargo run --release -- codegen all                               ║\n\
+                ║                                                                              ║\n\
+                ║ Expected file: target/codegen/v2/dll_api_build.rs                            ║\n\
+                ╚══════════════════════════════════════════════════════════════════════════════╝\n"
+            );
+        }
+        println!("cargo:rerun-if-changed={}", dll_api_build_path.display());
+    }
+    
+    // Check for link-static feature (needs dll_api_static.rs)
+    if env::var("CARGO_FEATURE_LINK_STATIC").is_ok() {
+        let dll_api_static_path = codegen_v2_dir.join("dll_api_static.rs");
+        if !dll_api_static_path.exists() {
+            panic!(
+                "\n\
+                ╔══════════════════════════════════════════════════════════════════════════════╗\n\
+                ║                 MISSING GENERATED FILE: dll_api_static.rs                    ║\n\
+                ╠══════════════════════════════════════════════════════════════════════════════╣\n\
+                ║ The link-static feature requires generated bindings that don't exist yet.   ║\n\
+                ║                                                                              ║\n\
+                ║ To generate all bindings, run:                                               ║\n\
+                ║                                                                              ║\n\
+                ║   cd doc && cargo run --release -- codegen all                               ║\n\
+                ║                                                                              ║\n\
+                ║ Expected file: target/codegen/v2/dll_api_static.rs                           ║\n\
+                ╚══════════════════════════════════════════════════════════════════════════════╝\n"
+            );
+        }
+        println!("cargo:rerun-if-changed={}", dll_api_static_path.display());
+    }
+    
+    // Check for link-dynamic feature (needs dll_api_dynamic.rs)
+    if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
+        let dll_api_dynamic_path = codegen_v2_dir.join("dll_api_dynamic.rs");
+        if !dll_api_dynamic_path.exists() {
+            panic!(
+                "\n\
+                ╔══════════════════════════════════════════════════════════════════════════════╗\n\
+                ║                MISSING GENERATED FILE: dll_api_dynamic.rs                    ║\n\
+                ╠══════════════════════════════════════════════════════════════════════════════╣\n\
+                ║ The link-dynamic feature requires generated bindings that don't exist yet.  ║\n\
+                ║                                                                              ║\n\
+                ║ To generate all bindings, run:                                               ║\n\
+                ║                                                                              ║\n\
+                ║   cd doc && cargo run --release -- codegen all                               ║\n\
+                ║                                                                              ║\n\
+                ║ Expected file: target/codegen/v2/dll_api_dynamic.rs                          ║\n\
+                ╚══════════════════════════════════════════════════════════════════════════════╝\n"
+            );
+        }
+        println!("cargo:rerun-if-changed={}", dll_api_dynamic_path.display());
+    }
+    
+    // Check for reexports.rs (needed by any link mode)
+    if env::var("CARGO_FEATURE_LINK_STATIC").is_ok() 
+        || env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok()
+        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok() 
+    {
+        let reexports_path = codegen_v2_dir.join("reexports.rs");
+        if !reexports_path.exists() {
+            panic!(
+                "\n\
+                ╔══════════════════════════════════════════════════════════════════════════════╗\n\
+                ║                   MISSING GENERATED FILE: reexports.rs                       ║\n\
+                ╠══════════════════════════════════════════════════════════════════════════════╣\n\
+                ║ The public Rust API requires generated re-exports that don't exist yet.     ║\n\
+                ║                                                                              ║\n\
+                ║ To generate all bindings, run:                                               ║\n\
+                ║                                                                              ║\n\
+                ║   cd doc && cargo run --release -- codegen all                               ║\n\
+                ║                                                                              ║\n\
+                ║ Expected file: target/codegen/v2/reexports.rs                                ║\n\
+                ╚══════════════════════════════════════════════════════════════════════════════╝\n"
+            );
+        }
+        println!("cargo:rerun-if-changed={}", reexports_path.display());
+    }
     
     // Check for python-extension feature
     if env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok() {
-        let python_capi_path = workspace_root.join("target/codegen/python_capi.rs");
-        if !python_capi_path.exists() {
+        let python_api_path = codegen_v2_dir.join("python_api.rs");
+        if !python_api_path.exists() {
             panic!(
                 "\n\
                 ╔══════════════════════════════════════════════════════════════════════════════╗\n\
-                ║                   MISSING GENERATED FILE: python_capi.rs                     ║\n\
+                ║                   MISSING GENERATED FILE: python_api.rs                      ║\n\
                 ╠══════════════════════════════════════════════════════════════════════════════╣\n\
-                ║ The Python extension requires generated bindings that don't exist yet.       ║\n\
+                ║ The Python extension requires generated bindings that don't exist yet.      ║\n\
                 ║                                                                              ║\n\
-                ║ To generate the Python bindings, run:                                        ║\n\
+                ║ To generate all bindings, run:                                               ║\n\
                 ║                                                                              ║\n\
-                ║   cargo run --manifest-path doc/Cargo.toml -- codegen python                 ║\n\
+                ║   cd doc && cargo run --release -- codegen all                               ║\n\
                 ║                                                                              ║\n\
-                ║ Expected file: target/codegen/python_capi.rs                                 ║\n\
+                ║ Expected file: target/codegen/v2/python_api.rs                               ║\n\
                 ╚══════════════════════════════════════════════════════════════════════════════╝\n"
             );
         }
-        // Tell cargo to rerun if this file changes
-        println!("cargo:rerun-if-changed={}", python_capi_path.display());
-    }
-    
-    // Check for c-api feature
-    if env::var("CARGO_FEATURE_C_API").is_ok() {
-        let dll_api_path = workspace_root.join("target/memtest/dll_api.rs");
-        if !dll_api_path.exists() {
-            panic!(
-                "\n\
-                ╔══════════════════════════════════════════════════════════════════════════════╗\n\
-                ║                     MISSING GENERATED FILE: dll_api.rs                       ║\n\
-                ╠══════════════════════════════════════════════════════════════════════════════╣\n\
-                ║ The C API requires generated bindings that don't exist yet.                  ║\n\
-                ║                                                                              ║\n\
-                ║ To generate the C API bindings, run:                                         ║\n\
-                ║                                                                              ║\n\
-                ║   cargo run --manifest-path doc/Cargo.toml -- memtest dll                    ║\n\
-                ║                                                                              ║\n\
-                ║ Expected file: target/memtest/dll_api.rs                                     ║\n\
-                ╚══════════════════════════════════════════════════════════════════════════════╝\n"
-            );
-        }
-        // Tell cargo to rerun if this file changes
-        println!("cargo:rerun-if-changed={}", dll_api_path.display());
+        println!("cargo:rerun-if-changed={}", python_api_path.display());
     }
     
     // Always rerun if api.json changes (the source of truth)

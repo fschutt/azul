@@ -339,11 +339,41 @@ fn is_primitive_or_builtin(name: &str) -> bool {
 // ============================================================================
 
 impl CodegenConfig {
-    /// DLL internal API (static linking)
+    /// DLL static linking API
     /// 
-    /// This is used when compiling the azul-dll crate itself.
-    /// Functions have bodies that transmute to/from internal types.
+    /// This is used when statically linking Azul into your application.
+    /// Generates types + trait implementations using transmute.
+    /// NO C-API functions - traits are implemented directly.
     pub fn dll_static() -> Self {
+        Self {
+            target_lang: TargetLang::Rust,
+            cabi_functions: CAbiFunctionMode::None, // No C-API functions for static linking!
+            struct_mode: StructMode::Prefixed,
+            trait_impl_mode: TraitImplMode::UsingTransmute {
+                external_crate: "azul_core".into(),
+            },
+            type_prefix: "Az".into(),
+            module_wrapper: Some("dll".into()),
+            imports: vec![
+                "use core::ffi::c_void;".into(),
+                "use core::mem::transmute;".into(),
+            ],
+            type_filter: None,
+            type_exclude: BTreeSet::new(),
+            indent: "    ".into(),
+            generate_docs: true,
+            callback_typedef_use_external: false,
+            // Replace azul_dll:: with crate:: since we're inside azul-dll
+            external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
+            generate_tests: false,
+        }
+    }
+
+    /// DLL build API (for building libazul.dylib/so/dll)
+    /// 
+    /// This is used when compiling the azul-dll crate itself to produce
+    /// the shared library. Generates types + C-API functions with #[no_mangle].
+    pub fn dll_build() -> Self {
         Self {
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: true },
@@ -477,7 +507,15 @@ impl CodegenConfig {
     /// Public Rust API (unprefixed, ergonomic)
     /// 
     /// This generates a clean public API without Az prefixes.
+    /// Note: This API re-exports from crate::dll, so it doesn't need 
+    /// duplicate GL type aliases (those come from dll module).
     pub fn rust_public_api() -> Self {
+        // Skip GL type aliases as they're already in the dll module
+        let mut type_exclude = BTreeSet::new();
+        for gl_type in &["GLuint", "GLint", "GLenum", "GLint64", "GLuint64", "GLsizei", "GLfloat", "GLboolean", "GLbitfield", "GLclampf", "GLsizeiptr", "GLintptr"] {
+            type_exclude.insert(gl_type.to_string());
+        }
+        
         Self {
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::None,
@@ -485,9 +523,11 @@ impl CodegenConfig {
             trait_impl_mode: TraitImplMode::UsingDerive,
             type_prefix: "".into(),
             module_wrapper: None,
-            imports: vec![],
+            imports: vec![
+                "use core::ffi::c_void;".into(),
+            ],
             type_filter: None,
-            type_exclude: BTreeSet::new(),
+            type_exclude,
             indent: "    ".into(),
             generate_docs: true,
             callback_typedef_use_external: false,
