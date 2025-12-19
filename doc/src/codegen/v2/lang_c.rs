@@ -1026,5 +1026,117 @@ impl CGenerator {
 
         builder.line("#endif /* __cplusplus - end of C99 designated initializer macros */");
         builder.blank();
+
+        // AZ_REFLECT macro for user-defined types
+        self.generate_az_reflect_macro(builder);
+    }
+
+    /// Generate the AZ_REFLECT macro for user-defined type reflection
+    fn generate_az_reflect_macro(&self, builder: &mut CodeBuilder) {
+        builder.line("/* C-only reflection macro - uses C99 designated initializers */");
+        builder.line("#ifndef __cplusplus");
+        builder.blank();
+
+        builder.line("/* Macro to generate reflection metadata for a given struct - for a \"structName\" of \"foo\", generates:");
+        builder.line(" *");
+        builder.line(" * constants:");
+        builder.line(" * - a foo_RttiTypeId, which serves as the \"type ID\" for that struct");
+        builder.line(" * - a foo_RttiString, a compile-time string that identifies the class");
+        builder.line(" *");
+        builder.line(" * structs:");
+        builder.line(" * - struct fooRef(): immutable reference to a RefAny<foo>");
+        builder.line(" * - struct fooRefMut(): mutable reference to a RefAny<foo>");
+        builder.line(" *");
+        builder.line(" * functions:");
+        builder.line(" * - AzRefAny foo_upcast(myStructInstance): upcasts a #structName to a RefAny");
+        builder.line(" *");
+        builder.line(" * - fooRef_create(AzRefAny): creates a new fooRef, but does not yet downcast it (.ptr is set to nullptr)");
+        builder.line(" * - fooRefMut_create(AzRefAny): creates a new fooRefMut, but does not yet downcast it (.ptr is set to nullptr)");
+        builder.line(" *");
+        builder.line(" * - bool foo_downcastRef(AzRefAny, fooRef* restrict): downcasts the RefAny immutably, if true is returned then the fooRef is properly initialized");
+        builder.line(" * - bool foo_downcastMut(AzRefAny, fooRefMut* restrict): downcasts the RefAny mutably, if true is returned then the fooRef is properly initialized");
+        builder.line(" *");
+        builder.line(" * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count");
+        builder.line(" * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference count");
+        builder.line(" * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false if the AzRefAny is not of type RefAny<foo>");
+        builder.line(" *");
+        builder.line(" * USAGE:");
+        builder.line(" *");
+        builder.line(" *     typedef struct { } foo;");
+        builder.line(" *");
+        builder.line(" *     // -- destructor of foo, azul will call this function once the refcount hits 0");
+        builder.line(" *     // note: the function expects a void*, but you can just use a foo*");
+        builder.line(" *     void fooDestructor(foo* restrict destructorPtr) { }");
+        builder.line(" *");
+        builder.line(" *     AZ_REFLECT(foo, fooDestructor)");
+        builder.line("*/");
+
+        // The actual macro definition
+        builder.line("#define AZ_REFLECT(structName, destructor) \\");
+        builder.line("    /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \\");
+        builder.line("    static uint64_t const structName##_RttiTypePtrId = 0; \\");
+        builder.line("    static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \\");
+        builder.line("    static AzString const structName##_Type_RttiString = AzString_fromConstStr(#structName); \\");
+        builder.line("    \\");
+        builder.line("    AzRefAny structName##_upcast(structName const s) { \\");
+        builder.line("        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \\");
+        builder.line("        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \\");
+        builder.line("    } \\");
+        builder.line("    \\");
+        builder.line("    /* generate structNameRef and structNameRefMut structs*/ \\");
+        builder.line("    typedef struct { const structName* ptr; AzRefCount sharing_info; } structName##Ref; \\");
+        builder.line("    typedef struct { structName* restrict ptr; AzRefCount sharing_info; } structName##RefMut; \\");
+        builder.line("    \\");
+        builder.line("    structName##Ref structName##Ref_create(AzRefAny* const refany) { \\");
+        builder.line("        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info) };    \\");
+        builder.line("        return val;    \\");
+        builder.line("    } \\");
+        builder.line("    \\");
+        builder.line("    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \\");
+        builder.line("        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info), };    \\");
+        builder.line("        return val;    \\");
+        builder.line("    } \\");
+        builder.line("    \\");
+        builder.line("    /* if downcastRef returns true, the downcast worked */ \\");
+        builder.line("    bool structName##_downcastRef(AzRefAny* restrict refany, structName##Ref * restrict result) { \\");
+        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
+        builder.line("            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\\");
+        builder.line("                AzRefCount_increaseRef(&refany->sharing_info); \\");
+        builder.line("                result->ptr = (structName* const)(refany->_internal_ptr); \\");
+        builder.line("                return true; \\");
+        builder.line("            } \\");
+        builder.line("        } \\");
+        builder.line("    } \\");
+        builder.line("    \\");
+        builder.line("    /* if downcastRefMut returns true, the mutable downcast worked */ \\");
+        builder.line("    bool structName##_downcastMut(AzRefAny* restrict refany, structName##RefMut * restrict result) { \\");
+        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
+        builder.line("            if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\\");
+        builder.line("                AzRefCount_increaseRefmut(&refany->sharing_info); \\");
+        builder.line("                result->ptr = (structName* restrict)(refany->_internal_ptr); \\");
+        builder.line("                return true; \\");
+        builder.line("            } \\");
+        builder.line("        } \\");
+        builder.line("    } \\");
+        builder.line("    \\");
+        builder.line("    /* releases a structNameRef (decreases the RefCount) */ \\");
+        builder.line("    void structName##Ref_delete(structName##Ref* restrict value) { \\");
+        builder.line("        AzRefCount_decreaseRef(&value->sharing_info); \\");
+        builder.line("    }\\");
+        builder.line("    \\");
+        builder.line("    /* releases a structNameRefMut (decreases the mutable RefCount) */ \\");
+        builder.line("    void structName##RefMut_delete(structName##RefMut* restrict value) { \\");
+        builder.line("        AzRefCount_decreaseRefmut(&value->sharing_info); \\");
+        builder.line("    }\\");
+        builder.line("    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \\");
+        builder.line("    bool structName##RefAny_delete(AzRefAny* restrict refany) { \\");
+        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \\");
+        builder.line("        AzRefAny_delete(refany); \\");
+        builder.line("        return true; \\");
+        builder.line("    }");
+        builder.blank();
+
+        builder.line("#endif /* __cplusplus - end of C-only reflection macro */");
+        builder.blank();
     }
 }

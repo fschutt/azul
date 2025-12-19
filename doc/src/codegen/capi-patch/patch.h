@@ -16,47 +16,6 @@
     } \
 }
 
-/* Macro to initialize a compile-time AzNodeData struct
- *
- * static AzNodeData foo = AzNodeData_new(AzNodeType_Div);
- */
-#define AzNodeData_new(nt) { \
-    .node_type = nt, \
-    .dataset = AzOptionRefAny_None, \
-    .ids_and_classes = AzIdOrClassVec_empty, \
-    .attributes = AzAttributeVec_empty, \
-    .callbacks = AzCoreCallbackDataVec_empty, \
-    .inline_css_props = AzNodeDataInlineCssPropertyVec_empty, \
-    .tab_index = AzOptionTabIndex_None, \
-}
-
-/* Macro to initialize a compile-time AzDom struct
- *
- * static AzDom foo = AzDom_new(AzNodeType_Div);
- */
-#define AzDom_new(nt) { \
-    .root = AzNodeData_new(nt),\
-    .children = AzDomVec_empty, \
-    .estimated_total_children = 0, \
-}
-
-/* Macro to initialize the default AppConfig struct
- *
- * AzAppConfig foo = AzAppConfig_default();
- */
-#define AzAppConfig_default(...) { \
-    .log_level = AzAppLogLevel_Error, \
-    .enable_visual_panic_hook = false, \
-    .enable_logging_on_panic = true, \
-    .enable_tab_navigation = true, \
-    .termination_behavior = AzAppTerminationBehavior_EndProcess, \
-}
-
-#endif /* __cplusplus - end of C99 designated initializer macros */
-
-/* C-only reflection macro - uses C99 designated initializers */
-#ifndef __cplusplus
-
 /* Macro to generate reflection metadata for a given struct - for a "structName" of "foo", generates:
  *
  * constants:
