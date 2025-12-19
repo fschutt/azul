@@ -641,6 +641,9 @@ pub fn analyze_api_diff(
             if !warning.context.is_empty() {
                 eprintln!("      {} {}", "in".dimmed(), warning.context.dimmed());
             }
+            if let Some(ref origin) = warning.origin {
+                eprintln!("      {} {}", "from".cyan(), origin.cyan());
+            }
         }
         eprintln!();
     }

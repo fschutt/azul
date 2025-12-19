@@ -420,6 +420,9 @@ pub enum FunctionKind {
 
     /// Hash::hash: `fn _hash(&self) -> u64`
     Hash,
+
+    /// Default::default: `fn _default() -> Self`
+    Default,
 }
 
 impl FunctionKind {
@@ -433,6 +436,7 @@ impl FunctionKind {
                 | FunctionKind::PartialCmp
                 | FunctionKind::Cmp
                 | FunctionKind::Hash
+                | FunctionKind::Default
         )
     }
 
@@ -445,6 +449,7 @@ impl FunctionKind {
             FunctionKind::PartialCmp => Some("PartialOrd"),
             FunctionKind::Cmp => Some("Ord"),
             FunctionKind::Hash => Some("Hash"),
+            FunctionKind::Default => Some("Default"),
             _ => None,
         }
     }
@@ -458,6 +463,7 @@ impl FunctionKind {
             FunctionKind::PartialCmp => "_partialCmp",
             FunctionKind::Cmp => "_cmp",
             FunctionKind::Hash => "_hash",
+            FunctionKind::Default => "_default",
             _ => "",
         }
     }

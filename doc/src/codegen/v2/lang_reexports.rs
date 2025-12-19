@@ -225,7 +225,7 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         // DOM types
         ("dom", &["Dom", "NodeData", "DomVec", "NodeType"]),
         // Callbacks
-        ("callbacks", &["RefAny", "LayoutCallbackInfo", "CallbackInfo"]),
+        ("callbacks", &["LayoutCallbackInfo", "CallbackInfo"]),
         // CSS types
         ("css", &["Css", "CssProperty"]),
         // Window types
@@ -234,6 +234,11 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         ("style", &["StyledDom"]),
         // Widgets
         ("widgets", &["Button", "Label", "TextInput"]),
+        // Task / Threading
+        ("task", &["ThreadSender", "ThreadReceiver", "ThreadReceiveMsg", "ThreadSendMsg", "ThreadWriteBackMsg"]),
+        ("time", &["TimerId", "Duration", "Instant"]),
+        // Misc
+        ("misc", &["ThreadId", "RefAny", "Update"]),
     ];
 
     for (module, types) in &prelude_types {

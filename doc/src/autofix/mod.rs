@@ -105,18 +105,11 @@ pub fn autofix_api(
     print_ffi_safety_warnings(&ffi_warnings);
 
     // Count only critical errors (not informational warnings)
-    let critical_errors: Vec<_> = ffi_warnings.iter().filter(|w| w.is_critical()).collect();
-
-    // Fail if there are any critical FFI safety issues
-    if !critical_errors.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Found {} critical FFI safety issues in API types. Fix them before proceeding.",
-            critical_errors.len()
-        ));
-    }
+    // We'll check this later AFTER generating patches, so patches are always written
+    let critical_error_count = ffi_warnings.iter().filter(|w| w.is_critical()).count();
 
     // Print info about non-critical warnings
-    let info_warnings = ffi_warnings.len() - critical_errors.len();
+    let info_warnings = ffi_warnings.len() - critical_error_count;
     if info_warnings > 0 {
         println!(
             "\n{} {} informational warnings (non-blocking)",
@@ -665,12 +658,34 @@ pub fn autofix_api(
         patches_dir.display().to_string().cyan()
     );
 
+    if patch_count > 0 {
+        println!(
+            "\n{}: Apply patches immediately or they may become stale:",
+            "IMPORTANT".yellow().bold()
+        );
+        println!(
+            "  cargo run --bin azul-doc -- patch {}",
+            patches_dir.display()
+        );
+        println!("\nTo preview changes without applying:");
+        println!("  cargo run --bin azul-doc -- autofix explain");
+    }
+
     let duration = start_time.elapsed();
     println!(
         "{} ({:.2}s)\n",
         "Complete".green().bold(),
         duration.as_secs_f64()
     );
+
+    // Now fail if there were critical FFI safety issues
+    // This happens AFTER patches are written, so they can still be applied
+    if critical_error_count > 0 {
+        return Err(anyhow::anyhow!(
+            "Found {} critical FFI safety issues in API types. Patches were generated but fix the errors before proceeding with codegen.",
+            critical_error_count
+        ));
+    }
 
     Ok(())
 }
@@ -1150,6 +1165,14 @@ pub enum FfiSafetyWarningKind {
         name: String,
         languages: Vec<String>,
     },
+    /// Constructor name should be handled differently (e.g., "default" should use custom_impls)
+    BadConstructorName {
+        name: String,
+        suggestion: String,
+    },
+    /// Struct is a tuple struct like `struct Foo(pub u64)` instead of `struct Foo { inner: u64 }`
+    /// Tuple structs don't work well with C API since the field has no name
+    TupleStruct,
 }
 
 impl FfiSafetyWarningKind {
@@ -1171,6 +1194,10 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::ArrayTypeField { .. } => false,
             // Warning only - codegen will escape these names
             FfiSafetyWarningKind::ReservedKeyword { .. } => false,
+            // Error - should use custom_impls instead
+            FfiSafetyWarningKind::BadConstructorName { .. } => true,
+            // Critical - tuple structs don't work with C API
+            FfiSafetyWarningKind::TupleStruct => true,
         }
     }
 }
@@ -1253,7 +1280,16 @@ pub fn check_ffi_safety(
             let file_path = typedef.file_path.display().to_string();
 
             // Check structs for repr(C) and field issues
-            if let type_index::TypeDefKind::Struct { repr, fields, .. } = &typedef.kind {
+            if let type_index::TypeDefKind::Struct { repr, fields, is_tuple_struct, .. } = &typedef.kind {
+                // Tuple structs are not supported - they need named fields for C API
+                if *is_tuple_struct {
+                    warnings.push(FfiSafetyWarning {
+                        type_name: type_name.clone(),
+                        file_path: file_path.clone(),
+                        kind: FfiSafetyWarningKind::TupleStruct,
+                    });
+                }
+
                 // Structs in api.json must have repr(C)
                 let has_repr_c = match repr {
                     Some(r) => r.to_lowercase().contains("c"),
@@ -1397,43 +1433,66 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
         return;
     }
 
-    println!(
-        "\n{} {} FFI safety issues:",
-        "[ WARN ]  WARNING:".yellow().bold(),
-        warnings.len().to_string().red().bold()
-    );
+    // Separate critical errors from info warnings
+    let critical: Vec<_> = warnings.iter().filter(|w| w.is_critical()).collect();
+    let info: Vec<_> = warnings.iter().filter(|w| !w.is_critical()).collect();
 
-    for warning in warnings {
-        match &warning.kind {
-            FfiSafetyWarningKind::StructMissingReprC { current_repr } => {
-                let repr_display = current_repr.as_deref().unwrap_or("none");
-                println!("  {} {}", "✗".red(), warning.type_name.white());
-                println!(
-                    "    {} Struct has repr: {}",
-                    "→".dimmed(),
-                    repr_display.yellow()
-                );
-                println!(
-                    "    {} Add #[repr(C)] for FFI-safe struct layout.",
-                    "FIX:".cyan()
-                );
-                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
-            }
-            FfiSafetyWarningKind::MultiFieldVariant {
-                variant_name,
-                field_count,
-                field_types,
-            } => {
-                println!(
-                    "  {} {}",
-                    "✗".red(),
-                    format!("{}::{}", warning.type_name, variant_name).white()
-                );
-                println!(
-                    "    {} Enum variant has {} fields: {}",
-                    "→".dimmed(),
-                    field_count.to_string().red(),
-                    field_types.yellow()
+    // Print critical errors first with ERROR prefix
+    if !critical.is_empty() {
+        println!(
+            "\n{} {} critical FFI safety errors:",
+            "[ ERROR ]".red().bold(),
+            critical.len().to_string().red().bold()
+        );
+        for warning in &critical {
+            print_single_warning(warning);
+        }
+    }
+
+    // Print info warnings
+    if !info.is_empty() {
+        println!(
+            "\n{} {} FFI safety warnings (non-blocking):",
+            "[ WARN ]".yellow().bold(),
+            info.len().to_string().yellow().bold()
+        );
+        for warning in &info {
+            print_single_warning(warning);
+        }
+    }
+}
+
+fn print_single_warning(warning: &FfiSafetyWarning) {
+    match &warning.kind {
+        FfiSafetyWarningKind::StructMissingReprC { current_repr } => {
+            let repr_display = current_repr.as_deref().unwrap_or("none");
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Struct has repr: {}",
+                "→".dimmed(),
+                repr_display.yellow()
+            );
+            println!(
+                "    {} Add #[repr(C)] for FFI-safe struct layout.",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::MultiFieldVariant {
+            variant_name,
+            field_count,
+            field_types,
+        } => {
+            println!(
+                "  {} {}",
+                "✗".red(),
+                format!("{}::{}", warning.type_name, variant_name).white()
+            );
+            println!(
+                "    {} Enum variant has {} fields: {}",
+                "→".dimmed(),
+                field_count.to_string().red(),
+                field_types.yellow()
                 );
                 println!(
                     "    {} FFI requires exactly ONE field per variant. Wrap in a struct.",
@@ -1591,9 +1650,34 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
                 );
                 println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
             }
+            FfiSafetyWarningKind::BadConstructorName { name, suggestion } => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!(
+                    "    {} Constructor '{}' should not be used directly.",
+                    "→".dimmed(),
+                    name.yellow()
+                );
+                println!(
+                    "    {} {}",
+                    "FIX:".cyan(),
+                    suggestion
+                );
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
+            FfiSafetyWarningKind::TupleStruct => {
+                println!("  {} {}", "✗".red(), warning.type_name.white());
+                println!(
+                    "    {} Tuple struct is not FFI-safe. Use named fields instead.",
+                    "→".dimmed()
+                );
+                println!(
+                    "    {} Convert `struct Foo(pub T)` to `struct Foo {{ inner: T }}`",
+                    "FIX:".cyan()
+                );
+                println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+            }
         }
         println!();
-    }
 }
 
 /// Check for invalid characters in documentation strings
@@ -2162,6 +2246,19 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                 // Check constructor names
                 if let Some(constructors) = &class_data.constructors {
                     for (ctor_name, _ctor_data) in constructors {
+                        // Special case: "default" constructor should use custom_impls: ["Default"] instead
+                        if ctor_name == "default" {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!("api.json - {}.{}::{}", module_name, class_name, ctor_name),
+                                kind: FfiSafetyWarningKind::BadConstructorName {
+                                    name: ctor_name.clone(),
+                                    suggestion: "Use custom_impls: [\"Default\"] or derive: [\"Default\"] instead. The codegen will automatically generate a _default() function.".to_string(),
+                                },
+                            });
+                            continue;
+                        }
+                        
                         let conflicts = check_reserved(ctor_name);
                         if !conflicts.is_empty() {
                             warnings.push(FfiSafetyWarning {

@@ -979,6 +979,12 @@ impl RustGenerator {
                     arg_name, prefixed_name, external_path
                 )
             }
+            FunctionKind::Default => {
+                format!(
+                    "{{ core::mem::transmute::<{}, {}>({}::default()) }}",
+                    external_path, prefixed_name, external_path
+                )
+            }
             FunctionKind::Constructor | FunctionKind::StaticMethod |
             FunctionKind::Method | FunctionKind::MethodMut => {
                 // For regular API functions, use the fn_body from api.json 

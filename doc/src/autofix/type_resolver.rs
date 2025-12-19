@@ -39,10 +39,12 @@ pub struct ResolvedTypeSet {
 pub struct TypeWarning {
     /// The problematic type expression (e.g., "Vec<FontCache>")
     pub type_expr: String,
-    /// Where this was found
+    /// Where this was found (dependency chain)
     pub context: String,
     /// Description of the problem
     pub message: String,
+    /// The original function/field that started this resolution chain
+    pub origin: Option<String>,
 }
 
 /// A successfully resolved type
@@ -83,6 +85,8 @@ pub struct ResolutionContext {
     pub visited: BTreeSet<String>,
     /// The chain of types that led us here
     pub chain: Vec<String>,
+    /// The original function/field that started this resolution chain
+    pub origin: Option<String>,
 }
 
 impl ResolutionContext {
@@ -91,6 +95,7 @@ impl ResolutionContext {
             current_crate: None,
             visited: BTreeSet::new(),
             chain: Vec::new(),
+            origin: None,
         }
     }
 
@@ -99,6 +104,7 @@ impl ResolutionContext {
             current_crate: Some(crate_name.to_string()),
             visited: BTreeSet::new(),
             chain: Vec::new(),
+            origin: None,
         }
     }
 
@@ -114,6 +120,17 @@ impl ResolutionContext {
             current_crate: self.current_crate.clone(),
             visited,
             chain,
+            origin: self.origin.clone(),
+        }
+    }
+
+    /// Create a child context with a new origin (for starting a new resolution chain)
+    pub fn with_origin(&self, origin: &str) -> Self {
+        Self {
+            current_crate: self.current_crate.clone(),
+            visited: BTreeSet::new(),
+            chain: Vec::new(),
+            origin: Some(origin.to_string()),
         }
     }
 }
@@ -173,13 +190,24 @@ impl<'a> TypeResolver<'a> {
         // (e.g., api.json "String" maps to AzString which is C-compatible)
         let should_warn = self.should_warn_about_type(type_name);
         if let Some(warning) = should_warn {
-            let context = parent_context
-                .map(|p| format!("{} -> {}", p, ctx.chain.join(" -> ")))
-                .unwrap_or_else(|| ctx.chain.join(" -> "));
+            // Build context showing the dependency chain
+            let chain_str = ctx.chain.join(" -> ");
+            let context = if let Some(p) = parent_context {
+                if chain_str.is_empty() {
+                    p.to_string()
+                } else {
+                    format!("{} -> {}", p, chain_str)
+                }
+            } else {
+                chain_str
+            };
+            // Use parent_context as origin if ctx.origin is not set
+            let origin = ctx.origin.clone().or_else(|| parent_context.map(|s| s.to_string()));
             self.result.warnings.push(TypeWarning {
                 type_expr: type_name.to_string(),
                 context,
                 message: warning,
+                origin,
             });
         }
 

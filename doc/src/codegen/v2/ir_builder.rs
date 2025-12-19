@@ -1347,6 +1347,22 @@ impl<'a> IRBuilder<'a> {
                 is_unsafe: false,
             });
         }
+
+        // _default (Default)
+        if traits.is_default {
+            self.ir.functions.push(FunctionDef {
+                c_name: format!("Az{}_default", type_name),
+                class_name: type_name.to_string(),
+                method_name: "default".to_string(),
+                kind: FunctionKind::Default,
+                args: vec![], // No arguments - static function
+                return_type: Some(type_name.to_string()),
+                fn_body: None,
+                doc: vec![format!("Returns the default value for `{}`.", type_name)],
+                is_const: true,
+                is_unsafe: false,
+            });
+        }
     }
     
     /// Detect if an argument type is a callback typedef and return info for code generation

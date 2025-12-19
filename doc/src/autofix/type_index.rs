@@ -99,6 +99,8 @@ pub enum TypeDefKind {
         derives: Vec<String>,
         /// Traits with manual `impl Trait for Type` blocks (e.g., Clone, Debug, Drop)
         custom_impls: Vec<String>,
+        /// True if this is a tuple struct like `struct Foo(pub u64)` instead of `struct Foo { inner: u64 }`
+        is_tuple_struct: bool,
     },
     Enum {
         variants: IndexMap<String, VariantDef>,
@@ -150,7 +152,7 @@ pub enum MacroGeneratedKind {
     OptionEnumWrapper,
     /// ResultFooBar from impl_result!(Foo, Bar, ResultFooBar, ...)
     Result,
-    /// CallbackWrapper from impl_callback!(CallbackWrapper, Option, CallbackValue, CallbackType)
+    /// CallbackWrapper from impl_widget_callback!(CallbackWrapper, Option, CallbackValue, CallbackType)
     CallbackWrapper,
     /// CallbackValue from impl_callback!(CallbackWrapper, Option, CallbackValue, CallbackType)
     CallbackValue,
@@ -261,6 +263,7 @@ impl TypeDefinition {
                                 macro_derives.clone() 
                             },
                             custom_impls: implemented_traits.clone(),
+                            is_tuple_struct: false,
                         }
                     }
                     MacroGeneratedKind::VecDestructor => {
@@ -380,6 +383,7 @@ impl TypeDefinition {
                                 macro_derives.clone() 
                             },
                             custom_impls: implemented_traits.clone(),
+                            is_tuple_struct: false,
                         }
                     }
                     MacroGeneratedKind::Result => {
@@ -417,7 +421,7 @@ impl TypeDefinition {
                         }
                     }
                     MacroGeneratedKind::CallbackWrapper => {
-                        // impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
+                        // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue,
                         // CallbackType) CallbackWrapper struct: data (RefAny), callback (CallbackValue)
                         // NOTE: Order matters for repr(C)! data comes first, then callback.
                         let mut fields = IndexMap::new();
@@ -449,6 +453,7 @@ impl TypeDefinition {
                                 macro_derives.clone() 
                             },
                             custom_impls: implemented_traits.clone(),
+                            is_tuple_struct: false,
                         }
                     }
                     MacroGeneratedKind::CallbackValue => {
@@ -482,6 +487,7 @@ impl TypeDefinition {
                                 macro_derives.clone() 
                             },
                             custom_impls: implemented_traits.clone(),
+                            is_tuple_struct: false,
                         }
                     }
                 }
@@ -530,6 +536,7 @@ impl TypeDefinition {
                 generic_params,
                 derives,
                 custom_impls,
+                is_tuple_struct: _,
             } => TypeKind::Struct {
                 fields: fields
                     .into_iter()
@@ -1285,6 +1292,28 @@ fn extract_type_name(ty: &syn::Type) -> String {
             let elems: Vec<String> = tuple_type.elems.iter().map(extract_type_name).collect();
             format!("({})", elems.join(", "))
         }
+        syn::Type::ImplTrait(impl_trait) => {
+            // Handle `impl Into<T>` - extract T as the actual type for C API
+            // For other impl Trait bounds, we skip since they can't be exported to C
+            for bound in &impl_trait.bounds {
+                if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                    if let Some(segment) = trait_bound.path.segments.last() {
+                        if segment.ident == "Into" {
+                            // Extract the inner type from Into<T>
+                            if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                                for arg in &args.args {
+                                    if let syn::GenericArgument::Type(inner_ty) = arg {
+                                        return extract_type_name(inner_ty);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Fallback: return the full impl trait string (will be filtered out later)
+            clean_type_string(&ty.to_token_stream().to_string())
+        }
         _ => {
             // Fallback for other types
             clean_type_string(&ty.to_token_stream().to_string())
@@ -1359,20 +1388,33 @@ fn extract_struct(
         .map(|tp| tp.ident.to_string())
         .collect();
 
+    // Check if this is a tuple struct (unnamed fields) vs named struct
+    let is_tuple_struct = matches!(s.fields, syn::Fields::Unnamed(_));
+
     let mut fields = IndexMap::new();
-    for field in s.fields.iter() {
-        if let Some(field_name) = field.ident.as_ref() {
-            let (field_ty, ref_kind) = extract_struct_field_type(&field.ty);
-            fields.insert(
-                field_name.to_string(),
-                FieldDef {
-                    name: field_name.to_string(),
-                    ty: field_ty,
-                    ref_kind,
-                    doc: extract_doc_comments(&field.attrs),
-                },
-            );
-        }
+    for (idx, field) in s.fields.iter().enumerate() {
+        let field_name = if let Some(ident) = field.ident.as_ref() {
+            // Named field
+            ident.to_string()
+        } else {
+            // Tuple struct field - use index as name (e.g., "0", "1", etc.)
+            // For FFI compatibility, we'll name it "inner" for single-field tuple structs
+            if s.fields.len() == 1 {
+                "inner".to_string()
+            } else {
+                format!("field_{}", idx)
+            }
+        };
+        let (field_ty, ref_kind) = extract_struct_field_type(&field.ty);
+        fields.insert(
+            field_name.clone(),
+            FieldDef {
+                name: field_name,
+                ty: field_ty,
+                ref_kind,
+                doc: extract_doc_comments(&field.attrs),
+            },
+        );
     }
 
     let repr = extract_repr_attr(&s.attrs);
@@ -1390,6 +1432,7 @@ fn extract_struct(
             generic_params,
             derives,
             custom_impls: vec![], // Will be filled in by second pass
+            is_tuple_struct,
         },
         source_code: s.to_token_stream().to_string(),
         methods: Vec::new(), // Will be filled in by second pass
@@ -1861,26 +1904,13 @@ fn extract_macro_generated_types(
             }
         }
 
-        "impl_callback" => {
-            // impl_callback! generates these trait impls for callback types:
-            // Clone, Debug, Display, Hash, PartialEq, Eq, PartialOrd, Ord
-            let callback_traits = vec![
-                "Clone".to_string(),
-                "Debug".to_string(),
-                "Hash".to_string(),
-                "PartialEq".to_string(),
-                "Eq".to_string(),
-                "PartialOrd".to_string(),
-                "Ord".to_string(),
-            ];
-
-            // Three versions of this macro:
-            // 1. impl_callback!(CallbackValue) - 1 parameter
-            //    Just implements traits for an existing struct
-            // 2. impl_callback!(CallbackValue, CallbackType) - 2 parameters
-            //    Implements traits + From<CallbackType>
-            // 3. impl_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType) - 4 parameters
-            //    Generates: CallbackWrapper (struct), OptionCallbackWrapper, CallbackValue (struct)
+        "impl_widget_callback" => {
+            // impl_widget_callback! is the 4-parameter version for widget callbacks
+            // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType)
+            // Generates: CallbackWrapper (struct), OptionCallbackWrapper (option), CallbackValue (struct)
+            //
+            // Note: impl_callback!(CallbackValue, CallbackType) is handled separately in 
+            // extract_custom_impls_from_items() - it only adds trait impls, not new types.
             
             if args.len() >= 4 {
                 let callback_wrapper = args[0].to_string();
@@ -1951,9 +1981,6 @@ fn extract_macro_generated_types(
                     methods: Vec::new(),
                 });
             }
-            // Note: 1- and 2-parameter versions of impl_callback! don't generate new types,
-            // they only add trait implementations to existing types. These are handled in
-            // extract_custom_impls_from_items() instead.
         }
 
         // // css property macros - generate wrapper structs around pixelvalue/etc.
@@ -1997,6 +2024,7 @@ fn extract_macro_generated_types(
                             "Hash".to_string(),
                         ],
                         custom_impls: vec![],
+                        is_tuple_struct: false,
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -2042,6 +2070,7 @@ fn extract_macro_generated_types(
                             "Hash".to_string(),
                         ],
                         custom_impls: vec![],
+                        is_tuple_struct: false,
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -2094,6 +2123,7 @@ fn extract_macro_generated_types(
                             "Hash".to_string(),
                         ],
                         custom_impls: vec![],
+                        is_tuple_struct: false,
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -2139,6 +2169,7 @@ fn extract_macro_generated_types(
                             "Hash".to_string(),
                         ],
                         custom_impls: vec![],
+                        is_tuple_struct: false,
                     },
                     source_code: m.to_token_stream().to_string(),
                     methods: Vec::new(),
@@ -2293,15 +2324,16 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
             
-            // Handle impl_callback! macro for 1- and 2-parameter versions
-            // These add traits to existing types (not generated types)
-            // impl_callback!(Callback) or impl_callback!(Callback, CallbackType)
+            // Handle impl_callback! macro (2-parameter version only)
+            // impl_callback!(CallbackValue, CallbackType) - adds traits to CallbackValue
+            // Note: 4-parameter version is now impl_widget_callback! and handled in extract_macro_generated_types
+            // Note: Also implements From<CallbackType> but that's Rust-only, not exposed to C API
             if macro_name == "impl_callback" {
                 let tokens = m.mac.tokens.to_string();
                 let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
                 
-                // Both 1- and 2-parameter versions add traits to the first argument
-                if args.len() >= 1 && args.len() <= 2 {
+                // 2-parameter version adds traits to the first argument
+                if args.len() == 2 {
                     let type_name = args[0].to_string();
                     if !type_name.is_empty() {
                         let callback_traits = vec![
@@ -2309,6 +2341,27 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                         ];
                         for trait_name in callback_traits {
                             custom_impls.entry(type_name.clone()).or_default().push(trait_name.to_string());
+                        }
+                    }
+                }
+            }
+            
+            // Handle impl_widget_callback! macro (4-parameter version for widgets)
+            // impl_widget_callback!(Wrapper, OptionWrapper, CallbackValue, CallbackType)
+            // Adds traits to CallbackValue (generated type)
+            // Note: Also implements From<CallbackType> but that's Rust-only, not exposed to C API
+            if macro_name == "impl_widget_callback" {
+                let tokens = m.mac.tokens.to_string();
+                let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
+                
+                if args.len() >= 4 {
+                    let callback_value = args[2].to_string();
+                    if !callback_value.is_empty() {
+                        let callback_traits = vec![
+                            "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                        ];
+                        for trait_name in callback_traits {
+                            custom_impls.entry(callback_value.clone()).or_default().push(trait_name.to_string());
                         }
                     }
                 }
@@ -2495,6 +2548,27 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
     // Build map of generic type parameters with Into<T> bounds
     // This allows us to rewrite "C" -> "Callback" when C: Into<Callback>
     let into_bounds = extract_into_bounds(&method.sig);
+    
+    // Skip methods with generic type parameters that are NOT just Into<T> bounds
+    // These methods cannot be exported to C API (e.g., fn new<T: 'static>(value: T))
+    // We allow generic params if they ALL have Into<T> bounds (callback pattern)
+    let generic_type_params: Vec<_> = method.sig.generics.params.iter()
+        .filter_map(|p| {
+            if let syn::GenericParam::Type(tp) = p {
+                Some(tp.ident.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    
+    // If there are generic type params that are NOT in into_bounds, skip this method
+    for param in &generic_type_params {
+        if !into_bounds.contains_key(param) {
+            // This is a truly generic method that cannot be exported to C API
+            return None;
+        }
+    }
 
     // Determine self kind
     let self_kind: Option<SelfKind> = match method.sig.receiver() {
@@ -2559,6 +2633,12 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             if let Some(concrete_type) = into_bounds.get(&ty) {
                 ty = concrete_type.clone();
             }
+            
+            // Replace "Self" with the actual type name
+            // This handles cases like fn with_child(child: Self) -> Dom
+            if ty == "Self" {
+                ty = type_name.to_string();
+            }
 
             args.push(MethodArg {
                 name: arg_name,
@@ -2576,6 +2656,12 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             if ret_str.is_empty() || ret_str == "()" {
                 (None, RefKind::Value)
             } else {
+                // Replace "Self" with the actual type name in return type
+                let ret_str = if ret_str == "Self" {
+                    type_name.to_string()
+                } else {
+                    ret_str
+                };
                 (Some(ret_str), ref_kind)
             }
         }

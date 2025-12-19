@@ -1228,7 +1228,7 @@ extern "C" fn invoke_py_layout_callback(
                     cb_info.trampoline_name
                 ));
                 builder.line(&format!(
-                    "    callable: azul_core::refany::OptionRefAny::Some(__py_{}_refany),",
+                    "    ctx: azul_core::refany::OptionRefAny::Some(__py_{}_refany),",
                     arg.name
                 ));
                 builder.line("};");

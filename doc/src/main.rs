@@ -335,8 +335,10 @@ fn main() -> anyhow::Result<()> {
                             patches.len() + 1,
                             patches_dir.display()
                         );
-                        println!("\nTo apply the patches:");
-                        println!("  cargo run -- patch {}", patches_dir.display());
+                        println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+                        println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+                        println!("\nTo preview changes without applying:");
+                        println!("  cargo run --bin azul-doc -- autofix explain");
                     }
                     Err(e) => {
                         eprintln!("Error generating patches: {}", e);
@@ -419,8 +421,10 @@ fn main() -> anyhow::Result<()> {
             fs::write(&patch_path, &json)?;
 
             println!("\n[OK] Patch written to: {}", patch_path.display());
-            println!("\nTo apply the patch:");
-            println!("  cargo run -- patch {}", patches_dir.display());
+            println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+            println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+            println!("\nTo preview changes without applying:");
+            println!("  cargo run --bin azul-doc -- autofix explain");
 
             return Ok(());
         }
@@ -489,8 +493,10 @@ fn main() -> anyhow::Result<()> {
             fs::write(&patch_path, &json)?;
 
             println!("[OK] Patch written to: {}", patch_path.display());
-            println!("\nTo apply the patch:");
-            println!("  cargo run -- patch {}", patches_dir.display());
+            println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+            println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+            println!("\nTo preview changes without applying:");
+            println!("  cargo run --bin azul-doc -- autofix explain");
 
             return Ok(());
         }

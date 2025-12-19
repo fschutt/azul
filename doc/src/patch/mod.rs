@@ -1370,8 +1370,13 @@ fn apply_class_patch(
     if let Some(constructors_to_remove) = &patch.remove_constructors {
         if let Some(existing_constructors) = &mut class_data.constructors {
             let count_before = existing_constructors.len();
-            for name in constructors_to_remove {
-                existing_constructors.shift_remove(name);
+            // Handle "*" wildcard to remove all constructors
+            if constructors_to_remove.iter().any(|s| s == "*") {
+                existing_constructors.clear();
+            } else {
+                for name in constructors_to_remove {
+                    existing_constructors.shift_remove(name);
+                }
             }
             let count_after = existing_constructors.len();
             if count_before != count_after {
@@ -1417,8 +1422,13 @@ fn apply_class_patch(
     if let Some(functions_to_remove) = &patch.remove_functions {
         if let Some(existing_functions) = &mut class_data.functions {
             let count_before = existing_functions.len();
-            for name in functions_to_remove {
-                existing_functions.shift_remove(name);
+            // Handle "*" wildcard to remove all functions
+            if functions_to_remove.iter().any(|s| s == "*") {
+                existing_functions.clear();
+            } else {
+                for name in functions_to_remove {
+                    existing_functions.shift_remove(name);
+                }
             }
             let count_after = existing_functions.len();
             if count_before != count_after {
