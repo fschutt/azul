@@ -11,7 +11,7 @@ use super::config::*;
 use super::ir::*;
 use super::lang_rust::RustGenerator;
 use super::lang_c::CGenerator;
-use super::lang_cpp::CppGenerator;
+use super::lang_cpp;  // Use new dialect-based module
 use super::lang_python::PythonGenerator;
 
 // ============================================================================
@@ -47,7 +47,8 @@ impl CodeGenerator {
             TargetLang::Rust => RustGenerator.generate(ir, config),
             TargetLang::CHeader => CGenerator.generate(ir, config),
             TargetLang::CppHeader { standard } => {
-                CppGenerator::new(standard).generate(ir, config)
+                // Use new dialect-based C++ generators
+                lang_cpp::generate_cpp_header(ir, config, standard)
             },
             TargetLang::Python => {
                 // Python needs its own config, use default PythonConfig
