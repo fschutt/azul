@@ -16232,13 +16232,6 @@
                 ],
                 "fn_body": "let mut dom = dom; azul_core::styled_dom::StyledDom::new(&mut dom, css.into())"
               },
-              "default": {
-                "doc": [
-                  "Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case."
-                ],
-                "fn_args": [],
-                "fn_body": "azul_core::styled_dom::StyledDom::default()"
-              },
               "from_xml": {
                 "doc": [
                   "Returns a DOM loaded from an XML file"
@@ -19792,15 +19785,6 @@
                 }
               }
             ],
-            "constructors": {
-              "default": {
-                "doc": [
-                  "Default texture flags (not opaque, not a video texture)"
-                ],
-                "fn_args": [],
-                "fn_body": "azul_core::gl::TextureFlags::default()"
-              }
-            },
             "repr": "C"
           },
           "GlShaderPrecisionFormatReturn": {
@@ -35581,12 +35565,6 @@
                 }
               }
             ],
-            "constructors": {
-              "default": {
-                "fn_args": [],
-                "fn_body": "azul_core::svg::SvgStrokeStyle::default()"
-              }
-            },
             "repr": "C"
           },
           "SvgLineJoin": {
