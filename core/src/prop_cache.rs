@@ -4561,7 +4561,7 @@ mod tests {
         let cache = CssPropertyCache::empty(1);
 
         // Create a minimal <p> tag NodeData using public API
-        let mut node_data = NodeData::new_node(NodeType::P);
+        let mut node_data = NodeData::create_node(NodeType::P);
 
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();
@@ -4611,7 +4611,7 @@ mod tests {
     fn test_ua_css_body_tag_properties() {
         let cache = CssPropertyCache::empty(1);
 
-        let node_data = NodeData::new_node(NodeType::Body);
+        let node_data = NodeData::create_node(NodeType::Body);
 
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();

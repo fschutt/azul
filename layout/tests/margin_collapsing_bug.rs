@@ -13,7 +13,7 @@ use rust_fontconfig::FcFontCache;
 #[test]
 fn test_margin_collapsing() {
     // 1. Create DOM
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
         .with_child(
             Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),

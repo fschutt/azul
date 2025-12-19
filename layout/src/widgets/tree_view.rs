@@ -1438,7 +1438,7 @@ impl TreeView {
     }
 
     pub fn dom(self) -> Dom {
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(CSS_MATCH_13401060217940352039)
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_9837365222714915139: &[IdOrClass] =
@@ -1446,7 +1446,7 @@ impl TreeView {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9837365222714915139)
             })
             .with_children(DomVec::from_vec(vec![
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
@@ -1455,14 +1455,14 @@ impl TreeView {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_8394859448076413888)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
                                     &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_6438488809014395635)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
@@ -1473,7 +1473,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_15170138310983987150,
                                     )
                                 })
-                                .with_children(DomVec::from_vec(vec![Dom::new_div()
+                                .with_children(DomVec::from_vec(vec![Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_11045010670475678001)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
@@ -1484,7 +1484,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_276637619792188049,
                                         )
                                     })]))])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_3920366294746786702)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
@@ -1493,7 +1493,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_14249021884908901216)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
@@ -1509,7 +1509,7 @@ impl TreeView {
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
@@ -1518,7 +1518,7 @@ impl TreeView {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_13463400830017583629)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_8562870525116426737: &[IdOrClass] = &[Class(
@@ -1526,7 +1526,7 @@ impl TreeView {
                                 )];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8562870525116426737)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_5748554468056235124)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12623539011723615844: &[IdOrClass] =
@@ -1537,7 +1537,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_12623539011723615844,
                                     )
                                 })])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_17631951240816806439)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_13969147764958421470: &[IdOrClass] =
@@ -1546,7 +1546,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13969147764958421470)
                             }),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_9703015952013196920)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
@@ -1554,7 +1554,7 @@ impl TreeView {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_17035174955428217627)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
@@ -1565,7 +1565,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_6948782902341484076,
                                         )
                                     }),
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_10250347571702901767)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
@@ -1577,7 +1577,7 @@ impl TreeView {
                                         )
                                     }),
                             ])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_3920366294746786702)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
@@ -1586,7 +1586,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_15054086665198995512)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_966274871881623987: &[IdOrClass] = &[
@@ -1604,7 +1604,7 @@ impl TreeView {
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
@@ -1613,7 +1613,7 @@ impl TreeView {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_9703015952013196920)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
@@ -1621,7 +1621,7 @@ impl TreeView {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_17035174955428217627)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
@@ -1632,7 +1632,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_6948782902341484076,
                                         )
                                     }),
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_10250347571702901767)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
@@ -1644,7 +1644,7 @@ impl TreeView {
                                         )
                                     }),
                             ])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_14455923367901630186)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
@@ -1652,7 +1652,7 @@ impl TreeView {
                                 )];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_17932671798964167701)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
@@ -1663,7 +1663,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_11324832106902074912,
                                     )
                                 })])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_6621536559891676126)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_3445414501074686586: &[IdOrClass] =
@@ -1671,7 +1671,7 @@ impl TreeView {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3445414501074686586)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_9438342815980407130)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_1166576799478159097: &[IdOrClass] =
@@ -1682,7 +1682,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_1166576799478159097,
                                         )
                                     }),
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_1250869685159433269)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_5610655148321459708: &[IdOrClass] =
@@ -1694,7 +1694,7 @@ impl TreeView {
                                         )
                                     }),
                             ])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_3920366294746786702)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
@@ -1703,7 +1703,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_14249021884908901216)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
@@ -1719,7 +1719,7 @@ impl TreeView {
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
@@ -1728,7 +1728,7 @@ impl TreeView {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_9703015952013196920)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_12683940372377849649: &[IdOrClass] =
@@ -1736,7 +1736,7 @@ impl TreeView {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12683940372377849649)
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_17035174955428217627)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6948782902341484076: &[IdOrClass] =
@@ -1747,7 +1747,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_6948782902341484076,
                                         )
                                     }),
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_10250347571702901767)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_7986348685827112423: &[IdOrClass] =
@@ -1759,7 +1759,7 @@ impl TreeView {
                                         )
                                     }),
                             ])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_14455923367901630186)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
@@ -1767,7 +1767,7 @@ impl TreeView {
                                 )];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_17932671798964167701)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
@@ -1778,14 +1778,14 @@ impl TreeView {
                                         IDS_AND_CLASSES_11324832106902074912,
                                     )
                                 })])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_8394859448076413888)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
                                     &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_6438488809014395635)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
@@ -1796,7 +1796,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_15170138310983987150,
                                     )
                                 })
-                                .with_children(DomVec::from_vec(vec![Dom::new_div()
+                                .with_children(DomVec::from_vec(vec![Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_11045010670475678001)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
@@ -1807,7 +1807,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_276637619792188049,
                                         )
                                     })]))])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_3920366294746786702)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
@@ -1816,7 +1816,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_14249021884908901216)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =
@@ -1832,7 +1832,7 @@ impl TreeView {
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_2919526787497691572)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_15453577716812400238: &[IdOrClass] = &[Class(
@@ -1841,14 +1841,14 @@ impl TreeView {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15453577716812400238)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_9496626968151854549)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_11091968853782313624: &[IdOrClass] =
                                     &[Class(AzString::from_const_str("__azul-native-tree-l"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11091968853782313624)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_5479296065075700509)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_7201172733362059285: &[IdOrClass] =
@@ -1859,7 +1859,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_7201172733362059285,
                                     )
                                 })])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_14455923367901630186)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_2250273140132504407: &[IdOrClass] = &[Class(
@@ -1867,7 +1867,7 @@ impl TreeView {
                                 )];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2250273140132504407)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_17932671798964167701)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_11324832106902074912: &[IdOrClass] =
@@ -1878,14 +1878,14 @@ impl TreeView {
                                         IDS_AND_CLASSES_11324832106902074912,
                                     )
                                 })])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_8394859448076413888)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5562274544924627603: &[IdOrClass] =
                                     &[Class(AzString::from_const_str("__azul-native-tree-minus"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5562274544924627603)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_6438488809014395635)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_15170138310983987150: &[IdOrClass] =
@@ -1896,7 +1896,7 @@ impl TreeView {
                                         IDS_AND_CLASSES_15170138310983987150,
                                     )
                                 })
-                                .with_children(DomVec::from_vec(vec![Dom::new_div()
+                                .with_children(DomVec::from_vec(vec![Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_11045010670475678001)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_276637619792188049: &[IdOrClass] =
@@ -1907,7 +1907,7 @@ impl TreeView {
                                             IDS_AND_CLASSES_276637619792188049,
                                         )
                                     })]))])),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_3920366294746786702)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17022478219263932868: &[IdOrClass] =
@@ -1916,7 +1916,7 @@ impl TreeView {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17022478219263932868)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_14249021884908901216)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12039918700145849527: &[IdOrClass] =

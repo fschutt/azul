@@ -140,7 +140,7 @@ fn render_menu_example() {
 ///     let menu_dom = create_menu_styled_dom(&menu, system_style);
 ///     
 ///     // Wrap in container
-///     let mut container = Dom::new_div();
+///     let mut container = Dom::create_div();
 ///     container = container.with_child(menu_dom.into_dom());
 ///     
 ///     container.style(/* ... */)

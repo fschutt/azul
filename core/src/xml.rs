@@ -702,11 +702,11 @@ impl DomXml {
     /// # use azul::dom::Dom;
     /// # use azul::xml::DomXml;
     /// let dom = DomXml::mock("<div id='test' />");
-    /// dom.assert_eq(Dom::new_div().with_id("test"));
+    /// dom.assert_eq(Dom::create_div().with_id("test"));
     /// ```
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
-        let mut fixed = Dom::new_body().style(CssApiWrapper::empty());
+        let mut fixed = Dom::create_body().style(CssApiWrapper::empty());
         fixed.append_child(other);
         if self.parsed_dom != fixed {
             panic!(
@@ -1163,7 +1163,7 @@ impl XmlComponentTrait for DivRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::new_div().style(CssApiWrapper::empty()))
+        Ok(Dom::create_div().style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1172,7 +1172,7 @@ impl XmlComponentTrait for DivRenderer {
         _: &ComponentArguments,
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok("Dom::new_div()".into())
+        Ok("Dom::create_div()".into())
     }
 
     fn get_xml_node(&self) -> XmlNode {
@@ -1205,7 +1205,7 @@ impl XmlComponentTrait for BodyRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::new_body().style(CssApiWrapper::empty()))
+        Ok(Dom::create_body().style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1214,7 +1214,7 @@ impl XmlComponentTrait for BodyRenderer {
         _: &ComponentArguments,
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok("Dom::new_body()".into())
+        Ok("Dom::create_body()".into())
     }
 
     fn get_xml_node(&self) -> XmlNode {
@@ -1247,7 +1247,7 @@ impl XmlComponentTrait for BrRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::new_node(NodeType::Br).style(CssApiWrapper::empty()))
+        Ok(Dom::create_node(NodeType::Br).style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1256,7 +1256,7 @@ impl XmlComponentTrait for BrRenderer {
         _: &ComponentArguments,
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok("Dom::new_node(NodeType::Br)".into())
+        Ok("Dom::create_node(NodeType::Br)".into())
     }
 
     fn get_xml_node(&self) -> XmlNode {
@@ -1296,7 +1296,7 @@ impl XmlComponentTrait for TextRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        Ok(Dom::new_node(NodeType::P)
+        Ok(Dom::create_node(NodeType::P)
             .with_children(vec![Dom::text(content)].into())
             .style(CssApiWrapper::empty()))
     }
@@ -1308,7 +1308,7 @@ impl XmlComponentTrait for TextRenderer {
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok(String::from(
-            "Dom::new_node(NodeType::P).with_children(vec![Dom::text(content)].into())",
+            "Dom::create_node(NodeType::P).with_children(vec![Dom::text(content)].into())",
         ))
     }
 
@@ -1862,7 +1862,7 @@ pub fn render_dom_from_body_node<'a>(
         None => {
             // Empty DOM, create default HTML > Body structure
             let mut html_dom = Dom::html()
-                .with_child(Dom::new_body())
+                .with_child(Dom::create_body())
                 .style(CssApiWrapper::empty());
 
             if let Some(max_width) = max_width {
@@ -1898,7 +1898,7 @@ pub fn render_dom_from_body_node<'a>(
         }
         _ => {
             // Other elements (div, etc), wrap in HTML > Body
-            let mut body_dom = Dom::new_body().style(CssApiWrapper::empty());
+            let mut body_dom = Dom::create_body().style(CssApiWrapper::empty());
             body_dom.append_child(body_styled);
             let mut html_dom = Dom::html().style(CssApiWrapper::empty());
             html_dom.append_child(body_dom);
@@ -2729,7 +2729,7 @@ pub fn compile_body_node_to_rust_code<'a>(
 
     let t = "";
     let t2 = "    ";
-    let mut dom_string = String::from("Dom::new_body()");
+    let mut dom_string = String::from("Dom::create_body()");
     let node_type = CssPathSelector::Type(NodeTypeTag::Body);
     matcher.path.push(node_type);
 
@@ -3243,7 +3243,7 @@ impl XmlComponentTrait for DynamicXmlComponent {
         attributes: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Ok("Dom::new_div()".into()) // TODO!s
+        Ok("Dom::create_div()".into()) // TODO!s
     }
 }
 
@@ -3271,7 +3271,7 @@ mod tests {
         let expected_dom = Dom::p().with_children(
             vec![
                 Dom::text("Text before "),
-                Dom::new_node(NodeType::Span).with_children(vec![Dom::text("inline text")].into()),
+                Dom::create_node(NodeType::Span).with_children(vec![Dom::text("inline text")].into()),
                 Dom::text(" text after."),
             ]
             .into(),

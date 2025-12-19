@@ -138,7 +138,7 @@ impl ColorInput {
             vec![StyleBackgroundContent::Color(self.color_input_state.inner.color)].into(),
         )));
 
-        Dom::new_div()
+        Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
             .with_inline_css_props(style.into())
             .with_callbacks(

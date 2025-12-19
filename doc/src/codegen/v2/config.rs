@@ -143,7 +143,7 @@ pub enum CAbiFunctionMode {
     /// ```rust,ignore
     /// #[no_mangle] 
     /// pub extern "C" fn AzDom_new() -> AzDom { 
-    ///     unsafe { transmute(Dom::new_node()) } 
+    ///     unsafe { transmute(Dom::create_node()) } 
     /// }
     /// ```
     InternalBindings {

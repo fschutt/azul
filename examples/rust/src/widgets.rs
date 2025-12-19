@@ -36,7 +36,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         false => "",
     };
 
-    Dom::new_body()
+    Dom::create_body()
         .with_menu_bar(menu)
         .with_inline_style(padding)
         .with_child(
@@ -53,7 +53,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
             TabContent::new(match active_tab {
                 0 => Frame::new(
                     "Frame",
-                    Dom::new_div().with_children(vec![
+                    Dom::create_div().with_children(vec![
                         Button::new(text)
                             .with_on_click(data.clone(), enable_disable_padding)
                             .dom()
@@ -83,7 +83,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                         NumberInput::new(5.0)
                             .dom()
                             .with_inline_style("margin-bottom: 5px;"),
-                        Dom::new_div()
+                        Dom::create_div()
                             .with_inline_style("flex-direction: row;")
                             .with_children(vec![ListView::new(vec![
                                 format!("Column 1"),
@@ -103,7 +103,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                     ]),
                 )
                 .dom(),
-                _ => Dom::new_div(),
+                _ => Dom::create_div(),
             })
             .with_padding(enable_padding)
             .dom(),

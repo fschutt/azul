@@ -19,33 +19,33 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
     eprintln!("  CPU RENDER TEST");
 
     // Create the same DOM as test_display_list
-    let mut dom = Dom::new_body()
+    let mut dom = Dom::create_body()
         .with_inline_style("width: 100%; height: 100%; padding: 20px;")
         .with_children(
             vec![
                 // Header text
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_style(
                         "font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; \
                          height: 30px;",
                     )
                     .with_children(vec![Dom::text("CPU Render Test")].into()),
                 // Red rectangle
-                Dom::new_div().with_inline_style(
+                Dom::create_div().with_inline_style(
                     "width: 200px; height: 100px; background: #FF0000; margin: 10px; \
                      border-radius: 10px;",
                 ),
                 // Blue rectangle with border
-                Dom::new_div().with_inline_style(
+                Dom::create_div().with_inline_style(
                     "width: 200px; height: 100px; background: #0000FF; margin: 10px; border: 5px \
                      solid #FFFFFF; border-radius: 5px;",
                 ),
                 // Green rectangle
-                Dom::new_div().with_inline_style(
+                Dom::create_div().with_inline_style(
                     "width: 200px; height: 100px; background: #00FF00; margin: 10px;",
                 ),
                 // Sample text
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_style(
                         "font-size: 16px; color: #000000; margin-top: 20px; width: 600px; height: \
                          25px;",

@@ -36,7 +36,7 @@ macro_rules! setup_styled_dom {
 
 #[test]
 fn test_computed_values_exist_for_all_nodes() {
-    let dom = Dom::new_div().with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -61,7 +61,7 @@ fn test_computed_values_exist_for_all_nodes() {
 
 #[test]
 fn test_inline_css_takes_precedence() {
-    let dom = Dom::new_div().with_inline_css_props(
+    let dom = Dom::create_div().with_inline_css_props(
         vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
             StyleFontSize::px(24.0),
         ))]
@@ -94,7 +94,7 @@ fn test_inline_css_takes_precedence() {
 
 #[test]
 fn test_css_stylesheet_applies() {
-    let dom = Dom::new_div().with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
 
     let css = "p { font-size: 18px; }";
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
@@ -116,14 +116,14 @@ fn test_css_stylesheet_applies() {
 
 #[test]
 fn test_inherited_property_has_correct_origin() {
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
         )
-        .with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -156,7 +156,7 @@ fn test_inherited_property_has_correct_origin() {
 
 #[test]
 fn test_own_property_overrides_inherited() {
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -164,7 +164,7 @@ fn test_own_property_overrides_inherited() {
             .into(),
         )
         .with_child(
-            Dom::new_node(NodeType::P)
+            Dom::create_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::px(16.0),
@@ -201,7 +201,7 @@ fn test_own_property_overrides_inherited() {
 
 #[test]
 fn test_em_resolved_to_px_in_computed() {
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -209,7 +209,7 @@ fn test_em_resolved_to_px_in_computed() {
             .into(),
         )
         .with_child(
-            Dom::new_node(NodeType::P)
+            Dom::create_node(NodeType::P)
                 .with_inline_css_props(
                     vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                         StyleFontSize::em(1.5),
@@ -253,7 +253,7 @@ fn test_em_resolved_to_px_in_computed() {
 
 #[test]
 fn test_deeply_nested_inheritance() {
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(20.0),
@@ -261,7 +261,7 @@ fn test_deeply_nested_inheritance() {
             .into(),
         )
         .with_child(
-            Dom::new_div().with_child(Dom::new_div().with_child(Dom::new_div().with_child(Dom::text("Deep")))),
+            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div().with_child(Dom::text("Deep")))),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -285,7 +285,7 @@ fn test_deeply_nested_inheritance() {
 
 #[test]
 fn test_ua_css_for_headings() {
-    let dom = Dom::new_node(NodeType::H1).with_child(Dom::text("Heading"));
+    let dom = Dom::create_node(NodeType::H1).with_child(Dom::text("Heading"));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -319,7 +319,7 @@ fn test_multiple_properties_computed() {
             width: 100px;
         }
     "#;
-    let dom = Dom::new_div();
+    let dom = Dom::create_div();
 
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
 
@@ -337,7 +337,7 @@ fn test_multiple_properties_computed() {
 
 #[test]
 fn test_no_computed_values_for_nonexistent_node() {
-    let dom = Dom::new_div();
+    let dom = Dom::create_div();
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
     // Node 100 doesn't exist
@@ -348,7 +348,7 @@ fn test_no_computed_values_for_nonexistent_node() {
 #[test]
 fn test_font_weight_inheritance() {
     // Use inline CSS to ensure div has bold font-weight
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::FontWeight(
                 azul_css::css::CssPropertyValue::Exact(
@@ -357,7 +357,7 @@ fn test_font_weight_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::new_node(NodeType::Span).with_child(Dom::text("Bold text")));
+        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::text("Bold text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -385,7 +385,7 @@ fn test_font_weight_inheritance() {
 #[test]
 fn test_color_inheritance() {
     // Use inline CSS to ensure div has red text color
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::TextColor(
                 azul_css::css::CssPropertyValue::Exact(azul_css::props::style::StyleTextColor {
@@ -399,7 +399,7 @@ fn test_color_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Red text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Red text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -429,7 +429,7 @@ fn test_color_inheritance() {
 fn test_non_inheritable_property_not_inherited() {
     // display is not inheritable
     let css = "div { display: flex; }";
-    let dom = Dom::new_div().with_child(Dom::new_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
 
@@ -456,7 +456,7 @@ fn test_non_inheritable_property_not_inherited() {
 
 #[test]
 fn test_empty_css_produces_only_ua_styles() {
-    let dom = Dom::new_node(NodeType::P).with_child(Dom::text("Paragraph"));
+    let dom = Dom::create_node(NodeType::P).with_child(Dom::text("Paragraph"));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -477,7 +477,7 @@ fn test_empty_css_produces_only_ua_styles() {
 
 #[test]
 fn test_text_node_inherits_from_parent() {
-    let dom = Dom::new_node(NodeType::P)
+    let dom = Dom::create_node(NodeType::P)
         .with_inline_css_props(
             vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
                 StyleFontSize::px(18.0),

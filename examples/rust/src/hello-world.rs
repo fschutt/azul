@@ -19,7 +19,7 @@ fn myLayoutFunc(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let mut button = button.dom();
     button.set_inline_style("flex-grow: 1");
 
-    Dom::new_body()
+    Dom::create_body()
         .with_child(label)
         .with_child(button)
         .style(Css::empty())

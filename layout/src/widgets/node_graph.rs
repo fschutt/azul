@@ -915,11 +915,11 @@ impl NodeGraph {
             .into(),
         );
 
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(nodegraph_wrapper_props.into())
             .with_context_menu(context_menu)
             .with_children(
-                vec![Dom::new_div()
+                vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_CLASS))
                     .with_inline_css_props(nodegraph_props.into())
                     .with_callbacks(
@@ -2041,14 +2041,14 @@ fn render_node(
 
     let node_local_dataset = RefAny::new(node_local_dataset);
 
-    Dom::new_div()
+    Dom::create_div()
     .with_inline_css_props(vec![
         NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
             LayoutPosition::Absolute,
         ))),
     ].into())
     .with_children(vec![
-        Dom::new_div()
+        Dom::create_div()
         .with_callbacks(vec![
            CoreCallbackData {
                event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
@@ -2305,7 +2305,7 @@ fn render_node(
                        &[Class(AzString::from_const_str("node_label"))];
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15777790571346582635)
                }),
-           Dom::new_div()
+           Dom::create_div()
                .with_inline_css_props(CSS_MATCH_3354247437065914166)
                .with_ids_and_classes({
                    const IDS_AND_CLASSES_5590500152394859708: &[IdOrClass] =
@@ -2313,14 +2313,14 @@ fn render_node(
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5590500152394859708)
                })
                .with_children(DomVec::from_vec(vec![
-                   Dom::new_div()
+                   Dom::create_div()
                        .with_inline_css_props(CSS_MATCH_16946967739775705757)
                        .with_ids_and_classes({
                            const IDS_AND_CLASSES_3626404106673061698: &[IdOrClass] =
                                &[Class(AzString::from_const_str("inputs"))];
                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3626404106673061698)
                        })
-                       .with_children(DomVec::from_vec(vec![Dom::new_div()
+                       .with_children(DomVec::from_vec(vec![Dom::create_div()
                            .with_inline_css_props(CSS_MATCH_705881630351954657)
                            .with_ids_and_classes({
                                const IDS_AND_CLASSES_12825690349660780627: &[IdOrClass] =
@@ -2336,7 +2336,7 @@ fn render_node(
                                .map(|(io_id, (input_label, input_color))| {
                                    use self::InputOrOutput::*;
 
-                                   Dom::new_div()
+                                   Dom::create_div()
                                        .with_inline_css_props(CSS_MATCH_9863994880298313101)
                                        .with_ids_and_classes({
                                            const IDS_AND_CLASSES_5020681879750641508:
@@ -2348,7 +2348,7 @@ fn render_node(
                                            )
                                        })
                                        .with_children(DomVec::from_vec(vec![
-                                           Dom::new_div()
+                                           Dom::create_div()
                                                .with_inline_css_props(
                                                    CSS_MATCH_4700400755767504372,
                                                )
@@ -2378,7 +2378,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_16291496011772407931,
                                                    )
                                                })])),
-                                           Dom::new_div()
+                                           Dom::create_div()
                                                .with_callbacks(vec![
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
@@ -2426,7 +2426,7 @@ fn render_node(
                                }).collect()
                            ))
                        ])),
-                   Dom::new_div()
+                   Dom::create_div()
                        .with_inline_css_props(CSS_MATCH_7432473243011547380)
                        .with_ids_and_classes({
                            const IDS_AND_CLASSES_746059979773622802: &[IdOrClass] =
@@ -2444,7 +2444,7 @@ fn render_node(
                                    backref: node_local_dataset.clone(),
                                });
 
-                               let div = Dom::new_div()
+                               let div = Dom::create_div()
                                .with_inline_css_props(CSS_MATCH_2639191696846875011)
                                .with_ids_and_classes({
                                    const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
@@ -2505,14 +2505,14 @@ fn render_node(
 
                            DomVec::from_vec(fields)
                        }),
-                   Dom::new_div()
+                   Dom::create_div()
                        .with_inline_css_props(CSS_MATCH_14906563417280941890)
                        .with_ids_and_classes({
                            const IDS_AND_CLASSES_4737474624251936466: &[IdOrClass] =
                                &[Class(AzString::from_const_str("outputs"))];
                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4737474624251936466)
                        })
-                       .with_children(DomVec::from_vec(vec![Dom::new_div()
+                       .with_children(DomVec::from_vec(vec![Dom::create_div()
                            .with_inline_css_props(CSS_MATCH_10339190304804100510)
                            .with_ids_and_classes({
                                const IDS_AND_CLASSES_12883576328110161157: &[IdOrClass] =
@@ -2527,7 +2527,7 @@ fn render_node(
                                .enumerate()
                                .map(|(io_id, (output_label, output_color))| {
                                    use self::InputOrOutput::*;
-                                   Dom::new_div()
+                                   Dom::create_div()
                                        .with_inline_css_props(CSS_MATCH_12400244273289328300)
                                        .with_ids_and_classes({
                                            const IDS_AND_CLASSES_10917819668096233812:
@@ -2539,7 +2539,7 @@ fn render_node(
                                            )
                                        })
                                        .with_children(DomVec::from_vec(vec![
-                                           Dom::new_div()
+                                           Dom::create_div()
                                                .with_callbacks(vec![
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
@@ -2586,7 +2586,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_17632471664405317563,
                                                    )
                                                }),
-                                           Dom::new_div()
+                                           Dom::create_div()
                                                .with_inline_css_props(
                                                    CSS_MATCH_12038890904436132038,
                                                )
@@ -2646,7 +2646,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
     ];
 
-    Dom::new_div()
+    Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(
             NODEGRAPH_CONNECTIONS_CONTAINER_CLASS,
         ))
@@ -2756,7 +2756,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                         );
 
                         children.push(
-                            Dom::new_div()
+                            Dom::create_div()
                                 .with_inline_style(
                                     "flex-grow: 1; position: absolute; overflow: hidden;",
                                 )

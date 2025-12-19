@@ -2363,7 +2363,7 @@ impl Default for TabIndex {
 
 impl Default for NodeData {
     fn default() -> Self {
-        NodeData::new_node(NodeType::Div)
+        NodeData::create_node(NodeType::Div)
     }
 }
 
@@ -2421,7 +2421,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 impl NodeData {
     /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
-    pub const fn new_node(node_type: NodeType) -> Self {
+    pub const fn create_node(node_type: NodeType) -> Self {
         Self {
             node_type,
             dataset: OptionRefAny::None,
@@ -2434,39 +2434,39 @@ impl NodeData {
         }
     }
 
-    /// Shorthand for `NodeData::new_node(NodeType::Body)`.
+    /// Shorthand for `NodeData::create_node(NodeType::Body)`.
     #[inline(always)]
-    pub const fn new_body() -> Self {
-        Self::new_node(NodeType::Body)
+    pub const fn create_body() -> Self {
+        Self::create_node(NodeType::Body)
     }
 
-    /// Shorthand for `NodeData::new_node(NodeType::Div)`.
+    /// Shorthand for `NodeData::create_node(NodeType::Div)`.
     #[inline(always)]
-    pub const fn new_div() -> Self {
-        Self::new_node(NodeType::Div)
+    pub const fn create_div() -> Self {
+        Self::create_node(NodeType::Div)
     }
 
-    /// Shorthand for `NodeData::new_node(NodeType::Br)`.
+    /// Shorthand for `NodeData::create_node(NodeType::Br)`.
     #[inline(always)]
     pub const fn br() -> Self {
-        Self::new_node(NodeType::Br)
+        Self::create_node(NodeType::Br)
     }
 
-    /// Shorthand for `NodeData::new_node(NodeType::Text(value.into()))`.
+    /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
-        Self::new_node(NodeType::Text(value.into()))
+        Self::create_node(NodeType::Text(value.into()))
     }
 
-    /// Shorthand for `NodeData::new_node(NodeType::Image(image_id))`.
+    /// Shorthand for `NodeData::create_node(NodeType::Image(image_id))`.
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
-        Self::new_node(NodeType::Image(image))
+        Self::create_node(NodeType::Image(image))
     }
 
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::new_node(NodeType::IFrame(IFrameNode {
+        Self::create_node(NodeType::IFrame(IFrameNode {
             callback: callback.into(),
             refany: data,
         }))
@@ -2808,7 +2808,7 @@ impl NodeData {
 
     #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = NodeData::new_div();
+        let mut s = NodeData::create_div();
         mem::swap(&mut s, self);
         s
     }
@@ -2977,9 +2977,9 @@ impl Dom {
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline(always)]
-    pub fn new_node(node_type: NodeType) -> Self {
+    pub fn create_node(node_type: NodeType) -> Self {
         Self {
-            root: NodeData::new_node(node_type),
+            root: NodeData::create_node(node_type),
             children: Vec::new().into(),
             estimated_total_children: 0,
         }
@@ -3002,7 +3002,7 @@ impl Dom {
     #[inline(always)]
     pub const fn html() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Html),
+            root: NodeData::create_node(NodeType::Html),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3014,16 +3014,16 @@ impl Dom {
     #[inline(always)]
     pub const fn head() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Head),
+            root: NodeData::create_node(NodeType::Head),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
 
     #[inline(always)]
-    pub const fn new_body() -> Self {
+    pub const fn create_body() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Body),
+            root: NodeData::create_node(NodeType::Body),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3034,9 +3034,9 @@ impl Dom {
     /// **Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when
     /// applicable.
     #[inline(always)]
-    pub const fn new_div() -> Self {
+    pub const fn create_div() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Div),
+            root: NodeData::create_node(NodeType::Div),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3052,7 +3052,7 @@ impl Dom {
     #[inline(always)]
     pub const fn article() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Article),
+            root: NodeData::create_node(NodeType::Article),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3065,7 +3065,7 @@ impl Dom {
     #[inline(always)]
     pub const fn section() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Section),
+            root: NodeData::create_node(NodeType::Section),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3079,7 +3079,7 @@ impl Dom {
     #[inline(always)]
     pub const fn nav() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Nav),
+            root: NodeData::create_node(NodeType::Nav),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3092,7 +3092,7 @@ impl Dom {
     #[inline(always)]
     pub const fn aside() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Aside),
+            root: NodeData::create_node(NodeType::Aside),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3105,7 +3105,7 @@ impl Dom {
     #[inline(always)]
     pub const fn header() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Header),
+            root: NodeData::create_node(NodeType::Header),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3118,7 +3118,7 @@ impl Dom {
     #[inline(always)]
     pub const fn footer() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Footer),
+            root: NodeData::create_node(NodeType::Footer),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3132,7 +3132,7 @@ impl Dom {
     #[inline(always)]
     pub const fn main() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Main),
+            root: NodeData::create_node(NodeType::Main),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3145,7 +3145,7 @@ impl Dom {
     #[inline(always)]
     pub const fn figure() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Figure),
+            root: NodeData::create_node(NodeType::Figure),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3158,7 +3158,7 @@ impl Dom {
     #[inline(always)]
     pub const fn figcaption() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::FigCaption),
+            root: NodeData::create_node(NodeType::FigCaption),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3173,7 +3173,7 @@ impl Dom {
     #[inline(always)]
     pub const fn details() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Details),
+            root: NodeData::create_node(NodeType::Details),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3186,7 +3186,7 @@ impl Dom {
     #[inline]
     pub fn summary<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Summary),
+            root: NodeData::create_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3201,7 +3201,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dialog() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Dialog),
+            root: NodeData::create_node(NodeType::Dialog),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3212,22 +3212,22 @@ impl Dom {
     #[inline(always)]
     pub const fn br() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Br),
+            root: NodeData::create_node(NodeType::Br),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
     }
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
-        Self::new_node(NodeType::Text(value.into()))
+        Self::create_node(NodeType::Text(value.into()))
     }
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
-        Self::new_node(NodeType::Image(image))
+        Self::create_node(NodeType::Image(image))
     }
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::new_node(NodeType::IFrame(IFrameNode {
+        Self::create_node(NodeType::IFrame(IFrameNode {
             callback: callback.into(),
             refany: data,
         }))
@@ -3241,7 +3241,7 @@ impl Dom {
     #[inline(always)]
     pub const fn p() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::P),
+            root: NodeData::create_node(NodeType::P),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3257,7 +3257,7 @@ impl Dom {
     #[inline]
     pub fn h1<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H1),
+            root: NodeData::create_node(NodeType::H1),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3273,7 +3273,7 @@ impl Dom {
     #[inline]
     pub fn h2<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H2),
+            root: NodeData::create_node(NodeType::H2),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3289,7 +3289,7 @@ impl Dom {
     #[inline]
     pub fn h3<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H3),
+            root: NodeData::create_node(NodeType::H3),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3303,7 +3303,7 @@ impl Dom {
     #[inline]
     pub fn h4<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H4),
+            root: NodeData::create_node(NodeType::H4),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3317,7 +3317,7 @@ impl Dom {
     #[inline]
     pub fn h5<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H5),
+            root: NodeData::create_node(NodeType::H5),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3331,7 +3331,7 @@ impl Dom {
     #[inline]
     pub fn h6<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::H6),
+            root: NodeData::create_node(NodeType::H6),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3348,7 +3348,7 @@ impl Dom {
     #[inline]
     pub fn span<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Span),
+            root: NodeData::create_node(NodeType::Span),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3365,7 +3365,7 @@ impl Dom {
     #[inline]
     pub fn strong<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Strong),
+            root: NodeData::create_node(NodeType::Strong),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3382,7 +3382,7 @@ impl Dom {
     #[inline]
     pub fn em<S: Into<AzString>>(text: S) -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Em),
+            root: NodeData::create_node(NodeType::Em),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3398,7 +3398,7 @@ impl Dom {
     /// - `code`: Code content
     #[inline]
     pub fn code<S: Into<AzString>>(code: S) -> Self {
-        Self::new_node(NodeType::Code).with_child(Self::text(code))
+        Self::create_node(NodeType::Code).with_child(Self::text(code))
     }
 
     /// Creates a preformatted text element.
@@ -3410,7 +3410,7 @@ impl Dom {
     /// - `text`: Preformatted content
     #[inline]
     pub fn pre<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Pre).with_child(Self::text(text))
+        Self::create_node(NodeType::Pre).with_child(Self::text(text))
     }
 
     /// Creates a blockquote element.
@@ -3422,7 +3422,7 @@ impl Dom {
     /// - `text`: Quote content
     #[inline]
     pub fn blockquote<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::BlockQuote).with_child(Self::text(text))
+        Self::create_node(NodeType::BlockQuote).with_child(Self::text(text))
     }
 
     /// Creates a citation element.
@@ -3434,7 +3434,7 @@ impl Dom {
     /// - `text`: Citation text
     #[inline]
     pub fn cite<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Cite).with_child(Self::text(text))
+        Self::create_node(NodeType::Cite).with_child(Self::text(text))
     }
 
     /// Creates an abbreviation element.
@@ -3447,7 +3447,7 @@ impl Dom {
     /// - `title`: Full expansion
     #[inline]
     pub fn abbr(abbr_text: AzString, title: AzString) -> Self {
-        Self::new_node(NodeType::Abbr)
+        Self::create_node(NodeType::Abbr)
             .with_attribute(AttributeType::Title(title))
             .with_child(Self::text(abbr_text))
     }
@@ -3461,7 +3461,7 @@ impl Dom {
     /// - `text`: Keyboard instruction
     #[inline]
     pub fn kbd<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Kbd).with_child(Self::text(text))
+        Self::create_node(NodeType::Kbd).with_child(Self::text(text))
     }
 
     /// Creates a sample output element.
@@ -3472,7 +3472,7 @@ impl Dom {
     /// - `text`: Sample text
     #[inline]
     pub fn samp<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Samp).with_child(Self::text(text))
+        Self::create_node(NodeType::Samp).with_child(Self::text(text))
     }
 
     /// Creates a variable element.
@@ -3483,7 +3483,7 @@ impl Dom {
     /// - `text`: Variable name
     #[inline]
     pub fn var<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Var).with_child(Self::text(text))
+        Self::create_node(NodeType::Var).with_child(Self::text(text))
     }
 
     /// Creates a subscript element.
@@ -3494,7 +3494,7 @@ impl Dom {
     /// - `text`: Subscript content
     #[inline]
     pub fn sub<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Sub).with_child(Self::text(text))
+        Self::create_node(NodeType::Sub).with_child(Self::text(text))
     }
 
     /// Creates a superscript element.
@@ -3505,7 +3505,7 @@ impl Dom {
     /// - `text`: Superscript content
     #[inline]
     pub fn sup<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Sup).with_child(Self::text(text))
+        Self::create_node(NodeType::Sup).with_child(Self::text(text))
     }
 
     /// Creates an underline text element.
@@ -3514,7 +3514,7 @@ impl Dom {
     /// Use semantic elements when possible (e.g., `<em>` for emphasis).
     #[inline]
     pub fn u<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::U).with_child(Self::text(text))
+        Self::create_node(NodeType::U).with_child(Self::text(text))
     }
 
     /// Creates a strikethrough text element.
@@ -3523,7 +3523,7 @@ impl Dom {
     /// Consider using `<del>` for deleted content with datetime attribute.
     #[inline]
     pub fn s<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::S).with_child(Self::text(text))
+        Self::create_node(NodeType::S).with_child(Self::text(text))
     }
 
     /// Creates a marked/highlighted text element.
@@ -3532,7 +3532,7 @@ impl Dom {
     /// Screen readers may announce this as "highlighted".
     #[inline]
     pub fn mark<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Mark).with_child(Self::text(text))
+        Self::create_node(NodeType::Mark).with_child(Self::text(text))
     }
 
     /// Creates a deleted text element.
@@ -3541,7 +3541,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn del<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Del).with_child(Self::text(text))
+        Self::create_node(NodeType::Del).with_child(Self::text(text))
     }
 
     /// Creates an inserted text element.
@@ -3550,7 +3550,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn ins<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Ins).with_child(Self::text(text))
+        Self::create_node(NodeType::Ins).with_child(Self::text(text))
     }
 
     /// Creates a definition element.
@@ -3559,7 +3559,7 @@ impl Dom {
     /// Often used within a definition list or with `<abbr>`.
     #[inline]
     pub fn dfn<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Dfn).with_child(Self::text(text))
+        Self::create_node(NodeType::Dfn).with_child(Self::text(text))
     }
 
     /// Creates a time element.
@@ -3572,7 +3572,7 @@ impl Dom {
     /// - `datetime`: Optional machine-readable datetime
     #[inline]
     pub fn time(text: AzString, datetime: OptionString) -> Self {
-        let mut element = Self::new_node(NodeType::Time).with_child(Self::text(text));
+        let mut element = Self::create_node(NodeType::Time).with_child(Self::text(text));
         if let OptionString::Some(dt) = datetime {
             element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "datetime".into(),
@@ -3587,7 +3587,7 @@ impl Dom {
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
     pub fn bdo<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Bdo).with_child(Self::text(text))
+        Self::create_node(NodeType::Bdo).with_child(Self::text(text))
     }
 
     /// Creates an anchor/hyperlink element.
@@ -3600,7 +3600,7 @@ impl Dom {
     /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
     pub fn a(href: AzString, label: OptionString) -> Self {
-        let mut link = Self::new_node(NodeType::A).with_attribute(AttributeType::Href(href));
+        let mut link = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         if let OptionString::Some(text) = label {
             link = link.with_child(Self::text(text));
         }
@@ -3616,7 +3616,7 @@ impl Dom {
     /// - `text`: Button label text
     #[inline]
     pub fn button(text: AzString) -> Self {
-        Self::new_node(NodeType::Button).with_child(Self::text(text))
+        Self::create_node(NodeType::Button).with_child(Self::text(text))
     }
 
     /// Creates a label element for form controls.
@@ -3629,7 +3629,7 @@ impl Dom {
     /// - `text`: Label text
     #[inline]
     pub fn label(for_id: AzString, text: AzString) -> Self {
-        Self::new_node(NodeType::Label)
+        Self::create_node(NodeType::Label)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "for".into(),
                 value: for_id,
@@ -3648,7 +3648,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn input(input_type: AzString, name: AzString, label: AzString) -> Self {
-        Self::new_node(NodeType::Input)
+        Self::create_node(NodeType::Input)
             .with_attribute(AttributeType::InputType(input_type))
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -3664,7 +3664,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn textarea(name: AzString, label: AzString) -> Self {
-        Self::new_node(NodeType::TextArea)
+        Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
@@ -3678,7 +3678,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn select(name: AzString, label: AzString) -> Self {
-        Self::new_node(NodeType::Select)
+        Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
@@ -3690,7 +3690,7 @@ impl Dom {
     /// - `text`: Display text
     #[inline]
     pub fn option(value: AzString, text: AzString) -> Self {
-        Self::new_node(NodeType::SelectOption)
+        Self::create_node(NodeType::SelectOption)
             .with_attribute(AttributeType::Value(value))
             .with_child(Self::text(text))
     }
@@ -3701,7 +3701,7 @@ impl Dom {
     /// understand content structure.
     #[inline(always)]
     pub fn ul() -> Self {
-        Self::new_node(NodeType::Ul)
+        Self::create_node(NodeType::Ul)
     }
 
     /// Creates an ordered list element.
@@ -3710,7 +3710,7 @@ impl Dom {
     /// understand content structure and numbering.
     #[inline(always)]
     pub fn ol() -> Self {
-        Self::new_node(NodeType::Ol)
+        Self::create_node(NodeType::Ol)
     }
 
     /// Creates a list item element.
@@ -3719,7 +3719,7 @@ impl Dom {
     /// list item position (e.g., "2 of 5").
     #[inline(always)]
     pub fn li() -> Self {
-        Self::new_node(NodeType::Li)
+        Self::create_node(NodeType::Li)
     }
 
     /// Creates a table element.
@@ -3728,7 +3728,7 @@ impl Dom {
     /// Provide a `caption` for table purpose. Use `scope` attribute on header cells.
     #[inline(always)]
     pub fn table() -> Self {
-        Self::new_node(NodeType::Table)
+        Self::create_node(NodeType::Table)
     }
 
     /// Creates a table caption element.
@@ -3736,7 +3736,7 @@ impl Dom {
     /// **Accessibility**: Describes the purpose of the table. Screen readers announce this first.
     #[inline(always)]
     pub fn caption() -> Self {
-        Self::new_node(NodeType::Caption)
+        Self::create_node(NodeType::Caption)
     }
 
     /// Creates a table header element.
@@ -3744,7 +3744,7 @@ impl Dom {
     /// **Accessibility**: Groups header rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn thead() -> Self {
-        Self::new_node(NodeType::THead)
+        Self::create_node(NodeType::THead)
     }
 
     /// Creates a table body element.
@@ -3752,7 +3752,7 @@ impl Dom {
     /// **Accessibility**: Groups body rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn tbody() -> Self {
-        Self::new_node(NodeType::TBody)
+        Self::create_node(NodeType::TBody)
     }
 
     /// Creates a table footer element.
@@ -3760,13 +3760,13 @@ impl Dom {
     /// **Accessibility**: Groups footer rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn tfoot() -> Self {
-        Self::new_node(NodeType::TFoot)
+        Self::create_node(NodeType::TFoot)
     }
 
     /// Creates a table row element.
     #[inline(always)]
     pub fn tr() -> Self {
-        Self::new_node(NodeType::Tr)
+        Self::create_node(NodeType::Tr)
     }
 
     /// Creates a table header cell element.
@@ -3775,13 +3775,13 @@ impl Dom {
     /// data cells. Screen readers use this to announce cell context.
     #[inline(always)]
     pub fn th() -> Self {
-        Self::new_node(NodeType::Th)
+        Self::create_node(NodeType::Th)
     }
 
     /// Creates a table data cell element.
     #[inline(always)]
     pub fn td() -> Self {
-        Self::new_node(NodeType::Td)
+        Self::create_node(NodeType::Td)
     }
 
     /// Creates a form element.
@@ -3790,7 +3790,7 @@ impl Dom {
     /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
     #[inline(always)]
     pub fn form() -> Self {
-        Self::new_node(NodeType::Form)
+        Self::create_node(NodeType::Form)
     }
 
     /// Creates a fieldset element for grouping form controls.
@@ -3800,7 +3800,7 @@ impl Dom {
     /// the fieldset.
     #[inline(always)]
     pub fn fieldset() -> Self {
-        Self::new_node(NodeType::FieldSet)
+        Self::create_node(NodeType::FieldSet)
     }
 
     /// Creates a legend element for fieldsets.
@@ -3809,7 +3809,7 @@ impl Dom {
     /// a fieldset. Screen readers announce this when entering the fieldset.
     #[inline(always)]
     pub fn legend() -> Self {
-        Self::new_node(NodeType::Legend)
+        Self::create_node(NodeType::Legend)
     }
 
     /// Creates a horizontal rule element.
@@ -3818,7 +3818,7 @@ impl Dom {
     /// a separator. Consider using CSS borders for purely decorative lines.
     #[inline(always)]
     pub fn hr() -> Self {
-        Self::new_node(NodeType::Hr)
+        Self::create_node(NodeType::Hr)
     }
 
     // Additional Element Constructors
@@ -3830,7 +3830,7 @@ impl Dom {
     #[inline(always)]
     pub const fn address() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Address),
+            root: NodeData::create_node(NodeType::Address),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3842,7 +3842,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dl() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Dl),
+            root: NodeData::create_node(NodeType::Dl),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3854,7 +3854,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dt() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Dt),
+            root: NodeData::create_node(NodeType::Dt),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3866,7 +3866,7 @@ impl Dom {
     #[inline(always)]
     pub const fn dd() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Dd),
+            root: NodeData::create_node(NodeType::Dd),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3876,7 +3876,7 @@ impl Dom {
     #[inline(always)]
     pub const fn colgroup() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::ColGroup),
+            root: NodeData::create_node(NodeType::ColGroup),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3885,7 +3885,7 @@ impl Dom {
     /// Creates a table column element.
     #[inline]
     pub fn col(span: i32) -> Self {
-        Self::new_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
+        Self::create_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
     }
 
     /// Creates an optgroup element for grouping select options.
@@ -3894,7 +3894,7 @@ impl Dom {
     /// - `label`: Label for the option group
     #[inline]
     pub fn optgroup(label: AzString) -> Self {
-        Self::new_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
+        Self::create_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
     }
 
     /// Creates a quotation element.
@@ -3903,7 +3903,7 @@ impl Dom {
     #[inline(always)]
     pub const fn q() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Q),
+            root: NodeData::create_node(NodeType::Q),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3915,7 +3915,7 @@ impl Dom {
     #[inline(always)]
     pub const fn acronym() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Acronym),
+            root: NodeData::create_node(NodeType::Acronym),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3928,7 +3928,7 @@ impl Dom {
     #[inline(always)]
     pub const fn menu() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Menu),
+            root: NodeData::create_node(NodeType::Menu),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3941,7 +3941,7 @@ impl Dom {
     #[inline(always)]
     pub const fn menuitem() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::MenuItem),
+            root: NodeData::create_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3954,7 +3954,7 @@ impl Dom {
     #[inline(always)]
     pub const fn output() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Output),
+            root: NodeData::create_node(NodeType::Output),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -3966,7 +3966,7 @@ impl Dom {
     /// Screen readers announce progress percentage. Use aria-label to describe the task.
     #[inline]
     pub fn progress(value: f32, max: f32) -> Self {
-        Self::new_node(NodeType::Progress)
+        Self::create_node(NodeType::Progress)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
                 value: value.to_string().into(),
@@ -3984,7 +3984,7 @@ impl Dom {
     /// Screen readers announce the measurement. Provide aria-label for context.
     #[inline]
     pub fn meter(value: f32, min: f32, max: f32) -> Self {
-        Self::new_node(NodeType::Meter)
+        Self::create_node(NodeType::Meter)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
                 value: value.to_string().into(),
@@ -4006,7 +4006,7 @@ impl Dom {
     #[inline(always)]
     pub const fn datalist() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::DataList),
+            root: NodeData::create_node(NodeType::DataList),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4022,7 +4022,7 @@ impl Dom {
     #[inline(always)]
     pub const fn canvas() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Canvas),
+            root: NodeData::create_node(NodeType::Canvas),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4034,7 +4034,7 @@ impl Dom {
     #[inline(always)]
     pub const fn object() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Object),
+            root: NodeData::create_node(NodeType::Object),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4047,7 +4047,7 @@ impl Dom {
     /// - `value`: Parameter value
     #[inline]
     pub fn param(name: AzString, value: AzString) -> Self {
-        Self::new_node(NodeType::Param)
+        Self::create_node(NodeType::Param)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::Value(value))
     }
@@ -4059,7 +4059,7 @@ impl Dom {
     #[inline(always)]
     pub const fn embed() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Embed),
+            root: NodeData::create_node(NodeType::Embed),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4072,7 +4072,7 @@ impl Dom {
     #[inline(always)]
     pub const fn audio() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Audio),
+            root: NodeData::create_node(NodeType::Audio),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4085,7 +4085,7 @@ impl Dom {
     #[inline(always)]
     pub const fn video() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Video),
+            root: NodeData::create_node(NodeType::Video),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4098,7 +4098,7 @@ impl Dom {
     /// - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
     #[inline]
     pub fn source(src: AzString, media_type: AzString) -> Self {
-        Self::new_node(NodeType::Source)
+        Self::create_node(NodeType::Source)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "type".into(),
@@ -4116,7 +4116,7 @@ impl Dom {
     /// - `kind`: Track kind ("subtitles", "captions", "descriptions", "chapters", "metadata")
     #[inline]
     pub fn track(src: AzString, kind: AzString) -> Self {
-        Self::new_node(NodeType::Track)
+        Self::create_node(NodeType::Track)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "kind".into(),
@@ -4130,7 +4130,7 @@ impl Dom {
     #[inline(always)]
     pub const fn map() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Map),
+            root: NodeData::create_node(NodeType::Map),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4143,7 +4143,7 @@ impl Dom {
     #[inline(always)]
     pub const fn area() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Area),
+            root: NodeData::create_node(NodeType::Area),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4157,7 +4157,7 @@ impl Dom {
     /// Should be unique and descriptive. Keep under 60 characters.
     #[inline]
     pub fn title<S: Into<AzString>>(text: S) -> Self {
-        Self::new_node(NodeType::Title).with_child(Self::text(text))
+        Self::create_node(NodeType::Title).with_child(Self::text(text))
     }
 
     /// Creates a meta element.
@@ -4166,7 +4166,7 @@ impl Dom {
     #[inline(always)]
     pub const fn meta() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Meta),
+            root: NodeData::create_node(NodeType::Meta),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4179,7 +4179,7 @@ impl Dom {
     #[inline(always)]
     pub const fn link() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Link),
+            root: NodeData::create_node(NodeType::Link),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4192,7 +4192,7 @@ impl Dom {
     #[inline(always)]
     pub const fn script() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Script),
+            root: NodeData::create_node(NodeType::Script),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4205,7 +4205,7 @@ impl Dom {
     #[inline(always)]
     pub const fn style_element() -> Self {
         Self {
-            root: NodeData::new_node(NodeType::Style),
+            root: NodeData::create_node(NodeType::Style),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
@@ -4217,7 +4217,7 @@ impl Dom {
     /// - `href`: Base URL for relative URLs in the document
     #[inline]
     pub fn base(href: AzString) -> Self {
-        Self::new_node(NodeType::Base).with_attribute(AttributeType::Href(href))
+        Self::create_node(NodeType::Base).with_attribute(AttributeType::Href(href))
     }
 
     // Advanced Constructors with Parameters
@@ -4231,7 +4231,7 @@ impl Dom {
     /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
     #[inline]
     pub fn th_with_scope(scope: AzString, text: AzString) -> Self {
-        Self::new_node(NodeType::Th)
+        Self::create_node(NodeType::Th)
             .with_attribute(AttributeType::Scope(scope))
             .with_child(Self::text(text))
     }
@@ -4474,7 +4474,7 @@ impl Dom {
     #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self {
-            root: NodeData::new_div(),
+            root: NodeData::create_div(),
             children: DomVec::from_const_slice(&[]),
             estimated_total_children: 0,
         };
@@ -4591,7 +4591,7 @@ impl Dom {
     ///
     /// **Example:**
     /// ```ignore
-    /// Dom::new_div()
+    /// Dom::create_div()
     ///     .with_attribute(AttributeType::Id("main".into()))
     ///     .with_attribute(AttributeType::AriaLabel("Main content".into()))
     /// ```ignore
@@ -4742,7 +4742,7 @@ impl core::iter::FromIterator<Dom> for Dom {
             .collect::<Vec<Dom>>();
 
         Dom {
-            root: NodeData::new_div(),
+            root: NodeData::create_div(),
             children: children.into(),
             estimated_total_children,
         }

@@ -800,7 +800,7 @@ impl TextInput {
 
         let state_ref = RefAny::new(self.text_input_state);
 
-        Dom::new_div()
+        Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
             .with_inline_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
@@ -863,7 +863,7 @@ impl TextInput {
                         )
                         .with_inline_css_props(self.label_style)
                         .with_children(
-                            vec![Dom::new_div()
+                            vec![Dom::create_div()
                                 .with_ids_and_classes(
                                     vec![Class("__azul-native-text-input-cursor".into())].into(),
                                 )

@@ -20,7 +20,7 @@ fn test_html_style_tag_with_body_selector() {
     let css_wrapper = CssApiWrapper::from(css);
 
     // Create a body element
-    let mut dom = Dom::new_body();
+    let mut dom = Dom::create_body();
 
     let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
@@ -71,7 +71,7 @@ fn test_html_vs_body_node_type() {
     let css_wrapper = CssApiWrapper::from(css);
 
     // Test with actual body node
-    let mut dom_body = Dom::new_body();
+    let mut dom_body = Dom::create_body();
     let styled_dom_body = StyledDom::create(&mut dom_body, css_wrapper.clone());
 
     let node_id = azul_core::id::NodeId::ZERO;
@@ -85,7 +85,7 @@ fn test_html_vs_body_node_type() {
     eprintln!("Body font_family: {:?}", font_family_body.is_some());
 
     // Test with div (shouldn't match body selector)
-    let mut dom_div = Dom::new_div();
+    let mut dom_div = Dom::create_div();
     let styled_dom_div = StyledDom::create(&mut dom_div, css_wrapper);
 
     let node_data_div = &styled_dom_div.node_data.as_container()[node_id];

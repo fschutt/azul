@@ -13,7 +13,7 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
     use azul_css::parser2::CssApiWrapper;
 
-    Dom::new_body()
+    Dom::create_body()
         .with_children(
             vec![Dom::text(format!(
                 "library was not compiled with --feature=\"xml\""
@@ -34,7 +34,7 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
     use azul_core::dom::Dom;
     use azul_css::parser2::CssApiWrapper;
 
-    Dom::new_body()
+    Dom::create_body()
         .with_children(
             vec![Dom::text(format!(
                 "library was not compiled with --feature=\"xml\""

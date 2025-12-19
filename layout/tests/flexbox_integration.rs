@@ -61,11 +61,11 @@ fn get_root_id() -> DomNodeId {
 #[test]
 fn test_flexbox_row_direction() {
     // Test basic flex-direction: row
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -96,10 +96,10 @@ fn test_flexbox_row_direction() {
 #[test]
 fn test_flexbox_column_direction() {
     // Test flex-direction: column
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -130,9 +130,9 @@ fn test_flexbox_column_direction() {
 #[test]
 fn test_flexbox_justify_content_center() {
     // Test justify-content: center
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -158,11 +158,11 @@ fn test_flexbox_justify_content_center() {
 #[test]
 fn test_flexbox_justify_content_space_between() {
     // Test justify-content: space-between
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -187,9 +187,9 @@ fn test_flexbox_justify_content_space_between() {
 #[test]
 fn test_flexbox_align_items_center() {
     // Test align-items: center
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -214,10 +214,10 @@ fn test_flexbox_align_items_center() {
 #[test]
 fn test_flexbox_flex_grow() {
     // Test flex-grow distributes remaining space
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("grow".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("fixed".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("grow".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("fixed".into())].into()));
 
     let css = r#"
         .container {
@@ -245,10 +245,10 @@ fn test_flexbox_flex_grow() {
 #[test]
 fn test_flexbox_flex_shrink() {
     // Test flex-shrink when items overflow
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -273,11 +273,11 @@ fn test_flexbox_flex_shrink() {
 #[test]
 fn test_flexbox_flex_wrap() {
     // Test flex-wrap: wrap
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -302,11 +302,11 @@ fn test_flexbox_flex_wrap() {
 #[test]
 fn test_flexbox_gap() {
     // Test gap property
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -331,11 +331,11 @@ fn test_flexbox_gap() {
 #[test]
 fn test_flexbox_order() {
     // Test order property
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("first".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("first".into())].into()))
         .with_child(
-            Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("second".into())].into()),
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("second".into())].into()),
         );
 
     let css = r#"
@@ -366,16 +366,16 @@ fn test_flexbox_order() {
 #[test]
 fn test_flexbox_nested() {
     // Test nested flex containers
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("outer".into())].into())
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into())
                 .with_child(
-                    Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
+                    Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
                 )
                 .with_child(
-                    Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
+                    Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()),
                 ),
         );
 
@@ -407,9 +407,9 @@ fn test_flexbox_nested() {
 #[test]
 fn test_flexbox_min_max_size() {
     // Test min/max size constraints in flex context
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -435,9 +435,9 @@ fn test_flexbox_min_max_size() {
 #[test]
 fn test_flexbox_auto_margin() {
     // Test auto margins in flex context (for centering)
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -462,10 +462,10 @@ fn test_flexbox_auto_margin() {
 #[test]
 fn test_flexbox_align_self() {
     // Test align-self override
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("start".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("end".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("start".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("end".into())].into()));
 
     let css = r#"
         .container {
@@ -495,7 +495,7 @@ fn test_flexbox_align_self() {
 #[test]
 fn test_flexbox_empty_container() {
     // Test empty flex container
-    let dom = Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
+    let dom = Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
 
     let css = r#"
         .container {
@@ -521,9 +521,9 @@ fn test_flexbox_empty_container() {
 #[test]
 fn test_flexbox_single_child() {
     // Test flex container with single child
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -549,9 +549,9 @@ fn test_flexbox_single_child() {
 #[test]
 fn test_flexbox_percentage_width() {
     // Test percentage widths in flex items
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {
@@ -575,10 +575,10 @@ fn test_flexbox_percentage_width() {
 #[test]
 fn test_flexbox_flex_basis_auto() {
     // Test flex-basis: auto uses content size
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into())
                 .with_child(Dom::text("Content")),
         );
@@ -604,10 +604,10 @@ fn test_flexbox_flex_basis_auto() {
 #[test]
 fn test_flexbox_flex_basis_zero() {
     // Test flex-basis: 0 ignores content size for distribution
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into()));
 
     let css = r#"
         .container {

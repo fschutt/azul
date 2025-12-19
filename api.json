@@ -1825,7 +1825,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new WindowCreateOptions with a layout callback"
                 ],
@@ -1834,7 +1834,7 @@
                     "layout_callback": "LayoutCallbackType"
                   }
                 ],
-                "fn_body": "azul_layout::window_state::WindowCreateOptions::new(layout_callback)"
+                "fn_body": "azul_layout::window_state::WindowCreateOptions::create(layout_callback)"
               }
             },
             "repr": "C"
@@ -2373,7 +2373,7 @@
               }
             ],
             "functions": {
-              "get_callable": {
+              "get_ctx": {
                 "doc": [
                   "Get the callable for FFI language bindings (Python, etc.)"
                 ],
@@ -2385,7 +2385,7 @@
                 "returns": {
                   "type": "OptionRefAny"
                 },
-                "fn_body": "iframecallbackinfo.get_callable()"
+                "fn_body": "iframecallbackinfo.get_ctx()"
               }
             },
             "repr": "C"
@@ -2419,7 +2419,7 @@
               }
             ],
             "functions": {
-              "get_callable": {
+              "get_ctx": {
                 "doc": [
                   "Get the callable for FFI language bindings (Python, etc.)",
                   "Returns the cloned OptionRefAny if a callable was set, or None if this is a native Rust callback."
@@ -2432,7 +2432,7 @@
                 "returns": {
                   "type": "OptionRefAny"
                 },
-                "fn_body": "callbackinfo.get_callable()"
+                "fn_body": "callbackinfo.get_ctx()"
               }
             },
             "repr": "C"
@@ -2476,7 +2476,7 @@
               }
             ],
             "functions": {
-              "get_callable": {
+              "get_ctx": {
                 "doc": [
                   "Get the callable for FFI language bindings (Python, etc.)"
                 ],
@@ -2488,7 +2488,7 @@
                 "returns": {
                   "type": "OptionRefAny"
                 },
-                "fn_body": "renderimagecallbackinfo.get_callable()"
+                "fn_body": "renderimagecallbackinfo.get_ctx()"
               }
             },
             "repr": "C"
@@ -2583,13 +2583,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "cb": "LayoutCallbackType"
                   }
                 ],
-                "fn_body": "azul_core::callbacks::LayoutCallback::new(cb)"
+                "fn_body": "azul_core::callbacks::LayoutCallback::create(cb)"
               }
             },
             "repr": "C"
@@ -2623,7 +2623,7 @@
               }
             ],
             "functions": {
-              "get_callable": {
+              "get_ctx": {
                 "doc": [
                   "Get the callable for FFI language bindings (Python, etc.)"
                 ],
@@ -2635,7 +2635,7 @@
                 "returns": {
                   "type": "OptionRefAny"
                 },
-                "fn_body": "layoutcallbackinfo.get_callable()"
+                "fn_body": "layoutcallbackinfo.get_ctx()"
               }
             },
             "repr": "C"
@@ -2687,21 +2687,21 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "node_type": "NodeType"
                   }
                 ],
-                "fn_body": "azul_core::dom::Dom::new(node_type)"
+                "fn_body": "azul_core::dom::Dom::create_node(node_type)"
               },
-              "body": {
+              "create_body": {
                 "fn_args": [],
-                "fn_body": "azul_core::dom::Dom::body()"
+                "fn_body": "azul_core::dom::Dom::create_body()"
               },
-              "div": {
+              "create_div": {
                 "fn_args": [],
-                "fn_body": "azul_core::dom::Dom::div()"
+                "fn_body": "azul_core::dom::Dom::create_div()"
               },
               "br": {
                 "fn_args": [],
@@ -3437,7 +3437,7 @@
                 "returns": {
                   "type": "u64"
                 },
-                "fn_body": "dom.root.calculate_node_data_hash().0"
+                "fn_body": "dom.root.calculate_node_data_hash().inner"
               },
               "node_count": {
                 "doc": [
@@ -3544,7 +3544,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates an new, empty `NodeData` struct"
                 ],
@@ -3553,15 +3553,15 @@
                     "node_type": "NodeType"
                   }
                 ],
-                "fn_body": "azul_core::dom::NodeData::new(node_type)"
+                "fn_body": "azul_core::dom::NodeData::create_node(node_type)"
               },
-              "body": {
+              "create_body": {
                 "fn_args": [],
-                "fn_body": "azul_core::dom::NodeData::body()"
+                "fn_body": "azul_core::dom::NodeData::create_body()"
               },
-              "div": {
+              "create_div": {
                 "fn_args": [],
-                "fn_body": "azul_core::dom::NodeData::div()"
+                "fn_body": "azul_core::dom::NodeData::create_div()"
               },
               "br": {
                 "fn_args": [],
@@ -3958,7 +3958,7 @@
                 "returns": {
                   "type": "u64"
                 },
-                "fn_body": "nodedata.calculate_node_data_hash().0"
+                "fn_body": "nodedata.calculate_node_data_hash().inner"
               }
             },
             "repr": "C"
@@ -6880,7 +6880,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates an new, empty Menu"
                 ],
@@ -6889,7 +6889,7 @@
                     "items": "MenuItemVec"
                   }
                 ],
-                "fn_body": "azul_core::menu::Menu::new(items)"
+                "fn_body": "azul_core::menu::Menu::create(items)"
               }
             },
             "functions": {
@@ -7127,7 +7127,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new menu item"
                 ],
@@ -7136,7 +7136,7 @@
                     "label": "String"
                   }
                 ],
-                "fn_body": "azul_core::menu::StringMenuItem::new(label)"
+                "fn_body": "azul_core::menu::StringMenuItem::create(label)"
               }
             },
             "functions": {
@@ -7155,7 +7155,7 @@
                     "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize, callable: azul_core::refany::OptionRefAny::None } });"
+                "fn_body": "stringmenuitem.callback = azul_core::menu::OptionCoreMenuCallback::Some(azul_core::menu::CoreMenuCallback { refany: data, callback: azul_core::callbacks::CoreCallback { cb: callback as usize, ctx: azul_core::refany::OptionRefAny::None } });"
               },
               "with_callback": {
                 "doc": [
@@ -16218,7 +16218,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough"
                 ],
@@ -16230,7 +16230,7 @@
                     "css": "Css"
                   }
                 ],
-                "fn_body": "let mut dom = dom; azul_core::styled_dom::StyledDom::new(&mut dom, css.into())"
+                "fn_body": "let mut dom = dom; azul_core::styled_dom::StyledDom::create(&mut dom, css.into())"
               },
               "from_xml": {
                 "doc": [
@@ -17101,7 +17101,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new labeled button"
                 ],
@@ -17110,7 +17110,7 @@
                     "label": "String"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::button::Button::new(label)"
+                "fn_body": "azul_layout::widgets::button::Button::create(label)"
               }
             },
             "functions": {
@@ -17224,7 +17224,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new file input button"
                 ],
@@ -17233,7 +17233,7 @@
                     "path": "OptionString"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::file_input::FileInput::new(path)"
+                "fn_body": "azul_layout::widgets::file_input::FileInput::create(path)"
               }
             },
             "functions": {
@@ -17439,7 +17439,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new checkbox, disabled or enabled"
                 ],
@@ -17448,7 +17448,7 @@
                     "checked": "bool"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::check_box::CheckBox::new(checked)"
+                "fn_body": "azul_layout::widgets::check_box::CheckBox::create(checked)"
               }
             },
             "functions": {
@@ -17593,13 +17593,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "color": "ColorU"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::color_input::ColorInput::new(color)"
+                "fn_body": "azul_layout::widgets::color_input::ColorInput::create(color)"
               }
             },
             "functions": {
@@ -17792,9 +17792,9 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [],
-                "fn_body": "azul_layout::widgets::text_input::TextInput::new()"
+                "fn_body": "azul_layout::widgets::text_input::TextInput::create()"
               }
             },
             "functions": {
@@ -18419,13 +18419,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "number": "f32"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::number_input::NumberInput::new(number)"
+                "fn_body": "azul_layout::widgets::number_input::NumberInput::create(number)"
               }
             },
             "functions": {
@@ -18854,13 +18854,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "percent_done": "f32"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::progressbar::ProgressBar::new(percent_done)"
+                "fn_body": "azul_layout::widgets::progressbar::ProgressBar::create(percent_done)"
               }
             },
             "functions": {
@@ -19000,13 +19000,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "tabs": "StringVec"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::tabs::TabHeader::new(tabs)"
+                "fn_body": "azul_layout::widgets::tabs::TabHeader::create(tabs)"
               }
             },
             "functions": {
@@ -19136,7 +19136,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "title": "String"
@@ -19145,7 +19145,7 @@
                     "dom": "Dom"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::frame::Frame::new(title, dom)"
+                "fn_body": "azul_layout::widgets::frame::Frame::create(title, dom)"
               }
             },
             "functions": {
@@ -19275,13 +19275,13 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "columns": "StringVec"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::list_view::ListView::new(columns)"
+                "fn_body": "azul_layout::widgets::list_view::ListView::create(columns)"
               }
             },
             "functions": {
@@ -19557,7 +19557,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "texture_id": "u32"
@@ -19578,7 +19578,7 @@
                     "format": "RawImageFormat"
                   }
                 ],
-                "fn_body": "azul_core::gl::Texture::new(texture_id, flags, size, background_color, gl_context, format)"
+                "fn_body": "azul_core::gl::Texture::create(texture_id, flags, size, background_color, gl_context, format)"
               },
               "allocate_rgba8": {
                 "doc": [
@@ -43223,9 +43223,9 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [],
-                "fn_body": "azul_core::resources::AppConfig::new()"
+                "fn_body": "azul_core::resources::AppConfig::create()"
               }
             },
             "repr": "C"
@@ -43254,7 +43254,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "initial_data": "RefAny"
@@ -43263,7 +43263,7 @@
                     "app_config": "AppConfig"
                   }
                 ],
-                "fn_body": "azul_dll::desktop::app::App::new(initial_data, app_config)"
+                "fn_body": "azul_dll::desktop::app::App::create(initial_data, app_config)"
               }
             },
             "functions": {

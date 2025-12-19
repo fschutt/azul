@@ -9,20 +9,20 @@ use azul_css::AzString;
 fn test_compact_dom_conversion() {
     use azul_css::StringVec;
 
-    let dom: Dom = Dom::new_body()
+    let dom: Dom = Dom::create_body()
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()),
         )
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into())
-                .with_child(Dom::new_div().with_ids_and_classes(
+                .with_child(Dom::create_div().with_ids_and_classes(
                     vec![IdOrClass::Id("child_2".to_string().into())].into(),
                 )),
         )
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("class1".to_string().into())].into()),
         );
 
@@ -69,11 +69,11 @@ fn test_compact_dom_conversion() {
         },
         node_data: NodeDataContainer {
             internal: vec![
-                /* 0 */ NodeData::new_body(),
-                /* 1 */ NodeData::new_div().with_ids_and_classes(c0.into()),
-                /* 2 */ NodeData::new_div().with_ids_and_classes(c1.into()),
-                /* 3 */ NodeData::new_div().with_ids_and_classes(c2.into()),
-                /* 4 */ NodeData::new_div().with_ids_and_classes(c3.into()),
+                /* 0 */ NodeData::create_body(),
+                /* 1 */ NodeData::create_div().with_ids_and_classes(c0.into()),
+                /* 2 */ NodeData::create_div().with_ids_and_classes(c1.into()),
+                /* 3 */ NodeData::create_div().with_ids_and_classes(c2.into()),
+                /* 4 */ NodeData::create_div().with_ids_and_classes(c3.into()),
             ],
         },
     };
@@ -95,18 +95,18 @@ fn test_compact_dom_conversion() {
 fn test_dom_sibling_1() {
     use azul_css::StringVec;
 
-    let dom: Dom = Dom::new_div()
+    let dom: Dom = Dom::create_div()
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Id("sibling-1".to_string().into())].into())
-                .with_child(Dom::new_div().with_ids_and_classes(
+                .with_child(Dom::create_div().with_ids_and_classes(
                     vec![IdOrClass::Id("sibling-1-child-1".to_string().into())].into(),
                 )),
         )
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Id("sibling-2".to_string().into())].into())
-                .with_child(Dom::new_div().with_ids_and_classes(
+                .with_child(Dom::create_div().with_ids_and_classes(
                     vec![IdOrClass::Id("sibling-2-child-1".to_string().into())].into(),
                 )),
         );
@@ -214,7 +214,7 @@ fn test_dom_sibling_1() {
 fn test_dom_from_iter_1() {
     use azul_core::id_tree::Node;
 
-    let dom = Dom::new_body().with_children(
+    let dom = Dom::create_body().with_children(
         (0..5)
             .map(|e| Dom::text(format!("{}", e + 1)))
             .collect::<Vec<_>>()

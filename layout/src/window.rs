@@ -923,7 +923,7 @@ impl LayoutWindow {
                 // If the callback returns None, it's an optimization hint.
                 if reason == IFrameCallbackReason::InitialRender {
                     // For the very first render, create an empty div as a fallback.
-                    let mut empty_dom = Dom::new_div();
+                    let mut empty_dom = Dom::create_div();
                     let empty_css = CssApiWrapper::empty();
                     empty_dom.style(empty_css)
                 } else {

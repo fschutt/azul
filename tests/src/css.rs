@@ -154,7 +154,7 @@ fn test_case_issue_93() {
     use azul_css::{CssPathSelector::*, *};
 
     fn render_tab() -> Dom {
-        Dom::new_div()
+        Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("tabwidget-tab".into())].into())
             .with_child(
                 Dom::text("").with_ids_and_classes(
@@ -168,10 +168,10 @@ fn test_case_issue_93() {
             )
     }
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Id("editor-rooms".into())].into())
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("tabwidget-bar".into())].into())
                 .with_child(
                     render_tab()

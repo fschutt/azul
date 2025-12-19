@@ -464,7 +464,7 @@ impl Button {
             "__azul-native-button-content",
         ))];
 
-        Dom::new_div()
+        Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CONTAINER_CLASS))
             .with_inline_css_props(self.container_style)
             .with_callbacks(callbacks.into())

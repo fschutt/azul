@@ -35,9 +35,9 @@ fn test_margin_blocked_no_double_count() {
     //     100px
     //   - Total height = padding_top (20) + content_box (100) + padding_bottom (20) = 140px
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
 
     let css_str = r#"
         .parent {
@@ -113,9 +113,9 @@ fn test_margin_escape_excludes_from_parent_height() {
     // Actual (if bottom margin doesn't escape):
     //   - Parent height = 40 (child) + 30 (bottom margin inside) = 70px
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
 
     let css_str = r#"
         .parent {
@@ -195,11 +195,11 @@ fn test_sibling_margins_included_in_parent_height() {
     //
     // Bug behavior: Parent height = 90px (130 - 40 sibling margin) [ ERROR ]
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into()))
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into()))
         .with_child(
-            Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("child2".into())].into()),
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child2".into())].into()),
         );
 
     let css_str = r#"
@@ -280,23 +280,23 @@ fn test_nested_margin_escape() {
     //     = 280px content-box height
     //   - Node 3 height = 130px (nested-box only, NOT including escaped 50px)
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
                 .with_child(
-                    Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
+                    Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
                 ),
         )
         .with_child(
-            Dom::new_div()
+            Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("nested-container".into())].into())
                 .with_child(
-                    Dom::new_div()
+                    Dom::create_div()
                         .with_ids_and_classes(vec![IdOrClass::Class("nested-box".into())].into())
                         .with_child(
-                            Dom::new_div().with_ids_and_classes(
+                            Dom::create_div().with_ids_and_classes(
                                 vec![IdOrClass::Class("inner2".into())].into(),
                             ),
                         ),
@@ -396,9 +396,9 @@ fn test_coordinate_system_separation() {
     // Verify that parent's margin is never added to child positions in blocked case
     // This test explicitly checks the coordinate system separation
 
-    let dom = Dom::new_div()
+    let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
 
     let css_str = r#"
         .parent {

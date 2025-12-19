@@ -23,7 +23,7 @@ fn test_font_family_parsing_simple() {
 
     // Create a simple DOM with a div element
     let mut dom =
-        Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("test-body".into())].into());
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("test-body".into())].into());
 
     // Apply CSS to create StyledDom
     let styled_dom = StyledDom::create(&mut dom, css_wrapper);
@@ -93,7 +93,7 @@ fn test_font_family_parsing_quoted() {
     let css_wrapper = CssApiWrapper::from(css);
 
     // Create DOM with a div that has the "heading" class
-    let mut dom = Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
+    let mut dom = Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
 
     let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
@@ -137,7 +137,7 @@ fn test_font_family_parsing_japanese() {
     let css_wrapper = CssApiWrapper::from(css);
 
     let mut dom =
-        Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
 
     let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 

@@ -914,14 +914,14 @@ impl DropDown {
     pub fn dom(self) -> Dom {
         let refany = RefAny::new(self);
 
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(CSS_MATCH_4428877324022630014)
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_9466018534284317754: &[IdOrClass] =
                     &[Class(AzString::from_const_str("__azul-native-dropdown"))];
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9466018534284317754)
             })
-            .with_children(DomVec::from_vec(vec![Dom::new_div()
+            .with_children(DomVec::from_vec(vec![Dom::create_div()
                 .with_inline_css_props(CSS_MATCH_10188117026223137249)
                 .with_ids_and_classes({
                     const IDS_AND_CLASSES_6395608618544226348: &[IdOrClass] = &[Class(
@@ -942,7 +942,7 @@ impl DropDown {
                     .into(),
                 )
                 .with_children(DomVec::from_vec(vec![
-                    Dom::new_div()
+                    Dom::create_div()
                         .with_inline_css_props(CSS_MATCH_7938442083662451131)
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11862789041977911489: &[IdOrClass] = &[Class(
@@ -954,7 +954,7 @@ impl DropDown {
                             AzString::from_const_str("Checkbox"),
                         )
                         .with_inline_css_props(CSS_MATCH_16432538576103237591)])),
-                    Dom::new_div()
+                    Dom::create_div()
                         .with_inline_css_props(CSS_MATCH_6763840958685503000)
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_17649077225810153180: &[IdOrClass] = &[Class(
@@ -962,7 +962,7 @@ impl DropDown {
                             )];
                             IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17649077225810153180)
                         })
-                        .with_children(DomVec::from_vec(vec![Dom::new_div()
+                        .with_children(DomVec::from_vec(vec![Dom::create_div()
                             .with_inline_css_props(CSS_MATCH_4687758758634879229)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_17777388057004109464: &[IdOrClass] =
@@ -971,7 +971,7 @@ impl DropDown {
                                     ))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_17777388057004109464)
                             })
-                            .with_children(DomVec::from_vec(vec![Dom::new_div()
+                            .with_children(DomVec::from_vec(vec![Dom::create_div()
                                 .with_inline_css_props(CSS_MATCH_5369484915686807864)
                                 .with_ids_and_classes({
                                     const IDS_AND_CLASSES_12603885741328163120: &[IdOrClass] =

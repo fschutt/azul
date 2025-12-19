@@ -11,7 +11,7 @@ fn test_text_node_in_div_creates_ifc() {
     // HTML: <div>Hello World</div>
     // Expected: The DIV creates a BFC, which contains an IFC for the text
 
-    let mut dom = Dom::new_div().with_children(vec![Dom::text("Hello World")].into());
+    let mut dom = Dom::create_div().with_children(vec![Dom::text("Hello World")].into());
     let styled_dom = dom.style(CssApiWrapper { css: Css::empty() });
 
     eprintln!("Test: text_node_in_div_creates_ifc");
@@ -46,7 +46,7 @@ fn test_nested_text_nodes() {
     // HTML: <div><span>Hello</span> <span>World</span></div>
     // Expected: DIV creates BFC with IFC, spans are inline, text is inline content
 
-    let mut dom = Dom::new_div().with_children(vec![Dom::text("Hello "), Dom::text("World")].into());
+    let mut dom = Dom::create_div().with_children(vec![Dom::text("Hello "), Dom::text("World")].into());
     let styled_dom = dom.style(CssApiWrapper { css: Css::empty() });
 
     eprintln!("\nTest: nested_text_nodes");
@@ -68,7 +68,7 @@ fn test_div_with_explicit_font_size() {
     // HTML: <div style="font-size: 24px;">Test Text</div>
     // This is similar to our failing test case
 
-    let mut dom = Dom::new_div()
+    let mut dom = Dom::create_div()
         .with_inline_style("font-size: 24px; width: 400px; height: 30px;")
         .with_children(vec![Dom::text("Test Text")].into());
 

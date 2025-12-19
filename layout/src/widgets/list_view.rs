@@ -1623,19 +1623,19 @@ impl ListView {
     }
 
     pub fn dom(self) -> Dom {
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(CSS_MATCH_17553577885456905601)
             .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
             .with_children(DomVec::from_vec(vec![
                 // header
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_15315949193378715186)
                     .with_ids_and_classes(HEADER_CONTAINER_CLASS)
                     .with_children(
                         self.columns
                             .iter()
                             .map(|col| {
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
@@ -1647,14 +1647,14 @@ impl ListView {
                             .into(),
                     ),
                 // rows
-                Dom::new_div()
+                Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_4852927511892172364)
                     .with_ids_and_classes(ROW_CONTAINER_CLASS)
                     .with_children(
                         self.rows
                             .into_iter()
                             .map(|row| {
-                                Dom::new_div()
+                                Dom::create_div()
                                     .with_inline_css_props(CSS_MATCH_7894335449545988724)
                                     .with_tab_index(TabIndex::Auto)
                                     .with_ids_and_classes(ROW_CLASS.clone())
@@ -1664,7 +1664,7 @@ impl ListView {
                                             .as_ref()
                                             .iter()
                                             .map(|cell| {
-                                                Dom::new_div()
+                                                Dom::create_div()
                                                     .with_inline_css_props(
                                                         CSS_MATCH_12980082330151137475,
                                                     )

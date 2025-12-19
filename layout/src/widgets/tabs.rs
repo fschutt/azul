@@ -1240,7 +1240,7 @@ impl TabHeader {
 
         let on_click_is_some = self.on_click.is_some();
 
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(CSS_MATCH_9988039989460234263)
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] =
@@ -1248,7 +1248,7 @@ impl TabHeader {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
             })
             .with_children({
-                let mut tab_items = vec![Dom::new_div()
+                let mut tab_items = vec![Dom::create_div()
                     .with_inline_css_props(CSS_MATCH_17290739305197504468)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[Class(
@@ -1350,7 +1350,7 @@ impl TabHeader {
                 }
 
                 tab_items.push(
-                    Dom::new_div()
+                    Dom::create_div()
                         .with_inline_css_props(CSS_MATCH_3088386549906605418)
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[Class(
@@ -1375,7 +1375,7 @@ pub struct TabContent {
 impl Default for TabContent {
     fn default() -> Self {
         Self {
-            content: Dom::new_div(),
+            content: Dom::create_div(),
             has_padding: true,
         }
     }
@@ -1415,9 +1415,9 @@ impl TabContent {
             CSS_MATCH_18014909903571752977_NO_PADDING
         };
 
-        Dom::new_div()
+        Dom::create_div()
             .with_inline_css_props(tab_content_css_style)
-            .with_children(DomVec::from_vec(vec![Dom::new_div()
+            .with_children(DomVec::from_vec(vec![Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                     IDS_AND_CLASSES_2989815829020816222,
                 ))

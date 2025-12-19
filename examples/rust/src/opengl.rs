@@ -28,7 +28,7 @@ struct OpenGlAppState {
 
 extern "C" 
 fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    Dom::new_body()
+    Dom::create_body()
         .with_inline_style("
             background: linear-gradient(blue, black);
             padding: 10px;
